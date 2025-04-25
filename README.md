@@ -1,0 +1,2 @@
+# gameserver_container
+一个可以用来运行几乎所有的steam服务端容器项目
