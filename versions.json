@@ -1,0 +1,40 @@
+{
+  "versions": {
+    "menu_script": {
+      "version": "1.0.0",
+      "last_updated": "2023-06-01",
+      "changelog": [
+        "暂无"
+      ]
+    },
+    "config_script": {
+      "version": "1.0.0",
+      "last_updated": "2023-06-01",
+      "changelog": [
+        "暂无"
+      ]
+    },
+    "update_script": {
+      "version": "1.0.0",
+      "last_updated": "2023-06-01",
+      "changelog": [
+        "暂无"
+      ]
+    },
+    "game_installers": {
+      "version": "1.0.0",
+      "last_updated": "2023-06-01",
+      "changelog": [
+        "初始版本发布"
+      ]
+    },
+    "container": {
+      "version": "1.0.0",
+      "last_updated": "2023-06-01",
+      "changelog": [
+        "容器需要手动更新，请在SSH终端处输入sudo docker pull"
+      ]
+    }
+  },
+  "last_check": ""
+} 
