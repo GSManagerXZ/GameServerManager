@@ -13,10 +13,6 @@ read -t 0.1 -n 10000 discard || true
 # 清屏
 clear
 
-# 设置输入超时，防止docker attach时卡住
-TMOUT=60  # 60秒无输入自动刷新菜单
-export TMOUT
-
 # 打印Steam游戏服务器管理菜单
 function show_main_menu() {
     clear
@@ -27,14 +23,15 @@ function show_main_menu() {
     echo -e "${BLUE}║  ${YELLOW}[1]${NC} 运行 SteamCMD                                 ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[2]${NC} 管理已安装游戏                                ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[3]${NC} 通过AppID安装游戏                             ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[4]${NC} 系统信息                                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[4]${NC} 快速部署游戏                                  ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[5]${NC} 打开Shell终端                                 ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[6]${NC} 快速部署游戏                                  ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[7]${NC} 设置                                          ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[6]${NC} 设置                                          ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[7]${NC} 系统信息                                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[8]${NC} 关于                                          ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[0]${NC} 退出                                          ${BLUE}║${NC}"
     echo -e "${BLUE}║                                                    ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
-    echo -e "\n请选择操作 [0-7]: "
+    echo -e "\n请选择操作 [0-8]: "
 }
 
 # 显示主菜单
@@ -1076,6 +1073,33 @@ function manage_steamcmd_config() {
     manage_steamcmd_config
 }
 
+# 添加关于功能
+function show_about() {
+    clear
+    echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║               ${GREEN}关于项目${BLUE}                           ║${NC}"
+    echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}║  ${GREEN}游戏开服容器 - 一个开源的游戏服务器容器解决方案${BLUE}     ║${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}文档地址:${NC}                                         ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${NC}http://blogpage.xiaozhuhouses.asia/html4/index.html#/${BLUE}║${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}GitHub地址:${NC}                                       ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${NC}https://github.com/yxsj245/gameserver_container${BLUE}     ║${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}Gitee地址:${NC}                                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${NC}https://gitee.com/xiao-zhu245/gameserver_container${BLUE}  ║${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}║  ${RED}项目采用AGPL3.0开源协议，任何修改需要公开，请勿擅自${BLUE}    ║${NC}"
+    echo -e "${BLUE}║  ${RED}删除制作者信息，请尊重作者开发劳动付出${BLUE}                ║${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+    
+    echo -e "\n${YELLOW}按任意键返回主菜单...${NC}"
+    read -n 1
+}
+
 # 处理用户选择
 function process_choice() {
     case $1 in
@@ -1085,7 +1109,7 @@ function process_choice() {
             echo -e "${GREEN}正在启动SteamCMD...${NC}\n"
             echo -e "${YELLOW}提示: 如果需要安装游戏，请在SteamCMD中登录匿名账户:${NC}"
             echo -e "${YELLOW}      login anonymous${NC}\n"
-            echo -e "${YELLOW}提示: 按Ctrl+C可以中断SteamCMD并返回菜单${NC}\n"
+            echo -e "${YELLOW}提示: 输入exit返回菜单${NC}\n"
             
             # 直接使用steamcmd.sh，避免符号链接
             if [ -x "/home/steam/steamcmd/steamcmd.sh" ]; then
@@ -1114,16 +1138,6 @@ function process_choice() {
             install_new_game
             ;;
         4)
-            # 系统信息
-            show_system_info
-            ;;
-        5)
-            # 打开Shell终端
-            clear
-            echo -e "${GREEN}进入Shell终端。输入 'exit' 返回菜单。${NC}\n"
-            $SHELL
-            ;;
-        6)
             # 快速部署游戏
             # 检查多个可能的位置
             if [ -f "./game_installers.sh" ]; then
@@ -1161,9 +1175,23 @@ function process_choice() {
                 read -n 1
             fi
             ;;
-        7)
+        5)
+            # 打开Shell终端
+            clear
+            echo -e "${GREEN}进入Shell终端。输入 'exit' 返回菜单。${NC}\n"
+            $SHELL
+            ;;
+        6)
             # 设置
             show_settings
+            ;;
+        7)
+            # 系统信息
+            show_system_info
+            ;;
+        8)
+            # 关于
+            show_about
             ;;
         0)
             # 退出

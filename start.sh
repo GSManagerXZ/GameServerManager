@@ -10,7 +10,9 @@ NC='\033[0m' # 无颜色
 # 输出创作声明
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${BLUE}创作声明：本容器由${GREEN} 又菜又爱玩的小猪 ${BLUE}独立制作${NC}"
-echo -e "${BLUE}项目完全开源，开源协议GPL3.0${NC}"
+echo -e "${BLUE}项目完全开源，开源协议AGPL3.0${NC}"
+echo -e "${BLUE}GitHub: https://github.com/yxsj245/gameserver_container${NC}"
+echo -e "${BLUE}Gitee: https://gitee.com/xiao-zhu245/gameserver_container${NC}"
 echo -e "${BLUE}允许商业用途但请勿倒卖！${NC}"
 echo -e "${BLUE}=================================================${NC}"
 
@@ -19,7 +21,7 @@ echo "========================================================="
 echo "          欢迎使用星辰的游戏开服容器"
 echo "========================================================="
 echo ""
-echo "正在配置允许环境..."
+echo "正在配置运行环境..."
 echo ""
 
 # MCSM默认配置
@@ -385,7 +387,9 @@ echo ""
 # 输出创作声明
 echo -e "\033[0;34m================================================="
 echo -e "创作声明：本容器由\033[0;32m 又菜又爱玩的小猪 \033[0;34m独立制作"
-echo -e "项目完全开源，开源协议GPL3.0"
+echo -e "项目完全开源，开源协议AGPL3.0"
+echo -e "GitHub: https://github.com/yxsj245/gameserver_container"
+echo -e "Gitee: https://gitee.com/xiao-zhu245/gameserver_container"
 echo -e "允许商业用途但请勿倒卖！"
 echo -e "=================================================\033[0m"
 
