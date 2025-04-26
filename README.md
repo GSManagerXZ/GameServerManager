@@ -2,6 +2,14 @@
    [快速部署](https://github.com/yxsj245/gameserver_container/blob/main/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
    [文档站](http://blogpage.xiaozhuhouses.asia/html4/index.html#/)
 
+# 已支持功能
+- [x] 集成steamcmd
+- [x] 对接[MCSManager](https://www.mcsmanager.com/)
+- [x] 常用服务端快速部署
+- [x] MCBE服务端
+- [x] 所有脚本在线热更新
+- [x] 启动服务端持续检测已申请开通的端口
+
 # 项目介绍
 
 这个项目是一个基于Docker且采用debian作为镜像底层的通用游戏服务器管理容器，具有非常高的兼容性和拓展性，专为运行各种Steam游戏服务器而设计。它提供了一套完整的内容，让游戏服务器的部署、管理和维护变得简单高效。
