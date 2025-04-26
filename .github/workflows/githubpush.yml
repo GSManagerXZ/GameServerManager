@@ -1,0 +1,39 @@
+name: Docker_Push
+
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      # 第一步：检出代码
+      - name: 拉取仓库代码
+        uses: actions/checkout@v3
+        
+      # 第二步：设置构建环境
+      - name: 配置QEMU模拟器
+        uses: docker/setup-qemu-action@v2
+        
+      - name: 配置Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: network=host
+        
+      # 第三步：登录Docker Hub
+      - name: 登录GitHub容器仓库
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      # 第四步：构建并推送镜像（带缓存功能）
+      - name: 缓存并构建推送DockerHub
+        uses: docker/build-push-action@v4
+        with:
+          context: .  # 构建上下文路径
+          push: true  # 构建后自动推送
+          tags: ghcr.io/${{ github.repository_owner }}/gameserver:0.1  # 镜像标签
+          cache-from: type=gha  # 使用GitHub缓存
+          cache-to: type=gha,mode=max  # 写入GitHub缓存
