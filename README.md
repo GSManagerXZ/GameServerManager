@@ -1,3 +1,7 @@
+# 项目导航
+   [快速部署](https://github.com/yxsj245/gameserver_container/blob/main/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
+   [文档站](http://blogpage.xiaozhuhouses.asia/html4/index.html#/)
+
 # 项目介绍
 
 这个项目是一个基于Docker且采用debian作为镜像底层的通用游戏服务器管理容器，具有非常高的兼容性和拓展性，专为运行各种Steam游戏服务器而设计。它提供了一套完整的内容，让游戏服务器的部署、管理和维护变得简单高效。
