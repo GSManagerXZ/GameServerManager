@@ -116,6 +116,31 @@ show_post_install_tips() {
             echo -e "  - [S_API FAIL] SteamAPI_Init() failed 错误 是由于游戏目录没有再steamcmd所以无法识别到steam，可以忽略。"
             echo -e "  - 运行后由于终端无法输出，需以容器显示为主，当出现7777端口已开放则代表服务端已运行，可以正常使用。"
             ;;
+        "Squad")
+            echo -e "${YELLOW}• 额外提示:${NC}"
+            echo -e "  - 配置文件 位于SquadGame/ServerConfig中"
+            echo -e "  - 存档位置 尚未知晓"
+            echo -e "  - 默认游戏端口: 7787 27165 UDP"
+            ;;
+        "Insurgency_2014")
+            echo -e "${YELLOW}• 额外提示:${NC}"
+            echo -e "  - 配置文件 尚未知晓"
+            echo -e "  - 存档位置 尚未知晓"
+            echo -e "  - 默认游戏端口: 27015 UDP TCP"
+            ;;
+        "Last_Oasis")
+            echo -e "${YELLOW}• 额外提示:${NC}"
+            echo -e "  - 配置文件 Engine/Saved/Config/LinuxServer"
+            echo -e "  - 存档位置 尚未知晓"
+            echo -e "  - 默认游戏端口: 尚未知晓"
+            ;;
+        "Euro_Truck_Simulator_2")
+            echo -e "${YELLOW}• 额外提示:${NC}"
+            echo -e "  - 配置文件 通用游戏存档路径1"
+            echo -e "  - 存档位置 通用游戏存档路径1"
+            echo -e "  - 默认游戏端口: 27015 UDP  ​​100-200​​ UDP(查询端口可选开通)"
+            echo -e "  - 此服务端需要自行从客户端生成配置文件上传才可以开服"
+            ;;  
             
     esac
 }
@@ -178,6 +203,10 @@ ask_create_mcsm_instance() {
                     "Insurgency_Sandstorm") nice_name="叛乱：沙漠风暴";;
                     "Killing_Floor_2") nice_name="杀戮空间2";;
                     "ARK") nice_name="方舟：生存进化";;
+                    "Squad") nice_name="战术小队";;
+                    "Insurgency_2014") nice_name="叛乱2";;
+                    "Last_Oasis") nice_name="最后的绿洲";;
+                    "Euro_Truck_Simulator_2") nice_name="欧洲卡车模拟2";;
                     *) nice_name="$server_name";;
                 esac
                 
@@ -224,6 +253,18 @@ ask_create_mcsm_instance() {
                         ;;
                     "ARK")
                         ports='["7777:7777/udp","7778:7778/udp","27015:27015/udp"]'
+                        ;;
+                    "Squad")
+                        ports='["7787:7787/udp","27165:27165/udp"]'
+                        ;;
+                    "Insurgency_2014")
+                        ports='["27015:27015/tcp","27015:27015/udp"]'
+                        ;;
+                    "Last_Oasis")
+                        ports='[]'
+                        ;;
+                    "Euro_Truck_Simulator_2")
+                        ports='[]'
                         ;;
                 esac
                 
@@ -837,6 +878,122 @@ EOL
     return 0
 }
 
+# 安装 战术小队 服务端
+install_Squad() {
+    local game_name="Squad"
+    local app_id=403240
+    local install_dir="$GAMES_DIR/$game_name"
+    local use_custom_account=${1:-false}  # 默认为false，使用匿名账户
+
+    echo -e "${BLUE}========== 安装 战术小队 服务端 ==========${NC}"
+
+    # 安装游戏
+    install_steam_game $app_id "$game_name" "$use_custom_account"
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # 创建启动脚本
+    local script=$(cat << 'EOL'
+#!/bin/bash
+UE4_TRUE_SCRIPT_NAME=$(echo \"$0\" | xargs readlink -f)
+UE4_PROJECT_ROOT=$(dirname "$UE4_TRUE_SCRIPT_NAME")
+chmod +x "$UE4_PROJECT_ROOT/SquadGame/Binaries/Linux/SquadGameServer"
+"$UE4_PROJECT_ROOT/SquadGame/Binaries/Linux/SquadGameServer" SquadGame -Port=7787 -QueryPort=27165 "$@"
+EOL
+)
+    create_startup_script "$install_dir" "$script" 
+
+    echo -e "${GREEN}战术小队 服务端安装完成!${NC}"
+    echo -e "${RED}请注意：请自行查询游戏存档位置，如果存档位置不在游戏根目录请务必将指定目录映射到宿主路径，否则容器删除后将会导致存档丢失！！！${NC}"
+    show_post_install_tips "$game_name"
+    ask_create_mcsm_instance "$game_name" "$game_name"
+    return 0
+}
+
+# 安装 叛乱2 服务端
+install_Insurgency_2014() {
+    local game_name="Insurgency_2014"
+    local app_id=237410
+    local install_dir="$GAMES_DIR/$game_name"
+    local use_custom_account=${1:-false}  # 默认为false，使用匿名账户
+
+    echo -e "${BLUE}========== 安装 叛乱2 服务端 ==========${NC}"
+
+    # 安装游戏
+    install_steam_game $app_id "$game_name" "$use_custom_account"
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # 创建启动脚本
+    local script=$(cat << 'EOL'
+#!/bin/bash
+./srcds_run
+EOL
+)
+    create_startup_script "$install_dir" "$script" 
+
+    echo -e "${GREEN}叛乱2 服务端安装完成!${NC}"
+    echo -e "${RED}请注意：请自行查询游戏存档位置，如果存档位置不在游戏根目录请务必将指定目录映射到宿主路径，否则容器删除后将会导致存档丢失！！！${NC}"
+    show_post_install_tips "$game_name"
+    ask_create_mcsm_instance "$game_name" "$game_name"
+    return 0
+}
+
+# 安装 最后的绿洲 服务端
+install_Last_Oasis() {
+    local game_name="Last_Oasis"
+    local app_id=920720
+    local install_dir="$GAMES_DIR/$game_name"
+    local use_custom_account=${1:-false}  # 默认为false，使用匿名账户
+
+    echo -e "${BLUE}========== 安装 最后的绿洲 服务端 ==========${NC}"
+
+    # 安装游戏
+    install_steam_game $app_id "$game_name" "$use_custom_account"
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    echo -e "${GREEN}最后的绿洲 服务端安装完成!${NC}"
+    echo -e "${RED}请注意：请自行查询游戏存档位置，如果存档位置不在游戏根目录请务必将指定目录映射到宿主路径，否则容器删除后将会导致存档丢失！！！${NC}"
+    show_post_install_tips "$game_name"
+    ask_create_mcsm_instance "$game_name" "$game_name"
+    return 0
+}
+
+# 安装 欧洲卡车模拟2 服务端
+install_Euro_Truck_Simulator_2() {
+    local game_name="Euro_Truck_Simulator_2"
+    local app_id=1948160
+    local install_dir="$GAMES_DIR/$game_name"
+    local use_custom_account=${1:-false}  # 默认为false，使用匿名账户
+
+    echo -e "${BLUE}========== 安装 欧洲卡车模拟2 服务端 ==========${NC}"
+
+    # 安装游戏
+    install_steam_game $app_id "$game_name" "$use_custom_account"
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # 创建启动脚本
+    local script=$(cat << 'EOL'
+#!/bin/bash
+cd bin/linux_x64/
+./server_launch.sh
+EOL
+)
+    create_startup_script "$install_dir" "$script" 
+
+    echo -e "${GREEN}欧洲卡车模拟2 服务端安装完成!${NC}"
+    echo -e "${RED}请注意：请自行查询游戏存档位置，如果存档位置不在游戏根目录请务必将指定目录映射到宿主路径，否则容器删除后将会导致存档丢失！！！${NC}"
+    show_post_install_tips "$game_name"
+    ask_create_mcsm_instance "$game_name" "$game_name"
+    return 0
+}
+
 # 获取可用的游戏安装脚本列表
 list_available_installers() {
     clear
@@ -857,6 +1014,10 @@ list_available_installers() {
     echo -e "${BLUE}║  ${YELLOW}[11]${NC} Insurgency: Sandstorm-叛乱：沙漠风暴          ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[12]${NC} Killing Floor 2-杀戮空间2                    ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[13]${NC} ARK: Survival Evolved-方舟：生存进化/飞升     ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[14]${NC} Squad-战术小队                               ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[15]${NC} Insurgency 2014-叛乱2                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[16]${NC} Last Oasis-最后的绿洲                        ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[17]${NC} Euro Truck Simulator 2-欧洲卡车模拟2(半自动)  ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[0]${NC} 返回主菜单                                    ${BLUE}║${NC}"
     echo -e "${BLUE}║                                                    ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
@@ -972,6 +1133,38 @@ run_installer() {
             echo -e "\n${YELLOW}安装过程可能需要一些时间，请耐心等待...${NC}\n"
             install_ARK false
             ;;
+        14)
+            clear
+            echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║           ${GREEN}正在安装 Squad 服务端${BLUE}                   ║${NC}"
+            echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+            echo -e "\n${YELLOW}安装过程可能需要一些时间，请耐心等待...${NC}\n"
+            install_Squad false
+            ;;
+        15)
+            clear
+            echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║           ${GREEN}正在安装 Insurgency 2014 服务端${BLUE}                   ║${NC}"
+            echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+            echo -e "\n${YELLOW}安装过程可能需要一些时间，请耐心等待...${NC}\n"
+            install_Insurgency_2014 false
+            ;;
+        16)
+            clear
+            echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║           ${GREEN}正在安装 Last Oasis 服务端${BLUE}                   ║${NC}"
+            echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+            echo -e "\n${YELLOW}安装过程可能需要一些时间，请耐心等待...${NC}\n"
+            install_Last_Oasis false
+            ;;
+        17)
+            clear
+            echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║           ${GREEN}正在安装 Euro Truck Simulator 2 服务端${BLUE}                   ║${NC}"
+            echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+            echo -e "\n${YELLOW}安装过程可能需要一些时间，请耐心等待...${NC}\n"
+            echo -e "\n${RED}请注意：此服务端需要将容器版本升级为1.0.1及更高才可以正常运行，请自行在系统信息中确认当前容器版本。${NC}\n"
+            install_Euro_Truck_Simulator_2 false
         0)
             echo -e "${YELLOW}返回主菜单...${NC}"
             return 0

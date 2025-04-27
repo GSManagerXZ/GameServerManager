@@ -76,6 +76,8 @@ RUN apt-get update && apt-get upgrade -y \
         # ARK: Survival Evolved（方舟生存进化）服务器额外依赖
         libelf1 \
         libelf1:i386 \
+        libatomic1 \
+        libatomic1:i386 \
         nano \
         net-tools \
         netcat \
@@ -109,10 +111,27 @@ USER root
 # 下载并安装SteamCMD
 RUN mkdir -p ${STEAMCMD_DIR} \
     && cd ${STEAMCMD_DIR} \
-    && wget -qO- https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf - \
+    && (if curl -s --connect-timeout 3 http://192.168.10.23:7890 >/dev/null 2>&1 || wget -q --timeout=3 --tries=1 http://192.168.10.23:7890 -O /dev/null >/dev/null 2>&1; then \
+          echo "代理服务器可用，使用代理下载"; \
+          export http_proxy=http://192.168.10.23:7890; \
+          export https_proxy=http://192.168.10.23:7890; \
+          PROXY_AVAILABLE=1; \
+        else \
+          echo "代理服务器不可用，使用直接连接"; \
+          PROXY_AVAILABLE=0; \
+        fi \
+        && wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+        || wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://media.steampowered.com/installer/steamcmd_linux.tar.gz) \
+    && tar -xzvf steamcmd_linux.tar.gz \
+    && rm steamcmd_linux.tar.gz \
     && chown -R ${STEAM_USER}:${STEAM_USER} ${STEAMCMD_DIR} \
     && chmod +x ${STEAMCMD_DIR}/steamcmd.sh \
-    && su - ${STEAM_USER} -c "cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit"
+    && (if [ "$PROXY_AVAILABLE" = "1" ]; then \
+          su - ${STEAM_USER} -c "export http_proxy=http://192.168.10.23:7890 && export https_proxy=http://192.168.10.23:7890 && cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit"; \
+        else \
+          su - ${STEAM_USER} -c "cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit"; \
+        fi) \
+    && unset http_proxy https_proxy || true
 
 # 复制菜单脚本和启动脚本
 COPY --chown=steam:steam menu.sh /home/steam/menu.sh
