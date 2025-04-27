@@ -22,17 +22,18 @@
       ]
     },
     "game_installers": {
-      "version": "1.0.0",
-      "last_updated": "2023-06-01",
+      "version": "1.0.2",
+      "last_updated": "2025-04-27",
       "changelog": [
-        "初始版本发布"
+        "新增游戏快速部署：战术小队 叛乱2 最后的绿洲 欧洲卡车模拟2（需更新容器）"
       ]
     },
     "container": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "last_updated": "2023-06-01",
       "changelog": [
-        "容器需要手动更新，请在SSH终端处输入sudo docker pull"
+        "【兼容】欧洲卡车模拟2 游戏运行库的支持",
+        "容器需要手动更新，请在SSH终端处输入sudo docker pull <镜像名> 或 运行一键安装脚本"
       ]
     }
   },

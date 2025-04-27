@@ -1165,6 +1165,7 @@ run_installer() {
             echo -e "\n${YELLOW}安装过程可能需要一些时间，请耐心等待...${NC}\n"
             echo -e "\n${RED}请注意：此服务端需要将容器版本升级为1.0.1及更高才可以正常运行，请自行在系统信息中确认当前容器版本。${NC}\n"
             install_Euro_Truck_Simulator_2 false
+            ;;
         0)
             echo -e "${YELLOW}返回主菜单...${NC}"
             return 0
