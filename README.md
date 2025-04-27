@@ -3,6 +3,9 @@
    [已确认兼容的游戏](https://github.com/yxsj245/gameserver_container/blob/main/已确认兼容的游戏.md)
    [文档站](http://blogpage.xiaozhuhouses.asia/html4/index.html#/)
 
+# 测试阶段说明
+由于项目涉及范围较多，部分功能可能存在测试盲区进而产生BUG，结合目前情况。测试时间应该不会很长，我计划在几个版本后将进入正式版，在进入正式版之前，版本更新可能较为频繁，不排除容器更新需要重新拉取镜像（请以每次运行容器前输出的更新日志为主）届时不建议您关闭自动更新！
+
 # 已支持功能
 - [x] 集成steamcmd
 - [x] 对接[MCSManager](https://www.mcsmanager.com/)
