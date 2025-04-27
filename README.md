@@ -1,5 +1,6 @@
 # 项目导航
    [快速部署](https://github.com/yxsj245/gameserver_container/blob/main/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
+   [已确认兼容的游戏](https://github.com/yxsj245/gameserver_container/blob/main/已确认兼容的游戏.md)
    [文档站](http://blogpage.xiaozhuhouses.asia/html4/index.html#/)
 
 # 已支持功能
