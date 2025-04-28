@@ -828,20 +828,24 @@ function show_system_info() {
         menu_version=$(grep "^MENU_SCRIPT_VERSION=" "/home/steam/update_scripts.sh" | cut -d'"' -f2)
         config_version=$(grep "^CONFIG_SCRIPT_VERSION=" "/home/steam/update_scripts.sh" | cut -d'"' -f2)
         container_version=$(grep "^CONTAINER_VERSION=" "/home/steam/update_scripts.sh" | cut -d'"' -f2)
+        game_config_json_version=$(grep "^GAME_CONFIG_JSON_VERSION=" "/home/steam/update_scripts.sh" | cut -d'"' -f2)
         game_installers_version=$(grep "^GAME_INSTALLERS_VERSION=" "/home/steam/update_scripts.sh" | cut -d'"' -f2 2>/dev/null)
     else
         update_version="未知"
         menu_version="未知"
         config_version="未知"
         container_version="未知"
+        game_config_json_version="未知"
         game_installers_version="未知"
     fi
     
     echo -e "${BLUE}║  ${NC}菜单脚本: ${GREEN}v${menu_version}${BLUE}                                 ║${NC}"
     echo -e "${BLUE}║  ${NC}更新脚本: ${GREEN}v${update_version}${BLUE}                                 ║${NC}"
     echo -e "${BLUE}║  ${NC}配置脚本: ${GREEN}v${config_version}${BLUE}                                 ║${NC}"
-    echo -e "${BLUE}║  ${NC}快速部署: ${GREEN}v${game_installers_version}${BLUE}                                 ║${NC}"
+    echo -e "${BLUE}║  ${NC}快速部署脚本: ${GREEN}v${game_installers_version}${BLUE}                                 ║${NC}"
+    echo -e "${BLUE}║  ${NC}快速部署游戏列表版本：: ${GREEN}v${game_config_json_version}${BLUE}                           ║${NC}"
     echo -e "${BLUE}║  ${NC}容器版本: ${GREEN}v${container_version}${BLUE}                                 ║${NC}"
+
     
     echo -e "${BLUE}║                                                    ║${NC}"
     echo -e "${BLUE}║  ${YELLOW}容器环境信息:${NC}                                     ${BLUE}║${NC}"

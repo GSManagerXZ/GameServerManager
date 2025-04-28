@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # 版本信息（与云端对比的版本号）
-MENU_SCRIPT_VERSION="1.0.0"
+MENU_SCRIPT_VERSION="1.0.1"
 CONFIG_SCRIPT_VERSION="1.0.0"
-UPDATE_SCRIPT_VERSION="1.0.0"
+UPDATE_SCRIPT_VERSION="1.0.1"
 CONTAINER_VERSION="1.0.1"
-GAME_INSTALLERS_VERSION="1.0.2"
+GAME_INSTALLERS_VERSION="1.0.4"
+GAME_CONFIG_JSON_VERSION="1.0.0"
 
 # 颜色定义
 GREEN='\033[0;32m'
@@ -22,6 +23,7 @@ UPDATE_SCRIPT="update_scripts.sh"
 MENU_SCRIPT="menu.sh"
 START_SCRIPT="start.sh"
 EXTRA_SCRIPT="game_installers.sh"
+GAME_CONFIG_JSON="installgame.json"
 
 # 创建日志目录
 LOG_DIR="/home/steam/update_logs"
@@ -190,6 +192,22 @@ check_versions() {
         fi
     fi
     
+    # 检查游戏配置文件(installgame.json)版本
+    local remote_game_config_json_version=$(jq -r '.versions.game_config_json.version' "$REMOTE_VERSION_FILE")
+    
+    if [ -n "$remote_game_config_json_version" ] && [ "$remote_game_config_json_version" != "null" ] && [ "$remote_game_config_json_version" != "$GAME_CONFIG_JSON_VERSION" ]; then
+        update_needed=true
+        scripts_to_update+=("$GAME_CONFIG_JSON")
+        local changelog=$(jq -c '.versions.game_config_json.changelog' "$REMOTE_VERSION_FILE")
+        
+        update_log="${update_log}${YELLOW}游戏配置文件${NC} (${RED}$GAME_CONFIG_JSON_VERSION${NC} → ${GREEN}$remote_game_config_json_version${NC})"
+        if [ -n "$changelog" ] && [ "$changelog" != "null" ]; then
+            update_log="${update_log}:\n$(format_changelog "$changelog")\n"
+        else
+            update_log="${update_log}\n\n"
+        fi
+    fi
+    
     # 检查容器版本
     local remote_container_version=$(jq -r '.versions.container.version' "$REMOTE_VERSION_FILE")
     
@@ -210,6 +228,12 @@ check_versions() {
     if [ "$other_updates" = true ] && ! [[ " ${scripts_to_update[*]} " =~ " ${EXTRA_SCRIPT} " ]]; then
         scripts_to_update+=("$EXTRA_SCRIPT")
         update_log="${update_log}${YELLOW}快速部署脚本${NC} (将一并更新)\n\n"
+    fi
+    
+    # 如果快速部署脚本需要更新，并且游戏配置文件还没加入更新列表，则添加
+    if [[ " ${scripts_to_update[*]} " =~ " ${EXTRA_SCRIPT} " ]] && ! [[ " ${scripts_to_update[*]} " =~ " ${GAME_CONFIG_JSON} " ]]; then
+        scripts_to_update+=("$GAME_CONFIG_JSON")
+        update_log="${update_log}${YELLOW}游戏配置文件${NC} (将一并更新)\n\n"
     fi
     
     # 显示更新日志
@@ -285,8 +309,23 @@ download_script() {
                 fi
             fi
             
+            # 如果是游戏配置文件，检查是否为有效的JSON
+            if [ "$script_name" = "$GAME_CONFIG_JSON" ]; then
+                if jq empty "$target_file.tmp" 2>/dev/null; then
+                    log_message "游戏配置文件JSON格式验证通过" "INFO"
+                else
+                    log_message "下载的游戏配置文件JSON格式无效，将保留原文件" "ERROR"
+                    if [ -f "$backup_file" ]; then
+                        mv "$backup_file" "$target_file"
+                        log_message "已恢复原始文件: ${script_name}" "INFO"
+                    fi
+                    rm -f "$target_file.tmp"
+                    return 1
+                fi
+            fi
+            
             mv "$target_file.tmp" "$target_file"
-            chmod +x "$target_file"
+            chmod +x "$target_file" 2>/dev/null # 尝试设置执行权限，JSON文件可能会失败，但不影响
             log_message "成功下载并更新: ${script_name}" "INFO"
             return 0
         else

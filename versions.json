@@ -1,10 +1,10 @@
 {
   "versions": {
     "menu_script": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "last_updated": "2023-06-01",
       "changelog": [
-        "暂无"
+        "新增 快速部署游戏文件 版本信息"
       ]
     },
     "config_script": {
@@ -15,17 +15,24 @@
       ]
     },
     "update_script": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "last_updated": "2023-06-01",
       "changelog": [
-        "暂无"
+        "支持 快速部署游戏文件 更新"
       ]
     },
     "game_installers": {
-      "version": "1.0.2",
+      "version": "1.0.4",
       "last_updated": "2025-04-27",
       "changelog": [
-        "新增游戏快速部署：战术小队 叛乱2 最后的绿洲 欧洲卡车模拟2（需更新容器）"
+        "架构重构，将游戏列表作为单独json文件存放，进一步提升拓展性"
+      ]
+    },
+    "game_config_json": {
+      "version": "1.0.0",
+      "last_updated": "2025-04-28",
+      "changelog": [
+        "初始版本"
       ]
     },
     "container": {

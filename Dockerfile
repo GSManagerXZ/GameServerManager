@@ -138,6 +138,7 @@ COPY --chown=steam:steam menu.sh /home/steam/menu.sh
 COPY --chown=steam:steam start.sh /home/steam/start.sh
 COPY --chown=steam:steam game_installers.sh /home/steam/game_installers.sh
 COPY --chown=steam:steam update_scripts.sh /home/steam/update_scripts.sh
+COPY --chown=steam:steam installgame.json /home/steam/installgame.json
 RUN chmod +x /home/steam/menu.sh /home/steam/start.sh /home/steam/game_installers.sh /home/steam/update_scripts.sh
 
 # 创建MCSM目录并复制MCSM库文件
