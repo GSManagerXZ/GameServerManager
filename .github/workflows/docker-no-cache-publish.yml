@@ -1,0 +1,57 @@
+name: Docker推送_先构建后缓存
+
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      # 第一步：检出代码
+      - name: 拉取仓库代码
+        uses: actions/checkout@v3
+        
+      # 第二步：设置构建环境
+      - name: 配置QEMU模拟器
+        uses: docker/setup-qemu-action@v2
+        
+      - name: 配置Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: network=host
+        
+      # 第三步：登录所有镜像仓库
+      - name: 登录Docker仓库
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: 登录GitHub容器仓库
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      # 第四步：构建并推送镜像（不使用缓存）
+      - name: 构建推送Docker镜像（无缓存）
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            xiaozhu674/gameserver:0.5
+            ghcr.io/${{ github.repository_owner }}/gameserver:0.5
+          # 明确禁用缓存
+          no-cache: true
+          
+      # 第五步：单独创建缓存供后续使用
+      - name: 创建构建缓存
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false  # 不推送镜像
+          tags: |
+            xiaozhu674/gameserver:0.5
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
