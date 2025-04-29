@@ -238,6 +238,7 @@ mcsm_create_steam_server() {
   local nickname="${1:-Steam游戏服务器}"
   local game_name="${2:-steam_server}"
   
+  echo -e "${BLUE}使用Docker镜像:${NC} $MCSM_DOCKER_IMAGE"
   mcsm_create_instance "$nickname" "$game_name" "$MCSM_DOCKER_IMAGE"
 }
 

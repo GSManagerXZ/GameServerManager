@@ -8,10 +8,10 @@
       ]
     },
     "config_script": {
-      "version": "1.0.0",
-      "last_updated": "2023-06-01",
+      "version": "1.0.2",
+      "last_updated": "2025-04-29",
       "changelog": [
-        "暂无"
+        "增加容器镜像配置项"
       ]
     },
     "update_script": {
@@ -22,10 +22,11 @@
       ]
     },
     "game_installers": {
-      "version": "1.0.4",
-      "last_updated": "2025-04-27",
+      "version": "1.0.5",
+      "last_updated": "2025-04-29",
       "changelog": [
-        "架构重构，将游戏列表作为单独json文件存放，进一步提升拓展性"
+        "【1.0.4】架构重构，将游戏列表作为单独json文件存放，进一步提升拓展性",
+        "【本次更新】增加容器镜像配置项"
       ]
     },
     "game_config_json": {
@@ -36,11 +37,12 @@
       ]
     },
     "container": {
-      "version": "1.0.1",
-      "last_updated": "2023-06-01",
+      "version": "1.0.3",
+      "last_updated": "2025-04-29",
       "changelog": [
-        "【兼容】欧洲卡车模拟2 游戏运行库的支持",
-        "容器需要手动更新，请在SSH终端处输入sudo docker pull <镜像名> 或 运行一键安装脚本"
+        "【1.0.2】修复MCSM面板开通实例后工作目录不正确的问题",
+        "【本次更新】增加容器镜像配置项，建议更新前删除config.json或按照更新后输出要求手动添加配置项",
+        "【温馨提示】请您尽快手动更新容器以便功能正常使用 本次没有更新镜像底层环境，更新会非常块 执行 docker pull xiaozhu674/gameserver:0.5"
       ]
     }
   },

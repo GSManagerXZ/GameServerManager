@@ -117,14 +117,14 @@ setup_mcsm_libs() {
         mkdir -p /home/steam/MCSM
     fi
     
-    # 检查是否需要从游戏目录复制库文件
-    if [ ! -f "/home/steam/MCSM/mcsm_api_lib.sh" ] && [ -f "/home/steam/games/MCSM/mcsm_api_lib.sh" ]; then
-        # 从挂载目录复制
-        echo "从挂载目录复制MCSM API库文件到/home/steam/MCSM目录..."
+    # 优先检查挂载目录中的库文件
+    if [ -f "/home/steam/games/MCSM/mcsm_api_lib.sh" ]; then
+        # 从挂载目录复制，确保使用最新版本
+        echo "从挂载目录复制最新版本的MCSM API库文件..."
         cp -f /home/steam/games/MCSM/mcsm_api_lib.sh /home/steam/MCSM/
         chmod 755 /home/steam/MCSM/mcsm_api_lib.sh
     elif [ -f "/home/steam/MCSM/mcsm_api_lib.sh" ]; then
-        echo "MCSM API库文件已存在，跳过复制"
+        echo "未在挂载目录找到库文件，使用容器内已有版本"
     else
         echo "未找到MCSM API库文件，MCSM相关功能可能无法正常工作"
         echo "请检查以下位置:"

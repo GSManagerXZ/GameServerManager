@@ -86,6 +86,14 @@ ask_create_mcsm_instance() {
                     return 1
                 fi
                 
+                # 检查是否读取到配置中的镜像名称
+                if [ -n "$MCSM_DOCKER_IMAGE" ]; then
+                    echo -e "${GREEN}从配置文件读取到Docker镜像: $MCSM_DOCKER_IMAGE${NC}"
+                    image="$MCSM_DOCKER_IMAGE"
+                else
+                    echo -e "${YELLOW}未从配置读取到Docker镜像，使用默认值: $image${NC}"
+                fi
+                
                 # 设置端口映射（通过游戏名查找）
                 local ports="[]"
                 case "$game_name" in
