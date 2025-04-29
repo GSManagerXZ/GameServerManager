@@ -128,9 +128,6 @@ mcsm_create_instance() {
   local game_name="$2"
   local image="$3"
   
-  # 设置工作目录 - 使用容器内路径
-  local cwd="/home/steam/games"
-  
   # 设置卷映射 - 只映射HOST_PATH到容器内的games目录
   local volumes="$MCSM_HOST_PATH|/home/steam/games"
   
@@ -139,7 +136,7 @@ mcsm_create_instance() {
     "nickname": "'$nickname'",
     "startCommand": "",
     "stopCommand":  "^C",
-    "cwd": "'$cwd'",
+    "cwd": "'$MCSM_HOST_PATH'/'$nickname'",
     "ie": "utf8",
     "oe": "utf8",
     "type": "steam/universal",
@@ -226,8 +223,8 @@ mcsm_create_custom_instance() {
   local ports="${5:-[]}"
   local env="${6:-[\"AUTO_UPDATE=false\",\"GAME_TO_RUN=$game_name\"]}"
   
-  # 设置工作目录 - 使用容器内路径
-  local cwd="/home/steam/games"
+  # 设置工作目录 - 使用宿主机路径
+  local cwd="$MCSM_HOST_PATH/$game_name"
   
   # 设置卷映射 - 只映射HOST_PATH到容器内的games目录
   local volumes="$MCSM_HOST_PATH|/home/steam/games"
@@ -237,7 +234,7 @@ mcsm_create_custom_instance() {
     "nickname": "'$nickname'",
     "startCommand": "'$start_command'",
     "stopCommand":  "^C",
-    "cwd": "'$cwd'",
+    "cwd": "'$MCSM_HOST_PATH'/'$game_name'",
     "ie": "utf8",
     "oe": "utf8",
     "type": "steam/universal",
