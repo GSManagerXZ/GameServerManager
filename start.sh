@@ -29,6 +29,7 @@ DEFAULT_PANEL_URL="http://192.168.10.43:23333"
 DEFAULT_API_KEY="58230ba934ea45af8eab636199f0faac"
 DEFAULT_DAEMON_UUID="f334ce6aa88241c29b6edb2bfbf4df74"
 DEFAULT_HOST_PATH="/dockerwork"
+DEFAULT_DOCKER_IMAGE="dockerwork-steam-server:latest"
 
 # 创建或更新配置文件函数
 create_config_file() {
@@ -49,7 +50,8 @@ create_config_file() {
         "PANEL_URL": "$DEFAULT_PANEL_URL",
         "API_KEY": "$DEFAULT_API_KEY",
         "DAEMON_UUID": "$DEFAULT_DAEMON_UUID",
-        "HOST_PATH": "$DEFAULT_HOST_PATH"
+        "HOST_PATH": "$DEFAULT_HOST_PATH",
+        "DOCKER_IMAGE": "$DEFAULT_DOCKER_IMAGE"
     }
 }
 EOL
@@ -62,7 +64,17 @@ EOL
         
         echo -e "${GREEN}配置文件已创建: $CONFIG_FILE${NC}"
     else
-        echo -e "${YELLOW}配置文件已存在，跳过创建${NC}"
+        echo -e "${YELLOW}配置文件已存在，检查是否需要更新...${NC}"
+        
+        # 检查是否包含DOCKER_IMAGE字段
+        if ! grep -q "DOCKER_IMAGE" "$CONFIG_FILE"; then
+            echo -e "${YELLOW}配置文件缺少DOCKER_IMAGE配置项${NC}"
+            echo -e "${YELLOW}由于配置项已更新，建议删除config.json文件后重新启动容器生成最新配置项${NC}"
+            echo -e "${YELLOW}并按照原有配置重新填写其他配置项${NC}"
+            echo -e "${YELLOW}或者手动添加: \"DOCKER_IMAGE\": 镜像名 到配置文件中${NC}"
+        else
+            echo -e "${GREEN}配置文件已经是最新版本${NC}"
+        fi
     fi
 }
 

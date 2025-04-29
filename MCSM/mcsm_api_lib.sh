@@ -20,6 +20,7 @@ DEFAULT_PANEL_URL="http://192.168.10.43:23333"
 DEFAULT_API_KEY="58230ba934ea45af8eab636199f0faac"
 DEFAULT_DAEMON_UUID="f334ce6aa88241c29b6edb2bfbf4df74"
 DEFAULT_HOST_PATH="/dockerwork"
+DEFAULT_DOCKER_IMAGE="dockerwork-steam-server:latest"
 
 # 读取配置文件函数
 read_config_file() {
@@ -36,12 +37,22 @@ read_config_file() {
             API_KEY=$(jq -r '.MCSM.API_KEY' "$CONFIG_FILE" 2>/dev/null)
             DAEMON_UUID=$(jq -r '.MCSM.DAEMON_UUID' "$CONFIG_FILE" 2>/dev/null)
             HOST_PATH=$(jq -r '.MCSM.HOST_PATH' "$CONFIG_FILE" 2>/dev/null)
+            DOCKER_IMAGE=$(jq -r '.MCSM.DOCKER_IMAGE' "$CONFIG_FILE" 2>/dev/null)
             
             # 检查读取的值是否有效
             [ "$PANEL_URL" != "null" ] && [ -n "$PANEL_URL" ] && DEFAULT_PANEL_URL="$PANEL_URL"
             [ "$API_KEY" != "null" ] && [ -n "$API_KEY" ] && DEFAULT_API_KEY="$API_KEY"
             [ "$DAEMON_UUID" != "null" ] && [ -n "$DAEMON_UUID" ] && DEFAULT_DAEMON_UUID="$DAEMON_UUID"
             [ "$HOST_PATH" != "null" ] && [ -n "$HOST_PATH" ] && DEFAULT_HOST_PATH="$HOST_PATH"
+            
+            # 检查DOCKER_IMAGE配置项是否存在
+            if [ "$DOCKER_IMAGE" = "null" ] || [ -z "$DOCKER_IMAGE" ]; then
+                echo -e "${YELLOW}警告: 配置文件中缺少DOCKER_IMAGE配置项${NC}"
+                echo -e "${YELLOW}由于配置项已更新，请删除config.json文件后重新启动容器生成最新配置项${NC}"
+                echo -e "${YELLOW}并按照原有配置重新填写其他配置项${NC}"
+            else
+                DEFAULT_DOCKER_IMAGE="$DOCKER_IMAGE"
+            fi
             
             echo -e "${GREEN}已从配置文件读取MCSM配置${NC}"
         else
@@ -52,12 +63,22 @@ read_config_file() {
             API_KEY=$(grep -o '"API_KEY"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"API_KEY"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
             DAEMON_UUID=$(grep -o '"DAEMON_UUID"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"DAEMON_UUID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
             HOST_PATH=$(grep -o '"HOST_PATH"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"HOST_PATH"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            DOCKER_IMAGE=$(grep -o '"DOCKER_IMAGE"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"DOCKER_IMAGE"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
             
             # 检查读取的值是否有效
             [ -n "$PANEL_URL" ] && DEFAULT_PANEL_URL="$PANEL_URL"
             [ -n "$API_KEY" ] && DEFAULT_API_KEY="$API_KEY"
             [ -n "$DAEMON_UUID" ] && DEFAULT_DAEMON_UUID="$DAEMON_UUID"
             [ -n "$HOST_PATH" ] && DEFAULT_HOST_PATH="$HOST_PATH"
+            
+            # 检查DOCKER_IMAGE配置项是否存在
+            if [ -z "$DOCKER_IMAGE" ]; then
+                echo -e "${YELLOW}警告: 配置文件中缺少DOCKER_IMAGE配置项${NC}"
+                echo -e "${YELLOW}由于配置项已更新，请删除config.json文件后重新启动容器生成最新配置项${NC}"
+                echo -e "${YELLOW}并按照原有配置重新填写其他配置项${NC}"
+            else
+                DEFAULT_DOCKER_IMAGE="$DOCKER_IMAGE"
+            fi
             
             echo -e "${GREEN}已从配置文件读取MCSM配置${NC}"
         fi
@@ -74,6 +95,7 @@ MCSM_PANEL_URL=${MCSM_PANEL_URL:-$DEFAULT_PANEL_URL}
 MCSM_API_KEY=${MCSM_API_KEY:-$DEFAULT_API_KEY}
 MCSM_DAEMON_UUID=${MCSM_DAEMON_UUID:-$DEFAULT_DAEMON_UUID}
 MCSM_HOST_PATH=${MCSM_HOST_PATH:-$DEFAULT_HOST_PATH}
+MCSM_DOCKER_IMAGE=${MCSM_DOCKER_IMAGE:-$DEFAULT_DOCKER_IMAGE}
 
 # 设置配置变量
 mcsm_set_config() {
@@ -81,12 +103,14 @@ mcsm_set_config() {
   MCSM_API_KEY=${2:-$MCSM_API_KEY}
   MCSM_DAEMON_UUID=${3:-$MCSM_DAEMON_UUID}
   MCSM_HOST_PATH=${4:-$MCSM_HOST_PATH}
+  MCSM_DOCKER_IMAGE=${5:-$MCSM_DOCKER_IMAGE}
   
   echo -e "${GREEN}已设置MCSManager API配置:${NC}"
   echo -e "${BLUE}面板地址:${NC} $MCSM_PANEL_URL"
   echo -e "${BLUE}API密钥:${NC} $MCSM_API_KEY"
   echo -e "${BLUE}守护进程UUID:${NC} $MCSM_DAEMON_UUID"
   echo -e "${BLUE}宿主路径:${NC} $MCSM_HOST_PATH"
+  echo -e "${BLUE}Docker镜像:${NC} $MCSM_DOCKER_IMAGE"
 }
 
 # 保存配置到文件
@@ -105,7 +129,8 @@ mcsm_save_config() {
         "PANEL_URL": "$MCSM_PANEL_URL",
         "API_KEY": "$MCSM_API_KEY",
         "DAEMON_UUID": "$MCSM_DAEMON_UUID",
-        "HOST_PATH": "$MCSM_HOST_PATH"
+        "HOST_PATH": "$MCSM_HOST_PATH",
+        "DOCKER_IMAGE": "$MCSM_DOCKER_IMAGE"
     }
 }
 EOL
@@ -194,16 +219,18 @@ mcsm_create_instance() {
 mcsm_create_minecraft_java() {
   local nickname="${1:-Minecraft Java服务器}"
   local game_name="${2:-minecraft_java}"
+  local image="${3:-itzg/minecraft-server:latest}"
   
-  mcsm_create_instance "$nickname" "$game_name" "itzg/minecraft-server:latest"
+  mcsm_create_instance "$nickname" "$game_name" "$image"
 }
 
 # 创建Minecraft基岩版实例
 mcsm_create_minecraft_bedrock() {
   local nickname="${1:-Minecraft基岩版服务器}"
   local game_name="${2:-minecraft_bedrock}"
+  local image="${3:-itzg/minecraft-bedrock-server:latest}"
   
-  mcsm_create_instance "$nickname" "$game_name" "itzg/minecraft-bedrock-server:latest"
+  mcsm_create_instance "$nickname" "$game_name" "$image"
 }
 
 # 创建Steam游戏服务器实例
@@ -211,7 +238,7 @@ mcsm_create_steam_server() {
   local nickname="${1:-Steam游戏服务器}"
   local game_name="${2:-steam_server}"
   
-  mcsm_create_instance "$nickname" "$game_name" "dockerwork-steam-server:latest"
+  mcsm_create_instance "$nickname" "$game_name" "$MCSM_DOCKER_IMAGE"
 }
 
 # 创建自定义实例
@@ -290,11 +317,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo -e "${YELLOW}这是一个库文件，不应直接执行。${NC}"
   echo -e "${GREEN}示例用法:${NC}"
   echo "source ./$(basename "$0")"
-  echo 'mcsm_set_config "http://localhost:23333" "your_api_key" "daemon_uuid" "/path/to/games"'
-  echo 'mcsm_set_config_and_save "http://localhost:23333" "your_api_key" "daemon_uuid" "/path/to/games" # 设置并保存到配置文件'
+  echo 'mcsm_set_config "http://localhost:23333" "your_api_key" "daemon_uuid" "/path/to/games" "dockerwork-steam-server:latest"'
+  echo 'mcsm_set_config_and_save "http://localhost:23333" "your_api_key" "daemon_uuid" "/path/to/games" "dockerwork-steam-server:latest" # 设置并保存到配置文件'
   echo 'mcsm_save_config # 保存当前配置到文件'
-  echo 'mcsm_create_minecraft_java "我的Java服务器" "minecraft_server_1"'
-  echo 'mcsm_create_minecraft_bedrock "我的基岩版服务器" "bedrock_server_1"'
+  echo 'mcsm_create_minecraft_java "我的Java服务器" "minecraft_server_1" "itzg/minecraft-server:latest"'
+  echo 'mcsm_create_minecraft_bedrock "我的基岩版服务器" "bedrock_server_1" "itzg/minecraft-bedrock-server:latest"'
   echo 'mcsm_create_steam_server "我的Steam服务器" "steam_server_1"'
   echo 'mcsm_create_custom_instance "自定义服务器" "custom_server" "custom/image:tag" "启动命令" "[{\"hostPort\":\"25565\",\"containerPort\":\"25565\",\"protocol\":\"tcp\"}]" "[\"ENV1=value1\",\"ENV2=value2\"]"'
 fi 
