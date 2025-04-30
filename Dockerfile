@@ -30,17 +30,33 @@ RUN apt-get update && apt-get upgrade -y \
         libc6-i386 \
         lib32stdc++6 \
         libcurl4-gnutls-dev:i386 \
+        libcurl4-gnutls-dev \
         libgl1-mesa-glx:i386 \
         gcc-10-base:i386 \
         libssl1.1:i386 \
         libopenal1:i386 \
         libtinfo6:i386 \
         libtcmalloc-minimal4:i386 \
+        # .NET和Mono相关依赖（ECO服务器等需要）
+        libgdiplus \
+        libc6-dev \
+        libasound2 \
+        libpulse0 \
+        libnss3 \
+        libgconf-2-4 \
+        libcap2 \
+        libatk1.0-0 \
+        libcairo2 \
+        libcups2 \
+        libgtk-3-0 \
+        libgdk-pixbuf2.0-0 \
+        libpango-1.0-0 \
+        libx11-6 \
+        libxt6 \
         # Unity游戏服务端额外依赖（7日杀等）
         libsdl2-2.0-0:i386 \
         libsdl2-2.0-0 \
         libpulse0:i386 \
-        libpulse0 \
         libfontconfig1:i386 \
         libfontconfig1 \
         libudev1:i386 \
@@ -48,10 +64,8 @@ RUN apt-get update && apt-get upgrade -y \
         libpugixml1v5 \
         libvulkan1 \
         libvulkan1:i386 \
-        libgconf-2-4 \
         libgconf-2-4:i386 \
         # 额外的Unity引擎依赖（特别针对7日杀）
-        libatk1.0-0 \
         libatk1.0-0:i386 \
         libxcomposite1 \
         libxcomposite1:i386 \
@@ -67,9 +81,7 @@ RUN apt-get update && apt-get upgrade -y \
         libxi6:i386 \
         libxkbfile1 \
         libxkbfile1:i386 \
-        libasound2 \
         libasound2:i386 \
-        libgtk-3-0 \
         libgtk-3-0:i386 \
         libdbus-1-3 \
         libdbus-1-3:i386 \
@@ -112,26 +124,38 @@ USER root
 RUN mkdir -p ${STEAMCMD_DIR} \
     && cd ${STEAMCMD_DIR} \
     && (if curl -s --connect-timeout 3 http://192.168.10.23:7890 >/dev/null 2>&1 || wget -q --timeout=3 --tries=1 http://192.168.10.23:7890 -O /dev/null >/dev/null 2>&1; then \
-          echo "代理服务器可用，使用代理下载"; \
+          echo "代理服务器可用，使用代理下载和初始化"; \
           export http_proxy=http://192.168.10.23:7890; \
           export https_proxy=http://192.168.10.23:7890; \
-          PROXY_AVAILABLE=1; \
+          wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+          || wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://media.steampowered.com/installer/steamcmd_linux.tar.gz; \
+          tar -xzvf steamcmd_linux.tar.gz; \
+          rm steamcmd_linux.tar.gz; \
+          chown -R ${STEAM_USER}:${STEAM_USER} ${STEAMCMD_DIR}; \
+          chmod +x ${STEAMCMD_DIR}/steamcmd.sh; \
+          su - ${STEAM_USER} -c "export http_proxy=http://192.168.10.23:7890 && export https_proxy=http://192.168.10.23:7890 && cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit"; \
+          unset http_proxy https_proxy; \
         else \
           echo "代理服务器不可用，使用直接连接"; \
-          PROXY_AVAILABLE=0; \
-        fi \
-        && wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
-        || wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://media.steampowered.com/installer/steamcmd_linux.tar.gz) \
-    && tar -xzvf steamcmd_linux.tar.gz \
-    && rm steamcmd_linux.tar.gz \
-    && chown -R ${STEAM_USER}:${STEAM_USER} ${STEAMCMD_DIR} \
-    && chmod +x ${STEAMCMD_DIR}/steamcmd.sh \
-    && (if [ "$PROXY_AVAILABLE" = "1" ]; then \
-          su - ${STEAM_USER} -c "export http_proxy=http://192.168.10.23:7890 && export https_proxy=http://192.168.10.23:7890 && cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit"; \
-        else \
+          wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+          || wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://media.steampowered.com/installer/steamcmd_linux.tar.gz; \
+          tar -xzvf steamcmd_linux.tar.gz; \
+          rm steamcmd_linux.tar.gz; \
+          chown -R ${STEAM_USER}:${STEAM_USER} ${STEAMCMD_DIR}; \
+          chmod +x ${STEAMCMD_DIR}/steamcmd.sh; \
           su - ${STEAM_USER} -c "cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit"; \
         fi) \
-    && unset http_proxy https_proxy || true
+    # 创建steamclient.so符号链接
+    && mkdir -p ${STEAM_HOME}/.steam/sdk32 ${STEAM_HOME}/.steam/sdk64 \
+    && ln -sf ${STEAMCMD_DIR}/linux32/steamclient.so ${STEAM_HOME}/.steam/sdk32/steamclient.so \
+    && ln -sf ${STEAMCMD_DIR}/linux64/steamclient.so ${STEAM_HOME}/.steam/sdk64/steamclient.so \
+    # 创建额外的游戏常用目录链接
+    && mkdir -p ${STEAM_HOME}/.steam/sdk32/steamclient.so.dbg.sig ${STEAM_HOME}/.steam/sdk64/steamclient.so.dbg.sig \
+    && mkdir -p ${STEAM_HOME}/.steam/steam \
+    && ln -sf ${STEAMCMD_DIR}/linux32 ${STEAM_HOME}/.steam/steam/linux32 \
+    && ln -sf ${STEAMCMD_DIR}/linux64 ${STEAM_HOME}/.steam/steam/linux64 \
+    && ln -sf ${STEAMCMD_DIR}/steamcmd ${STEAM_HOME}/.steam/steam/steamcmd \
+    && chown -R ${STEAM_USER}:${STEAM_USER} ${STEAM_HOME}/.steam
 
 # 复制菜单脚本和启动脚本
 COPY --chown=steam:steam menu.sh /home/steam/menu.sh
