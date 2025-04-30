@@ -139,6 +139,27 @@ ask_create_mcsm_instance() {
                     "Euro_Truck_Simulator_2")
                         ports='["27015:27015/udp"]'
                         ;;
+                    "American_Truck_Simulator")
+                        ports='["27015:27015/udp"]'
+                        ;;
+                    "ECO")
+                        ports='["3001:3001/tcp","3000:3000/udp"]'
+                        ;;
+                    "Soulmask")
+                        ports='["27015:27015/udp"]'
+                        ;;  
+                    "MORDHAU")
+                        ports='["7777:7777/udp"]'
+                        ;;    
+                    "No_More_Room_in_Hell")
+                        ports='["27015:27015/udp","27020:27020/udp","27015:27015/tcp"]'
+                        ;;     
+                    "No_More_Room_in_Hell")
+                        ports='["27015:27015/udp","27020:27020/udp","27015:27015/tcp"]'
+                        ;;
+                    "Hurtworld")
+                        ports='["12881:12881/udp"]'
+                        ;;                                            
                 esac
                 
                 # 设置环境变量
