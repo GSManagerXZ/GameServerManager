@@ -3,20 +3,19 @@
    [已确认兼容的游戏](https://github.com/yxsj245/gameserver_container/blob/main/已确认兼容的游戏.md)
    [文档站](http://blogpage.xiaozhuhouses.asia/html4/index.html#/)
 
-# 测试阶段说明
-由于项目涉及范围较多，部分功能可能存在测试盲区进而产生BUG，结合目前情况。测试时间应该不会很长，我计划在几个版本后将进入正式版，在进入正式版之前，版本更新可能较为频繁，不排除容器更新需要重新拉取镜像（请以每次运行容器前输出的更新日志为主）届时不建议您关闭自动更新！
-## 温馨提示
-项目测试阶段已进入尾声，预计将在5.3号左右发布正式版，同时Windows也在并行开发了2天，届时直装版也会进入测试。
-
 # 社交媒体平台
 ### [bilibili](https://www.bilibili.com/video/BV1YiLqz7EVX/)
 ### [抖音](https://v.douyin.com/XVMwsSjymZg/)
 ### [QQ群](https://qm.qq.com/q/iFTPvgcfDO)
 
+# 使用教程
+### [bilibili](https://www.bilibili.com/video/BV1CZLqzAEN7/)
+
 # 已支持功能
 - [x] 集成steamcmd
 - [x] 对接[MCSManager](https://www.mcsmanager.com/)
 - [x] 常用服务端快速部署，现已支持超过20款游戏
+- [x] 支持一键从第三方直链中在线安装任意服务端
 - [x] MCBE服务端
 - [x] 所有脚本在线热更新
 - [x] 启动服务端持续检测已申请开通的端口
@@ -33,7 +32,7 @@
 - 预装SteamCMD及其所有依赖，支持32位和64位游戏服务器 \
 ![](https://th.bing.com/th/id/OIP.C52cJ46FbMs9L8otALrBRwHaEK?rs=1&pid=ImgDetMain)
 - 交互式终端菜单界面，让服务器管理变得直观简单 \
-![](https://pic1.imgdb.cn/item/680c3ed658cb8da5c8ce146f.png)
+![](https://pic1.imgdb.cn/item/6815830c58cb8da5c8d76bef.png)
 - 开服端口侦听判断是否可以进服 \
 ![](https://pic1.imgdb.cn/item/680c3f9e58cb8da5c8ce14b5.png)
 ### 全面的游戏支持
