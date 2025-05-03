@@ -10,6 +10,219 @@ NC='\033[0m' # 无颜色
 # 清空输入缓冲区
 read -t 0.1 -n 10000 discard || true
 
+# 在线下载服务端函数
+function download_server() {
+    clear
+    echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║               ${GREEN}在线下载服务端${BLUE}                       ║${NC}"
+    echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}║  请输入服务端下载直链:                              ║${NC}"
+    echo -e "${BLUE}║  支持.zip、.tar.gz、.tar等格式的压缩包              ║${NC}"
+    echo -e "${BLUE}║                                                    ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+
+    echo -e "\n${YELLOW}请输入下载链接 (输入0返回)${NC} > "
+    read download_url
+    
+    if [ "$download_url" == "0" ]; then
+        return
+    fi
+    
+    # 验证URL格式
+    if [[ ! "$download_url" =~ ^https?:// ]]; then
+        echo -e "${RED}错误: 无效的URL格式。请确保URL以http://或https://开头${NC}"
+        echo -e "\n${YELLOW}按任意键返回...${NC}"
+        read -n 1
+        return
+    fi
+    
+    # 检查链接是否以.zip、.tar.gz或.tar结尾
+    if [[ ! "$download_url" =~ \.(zip|tar\.gz|tar)$ ]]; then
+        echo -e "${RED}错误: 下载链接必须是.zip、.tar.gz或.tar格式的压缩包${NC}"
+        echo -e "\n${YELLOW}按任意键返回...${NC}"
+        read -n 1
+        return
+    fi
+    
+    # 提取文件扩展名
+    extension=""
+    if [[ "$download_url" =~ \.zip$ ]]; then
+        extension="zip"
+    elif [[ "$download_url" =~ \.tar\.gz$ ]]; then
+        extension="tar.gz"
+    elif [[ "$download_url" =~ \.tar$ ]]; then
+        extension="tar"
+    fi
+    
+    # 询问服务端名称
+    echo -e "\n${YELLOW}请输入服务端名称 (只能包含英文、数字和下划线，不能包含空格和特殊字符)${NC} > "
+    read server_name
+    
+    # 验证服务端名称格式
+    if [[ ! "$server_name" =~ ^[a-zA-Z0-9_]+$ ]]; then
+        echo -e "${RED}错误: 服务端名称只能包含英文、数字和下划线，不能包含空格和特殊字符${NC}"
+        echo -e "\n${YELLOW}按任意键返回...${NC}"
+        read -n 1
+        return
+    fi
+    
+    # 创建目标目录
+    target_dir="/home/steam/games/$server_name"
+    
+    # 检查目标目录是否已存在
+    if [ -d "$target_dir" ]; then
+        echo -e "${YELLOW}警告: 目标目录 '$target_dir' 已存在。是否覆盖安装？(y/n)${NC} > "
+        read overwrite
+        if [[ "$overwrite" != "y" && "$overwrite" != "Y" ]]; then
+            echo -e "${RED}安装已取消。${NC}"
+            echo -e "\n${YELLOW}按任意键返回...${NC}"
+            read -n 1
+            return
+        fi
+    fi
+    
+    # 创建临时目录
+    mkdir -p "$target_dir"
+    
+    # 设置下载文件路径
+    download_file="$target_dir/server_package.$extension"
+    
+    # 下载文件
+    echo -e "\n${GREEN}正在下载服务端文件...${NC}"
+    echo -e "${YELLOW}下载链接: ${NC}$download_url"
+    echo -e "${YELLOW}目标目录: ${NC}$target_dir"
+    echo -e "${YELLOW}这可能需要一些时间，取决于文件大小和网络速度...${NC}\n"
+    
+    # 使用wget下载文件，显示进度
+    wget -O "$download_file" "$download_url" --show-progress
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误: 下载失败。可能是网络问题或链接无效${NC}"
+        echo -e "\n${YELLOW}按任意键返回...${NC}"
+        read -n 1
+        return
+    fi
+    
+    # 解压文件
+    echo -e "\n${GREEN}下载完成，正在解压文件...${NC}"
+    
+    case $extension in
+        zip)
+            unzip -o "$download_file" -d "$target_dir"
+            ;;
+        tar.gz)
+            tar -xzf "$download_file" -C "$target_dir"
+            ;;
+        tar)
+            tar -xf "$download_file" -C "$target_dir"
+            ;;
+    esac
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误: 解压失败${NC}"
+        echo -e "\n${YELLOW}按任意键返回...${NC}"
+        read -n 1
+        return
+    fi
+    
+    # 设置权限
+    chmod -R 755 "$target_dir"
+    
+    # 删除压缩包
+    rm -f "$download_file"
+    
+    echo -e "\n${GREEN}服务端下载并解压完成！${NC}"
+    
+    # 查找可执行文件并询问是否创建启动脚本
+    executables=($(find "$target_dir" -type f -executable | grep -v "\.sh$" | sort))
+    shell_scripts=($(find "$target_dir" -name "*.sh" | sort))
+    
+    if [ ${#shell_scripts[@]} -gt 0 ] || [ ${#executables[@]} -gt 0 ]; then
+        echo -e "\n${YELLOW}发现以下可能的启动文件:${NC}"
+        
+        # 显示发现的shell脚本
+        if [ ${#shell_scripts[@]} -gt 0 ]; then
+            echo -e "${GREEN}Shell脚本:${NC}"
+            for i in "${!shell_scripts[@]}"; do
+                echo -e "  ${YELLOW}[$(($i+1))]${NC} $(basename "${shell_scripts[$i]}")"
+            done
+        fi
+        
+        # 显示发现的可执行文件
+        if [ ${#executables[@]} -gt 0 ]; then
+            echo -e "${GREEN}可执行文件:${NC}"
+            idx_offset=${#shell_scripts[@]}
+            for i in "${!executables[@]}"; do
+                echo -e "  ${YELLOW}[$(($i+1+$idx_offset))]${NC} $(basename "${executables[$i]}")"
+            done
+        fi
+        
+        # 询问用户是否要创建启动脚本
+        echo -e "\n${YELLOW}是否要创建启动脚本？(y/n)${NC} > "
+        read create_script
+        
+        if [[ "$create_script" == "y" || "$create_script" == "Y" ]]; then
+            # 如果找到了可执行文件或脚本，询问用户选择哪个
+            if [ ${#shell_scripts[@]} -gt 0 ] || [ ${#executables[@]} -gt 0 ]; then
+                total_files=$((${#shell_scripts[@]} + ${#executables[@]}))
+                echo -e "\n${YELLOW}请选择要添加到启动脚本的文件 [1-$total_files]:${NC} > "
+                read file_choice
+                
+                selected_file=""
+                if [[ $file_choice =~ ^[0-9]+$ ]] && [ $file_choice -ge 1 ] && [ $file_choice -le $total_files ]; then
+                    if [ $file_choice -le ${#shell_scripts[@]} ]; then
+                        selected_file="${shell_scripts[$((file_choice-1))]}"
+                    else
+                        offset=$((file_choice - ${#shell_scripts[@]} - 1))
+                        selected_file="${executables[$offset]}"
+                    fi
+                    
+                    # 创建启动脚本
+                    echo -e "\n${GREEN}创建启动脚本...${NC}"
+                    start_script="$target_dir/start.sh"
+                    
+                    # 如果选择的是.sh文件，创建一个调用它的脚本
+                    if [[ "$selected_file" == *.sh ]]; then
+                        cat > "$start_script" << EOL
+#!/bin/bash
+cd "\$(dirname "\$0")"
+bash "$(basename "$selected_file")" "\$@"
+EOL
+                    else
+                        # 对于其他可执行文件，创建直接执行的脚本
+                        rel_path=$(realpath --relative-to="$target_dir" "$selected_file")
+                        cat > "$start_script" << EOL
+#!/bin/bash
+cd "\$(dirname "\$0")"
+./"$rel_path" "\$@"
+EOL
+                    fi
+                    
+                    # 设置执行权限
+                    chmod +x "$start_script"
+                    echo -e "${GREEN}启动脚本已创建: $start_script${NC}"
+                else
+                    echo -e "${RED}无效选择${NC}"
+                fi
+            fi
+        fi
+    fi
+    
+    # 显示安装后提示信息
+    echo -e "\n${GREEN}+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+${NC}"
+    echo -e "${GREEN}|               安装完成                          |${NC}"
+    echo -e "${GREEN}+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+${NC}"
+    echo -e "${YELLOW}• 服务端安装位置: ${NC}$target_dir"
+    echo -e "${YELLOW}• 启动服务端方法:${NC}"
+    echo -e "  1. 从主菜单选择 [${GREEN}2${NC}] 管理已安装游戏"
+    echo -e "  2. 选择 ${GREEN}$server_name${NC} 服务端"
+    echo -e "  3. 选择 [${GREEN}1${NC}] 启动服务端"
+    
+    echo -e "\n${YELLOW}按任意键返回...${NC}"
+    read -n 1
+}
+
 # 清屏
 clear
 
@@ -24,14 +237,15 @@ function show_main_menu() {
     echo -e "${BLUE}║  ${YELLOW}[2]${NC} 管理已安装游戏                                ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[3]${NC} 通过AppID安装游戏                             ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[4]${NC} 快速部署游戏                                  ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[5]${NC} 打开Shell终端                                 ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[6]${NC} 设置                                          ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[7]${NC} 系统信息                                      ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[8]${NC} 关于                                          ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[5]${NC} 在线下载服务端                                ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[6]${NC} 打开Shell终端                                 ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[7]${NC} 设置/工具                                     ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[8]${NC} 系统信息                                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[9]${NC} 关于项目                                      ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[0]${NC} 退出                                          ${BLUE}║${NC}"
     echo -e "${BLUE}║                                                    ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
-    echo -e "\n请选择操作 [0-8]: "
+    echo -e "\n请选择操作 [0-9]: "
 }
 
 # 显示主菜单
@@ -92,29 +306,22 @@ function show_games_menu() {
     if [ "$found_games" = false ]; then
         echo -e "${BLUE}║  ${RED}没有找到已安装的游戏${BLUE}                           ║${NC}"
         echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
-        echo -e "${BLUE}║  ${YELLOW}[M]${NC} 迁移Steam游戏到持久化目录                     ${BLUE}║${NC}"
         echo -e "${BLUE}║  ${YELLOW}[0]${NC} 返回主菜单                                    ${BLUE}║${NC}"
         echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
-        echo -e "\n请选择操作 [0/M]: "
+        echo -e "\n请选择操作 [0]: "
         read game_choice
         
-        if [[ "$game_choice" == "M" || "$game_choice" == "m" ]]; then
-            migrate_games
-        fi
         return
     fi
     
     echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[M]${NC} 迁移Steam游戏到持久化目录                     ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[0]${NC} 返回主菜单                                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
     
-    echo -e "\n请选择游戏 [0-$((i-1))/M]: "
+    echo -e "\n请选择游戏 [0-$((i-1))]: "
     read game_choice
     
-    if [[ "$game_choice" == "M" || "$game_choice" == "m" ]]; then
-        migrate_games
-    elif [[ $game_choice =~ ^[0-9]+$ ]] && [ $game_choice -ge 1 ] && [ $game_choice -le $((i-1)) ]; then
+    if [[ $game_choice =~ ^[0-9]+$ ]] && [ $game_choice -ge 1 ] && [ $game_choice -le $((i-1)) ]; then
         selected_game="${game_dirs[$((game_choice-1))]}"
         show_game_options "$selected_game"
     fi
@@ -485,7 +692,7 @@ function show_game_options() {
                         # 分割长消息为多行，保持边距对齐
                         echo -e "${GREEN}║  ${BLUE}* 如果容器外部端口和内部端口不一致，请使用容器外部端口进服。${NC}${GREEN}║${NC}"
                         echo -e "${GREEN}║    ${BLUE}部分游戏可能无法连接端口转发类网络，建议外部端口和内部${NC}  ${GREEN}║${NC}"
-                        echo -e "${GREEN}║    ${BLUE}端口保持一致以确保兼容性${NC}                            ${GREEN}║${NC}"
+                        echo -e "${GREEN}║    ${BLUE}尽可能端口保持一致以确保兼容性${NC}                            ${GREEN}║${NC}"
                         echo -e "${GREEN}║  ${BLUE}* 确保您的防火墙已经开放上述端口${NC}                      ${GREEN}║${NC}"
                         echo -e "${GREEN}║  ${BLUE}* 某些游戏同时使用TCP和UDP协议，请开放两种类型${NC}        ${GREEN}║${NC}"
                         echo -e "${GREEN}║                                                           ║${NC}"
@@ -915,29 +1122,19 @@ function show_system_info() {
 function show_settings() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║               ${GREEN}系统设置${BLUE}                           ║${NC}"
+    echo -e "${BLUE}║               ${GREEN}设置与工具${BLUE}                           ║${NC}"
     echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[1]${NC} 管理SteamCMD配置                               ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[2]${NC} 设置默认安装目录                               ${BLUE}║${NC}"
-    echo -e "${BLUE}║  ${YELLOW}[3]${NC} 迁移已安装游戏到持久化目录                     ${BLUE}║${NC}"
+    echo -e "${BLUE}║  ${YELLOW}[1]${NC} 设置对接MCSM面板的配置信息                      ${BLUE}║${NC}"
     echo -e "${BLUE}║  ${YELLOW}[0]${NC} 返回主菜单                                     ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
     
-    echo -e "\n请选择操作 [0-3]: "
+    echo -e "\n请选择操作 [0-1]: "
     read setting_choice
     
     case $setting_choice in
         1)
-            # 管理SteamCMD配置
-            manage_steamcmd_config
-            ;;
-        2)
-            # 设置默认安装目录
-            set_default_install_dir
-            ;;
-        3)
-            # 迁移游戏
-            migrate_games
+            # 设置MCSM接口
+            setup_mcsm_config
             ;;
         0)
             # 返回主菜单
@@ -951,130 +1148,206 @@ function show_settings() {
     esac
 }
 
-# 设置默认安装目录
-function set_default_install_dir() {
+# 设置MCSM接口地址和参数
+function setup_mcsm_config() {
     clear
     echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║            ${GREEN}设置默认安装目录${BLUE}                      ║${NC}"
+    echo -e "${BLUE}║           ${GREEN}MCSM接口设置${BLUE}                            ║${NC}"
     echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
     echo -e "${BLUE}║                                                    ║${NC}"
-    echo -e "${BLUE}║  当前默认安装目录:                                  ║${NC}"
-    echo -e "${BLUE}║  ${GREEN}/home/steam/games${NC}                                ${BLUE}║${NC}"
-    echo -e "${BLUE}║                                                    ║${NC}"
-    echo -e "${BLUE}║  注意: 推荐使用这个目录，因为它被映射到宿主机，      ║${NC}"
-    echo -e "${BLUE}║       数据会持久保存，不会因容器重启而丢失。        ║${NC}"
+    echo -e "${BLUE}║  此功能用于设置MCSManager面板的API接口地址和参数    ║${NC}"
+    echo -e "${BLUE}║  配置文件将保存到: /home/steam/games/config.json   ║${NC}"
     echo -e "${BLUE}║                                                    ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
     
-    echo -e "\n${YELLOW}需要修改SteamCMD配置文件，以确保游戏安装到持久化目录。${NC}"
-    echo -e "是否继续？ [y/n]: "
-    read confirm
+    # 读取当前配置（如果存在）
+    CONFIG_FILE="/home/steam/games/config.json"
+    CURRENT_PANEL_URL=""
+    CURRENT_API_KEY=""
+    CURRENT_DAEMON_UUID=""
+    CURRENT_HOST_PATH=""
+    CURRENT_DOCKER_IMAGE=""
     
-    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-        # 创建或修改SteamCMD配置
-        steam_config_dir="/home/steam/Steam/config"
-        mkdir -p "$steam_config_dir"
+    if [ -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}已找到现有配置文件，正在读取...${NC}"
         
-        echo "\"InstallConfigStore\"
+        # 检查jq命令是否可用
+        if command -v jq &> /dev/null; then
+            # 使用jq读取配置
+            CURRENT_PANEL_URL=$(jq -r '.MCSM.PANEL_URL' "$CONFIG_FILE" 2>/dev/null)
+            CURRENT_API_KEY=$(jq -r '.MCSM.API_KEY' "$CONFIG_FILE" 2>/dev/null)
+            CURRENT_DAEMON_UUID=$(jq -r '.MCSM.DAEMON_UUID' "$CONFIG_FILE" 2>/dev/null)
+            CURRENT_HOST_PATH=$(jq -r '.MCSM.HOST_PATH' "$CONFIG_FILE" 2>/dev/null)
+            CURRENT_DOCKER_IMAGE=$(jq -r '.MCSM.DOCKER_IMAGE' "$CONFIG_FILE" 2>/dev/null)
+            
+            # 检查读取的值是否有效
+            [ "$CURRENT_PANEL_URL" = "null" ] && CURRENT_PANEL_URL=""
+            [ "$CURRENT_API_KEY" = "null" ] && CURRENT_API_KEY=""
+            [ "$CURRENT_DAEMON_UUID" = "null" ] && CURRENT_DAEMON_UUID=""
+            [ "$CURRENT_HOST_PATH" = "null" ] && CURRENT_HOST_PATH=""
+            [ "$CURRENT_DOCKER_IMAGE" = "null" ] && CURRENT_DOCKER_IMAGE=""
+        else
+            # 使用grep和sed简单解析JSON
+            echo -e "${YELLOW}警告: jq命令不可用，使用替代方法解析配置文件${NC}"
+            
+            CURRENT_PANEL_URL=$(grep -o '"PANEL_URL"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"PANEL_URL"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            CURRENT_API_KEY=$(grep -o '"API_KEY"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"API_KEY"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            CURRENT_DAEMON_UUID=$(grep -o '"DAEMON_UUID"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"DAEMON_UUID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            CURRENT_HOST_PATH=$(grep -o '"HOST_PATH"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"HOST_PATH"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            CURRENT_DOCKER_IMAGE=$(grep -o '"DOCKER_IMAGE"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*"DOCKER_IMAGE"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+        fi
+        
+        echo -e "${GREEN}已读取当前配置:${NC}"
+        echo -e "面板地址: $CURRENT_PANEL_URL"
+        echo -e "API密钥: $CURRENT_API_KEY"
+        echo -e "守护进程UUID: $CURRENT_DAEMON_UUID"
+        echo -e "宿主路径: $CURRENT_HOST_PATH"
+        echo -e "Docker镜像: $CURRENT_DOCKER_IMAGE"
+        echo ""
+    else
+        echo -e "${YELLOW}未找到配置文件，将创建新的配置文件${NC}"
+    fi
+    
+    # 询问用户输入配置
+    echo -e "${YELLOW}请输入MCSM面板地址 (例如 http://192.168.10.43:23333)${NC}"
+    echo -e "${YELLOW}留空使用当前值: $CURRENT_PANEL_URL${NC}"
+    read -p "> " PANEL_URL
+    [ -z "$PANEL_URL" ] && PANEL_URL="$CURRENT_PANEL_URL"
+    
+    echo -e "${YELLOW}请输入API密钥${NC}"
+    echo -e "${YELLOW}留空使用当前值: $CURRENT_API_KEY${NC}"
+    read -p "> " API_KEY
+    [ -z "$API_KEY" ] && API_KEY="$CURRENT_API_KEY"
+    
+    echo -e "${YELLOW}请输入守护进程UUID${NC}"
+    echo -e "${YELLOW}留空使用当前值: $CURRENT_DAEMON_UUID${NC}"
+    read -p "> " DAEMON_UUID
+    [ -z "$DAEMON_UUID" ] && DAEMON_UUID="$CURRENT_DAEMON_UUID"
+    
+    echo -e "${YELLOW}请输入宿主机路径 (例如 /dockerwork/game_data)${NC}"
+    echo -e "${YELLOW}留空使用当前值: $CURRENT_HOST_PATH${NC}"
+    read -p "> " HOST_PATH
+    [ -z "$HOST_PATH" ] && HOST_PATH="$CURRENT_HOST_PATH"
+    
+    echo -e "${YELLOW}请输入Docker镜像名称${NC}"
+    echo -e "${YELLOW}留空使用当前值: $CURRENT_DOCKER_IMAGE${NC}"
+    read -p "> " DOCKER_IMAGE
+    [ -z "$DOCKER_IMAGE" ] && DOCKER_IMAGE="$CURRENT_DOCKER_IMAGE"
+    
+    # 创建配置目录（如果不存在）
+    mkdir -p "/home/steam/games"
+    
+    # 创建JSON配置文件
+    echo -e "${YELLOW}正在保存配置...${NC}"
+    cat > "$CONFIG_FILE" << EOL
 {
-	\"Software\"
-	{
-		\"Valve\"
-		{
-			\"Steam\"
-			{
-				\"BaseInstallFolder_1\"		\"/home/steam/games\"
-				\"DownloadThrottleKB\"		\"0\"
-				\"AutoUpdateWindowEnabled\"		\"0\"
-			}
-		}
-	}
-}" > "$steam_config_dir/config.vdf"
-        
-        echo -e "\n${GREEN}已配置SteamCMD默认安装到: /home/steam/games${NC}"
-    fi
-    
-    echo -e "\n${YELLOW}按任意键返回...${NC}"
-    read -n 1
+    "MCSM": {
+        "PANEL_URL": "$PANEL_URL",
+        "API_KEY": "$API_KEY",
+        "DAEMON_UUID": "$DAEMON_UUID",
+        "HOST_PATH": "$HOST_PATH",
+        "DOCKER_IMAGE": "$DOCKER_IMAGE"
+    }
 }
-
-# 管理SteamCMD配置
-function manage_steamcmd_config() {
-    clear
-    echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║            ${GREEN}管理SteamCMD配置${BLUE}                      ║${NC}"
-    echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
+EOL
     
-    # 检查Steam配置目录
-    steam_config="/home/steam/Steam/config/config.vdf"
+    # 设置权限
+    chmod 644 "$CONFIG_FILE"
     
-    if [ -f "$steam_config" ]; then
-        echo -e "${BLUE}║  ${GREEN}已找到SteamCMD配置文件${BLUE}                          ║${NC}"
-        echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
-        echo -e "${BLUE}║  ${YELLOW}[1]${NC} 查看配置文件                                   ${BLUE}║${NC}"
-        echo -e "${BLUE}║  ${YELLOW}[2]${NC} 编辑配置文件                                   ${BLUE}║${NC}"
-        echo -e "${BLUE}║  ${YELLOW}[3]${NC} 重置配置文件                                   ${BLUE}║${NC}"
-    else
-        echo -e "${BLUE}║  ${RED}未找到SteamCMD配置文件${BLUE}                          ║${NC}"
-        echo -e "${BLUE}╠════════════════════════════════════════════════════╣${NC}"
-        echo -e "${BLUE}║  ${YELLOW}[1]${NC} 创建默认配置文件                               ${BLUE}║${NC}"
-    fi
+    echo -e "${GREEN}配置已保存到: $CONFIG_FILE${NC}"
     
-    echo -e "${BLUE}║  ${YELLOW}[0]${NC} 返回上级菜单                                   ${BLUE}║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
+    # 验证配置
+    echo -e "${YELLOW}是否验证配置？ [y/N]${NC}"
+    read -n 1 -r verify_choice
+    echo ""
     
-    echo -e "\n请选择操作: "
-    read config_choice
-    
-    if [ -f "$steam_config" ]; then
-        case $config_choice in
-            1)
-                # 查看配置
-                clear
-                echo -e "${GREEN}SteamCMD配置文件内容:${NC}\n"
-                cat "$steam_config"
-                echo -e "\n${YELLOW}按任意键返回...${NC}"
-                read -n 1
-                ;;
-            2)
-                # 编辑配置
-                nano "$steam_config"
-                ;;
-            3)
-                # 重置配置
-                echo -e "\n${RED}确定要重置配置文件？这将恢复默认设置。(y/n): ${NC}"
-                read confirm
-                if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-                    set_default_install_dir
+    if [[ "$verify_choice" =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}正在验证MCSM配置...${NC}"
+        
+        # 查找MCSM API库文件
+        local mcsm_lib=""
+        for lib_path in \
+            "/home/steam/MCSM/mcsm_api_lib.sh" \
+            "/home/steam/games/MCSM/mcsm_api_lib.sh" \
+            "/MCSM/mcsm_api_lib.sh" \
+            "/home/steam/mcsm_api_lib.sh"; do
+            if [ -f "$lib_path" ]; then
+                mcsm_lib="$lib_path"
+                break
+            fi
+        done
+        
+        if [ -n "$mcsm_lib" ]; then
+            echo -e "${GREEN}找到MCSM API库: $mcsm_lib${NC}"
+            
+            # 尝试加载库文件并重新检查函数是否可用
+            # 解决可能的函数未找到问题
+            . "$mcsm_lib"
+            
+            # 确保所有必要的函数已加载，但不输出详细信息
+            local all_functions_available=true
+            
+            if ! type -t mcsm_set_config &> /dev/null || \
+               ! type -t mcsm_create_custom_instance &> /dev/null || \
+               ! type -t mcsm_delete_instance &> /dev/null; then
+                all_functions_available=false
+            fi
+            
+            if [ "$all_functions_available" = true ]; then
+                # 设置配置，但不输出详细信息
+                mcsm_set_config "$PANEL_URL" "$API_KEY" "$DAEMON_UUID" "$HOST_PATH" "$DOCKER_IMAGE" > /dev/null
+                
+                # 创建测试实例
+                echo -e "${YELLOW}正在创建测试实例...${NC}"
+                timestamp=$(date +%s)
+                test_instance_name="test_config_$timestamp"
+                
+                # 先检查curl是否可用
+                if ! command -v curl &> /dev/null; then
+                    echo -e "${RED}错误: curl命令不可用，无法发送API请求${NC}"
+                    echo -e "${RED}❌ 验证失败! 请安装curl后再试!${NC}"
+                    return 1
                 fi
-                ;;
-            0)
-                # 返回
-                return
-                ;;
-            *)
-                echo -e "${RED}无效选择${NC}"
-                sleep 1
-                ;;
-        esac
+                
+                output=$(mcsm_create_custom_instance "$test_instance_name" "$test_instance_name" "$DOCKER_IMAGE" "echo 'Test'" "[]" '["TEST=true"]' 2>&1)
+                create_status=$?
+                
+                # 从输出中提取UUID
+                local uuid=$(echo "$output" | grep -o '"instanceUuid":"[^"]*' | cut -d'"' -f4)
+                
+                # 如果上面的方法无法获取UUID，尝试其他方法
+                if [ -z "$uuid" ]; then
+                    uuid=$(echo "$output" | grep -o '实例UUID:.*' | cut -d' ' -f2)
+                fi
+                
+                if [ $create_status -eq 0 ] && [ -n "$uuid" ]; then
+                    # 删除测试实例
+                    echo -e "${YELLOW}正在删除测试实例...${NC}"
+                    if mcsm_delete_instance "$uuid" > /dev/null; then
+                        echo -e "${GREEN}✅ 验证成功! 配置正确!${NC}"
+                    else
+                        echo -e "${YELLOW}⚠️ 验证部分成功! 配置可能正确但需要检查!${NC}"
+                        echo -e "${YELLOW}测试实例删除失败，但创建成功，请在面板中手动删除${NC}"
+                    fi
+                else
+                    echo -e "${RED}❌ 验证失败! 配置可能有误!${NC}"
+                    echo -e "${RED}无法创建测试实例${NC}"
+                    # 显示API返回的错误信息
+                    echo -e "${RED}API返回错误:${NC}\n$output"
+                fi
+            else
+                echo -e "${RED}❌ 验证失败! MCSM API库加载失败，缺少必要函数${NC}"
+            fi
+        else
+            echo -e "${RED}❌ 验证失败! 找不到MCSM API库${NC}"
+        fi
     else
-        case $config_choice in
-            1)
-                # 创建配置
-                set_default_install_dir
-                ;;
-            0)
-                # 返回
-                return
-                ;;
-            *)
-                echo -e "${RED}无效选择${NC}"
-                sleep 1
-                ;;
-        esac
+        echo -e "${YELLOW}已跳过验证${NC}"
     fi
     
-    manage_steamcmd_config
+    echo -e "\n${YELLOW}按任意键返回设置菜单...${NC}"
+    read -n 1
+    show_settings
 }
 
 # 添加关于功能
@@ -1180,20 +1453,24 @@ function process_choice() {
             fi
             ;;
         5)
+            # 在线下载服务端
+            download_server
+            ;;
+        6)
             # 打开Shell终端
             clear
             echo -e "${GREEN}进入Shell终端。输入 'exit' 返回菜单。${NC}\n"
             $SHELL
             ;;
-        6)
+        7)
             # 设置
             show_settings
             ;;
-        7)
+        8)
             # 系统信息
             show_system_info
             ;;
-        8)
+        9)
             # 关于
             show_about
             ;;

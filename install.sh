@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# 定义镜像信息（方便统一修改）
+IMAGE_NAME="xiaozhu674/gameserver"
+IMAGE_VERSION="latest"
+GHCR_IMAGE_NAME="yxsj245/gameserver"
+
 # 定义颜色
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -114,13 +119,41 @@ else
     GHCR_OK=false
 fi
 
+# 检测本地Docker配置源是否可用
+echo "正在检测本地Docker镜像源是否可用..."
+LOCAL_REGISTRY_URL=$(docker info 2>/dev/null | grep "Registry" | grep -v "Default" | awk '{print $2}')
+if [ -n "$LOCAL_REGISTRY_URL" ]; then
+    # 尝试HTTPS连接（不验证证书）
+    if curl -sk --connect-timeout 5 "https://$LOCAL_REGISTRY_URL/v2/" &> /dev/null; then
+        echo -e "${GREEN}本地镜像源 $LOCAL_REGISTRY_URL (HTTPS) 连接正常${NC}"
+        LOCAL_REGISTRY_OK=true
+    # 尝试HTTP连接
+    elif curl -s --connect-timeout 5 "http://$LOCAL_REGISTRY_URL/v2/" &> /dev/null; then
+        echo -e "${GREEN}本地镜像源 $LOCAL_REGISTRY_URL (HTTP) 连接正常${NC}"
+        LOCAL_REGISTRY_OK=true
+    # 直接假设可用（因为可能有证书问题但实际可用）
+    else
+        echo -e "${YELLOW}检测到本地镜像源配置 $LOCAL_REGISTRY_URL 但连接测试失败，仍将尝试使用${NC}"
+        LOCAL_REGISTRY_OK=true
+    fi
+else
+    echo -e "${YELLOW}未检测到本地Docker镜像源配置${NC}"
+    LOCAL_REGISTRY_OK=false
+fi
+
 # 根据连接情况决定使用哪个源
-if [ "$DOCKERHUB_OK" = true ]; then
+if [ "$LOCAL_REGISTRY_OK" = true ]; then
+    echo -e "${GREEN}将使用本地镜像源进行安装${NC}"
+    IMAGE_SOURCE="${IMAGE_NAME}:${IMAGE_VERSION}"
+    USE_LOCAL=true
+elif [ "$DOCKERHUB_OK" = true ]; then
     echo -e "${GREEN}将使用Docker Hub作为镜像源进行安装${NC}"
-    IMAGE_SOURCE="docker.io/xiaozhu674/gameserver:latest"
+    IMAGE_SOURCE="docker.io/${IMAGE_NAME}:${IMAGE_VERSION}"
+    USE_LOCAL=false
 elif [ "$GHCR_OK" = true ]; then
     echo -e "${YELLOW}Docker Hub不可用，将使用GitHub Container Registry作为镜像源进行安装${NC}"
-    IMAGE_SOURCE="ghcr.io/yxsj245/gameserver:latest"
+    IMAGE_SOURCE="ghcr.io/${GHCR_IMAGE_NAME}:${IMAGE_VERSION}"
+    USE_LOCAL=false
 else
     echo -e "${RED}由于您当前网络不能够访问到目前支持的镜像仓库站，建议您按照文档手动下载镜像安装${NC}"
     echo -e "${RED}文档地址：http://blogpage.xiaozhuhouses.asia/html4/index.html#/./docs/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8${NC}"
@@ -129,12 +162,63 @@ fi
 
 # 拉取所需的Docker镜像
 echo "正在拉取所需的Docker镜像..."
-if [ "$DOCKERHUB_OK" = true ]; then
-    echo "正在从Docker Hub拉取镜像..."
+if [ "$USE_LOCAL" = true ]; then
+    echo "正在从本地镜像源拉取镜像..."
+    echo -e "${YELLOW}执行命令: docker pull $IMAGE_SOURCE${NC}"
     docker pull $IMAGE_SOURCE
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}从本地镜像源拉取镜像失败，错误命令：docker pull $IMAGE_SOURCE${NC}"
+        echo -e "${YELLOW}尝试从Docker Hub拉取...${NC}"
+        if [ "$DOCKERHUB_OK" = true ]; then
+            IMAGE_SOURCE="docker.io/${IMAGE_NAME}:${IMAGE_VERSION}"
+            echo -e "${YELLOW}执行命令: docker pull $IMAGE_SOURCE${NC}"
+            docker pull $IMAGE_SOURCE
+            if [ $? -ne 0 ]; then
+                echo -e "${RED}从Docker Hub拉取镜像失败，尝试GitHub Container Registry${NC}"
+                if [ "$GHCR_OK" = true ]; then
+                    IMAGE_SOURCE="ghcr.io/${GHCR_IMAGE_NAME}:${IMAGE_VERSION}"
+                    echo -e "${YELLOW}执行命令: docker pull $IMAGE_SOURCE${NC}"
+                    docker pull $IMAGE_SOURCE
+                    if [ $? -ne 0 ]; then
+                        echo -e "${RED}所有镜像源拉取失败，请检查网络连接或手动下载镜像${NC}"
+                        exit 1
+                    fi
+                else
+                    echo -e "${RED}GitHub Container Registry不可用，无法继续${NC}"
+                    exit 1
+                fi
+            fi
+        elif [ "$GHCR_OK" = true ]; then
+            IMAGE_SOURCE="ghcr.io/${GHCR_IMAGE_NAME}:${IMAGE_VERSION}"
+            echo -e "${YELLOW}执行命令: docker pull $IMAGE_SOURCE${NC}"
+            docker pull $IMAGE_SOURCE
+            if [ $? -ne 0 ]; then
+                echo -e "${RED}从GitHub Container Registry拉取镜像失败，请检查网络连接或手动下载镜像${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${RED}无可用镜像源，请手动下载镜像${NC}"
+            exit 1
+        fi
+    fi
+elif [ "$DOCKERHUB_OK" = true ]; then
+    echo "正在从Docker Hub拉取镜像..."
+    echo -e "${YELLOW}执行命令: docker pull $IMAGE_SOURCE${NC}"
+    docker pull $IMAGE_SOURCE
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}从Docker Hub拉取镜像失败，错误命令：docker pull $IMAGE_SOURCE${NC}"
+        echo -e "${RED}请检查网络连接或手动下载镜像${NC}"
+        exit 1
+    fi
 elif [ "$GHCR_OK" = true ]; then
     echo "正在从GitHub Container Registry拉取镜像..."
+    echo -e "${YELLOW}执行命令: docker pull $IMAGE_SOURCE${NC}"
     docker pull $IMAGE_SOURCE
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}从GitHub Container Registry拉取镜像失败，错误命令：docker pull $IMAGE_SOURCE${NC}"
+        echo -e "${RED}请检查网络连接或手动下载镜像${NC}"
+        exit 1
+    fi
 fi
 
 # 创建所需目录
@@ -205,6 +289,6 @@ EOF
 echo -e "${GREEN}配置文件已创建！${NC}"
 echo -e "${YELLOW}请检查docker-compose.yml文件中的配置是否正确${NC}"
 echo -e "${GREEN}安装完成！您可以使用以下命令启动服务器：${NC}"
-echo -e "${YELLOW}docker-compose up -d${NC}"
-echo -e "${GREEN}查看服务器日志：${NC}"
-echo -e "${YELLOW}docker-compose logs -f${NC}"
+echo -e "${YELLOW}docker-compose up -d 或 docker-compose -p docker-compose up -d${NC}"
+echo -e "${GREEN}使用以下命令进入容器：${NC}"
+echo -e "${YELLOW}docker attach game_server${NC}"

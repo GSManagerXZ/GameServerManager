@@ -10,7 +10,7 @@ NC='\033[0m' # 无颜色
 # 创作声明
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${BLUE}创作声明：本脚本由${GREEN} 又菜又爱玩的小猪 ${BLUE}独立制作${NC}"
-echo -e "${BLUE}项目完全开源，开源协议GPL3.0${NC}"
+echo -e "${BLUE}项目完全开源，开源协议AGPL3.0${NC}"
 echo -e "${BLUE}允许商业用途但请勿倒卖！${NC}"
 echo -e "${BLUE}=================================================${NC}"
 echo ""
@@ -147,101 +147,6 @@ mcsm_set_config_and_save() {
   mcsm_save_config
 }
 
-# 创建Docker实例 - 基本版本
-mcsm_create_instance() {
-  local nickname="$1"
-  local game_name="$2"
-  local image="$3"
-  
-  # 设置卷映射 - 只映射HOST_PATH到容器内的games目录
-  local volumes="$MCSM_HOST_PATH|/home/steam/games"
-  
-  # 构建请求
-  local request_data='{
-    "nickname": "'$nickname'",
-    "startCommand": "",
-    "stopCommand":  "^C",
-    "cwd": "'$MCSM_HOST_PATH'/'$nickname'",
-    "ie": "utf8",
-    "oe": "utf8",
-    "type": "steam/universal",
-    "tag": [],
-    "endTime": 0,
-    "fileCode": "utf8",
-    "processType": "docker",
-    "updateCommand": "",
-    "actionCommandList": [],
-    "crlf": 2,
-    "docker": {
-      "image": "'$image'",
-      "workingDir":"",
-      "ports": [],
-      "extraVolumes": [
-        "'$volumes'"
-      ],
-      "env": [
-        "AUTO_UPDATE=false",
-        "GAME_TO_RUN='$game_name'"
-      ]
-    }
-  }'
-  
-  # 构建API URL
-  local api_url="$MCSM_PANEL_URL/api/instance?apikey=$MCSM_API_KEY&daemonId=$MCSM_DAEMON_UUID"
-  
-  # 发送请求
-  echo -e "${BLUE}正在创建实例: $nickname${NC}"
-  local response=$(curl --location --request POST "$api_url" \
-    --header 'X-Requested-With: XMLHttpRequest' \
-    --header 'Content-Type: application/json; charset=utf-8' \
-    --header 'Accept: */*' \
-    --data-raw "$request_data")
-  
-  # 解析响应
-  if [[ "$response" == *"\"status\":200"* ]]; then
-    echo -e "${GREEN}创建实例成功: $nickname${NC}"
-    
-    # 提取instanceUuid
-    local instance_uuid=$(echo "$response" | grep -o '"instanceUuid":"[^"]*' | cut -d'"' -f4)
-    if [ -n "$instance_uuid" ]; then
-      echo -e "${BLUE}实例UUID:${NC} $instance_uuid"
-    fi
-    
-    return 0
-  else
-    echo -e "${RED}创建实例失败: $nickname${NC}"
-    echo -e "${YELLOW}错误信息:${NC} $response"
-    return 1
-  fi
-}
-
-# 创建Minecraft Java版实例
-mcsm_create_minecraft_java() {
-  local nickname="${1:-Minecraft Java服务器}"
-  local game_name="${2:-minecraft_java}"
-  local image="${3:-itzg/minecraft-server:latest}"
-  
-  mcsm_create_instance "$nickname" "$game_name" "$image"
-}
-
-# 创建Minecraft基岩版实例
-mcsm_create_minecraft_bedrock() {
-  local nickname="${1:-Minecraft基岩版服务器}"
-  local game_name="${2:-minecraft_bedrock}"
-  local image="${3:-itzg/minecraft-bedrock-server:latest}"
-  
-  mcsm_create_instance "$nickname" "$game_name" "$image"
-}
-
-# 创建Steam游戏服务器实例
-mcsm_create_steam_server() {
-  local nickname="${1:-Steam游戏服务器}"
-  local game_name="${2:-steam_server}"
-  
-  echo -e "${BLUE}使用Docker镜像:${NC} $MCSM_DOCKER_IMAGE"
-  mcsm_create_instance "$nickname" "$game_name" "$MCSM_DOCKER_IMAGE"
-}
-
 # 创建自定义实例
 mcsm_create_custom_instance() {
   local nickname="$1"
@@ -313,16 +218,37 @@ mcsm_create_custom_instance() {
   fi
 }
 
-# 示例用法 (仅供参考)
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo -e "${YELLOW}这是一个库文件，不应直接执行。${NC}"
-  echo -e "${GREEN}示例用法:${NC}"
-  echo "source ./$(basename "$0")"
-  echo 'mcsm_set_config "http://localhost:23333" "your_api_key" "daemon_uuid" "/path/to/games" "dockerwork-steam-server:latest"'
-  echo 'mcsm_set_config_and_save "http://localhost:23333" "your_api_key" "daemon_uuid" "/path/to/games" "dockerwork-steam-server:latest" # 设置并保存到配置文件'
-  echo 'mcsm_save_config # 保存当前配置到文件'
-  echo 'mcsm_create_minecraft_java "我的Java服务器" "minecraft_server_1" "itzg/minecraft-server:latest"'
-  echo 'mcsm_create_minecraft_bedrock "我的基岩版服务器" "bedrock_server_1" "itzg/minecraft-bedrock-server:latest"'
-  echo 'mcsm_create_steam_server "我的Steam服务器" "steam_server_1"'
-  echo 'mcsm_create_custom_instance "自定义服务器" "custom_server" "custom/image:tag" "启动命令" "[{\"hostPort\":\"25565\",\"containerPort\":\"25565\",\"protocol\":\"tcp\"}]" "[\"ENV1=value1\",\"ENV2=value2\"]"'
-fi 
+# 删除实例
+mcsm_delete_instance() {
+  local instance_uuid="$1"
+  local delete_file="${2:-false}"  # 默认不删除文件
+  
+  # 构建请求数据
+  local request_data='{
+    "uuids": [
+      "'$instance_uuid'"
+    ],
+    "deleteFile": '$delete_file'
+  }'
+  
+  # 构建API URL
+  local api_url="$MCSM_PANEL_URL/api/instance?apikey=$MCSM_API_KEY&daemonId=$MCSM_DAEMON_UUID"
+  
+  # 发送请求
+  echo -e "${BLUE}正在删除实例: $instance_uuid${NC}"
+  local response=$(curl --location --request DELETE "$api_url" \
+    --header 'X-Requested-With: XMLHttpRequest' \
+    --header 'Content-Type: application/json; charset=utf-8' \
+    --header 'Accept: */*' \
+    --data-raw "$request_data")
+  
+  # 解析响应
+  if [[ "$response" == *"\"status\":200"* ]]; then
+    echo -e "${GREEN}删除实例成功: $instance_uuid${NC}"
+    return 0
+  else
+    echo -e "${RED}删除实例失败: $instance_uuid${NC}"
+    echo -e "${YELLOW}错误信息:${NC} $response"
+    return 1
+  fi
+} 

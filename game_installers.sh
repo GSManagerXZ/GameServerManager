@@ -5,6 +5,10 @@
 # 版本: 2.0.0
 # 更新日期: 2023-06-01
 
+# DEBUG模式设置
+# 设置为true将跳过实际的游戏安装过程，仅执行脚本剩余部分
+DEBUG_MODE=true
+
 # 颜色定义
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -51,16 +55,12 @@ ask_create_mcsm_instance() {
     local image="${3:-dockerwork-steam-server:latest}"
     local start_command="${4:-./start.sh}"
     
-    echo -e "\n${BLUE}╔════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║           ${GREEN}MCSManager服务注册${BLUE}                    ║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
-    
-    echo -e "\n${YELLOW}是否要将此游戏服务器注册到MCSManager面板？[y/N]${NC}"
+    echo -e "\n${BLUE}是否要将此游戏服务器注册到MCSManager面板？[y/N]${NC}"
     read -n 1 -r register_choice
     echo ""
     
     if [[ "$register_choice" =~ ^[Yy]$ ]]; then
-        # 首先尝试使用容器内置的MCSM库文件(Dockerfile复制的)，然后再查找其他位置
+        # 查找MCSM库文件
         local mcsm_lib=""
         for lib_path in \
             "/home/steam/MCSM/mcsm_api_lib.sh" \
@@ -74,24 +74,25 @@ ask_create_mcsm_instance() {
         done
         
         if [ -n "$mcsm_lib" ]; then
-            echo -e "${GREEN}找到MCSManager API库: $mcsm_lib${NC}"
-            echo -e "${GREEN}正在加载MCSManager API库...${NC}"
+            # 在DEBUG模式下显示使用的库文件
+            if [ "$DEBUG_MODE" = true ]; then
+                echo -e "${YELLOW}DEBUG: 使用MCSM库文件: $mcsm_lib${NC}"
+            fi
             
             # 尝试加载库文件
             if source "$mcsm_lib"; then
                 # 检查必要的函数是否存在
                 if ! type mcsm_create_custom_instance >/dev/null 2>&1; then
-                    echo -e "${RED}错误: MCSManager API库加载失败，找不到必要的函数${NC}"
-                    echo -e "${YELLOW}跳过创建MCSManager实例${NC}"
+                    echo -e "${RED}错误: MCSManager API库加载失败${NC}"
                     return 1
                 fi
                 
                 # 检查是否读取到配置中的镜像名称
                 if [ -n "$MCSM_DOCKER_IMAGE" ]; then
-                    echo -e "${GREEN}从配置文件读取到Docker镜像: $MCSM_DOCKER_IMAGE${NC}"
                     image="$MCSM_DOCKER_IMAGE"
-                else
-                    echo -e "${YELLOW}未从配置读取到Docker镜像，使用默认值: $image${NC}"
+                    if [ "$DEBUG_MODE" = true ]; then
+                        echo -e "${YELLOW}DEBUG: 使用配置镜像: $image${NC}"
+                    fi
                 fi
                 
                 # 设置端口映射（通过游戏名查找）
@@ -162,37 +163,61 @@ ask_create_mcsm_instance() {
                         ;;                                            
                 esac
                 
+                # 在DEBUG模式下显示端口信息
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo -e "${YELLOW}DEBUG: 使用端口映射: $ports${NC}"
+                fi
+                
                 # 设置环境变量
                 local env='["AUTO_UPDATE=false","GAME_TO_RUN='$game_name'"]'
                 
-                # 创建实例
-                mcsm_create_custom_instance "$server_name" "$game_name" "$image" "$start_command" "$ports" "$env"
+                # 创建实例，捕获输出
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo -e "${YELLOW}DEBUG: 执行命令 mcsm_create_custom_instance 参数如下:${NC}"
+                    echo -e "${YELLOW}DEBUG: 服务器名: $server_name${NC}"
+                    echo -e "${YELLOW}DEBUG: 游戏名称: $game_name${NC}"
+                    echo -e "${YELLOW}DEBUG: 镜像: $image${NC}"
+                    echo -e "${YELLOW}DEBUG: 启动命令: $start_command${NC}"
+                    echo -e "${YELLOW}DEBUG: 端口映射: $ports${NC}"
+                    echo -e "${YELLOW}DEBUG: 环境变量: $env${NC}"
+                fi
                 
-                if [ $? -eq 0 ]; then
-                    echo -e "${GREEN}MCSManager实例创建成功！${NC}"
-                    echo -e "${YELLOW}您可以在MCSManager面板中管理此服务器${NC}"
+                local output=$(mcsm_create_custom_instance "$server_name" "$game_name" "$image" "$start_command" "$ports" "$env" 2>&1)
+                local status=$?
+                
+                # 在DEBUG模式下始终显示完整输出
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo -e "${YELLOW}DEBUG: API完整输出:${NC}"
+                    echo "$output"
+                fi
+                
+                # 从输出中提取UUID
+                local uuid=$(echo "$output" | grep -o '实例UUID:.*' | cut -d' ' -f2)
+                
+                if [ $status -eq 0 ]; then
+                    echo -e "${GREEN}MCSManager实例创建成功${NC}"
+                    if [ -n "$uuid" ]; then
+                        echo -e "${GREEN}实例UUID: ${BLUE}$uuid${NC}"
+                    else
+                        # 调试输出，如果没有找到UUID
+                        echo -e "${YELLOW}未能从输出中提取UUID${NC}"
+                    fi
                     return 0
                 else
-                    echo -e "${RED}MCSManager实例创建失败，请手动创建${NC}"
+                    echo -e "${RED}MCSManager实例创建失败：${NC}"
+                    echo -e "${RED}$output${NC}"
                     return 1
                 fi
             else
                 echo -e "${RED}错误: 无法加载MCSManager API库${NC}"
-                echo -e "${YELLOW}跳过创建MCSManager实例${NC}"
                 return 1
             fi
         else
             echo -e "${RED}错误: 找不到MCSManager API库${NC}"
-            echo -e "${YELLOW}未找到以下任何位置的库文件:${NC}"
-            echo -e "  - /home/steam/MCSM/mcsm_api_lib.sh (容器内置)"
-            echo -e "  - /home/steam/games/MCSM/mcsm_api_lib.sh (挂载目录)"
-            echo -e "  - /MCSM/mcsm_api_lib.sh"
-            echo -e "  - /home/steam/mcsm_api_lib.sh"
-            echo -e "${YELLOW}请确保MCSM库文件已正确安装${NC}"
             return 1
         fi
     else
-        echo -e "${YELLOW}跳过创建MCSManager实例${NC}"
+        echo -e "${YELLOW}已跳过创建MCSManager实例${NC}"
         return 0
     fi
 }
@@ -243,6 +268,20 @@ install_steam_game() {
     local install_dir="$GAMES_DIR/$game_name"
     
     echo -e "${GREEN}正在安装 $game_name (AppID: $app_id) 到 $install_dir...${NC}\n"
+    
+    # 如果处于DEBUG模式，则跳过实际安装
+    if [ "$DEBUG_MODE" = true ]; then
+        echo -e "${YELLOW}DEBUG模式：跳过实际安装过程${NC}"
+        
+        # 确保目录存在，便于后续步骤
+        mkdir -p "$install_dir"
+        
+        # 模拟成功安装
+        echo "$app_id" > "$install_dir/steam_appid.txt"
+        echo -e "${GREEN}DEBUG模式：模拟 $game_name 安装成功!${NC}"
+        return 0
+    fi
+    
     echo -e "${YELLOW}这可能需要一段时间，请耐心等待...${NC}\n"
     
     # 创建安装目录
@@ -556,6 +595,17 @@ run_installer() {
 
 # 如果直接运行此脚本，显示可用安装脚本列表并循环处理选择
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # 解析命令行参数
+    for arg in "$@"; do
+        case $arg in
+            --debug)
+                DEBUG_MODE=true
+                echo -e "${YELLOW}已启用DEBUG模式${NC}"
+                shift
+                ;;
+        esac
+    done
+    
     # 检查并安装必要的工具
     if ! command -v jq &> /dev/null; then
         echo -e "${YELLOW}正在安装必要的工具（jq）...${NC}"
