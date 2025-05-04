@@ -7,7 +7,7 @@
 
 # DEBUG模式设置
 # 设置为true将跳过实际的游戏安装过程，仅执行脚本剩余部分
-DEBUG_MODE=true
+DEBUG_MODE=false
 
 # 颜色定义
 GREEN='\033[0;32m'
