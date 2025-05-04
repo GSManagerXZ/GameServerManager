@@ -2,6 +2,7 @@
    [快速部署](https://github.com/yxsj245/gameserver_container/blob/main/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
    [已确认兼容的游戏](https://github.com/yxsj245/gameserver_container/blob/main/已确认兼容的游戏.md)
    [文档站](http://blogpage.xiaozhuhouses.asia/html4/index.html#/)
+   [赞助项目](https://github.com/yxsj245/gameserver_container/blob/main/%E8%B5%9E%E5%8A%A9%E9%A1%B9%E7%9B%AE.md)
 
 # 社交媒体平台
 ### [bilibili](https://www.bilibili.com/video/BV1YiLqz7EVX/)
