@@ -1,0 +1,606 @@
+/* 全局样式 */
+:root {
+  --sider-width: 200px;
+  --sider-collapsed-width: 80px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 页面布局样式 */
+.site-layout {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* 固定侧边栏样式 */
+.fixed-sider {
+  position: fixed;
+  height: 100vh;
+  overflow: auto;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+}
+
+/* 内容区域样式，根据侧边栏的展开/折叠状态调整 */
+.content-with-fixed-sider {
+  transition: margin-left 0.2s;
+}
+
+.content-with-fixed-sider.sider-collapsed {
+  margin-left: var(--sider-collapsed-width);
+}
+
+.content-with-fixed-sider.sider-expanded {
+  margin-left: var(--sider-width);
+}
+
+.site-header {
+  background: #fff;
+  padding: 0 24px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.header-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #1677ff;
+}
+
+.logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1677ff;
+  font-size: 18px;
+  font-weight: bold;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 8px;
+}
+
+.logo .anticon {
+  font-size: 24px;
+  margin-right: 8px;
+}
+
+/* 容器信息页面样式 */
+.container-info {
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.container-info .page-header {
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.resource-cards {
+  margin-bottom: 24px;
+}
+
+.resource-cards .ant-card {
+  text-align: center;
+}
+
+.resource-cards .ant-progress {
+  margin-bottom: 16px;
+}
+
+.games-tables .ant-card {
+  height: 100%;
+}
+
+/* 游戏管理页面样式 */
+.game-cards {
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.game-tip {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 300px;
+  flex-direction: column;
+}
+
+.server-management {
+  margin-top: 24px;
+}
+
+.server-controls {
+  margin-bottom: 16px;
+}
+
+.running-servers {
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.empty-servers {
+  text-align: center;
+  padding: 24px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  color: #888;
+}
+
+/* 终端样式 */
+.terminal-container {
+  display: flex;
+  flex-direction: column;
+  height: 400px;
+  background-color: #000;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.terminal {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.terminal-loading {
+  display: flex;
+  align-items: center;
+  color: #40a9ff;
+  margin-top: 8px;
+}
+
+.terminal-loading .ant-spin {
+  margin-right: 8px;
+}
+
+.terminal-complete {
+  color: #52c41a;
+  border-top: 1px solid #333;
+  padding-top: 8px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.terminal-input-container {
+  padding: 8px;
+  border-top: 1px solid #333;
+}
+
+/* 响应式样式 */
+@media (max-width: 768px) {
+  .site-header {
+    padding: 0 12px;
+  }
+  
+  .resource-cards .ant-col {
+    width: 100%;
+    margin-bottom: 16px;
+  }
+  
+  .games-tables .ant-col {
+    width: 100%;
+    margin-bottom: 16px;
+  }
+}
+
+.layout {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #e0e7ff 0%, #f5f7fa 100%);
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  background: #001529;
+  padding: 0 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+}
+
+.navbar a {
+  color: rgba(255, 255, 255, 0.85);
+  margin-right: 20px;
+  font-size: 16px;
+  transition: color 0.3s ease;
+}
+
+.navbar a:hover {
+  color: #fff;
+}
+
+.content {
+  padding: 0;
+  min-height: 600px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.app-container {
+  max-width: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.footer {
+  text-align: center;
+  background: transparent;
+  color: #888;
+  font-size: 15px;
+  margin-top: 32px;
+}
+
+.games-container {
+  margin-top: 32px;
+}
+
+.game-card {
+  border-radius: 16px !important;
+  box-shadow: 0 4px 24px rgba(22,119,255,0.08);
+  border: none !important;
+  transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), box-shadow 0.3s;
+  background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
+  min-height: 180px;
+  position: relative;
+  overflow: hidden;
+}
+
+.game-card:hover {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 8px 32px rgba(22,119,255,0.18);
+}
+
+.ant-card-head-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1677ff;
+}
+
+.ant-btn-primary {
+  background: linear-gradient(90deg, #1677ff 0%, #69b1ff 100%);
+  border: none;
+  font-weight: 500;
+  transition: box-shadow 0.2s;
+}
+
+.ant-btn-primary:hover, .ant-btn-primary:focus {
+  background: linear-gradient(90deg, #4096ff 0%, #1677ff 100%);
+  box-shadow: 0 2px 8px rgba(22,119,255,0.15);
+}
+
+/* 修复匿名安装按钮灰色问题 */
+.ant-card-actions .ant-btn[disabled] {
+  background: linear-gradient(90deg, #1677ff 0%, #69b1ff 100%) !important;
+  color: white !important;
+  cursor: pointer !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* 添加更强力的CSS覆盖 */
+.ant-card-actions button[disabled],
+.ant-card-actions button[disabled]:hover,
+.ant-card-actions button[disabled]:active,
+.ant-card-actions button[disabled]:focus {
+  background: linear-gradient(90deg, #1677ff 0%, #69b1ff 100%) !important;
+  color: white !important;
+  cursor: pointer !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  border-color: #1677ff !important;
+}
+
+/* 直接设置每个Card actions按钮样式 */
+.ant-card-actions > li > span .ant-btn {
+  background: linear-gradient(90deg, #1677ff 0%, #69b1ff 100%);
+  color: white;
+  border: none;
+}
+
+/* 面板动画 - 优化防止重复触发 */
+/*
+.ant-modal-root .ant-modal-wrap {
+  animation: none !important; /* 禁用默认动画 */
+}
+
+.ant-modal {
+  animation-name: panelFadeIn !important;
+  animation-duration: 0.4s !important;
+  animation-timing-function: cubic-bezier(.34,1.56,.64,1) !important;
+  animation-fill-mode: both !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transform-origin: center !important;
+  pointer-events: auto !important;
+}
+
+@keyframes panelFadeIn {
+  0% { transform: scale(0.95) translateY(40px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.ant-modal-mask {
+  animation-duration: 0.3s !important;
+  animation-fill-mode: both !important;
+  animation-iteration-count: 1 !important;
+}
+*/
+
+.game-tip {
+  margin-top: 20px;
+  padding: 14px 18px;
+  background: linear-gradient(90deg, #f0f6ff 0%, #fff 100%);
+  border-radius: 8px;
+  font-size: 15px;
+  color: #333;
+  box-shadow: 0 2px 8px rgba(22,119,255,0.04);
+}
+
+.game-tip h4 {
+  margin-bottom: 8px;
+  color: #1677ff;
+  font-size: 16px;
+}
+
+/* 终端面板风格 */
+.terminal-container {
+  background: #181c27;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  padding: 12px 0 0 0;
+  margin-bottom: 8px;
+}
+.terminal {
+  background: #181c27;
+  color: #00ff90;
+  font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', monospace;
+  padding: 16px;
+  border-radius: 10px;
+  height: 340px;
+  overflow-y: auto;
+  text-align: left;
+  white-space: pre-wrap;
+  font-size: 15px;
+  box-shadow: none;
+}
+.terminal .green { color: #00ff90; }
+.terminal .yellow { color: #ffe066; }
+.terminal .red { color: #ff4d4f; }
+.terminal .blue { color: #40a9ff; }
+.terminal-loading { color: #69b1ff; margin-top: 8px; }
+.terminal-complete { color: #00ff90; margin-top: 8px; font-weight: bold; }
+
+/* 终端输入框样式 */
+.terminal-input-container {
+  padding: 8px 16px 16px 16px;
+  background: #181c27;
+  border-radius: 0 0 10px 10px;
+}
+
+.terminal-input-container .ant-input-affix-wrapper {
+  background: #252a37;
+  border: 1px solid #323846;
+  color: #00ff90;
+}
+
+.terminal-input-container .ant-input {
+  background: #252a37;
+  color: #00ff90;
+  font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', monospace;
+}
+
+.terminal-input-container .ant-input::placeholder {
+  color: rgba(0, 255, 144, 0.4);
+}
+
+/* 添加自定义游戏卡片样式 */
+.custom-game-card {
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(22,119,255,0.08);
+  background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
+  min-height: 180px;
+  position: relative;
+  overflow: hidden;
+  padding: 16px;
+  transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), box-shadow 0.3s;
+}
+
+.custom-game-card:hover {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 8px 32px rgba(22,119,255,0.18);
+}
+
+.custom-game-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.custom-game-card .card-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1677ff;
+}
+
+.custom-game-card .card-content {
+  margin-bottom: 15px;
+}
+
+.custom-game-card .card-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+/* 自定义按钮样式 */
+.btn-primary {
+  background: linear-gradient(90deg, #1677ff 0%, #69b1ff 100%);
+  color: white;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(90deg, #4096ff 0%, #1677ff 100%);
+  box-shadow: 0 2px 8px rgba(22,119,255,0.15);
+}
+
+.btn-default {
+  background: #f0f0f0;
+  color: #000;
+  padding: 6px 16px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 8px;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.btn-default:hover {
+  background: #e6e6e6;
+  border-color: #bfbfbf;
+}
+
+/* 内容区域样式 */
+.ant-layout-content {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 !important;
+  padding: 16px;
+}
+
+/* 停止服务器按钮样式 */
+.stop-server-dropdown .ant-dropdown-menu {
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+
+.stop-server-dropdown .ant-dropdown-menu-item {
+  padding: 8px 16px;
+  transition: all 0.3s;
+}
+
+.stop-server-dropdown .ant-dropdown-menu-item-danger {
+  color: #ff4d4f;
+}
+
+.stop-server-dropdown .ant-dropdown-menu-item-danger:hover {
+  background-color: #fff1f0;
+}
+
+/* 游戏卡片中的封面图片样式 */
+.game-cover {
+  width: 100%;
+  height: 160px;
+  background-color: #f0f0f0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 4px 4px 0 0;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.game-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.game-cover-placeholder {
+  color: #999;
+  font-size: 48px;
+}
+
+/* 详情按钮样式 */
+.btn-info {
+  background-color: #1890ff;
+  color: white;
+  border: none;
+  padding: 5px 15px;
+  border-radius: 2px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.btn-info:hover {
+  background-color: #40a9ff;
+}
+
+/* 详情对话框中的游戏提示样式 */
+.game-detail-tip {
+  padding: 10px;
+  background-color: #f6f6f6;
+  border-left: 4px solid #1890ff;
+  margin: 10px 0;
+  border-radius: 0 4px 4px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 游戏卡片样式优化 */
+.custom-game-card {
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: all 0.3s;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.custom-game-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.card-content {
+  flex: 1;
+  padding: 0 16px;
+} 
