@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Table, Button, Input, Modal, Form, 
   Space, message, Breadcrumb, Menu, Dropdown, 
@@ -81,6 +81,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     pageSize: 20,
   });
 
+  // 创建函数引用，避免循环依赖
+  const copyToClipboardRef = useRef<(file: FileInfo) => void>();
+  const cutToClipboardRef = useRef<(file: FileInfo) => void>();
+  const pasteFromClipboardRef = useRef<() => void>();
+  const loadDirectoryRef = useRef<(path: string) => void>();
+
   // 创建包含认证信息的请求头
   const getHeaders = () => {
     const token = localStorage.getItem('auth_token');
@@ -142,6 +148,62 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     };
   }, []);
 
+  // 添加键盘事件监听器
+  useEffect(() => {
+    // 在 useEffect 内部定义处理函数，避免循环依赖
+    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
+      // 如果有模态框打开，不处理快捷键
+      if (isEditModalVisible || isRenameModalVisible || isPreviewModalVisible || 
+          isNewFolderModalVisible || isNewFileModalVisible || isUploadModalVisible) {
+        return;
+      }
+
+      // 只有当按下Ctrl键时才处理
+      if (e.ctrlKey) {
+        switch (e.key.toLowerCase()) {
+          case 'c': // Ctrl+C: 复制
+            e.preventDefault();
+            if (selectedFiles.length > 0 && copyToClipboardRef.current) {
+              // 目前只支持复制单个文件，所以只复制第一个选中的文件
+              copyToClipboardRef.current(selectedFiles[0]);
+            }
+            break;
+          case 'x': // Ctrl+X: 剪切
+            e.preventDefault();
+            if (selectedFiles.length > 0 && cutToClipboardRef.current) {
+              // 目前只支持剪切单个文件，所以只剪切第一个选中的文件
+              cutToClipboardRef.current(selectedFiles[0]);
+            }
+            break;
+          case 'v': // Ctrl+V: 粘贴
+            e.preventDefault();
+            if (clipboard && pasteFromClipboardRef.current) {
+              pasteFromClipboardRef.current();
+            } else {
+              message.info('剪贴板为空');
+            }
+            break;
+          default:
+            break;
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => {
+      document.removeEventListener('keydown', handleKeyboardShortcuts);
+    };
+  }, [
+    selectedFiles, 
+    clipboard, 
+    isEditModalVisible, 
+    isRenameModalVisible, 
+    isPreviewModalVisible, 
+    isNewFolderModalVisible, 
+    isNewFileModalVisible, 
+    isUploadModalVisible
+  ]);
+
   // 检查文件是否为图片
   const isImageFile = (filename: string): boolean => {
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
@@ -149,46 +211,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     return imageExtensions.some(ext => lowerFilename.endsWith(ext));
   };
 
-  // 加载目录内容
-  const loadDirectory = async (path: string) => {
-    setLoading(true);
-    try {
-      const response = await axios.get(`/api/files`, {
-        params: { path }
-      });
-      
-      if (response.data.status === 'success') {
-        setFiles(response.data.files || []);
-        // 使用服务器返回的实际路径，它可能与请求的路径不同
-        const actualPath = response.data.path || path;
-        setCurrentPath(actualPath);
-        updateBreadcrumb(actualPath);
-        // 切换目录时重置分页到第一页，但保留页面大小
-        setPagination(prev => ({
-          ...prev,
-          current: 1
-        }));
-        
-        // 如果服务器返回了消息，显示提示
-        if (response.data.message) {
-          message.info(response.data.message);
-        }
-      } else {
-        message.error(response.data.message || '无法加载目录');
-        // 如果路径无效，尝试导航到上一级目录
-        navigateToParentDirectory(path);
-      }
-    } catch (error: any) {
-      message.error(`加载目录失败: ${error.message}`);
-      // 如果发生错误，尝试导航到上一级目录
-      navigateToParentDirectory(path);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // 更新面包屑导航
-  const updateBreadcrumb = (path: string) => {
+  const updateBreadcrumb = useCallback((path: string) => {
     const parts = path.split('/').filter(part => part);
     let items = [{ path: '/', title: '根目录' }];
     
@@ -202,49 +226,170 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     });
     
     setBreadcrumbItems(items);
-  };
+  }, []);
 
-  // 导航到父目录
-  const navigateToParentDirectory = (currentPath: string) => {
-    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
-    // 如果父目录就是当前目录，则导航到根目录
-    if (parentPath === currentPath) {
-      navigateToDirectory('/');
-    } else {
-      navigateToDirectory(parentPath);
+  // 加载目录内容
+  const loadDirectory = useCallback(async (path: string) => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`/api/files`, {
+        params: { path }
+      });
+      
+      if (response.data.status === 'success') {
+        setFiles(response.data.files || []);
+        // 使用服务器返回的实际路径，它可能与请求的路径不同
+        const actualPath = response.data.path || path;
+        setCurrentPath(actualPath);
+        
+        // 更新面包屑
+        const parts = actualPath.split('/').filter(part => part);
+        let items = [{ path: '/', title: '根目录' }];
+        
+        let currentBreadcrumbPath = '';
+        parts.forEach(part => {
+          currentBreadcrumbPath += `/${part}`;
+          items.push({
+            path: currentBreadcrumbPath,
+            title: part
+          });
+        });
+        
+        setBreadcrumbItems(items);
+        
+        // 切换目录时重置分页到第一页，但保留页面大小
+        setPagination(prev => ({
+          ...prev,
+          current: 1
+        }));
+        
+        // 如果服务器返回了消息，显示提示
+        if (response.data.message) {
+          message.info(response.data.message);
+        }
+      } else {
+        message.error(response.data.message || '无法加载目录');
+        // 如果路径无效，尝试导航到上一级目录
+        const parentPath = path.split('/').slice(0, -1).join('/') || '/';
+        if (parentPath !== path) {
+          loadDirectory(parentPath);
+        } else {
+          loadDirectory('/');
+        }
+      }
+    } catch (error: any) {
+      message.error(`加载目录失败: ${error.message}`);
+      // 如果发生错误，尝试导航到上一级目录
+      const parentPath = path.split('/').slice(0, -1).join('/') || '/';
+      if (parentPath !== path) {
+        loadDirectory(parentPath);
+      } else {
+        loadDirectory('/');
+      }
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
+
+  // 更新loadDirectoryRef
+  loadDirectoryRef.current = loadDirectory;
+
+  // 复制文件/文件夹到剪贴板
+  const copyToClipboard = useCallback((file: FileInfo) => {
+    setClipboard({
+      path: file.path,
+      type: file.type,
+      operation: 'copy'
+    });
+    message.success(`已复制${file.type === 'file' ? '文件' : '文件夹'} "${file.name}"`);
+  }, []);
+
+  // 更新copyToClipboardRef
+  copyToClipboardRef.current = copyToClipboard;
+
+  // 剪切文件/文件夹到剪贴板
+  const cutToClipboard = useCallback((file: FileInfo) => {
+    setClipboard({
+      path: file.path,
+      type: file.type,
+      operation: 'cut'
+    });
+    message.success(`已剪切${file.type === 'file' ? '文件' : '文件夹'} "${file.name}"`);
+  }, []);
+
+  // 更新cutToClipboardRef
+  cutToClipboardRef.current = cutToClipboard;
+
+  // 粘贴文件/文件夹
+  const pasteFromClipboard = useCallback(async () => {
+    if (!clipboard) return;
+    
+    const fileName = clipboard.path.split('/').pop() || '';
+    const destinationPath = `${currentPath}/${fileName}`;
+    
+    setLoading(true);
+    try {
+      const response = await axios.post(`/api/${clipboard.operation === 'copy' ? 'copy' : 'move'}`, {
+        sourcePath: clipboard.path,
+        destinationPath
+      });
+      
+      if (response.data.status === 'success') {
+        message.success(`${clipboard.type === 'file' ? '文件' : '文件夹'}已${clipboard.operation === 'copy' ? '复制' : '移动'}`);
+        
+        // 如果是剪切操作，清空剪贴板
+        if (clipboard.operation === 'cut') {
+          setClipboard(null);
+        }
+        
+        if (loadDirectoryRef.current) {
+          loadDirectoryRef.current(currentPath);
+        }
+      } else {
+        message.error(response.data.message || `${clipboard.operation === 'copy' ? '复制' : '移动'}失败`);
+      }
+    } catch (error: any) {
+      message.error(`${clipboard.operation === 'copy' ? '复制' : '移动'}失败: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [clipboard, currentPath]);
+
+  // 更新pasteFromClipboardRef
+  pasteFromClipboardRef.current = pasteFromClipboard;
+
+  // 导航到目录
+  const navigateToDirectory = useCallback((path: string) => {
+    if (loadDirectoryRef.current) {
+      loadDirectoryRef.current(path);
+    }
+  }, []);
+
+  // 返回上级目录
+  const navigateUp = useCallback(() => {
+    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+    navigateToDirectory(parentPath);
+  }, [currentPath, navigateToDirectory]);
 
   // 当initialPath变化时重新加载目录
   useEffect(() => {
-    if (initialPath) {
-      loadDirectory(initialPath);
-    } else {
+    if (initialPath && loadDirectoryRef.current) {
+      loadDirectoryRef.current(initialPath);
+    } else if (loadDirectoryRef.current) {
       // 如果initialPath为空或无效，默认到/home/steam
-      loadDirectory('/home/steam');
+      loadDirectoryRef.current('/home/steam');
     }
   }, [initialPath]);
 
   // 初始加载
   useEffect(() => {
-    if (currentPath) {
-      loadDirectory(currentPath);
-    } else {
+    if (currentPath && loadDirectoryRef.current) {
+      loadDirectoryRef.current(currentPath);
+    } else if (loadDirectoryRef.current) {
       // 如果currentPath为空或无效，默认到/home/steam
-      loadDirectory('/home/steam');
+      loadDirectoryRef.current('/home/steam');
     }
   }, []);
-
-  // 导航到目录
-  const navigateToDirectory = (path: string) => {
-    loadDirectory(path);
-  };
-
-  // 返回上级目录
-  const navigateUp = () => {
-    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
-    navigateToDirectory(parentPath);
-  };
 
   // 打开文件进行编辑
   const openFileForEdit = async (file: FileInfo) => {
@@ -283,7 +428,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     // 获取认证令牌
     const token = localStorage.getItem('auth_token');
     
-    const imageUrl = `/api/download?path=${encodeURIComponent(file.path)}&preview=true${token ? `&token=${token}` : ''}`;
+    // 使用完整URL而不是相对路径
+    const imageUrl = `${window.location.protocol}//${window.location.host}/api/download?path=${encodeURIComponent(file.path)}&preview=true${token ? `&token=${token}` : ''}`;
     setPreviewImageUrl(imageUrl);
     setSelectedFile(file);
     setIsPreviewModalVisible(true);
@@ -303,7 +449,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       if (response.data.status === 'success') {
         message.success('文件已保存');
         setIsEditModalVisible(false);
-        loadDirectory(currentPath); // 刷新目录
+        if (loadDirectoryRef.current) {
+          loadDirectoryRef.current(currentPath); // 刷新目录
+        }
       } else {
         message.error(response.data.message || '保存文件失败');
       }
@@ -330,65 +478,14 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       if (response.data.status === 'success') {
         message.success(`${selectedFile.type === 'file' ? '文件' : '文件夹'}已重命名`);
         setIsRenameModalVisible(false);
-        loadDirectory(currentPath);
+        if (loadDirectoryRef.current) {
+          loadDirectoryRef.current(currentPath);
+        }
       } else {
         message.error(response.data.message || '重命名失败');
       }
     } catch (error: any) {
       message.error(`重命名失败: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 复制文件/文件夹到剪贴板
-  const copyToClipboard = (file: FileInfo) => {
-    setClipboard({
-      path: file.path,
-      type: file.type,
-      operation: 'copy'
-    });
-    message.success(`已复制${file.type === 'file' ? '文件' : '文件夹'} "${file.name}"`);
-  };
-
-  // 剪切文件/文件夹到剪贴板
-  const cutToClipboard = (file: FileInfo) => {
-    setClipboard({
-      path: file.path,
-      type: file.type,
-      operation: 'cut'
-    });
-    message.success(`已剪切${file.type === 'file' ? '文件' : '文件夹'} "${file.name}"`);
-  };
-
-  // 粘贴文件/文件夹
-  const pasteFromClipboard = async () => {
-    if (!clipboard) return;
-    
-    const fileName = clipboard.path.split('/').pop() || '';
-    const destinationPath = `${currentPath}/${fileName}`;
-    
-    setLoading(true);
-    try {
-      const response = await axios.post(`/api/${clipboard.operation === 'copy' ? 'copy' : 'move'}`, {
-        sourcePath: clipboard.path,
-        destinationPath
-      });
-      
-      if (response.data.status === 'success') {
-        message.success(`${clipboard.type === 'file' ? '文件' : '文件夹'}已${clipboard.operation === 'copy' ? '复制' : '移动'}`);
-        
-        // 如果是剪切操作，清空剪贴板
-        if (clipboard.operation === 'cut') {
-          setClipboard(null);
-        }
-        
-        loadDirectory(currentPath);
-      } else {
-        message.error(response.data.message || `${clipboard.operation === 'copy' ? '复制' : '移动'}失败`);
-      }
-    } catch (error: any) {
-      message.error(`${clipboard.operation === 'copy' ? '复制' : '移动'}失败: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -412,7 +509,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
           
           if (response.data.status === 'success') {
             message.success(`${file.type === 'file' ? '文件' : '文件夹'}已删除`);
-            loadDirectory(currentPath);
+            if (loadDirectoryRef.current) {
+              loadDirectoryRef.current(currentPath);
+            }
           } else {
             message.error(response.data.message || '删除失败');
           }
@@ -441,7 +540,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
         message.success('文件夹已创建');
         setIsNewFolderModalVisible(false);
         setNewItemName('');
-        loadDirectory(currentPath);
+        if (loadDirectoryRef.current) {
+          loadDirectoryRef.current(currentPath);
+        }
       } else {
         message.error(response.data.message || '创建文件夹失败');
       }
@@ -469,7 +570,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
         message.success('文件已创建');
         setIsNewFileModalVisible(false);
         setNewItemName('');
-        loadDirectory(currentPath);
+        if (loadDirectoryRef.current) {
+          loadDirectoryRef.current(currentPath);
+        }
       } else {
         message.error(response.data.message || '创建文件失败');
       }
@@ -487,8 +590,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     // 获取认证令牌
     const token = localStorage.getItem('auth_token');
     
-    // 创建下载链接，添加token参数
-    const downloadUrl = `/api/download?path=${encodeURIComponent(file.path)}${token ? `&token=${token}` : ''}`;
+    // 创建下载链接，使用完整URL而不是相对路径
+    const downloadUrl = `${window.location.protocol}//${window.location.host}/api/download?path=${encodeURIComponent(file.path)}${token ? `&token=${token}` : ''}`;
     
     if (downloadLinkRef.current) {
       downloadLinkRef.current.href = downloadUrl;
@@ -533,8 +636,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
           // 获取认证令牌
           const token = localStorage.getItem('auth_token');
           
-          // 下载压缩文件
-          const downloadUrl = `/api/download?path=${encodeURIComponent(zipPath)}${token ? `&token=${token}` : ''}`;
+          // 下载压缩文件，使用完整URL而不是相对路径
+          const downloadUrl = `${window.location.protocol}//${window.location.host}/api/download?path=${encodeURIComponent(zipPath)}${token ? `&token=${token}` : ''}`;
           
           if (downloadLinkRef.current) {
             downloadLinkRef.current.href = downloadUrl;
@@ -697,7 +800,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
 
   return (
     <div className="file-manager" style={{paddingBottom: '50px'}}>
-      <div className="file-manager-toolbar">
+      <div className="file-manager-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space>
           <Button 
             icon={<ArrowUpOutlined />} 
@@ -739,6 +842,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             粘贴
           </Button>
         </Space>
+        <div style={{ fontSize: '12px', color: '#888' }}>
+          支持快捷键：Ctrl+C 复制 | Ctrl+X 剪切 | Ctrl+V 粘贴
+        </div>
       </div>
 
       <Breadcrumb style={{ margin: '16px 0' }}>

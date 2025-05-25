@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio } from 'antd';
 import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined } from '@ant-design/icons';
 import axios from 'axios';
@@ -31,7 +31,7 @@ interface InstallOutput {
 }
 
 // 新增API函数
-const startServer = async (gameId: string, callback?: (line: any) => void, onComplete?: () => void, onError?: (error: any) => void) => {
+const startServer = async (gameId: string, callback?: (line: any) => void, onComplete?: () => void, onError?: (error: any) => void, includeHistory: boolean = true, restart: boolean = false) => {
   try {
     // console.log(`正在启动服务器 ${gameId}...`);
     
@@ -48,28 +48,36 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
     
     // 使用EventSource获取实时输出
     const token = localStorage.getItem('auth_token');
-    const eventSource = new EventSource(`/api/server/stream?game_id=${gameId}${token ? `&token=${token}` : ''}`);
-    // console.log(`已建立到 ${gameId} 服务器的SSE连接`);
+    const eventSource = new EventSource(`/api/server/stream?game_id=${gameId}${token ? `&token=${token}` : ''}&include_history=${includeHistory}${restart ? '&restart=true' : ''}`);
+    // console.log(`已建立到 ${gameId} 服务器的SSE连接${restart ? ' (重启模式)' : ''}`);
+    
+    // 添加一个变量来跟踪上次输出时间，用于实时性检测
+    let lastOutputTime = Date.now();
     
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // console.log(`收到服务器输出:`, data);
+        
+        // 更新最后输出时间
+        lastOutputTime = Date.now();
         
         // 处理完成消息
         if (data.complete) {
-          // console.log(`服务器输出完成，关闭SSE连接`);
+          console.log(`服务器输出完成，关闭SSE连接`);
           eventSource.close();
           if (onComplete) onComplete();
           return;
         }
         
         // 处理心跳包
-        if (data.heartbeat) return;
+        if (data.heartbeat) {
+          // console.log(`收到心跳包: ${new Date(data.timestamp * 1000).toLocaleTimeString()}`);
+          return;
+        }
         
         // 处理超时消息
         if (data.timeout) {
-          // console.log(`服务器连接超时`);
+          console.log(`服务器连接超时`);
           eventSource.close();
           if (onError) onError(new Error(data.message || '连接超时'));
           return;
@@ -77,7 +85,7 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
         
         // 处理错误消息
         if (data.error) {
-          // console.error(`服务器返回错误: ${data.error}`);
+          console.error(`服务器返回错误: ${data.error}`);
           eventSource.close();
           if (onError) onError(new Error(data.error));
           return;
@@ -85,16 +93,29 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
         
         // 处理普通输出行
         if (data.line && callback) {
-          callback(data.line);
+          // 如果是历史输出，添加history标记
+          if (data.history) {
+            callback(data.line);
+          } else {
+            callback(data.line);
+          }
+          
+          // 确保滚动到底部
+          setTimeout(() => {
+            const terminalEndRef = document.querySelector('.terminal-end-ref');
+            if (terminalEndRef) {
+              terminalEndRef.scrollIntoView({ behavior: 'smooth' });
+            }
+          }, 10);
         }
       } catch (err) {
-        // console.error('解析服务器输出失败:', err, event.data);
+        console.error('解析服务器输出失败:', err, event.data);
         if (onError) onError(new Error(`解析服务器输出失败: ${err}`));
       }
     };
     
     eventSource.onerror = (error) => {
-      // console.error('SSE连接错误:', error);
+      console.error('SSE连接错误:', error);
       eventSource.close();
       if (onError) onError(error || new Error('服务器连接错误'));
     };
@@ -162,11 +183,25 @@ const App: React.FC = () => {
   const [accountFormLoading, setAccountFormLoading] = useState<boolean>(false);
 
   // 新增：服务器相关状态
-  const [serverOutputs, setServerOutputs] = useState<{[key: string]: any[]}>({});
+  const [serverOutputs, setServerOutputs] = useState<{[key: string]: string[]}>({});
   const [runningServers, setRunningServers] = useState<string[]>([]);
-  const [serverModalVisible, setServerModalVisible] = useState<boolean>(false);
   const [selectedServerGame, setSelectedServerGame] = useState<GameInfo | null>(null);
+  const [serverModalVisible, setServerModalVisible] = useState<boolean>(false);
+  const [serverInput, setServerInput] = useState<string>('');
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [inputHistoryIndex, setInputHistoryIndex] = useState<number>(0);
+  // 新增：保存EventSource引用
+  const serverEventSourceRef = useRef<EventSource | null>(null);
   
+  // 监听serverModalVisible变化，当模态框关闭时关闭EventSource连接
+  useEffect(() => {
+    if (!serverModalVisible && serverEventSourceRef.current) {
+      console.log('服务器控制台关闭，关闭SSE连接');
+      serverEventSourceRef.current.close();
+      serverEventSourceRef.current = null;
+    }
+  }, [serverModalVisible]);
+
   // 导航相关状态
   const [currentNav, setCurrentNav] = useState<string>('dashboard');
   const [collapsed, setCollapsed] = useState<boolean>(false);
@@ -176,6 +211,52 @@ const App: React.FC = () => {
   const [fileManagerPath, setFileManagerPath] = useState<string>('/home/steam');
 
   const navigate = useNavigate();
+
+  // 在适当位置添加 terminalEndRef
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  // 输出更新后自动滚动到底部
+  useEffect(() => {
+    if (terminalEndRef.current && serverModalVisible) {
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [serverOutputs, selectedServerGame, serverModalVisible]);
+
+  // 添加 handleSendServerInput 函数
+  const handleSendServerInput = async (gameId: string, input: string) => {
+    try {
+      if (!gameId || !input.trim()) return;
+      
+      // console.log(`发送服务器命令: gameId=${gameId}, input=${input}`);
+      
+      // 保存到输入历史
+      setInputHistory(prev => [...prev, input]);
+      setInputHistoryIndex(-1);
+      
+      // 添加到输出，以便用户可以看到自己的输入
+      setServerOutputs(prev => {
+        const oldOutput = prev[gameId] || [];
+        // console.log(`添加命令到输出: gameId=${gameId}, 当前输出行数=${oldOutput.length}`);
+        return {
+          ...prev,
+          [gameId]: [...oldOutput, `> ${input}`]
+        };
+      });
+      
+      // 发送输入到服务器
+      // console.log(`调用API发送命令: gameId=${gameId}`);
+      const response = await sendServerInput(gameId, input);
+      // console.log(`发送命令响应:`, response);
+      
+      if (response.status !== 'success') {
+        console.error(`发送命令失败: ${response.message}`);
+        message.error(`发送命令失败: ${response.message}`);
+      }
+    } catch (error) {
+      console.error(`发送命令异常: ${error}`);
+      handleError(error);
+    }
+  };
 
   // 加载游戏列表
   useEffect(() => {
@@ -216,17 +297,32 @@ const App: React.FC = () => {
   // 检查正在运行的服务器
   const refreshServerStatus = useCallback(async () => {
     try {
+      // console.log('正在刷新服务器状态...');
       const response = await axios.get('/api/server/status');
+      
       if (response.data.status === 'success' && response.data.servers) {
         const running = Object.keys(response.data.servers).filter(
           id => response.data.servers[id].status === 'running'
         );
+        
+        // console.log('当前运行中的服务器:', running);
+        
+        // 更新运行中的服务器列表
         setRunningServers(running);
+        
+        // 如果有选中的服务器游戏，检查它是否在运行
+        if (selectedServerGame && !running.includes(selectedServerGame.id)) {
+          // console.log(`选中的服务器 ${selectedServerGame.id} 已停止运行`);
+        }
+        
+        return running;
       }
     } catch (error) {
-      // console.error('检查服务器状态失败:', error);
+      console.error('检查服务器状态失败:', error);
     }
-  }, []);
+    
+    return [];
+  }, [selectedServerGame]);
 
   // 安装游戏的处理函数
   const handleInstall = useCallback(async (game: GameInfo, account?: string, password?: string) => {
@@ -336,8 +432,11 @@ const App: React.FC = () => {
             gameName = externalGame.name;
             isExternal = true;
           } else {
-            message.error(`找不到游戏信息 (ID: ${gameId})`);
-            return;
+            // 如果在外部游戏列表中也找不到，则使用游戏ID作为游戏名称
+            // 这种情况可能是外来游戏但没有被正确识别
+            gameName = gameId;
+            isExternal = true;
+            console.warn(`未在游戏列表中找到游戏信息，将使用ID作为名称: ${gameId}`);
           }
         }
       } else {
@@ -395,20 +494,24 @@ const App: React.FC = () => {
   };
 
   // 提交账号密码表单
-  const onAccountModalOk = async (values: { username: string; password: string }) => {
+  const onAccountModalOk = async () => {
     try {
-      setAccountFormLoading(true);
-      const success = await login(values.username, values.password);
+      // 验证表单
+      const values = await accountForm.validateFields();
       
-      if (success) {
-        message.success('登录成功');
-      } else {
-        message.error('登录失败，请检查用户名和密码');
+      if (pendingInstallGame) {
+        // 关闭模态框
+        setAccountModalVisible(false);
+        
+        // 使用表单中的账号密码安装游戏
+        handleInstall(pendingInstallGame, values.account, values.password);
+        
+        // 清空待安装游戏
+        setPendingInstallGame(null);
       }
     } catch (error) {
-      message.error('登录失败，请稍后重试');
-    } finally {
-      setAccountFormLoading(false);
+      // 表单验证失败
+      console.error('表单验证失败:', error);
     }
   };
 
@@ -426,7 +529,7 @@ const App: React.FC = () => {
         // });
       }
     } catch (error) {
-      // console.error('刷新游戏列表失败:', error);
+      console.error('刷新游戏列表失败:', error);
     }
   }, []);
 
@@ -436,74 +539,123 @@ const App: React.FC = () => {
   }, [installedGames, externalGames, refreshServerStatus]);
 
   // 服务器相关函数
-  const handleStartServer = useCallback(async (gameId: string) => {
+  const handleStartServer = async (gameId: string, reconnect: boolean = false) => {
     try {
-      // console.log(`处理启动服务器请求: ${gameId}`);
+      // 设置当前选中的服务器游戏
+      const game = games.find(g => g.id === gameId) || 
+                  externalGames.find(g => g.id === gameId) || 
+                  { id: gameId, name: gameId, external: true };
       
-      // 对于外部游戏，获取游戏名称
-      let gameName = gameId;
-      let gameObj = games.find(g => g.id === gameId);
+      // console.log(`处理启动服务器: gameId=${gameId}, reconnect=${reconnect}, 游戏名称=${game.name}`);
       
-      // 如果在games中找不到，可能是外部游戏
-      if (!gameObj) {
-        const externalGame = externalGames.find(g => g.id === gameId);
-        if (externalGame) {
-          gameObj = externalGame;
-          gameName = externalGame.name;
-          // console.log(`找到外部游戏: ${gameName}`);
-        } else {
-          // console.log(`警告: 找不到游戏对象 ${gameId}`);
-        }
+      setSelectedServerGame(game);
+      setServerModalVisible(true);
+      
+      // 如果是重新连接，不清空之前的输出
+      if (!reconnect) {
+        // console.log(`清空之前的输出: gameId=${gameId}`);
+        // 清空之前的输出
+        setServerOutputs(prev => ({
+          ...prev,
+          [gameId]: []
+        }));
+      } else {
+        // console.log(`重新连接，保留之前的输出: gameId=${gameId}, 当前输出行数=${serverOutputs[gameId]?.length || 0}`);
+        // 添加一条分隔线
+        setServerOutputs(prev => {
+          const oldOutput = prev[gameId] || [];
+          return {
+            ...prev,
+            [gameId]: [...oldOutput, "--- 重新连接到服务器 ---"]
+          };
+        });
       }
       
-      const response = await startServer(
+      // 启动服务器并获取输出流
+      const eventSource = await startServer(
         gameId,
         (line) => {
-          // console.log(`服务器输出 (${gameId}):`, line);
-          setServerOutputs(prev => {
-            const old = prev[gameId] || [];
-            return {
-              ...prev,
-              [gameId]: [...old, line]
-            };
-          });
+          // console.log(`接收到服务器输出行: ${typeof line === 'string' ? (line.substring(0, 50) + (line.length > 50 ? '...' : '')) : JSON.stringify(line)}`);
+          
+          // 处理不同类型的输出行
+          if (typeof line === 'string') {
+            setServerOutputs(prev => {
+              const oldOutput = prev[gameId] || [];
+              // 检查是否为历史记录
+              if (line.includes('[历史记录]')) {
+                return {
+                  ...prev,
+                  [gameId]: [...oldOutput, line]
+                };
+              } else {
+                return {
+                  ...prev,
+                  [gameId]: [...oldOutput, line]
+                };
+              }
+            });
+          } else if (typeof line === 'object' && line !== null) {
+            // 处理对象类型的输出
+            const outputLine = JSON.stringify(line);
+            setServerOutputs(prev => {
+              const oldOutput = prev[gameId] || [];
+              return {
+                ...prev,
+                [gameId]: [...oldOutput, `[对象] ${outputLine}`]
+              };
+            });
+          }
         },
         () => {
-          // 服务器已停止
-          // console.log(`服务器已停止: ${gameId}`);
-          message.success(`服务器已停止`);
+          // console.log(`服务器输出完成: gameId=${gameId}`);
+          message.success(`${game.name} 服务器已停止`);
+          // 服务器停止时刷新状态
           refreshServerStatus();
+          // 清除EventSource引用
+          serverEventSourceRef.current = null;
         },
         (error) => {
-          // console.error(`启动服务器错误: ${error?.message || error}`);
-          message.error(`启动服务器失败: ${error?.message || '未知错误'}`);
-        }
+          console.error(`服务器输出错误: ${error.message}`);
+          handleError(error);
+          // 发生错误时也刷新状态
+          refreshServerStatus();
+          // 清除EventSource引用
+          serverEventSourceRef.current = null;
+        },
+        true,  // 始终包含历史输出
+        reconnect  // 传递reconnect参数作为restart参数
       );
       
-      // 打开服务器终端
-      if (gameObj) {
-        setSelectedServerGame(gameObj);
-        setServerModalVisible(true);
+      // 保存EventSource引用
+      serverEventSourceRef.current = eventSource;
+      
+      // 服务器启动后立即刷新状态列表
+      if (!reconnect) {
+        // console.log(`服务器启动成功: gameId=${gameId}`);
+        message.success(`${game.name} 服务器启动成功`);
       } else {
-        // 如果找不到游戏对象，创建一个临时对象
-        setSelectedServerGame({
-          id: gameId,
-          name: gameName || gameId,
-          appid: '',
-          anonymous: true,
-          has_script: true,
-          external: true
-        });
-        setServerModalVisible(true);
+        // console.log(`重新连接到服务器: gameId=${gameId}`);
+        message.success(`已重新连接到 ${game.name} 服务器`);
       }
       
-      return response;
+      // 添加到运行中服务器列表
+      setRunningServers(prev => {
+        if (!prev.includes(gameId)) {
+          return [...prev, gameId];
+        }
+        return prev;
+      });
+      
+      // 延迟再次刷新以确保状态更新
+      setTimeout(() => {
+        refreshServerStatus();
+      }, 2000);
+      
     } catch (error) {
-      // console.error(`handleStartServer错误:`, error);
+      console.error(`启动服务器失败: ${error}`);
       handleError(error);
-      return null;
     }
-  }, [games, externalGames, refreshServerStatus]);
+  };
 
   const handleStopServer = useCallback(async (gameId: string, force = false) => {
     try {
@@ -646,60 +798,7 @@ const App: React.FC = () => {
     );
   };
 
-  // 渲染服务器管理按钮
-  const renderServerButtons = (game: GameInfo) => {
-    const isRunning = runningServers.includes(game.id);
-    
-    if (isRunning) {
-      return (
-        <>
-          <Button 
-            type="default" 
-            size="small" 
-            style={{marginRight: 8}}
-            onClick={() => handleStopServer(game.id)}
-          >
-            停止
-          </Button>
-          <Button 
-            type="primary" 
-            size="small"
-            style={{marginRight: 8}}
-            onClick={() => handleStartServer(game.id)}
-          >
-            控制台
-          </Button>
-          <Button
-            icon={<FolderOutlined />}
-            size="small"
-            onClick={() => handleOpenGameFolder(game.id)}
-          >
-            文件夹
-          </Button>
-        </>
-      );
-    } else {
-      return (
-        <>
-          <Button 
-            type="primary" 
-            size="small"
-            style={{marginRight: 8}}
-            onClick={() => handleStartServer(game.id)}
-          >
-            启动
-          </Button>
-          <Button
-            icon={<FolderOutlined />}
-            size="small"
-            onClick={() => handleOpenGameFolder(game.id)}
-          >
-            文件夹
-          </Button>
-        </>
-      );
-    }
-  };
+  // 服务器管理按钮已内联到各个使用位置
 
   // 服务器管理Tab内容
   const renderServerManager = () => (
@@ -719,7 +818,72 @@ const App: React.FC = () => {
               <p>账户: {game.anonymous ? '匿名' : '需要账户'}</p>
               <div style={{marginTop: 12}}>
                 <div style={{marginBottom: 8}}>服务器控制:</div>
-                {renderServerButtons(game)}
+                {runningServers.includes(game.id) ? (
+                  <div>
+                    <div style={{marginBottom: 8}}>
+                      <Button 
+                        danger
+                        size="small"
+                        onClick={() => handleUninstall(game.id)}
+                      >
+                        卸载
+                      </Button>
+                    </div>
+                    <Button 
+                      type="default" 
+                      size="small" 
+                      style={{marginRight: 8}}
+                      onClick={() => handleStopServer(game.id)}
+                    >
+                      停止
+                    </Button>
+                    <Button 
+                      type="primary" 
+                      size="small"
+                      style={{marginRight: 8}}
+                      onClick={() => handleStartServer(game.id)}
+                    >
+                      控制台
+                    </Button>
+                    <Button
+                      icon={<FolderOutlined />}
+                      size="small"
+                      onClick={() => handleOpenGameFolder(game.id)}
+                    >
+                      文件夹
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{marginBottom: 8}}>
+                      <Button 
+                        danger
+                        size="small"
+                        onClick={() => handleUninstall(game.id)}
+                      >
+                        卸载
+                      </Button>
+                    </div>
+                    <div style={{display: 'flex', justifyContent: 'center'}}>
+                      <Button 
+                        type="primary"
+                        size="middle"
+                        style={{marginRight: 8, width: '45%'}}
+                        onClick={() => handleStartServer(game.id)}
+                      >
+                        启动
+                      </Button>
+                      <Button
+                        icon={<FolderOutlined />}
+                        size="middle"
+                        style={{width: '45%'}}
+                        onClick={() => handleOpenGameFolder(game.id)}
+                      >
+                        文件夹
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
           </Col>
@@ -742,17 +906,26 @@ const App: React.FC = () => {
               <div style={{marginTop: 12}}>
                 <div style={{marginBottom: 8}}>服务器控制:</div>
                 {runningServers.includes(game.id) ? (
-                  <>
-                    <Button
-                      type="default"
-                      size="small"
+                  <div>
+                    <div style={{marginBottom: 8}}>
+                      <Button 
+                        danger
+                        size="small"
+                        onClick={() => handleUninstall(game.id)}
+                      >
+                        卸载
+                      </Button>
+                    </div>
+                    <Button 
+                      type="default" 
+                      size="small" 
                       style={{marginRight: 8}}
                       onClick={() => handleStopServer(game.id)}
                     >
                       停止
                     </Button>
-                    <Button
-                      type="primary"
+                    <Button 
+                      type="primary" 
                       size="small"
                       style={{marginRight: 8}}
                       onClick={() => handleStartServer(game.id)}
@@ -766,34 +939,39 @@ const App: React.FC = () => {
                     >
                       文件夹
                     </Button>
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <Button
-                      type="primary"
-                      size="small"
-                      style={{marginRight: 8}}
-                      onClick={() => handleStartServer(game.id)}
-                    >
-                      启动
-                    </Button>
-                    <Button
-                      icon={<FolderOutlined />}
-                      size="small"
-                      onClick={() => handleOpenGameFolder(game.id)}
-                    >
-                      文件夹
-                    </Button>
-                  </>
+                  <div>
+                    <div style={{marginBottom: 8}}>
+                      <Button 
+                        danger
+                        size="small"
+                        onClick={() => handleUninstall(game.id)}
+                      >
+                        卸载
+                      </Button>
+                    </div>
+                    <div style={{display: 'flex', justifyContent: 'center'}}>
+                      <Button 
+                        type="primary"
+                        size="middle"
+                        style={{marginRight: 8, width: '45%'}}
+                        onClick={() => handleStartServer(game.id)}
+                      >
+                        启动
+                      </Button>
+                      <Button
+                        icon={<FolderOutlined />}
+                        size="middle"
+                        style={{width: '45%'}}
+                        onClick={() => handleOpenGameFolder(game.id)}
+                      >
+                        文件夹
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </div>
-              <Button
-                danger
-                style={{marginTop: 12}}
-                onClick={() => handleUninstall(game.id)}
-              >
-                卸载
-              </Button>
             </Card>
           </Col>
         ))}
@@ -973,10 +1151,10 @@ const App: React.FC = () => {
   // 添加处理打开文件夹的函数
   const handleOpenGameFolder = async (gameId: string) => {
     try {
-      const success = await openGameFolder(gameId);
-      if (!success) {
-        message.error('无法打开游戏文件夹');
-      }
+      // 不再调用API，而是直接设置文件管理器路径并显示文件管理器
+      const gamePath = `/home/steam/games/${gameId}`;
+      setFileManagerPath(gamePath);
+      setFileManagerVisible(true);
     } catch (error) {
       message.error(`打开游戏文件夹失败: ${error}`);
     }
@@ -1028,6 +1206,29 @@ const App: React.FC = () => {
     }
   }, [isAuthenticated]);
 
+  // 添加定期刷新服务器状态
+  useEffect(() => {
+    // 初始加载时刷新一次服务器状态
+    refreshServerStatus();
+    
+    // 设置定时器，每10秒刷新一次服务器状态
+    const intervalId = setInterval(() => {
+      if (currentNav === 'servers' || currentNav === 'dashboard') {
+        refreshServerStatus();
+      }
+    }, 10000);
+    
+    // 组件卸载时清除定时器
+    return () => clearInterval(intervalId);
+  }, [refreshServerStatus, currentNav]);
+
+  // 当切换到服务器tab时刷新状态
+  useEffect(() => {
+    if (currentNav === 'servers') {
+      refreshServerStatus();
+    }
+  }, [currentNav, refreshServerStatus]);
+
   // 如果正在加载认证状态，显示加载中
   if (loading) {
     return (
@@ -1059,7 +1260,7 @@ const App: React.FC = () => {
           <Form
             name="login_form"
             initialValues={{ remember: true }}
-            onFinish={onAccountModalOk}
+            onFinish={(values) => login(values.username, values.password)}
             layout="vertical"
           >
             <Form.Item
@@ -1357,15 +1558,73 @@ const App: React.FC = () => {
                             >
                               <p>服务端状态: {runningServers.includes(game.id) ? '运行中' : '已停止'}</p>
                               <div style={{marginTop: 12}}>
-                                {renderServerButtons(game)}
+                                {runningServers.includes(game.id) ? (
+                                  <div>
+                                    <div style={{marginBottom: 8}}>
+                                      <Button 
+                                        danger
+                                        size="small"
+                                        onClick={() => handleUninstall(game.id)}
+                                      >
+                                        卸载
+                                      </Button>
+                                    </div>
+                                    <Button 
+                                      type="default" 
+                                      size="small" 
+                                      style={{marginRight: 8}}
+                                      onClick={() => handleStopServer(game.id)}
+                                    >
+                                      停止
+                                    </Button>
+                                    <Button 
+                                      type="primary" 
+                                      size="small"
+                                      style={{marginRight: 8}}
+                                      onClick={() => handleStartServer(game.id)}
+                                    >
+                                      控制台
+                                    </Button>
+                                    <Button
+                                      icon={<FolderOutlined />}
+                                      size="small"
+                                      onClick={() => handleOpenGameFolder(game.id)}
+                                    >
+                                      文件夹
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <div style={{marginBottom: 8}}>
+                                      <Button 
+                                        danger
+                                        size="small"
+                                        onClick={() => handleUninstall(game.id)}
+                                      >
+                                        卸载
+                                      </Button>
+                                    </div>
+                                    <div style={{display: 'flex', justifyContent: 'center'}}>
+                                      <Button 
+                                        type="primary"
+                                        size="middle"
+                                        style={{marginRight: 8, width: '45%'}}
+                                        onClick={() => handleStartServer(game.id)}
+                                      >
+                                        启动
+                                      </Button>
+                                      <Button
+                                        icon={<FolderOutlined />}
+                                        size="middle"
+                                        style={{width: '45%'}}
+                                        onClick={() => handleOpenGameFolder(game.id)}
+                                      >
+                                        文件夹
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                              <Button
-                                danger
-                                style={{marginTop: 12}}
-                                onClick={() => handleUninstall(game)}
-                              >
-                                卸载
-                              </Button>
                             </Card>
                           </Col>
                         ))}
@@ -1384,17 +1643,26 @@ const App: React.FC = () => {
                             <p>位置: /home/steam/games/{game.id}</p>
                             <div style={{marginTop: 12}}>
                               {runningServers.includes(game.id) ? (
-                                <>
-                                  <Button
-                                    type="default"
-                                    size="small"
+                                <div>
+                                  <div style={{marginBottom: 8}}>
+                                    <Button 
+                                      danger
+                                      size="small"
+                                      onClick={() => handleUninstall(game.id)}
+                                    >
+                                      卸载
+                                    </Button>
+                                  </div>
+                                  <Button 
+                                    type="default" 
+                                    size="small" 
                                     style={{marginRight: 8}}
                                     onClick={() => handleStopServer(game.id)}
                                   >
                                     停止
                                   </Button>
-                                  <Button
-                                    type="primary"
+                                  <Button 
+                                    type="primary" 
                                     size="small"
                                     style={{marginRight: 8}}
                                     onClick={() => handleStartServer(game.id)}
@@ -1408,34 +1676,39 @@ const App: React.FC = () => {
                                   >
                                     文件夹
                                   </Button>
-                                </>
+                                </div>
                               ) : (
-                                <>
-                                  <Button
-                                    type="primary"
-                                    size="small"
-                                    style={{marginRight: 8}}
-                                    onClick={() => handleStartServer(game.id)}
-                                  >
-                                    启动
-                                  </Button>
-                                  <Button
-                                    icon={<FolderOutlined />}
-                                    size="small"
-                                    onClick={() => handleOpenGameFolder(game.id)}
-                                  >
-                                    文件夹
-                                  </Button>
-                                </>
+                                <div>
+                                  <div style={{marginBottom: 8}}>
+                                    <Button 
+                                      danger
+                                      size="small"
+                                      onClick={() => handleUninstall(game.id)}
+                                    >
+                                      卸载
+                                    </Button>
+                                  </div>
+                                  <div style={{display: 'flex', justifyContent: 'center'}}>
+                                    <Button 
+                                      type="primary"
+                                      size="middle"
+                                      style={{marginRight: 8, width: '45%'}}
+                                      onClick={() => handleStartServer(game.id)}
+                                    >
+                                      启动
+                                    </Button>
+                                    <Button
+                                      icon={<FolderOutlined />}
+                                      size="middle"
+                                      style={{width: '45%'}}
+                                      onClick={() => handleOpenGameFolder(game.id)}
+                                    >
+                                      文件夹
+                                    </Button>
+                                  </div>
+                                </div>
                               )}
                             </div>
-                            <Button
-                              danger
-                              style={{marginTop: 12}}
-                              onClick={() => handleUninstall(game.id)}
-                            >
-                              卸载
-                            </Button>
                           </Card>
                         </Col>
                       ))}
@@ -1473,15 +1746,19 @@ const App: React.FC = () => {
                               setSelectedServerGame(game);
                               setServerModalVisible(true);
                             }}
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
                           >
-                            查看控制台
+                            控制台
                           </Button>,
                           <Button
                             key="folder"
                             icon={<FolderOutlined />}
                             onClick={() => handleOpenGameFolder(game.id)}
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
                           >
-                            打开文件夹
+                            文件夹
                           </Button>,
                           <Dropdown key="stop" overlay={
                             <Menu>
@@ -1493,7 +1770,7 @@ const App: React.FC = () => {
                               </Menu.Item>
                             </Menu>
                           } trigger={['click']} overlayClassName="stop-server-dropdown">
-                            <Button danger>
+                            <Button danger size="small" style={{ width: '100%', maxWidth: '100px' }}>
                               停止服务端 <DownOutlined />
                             </Button>
                           </Dropdown>
@@ -1525,15 +1802,19 @@ const App: React.FC = () => {
                               setSelectedServerGame(game);
                               setServerModalVisible(true);
                             }}
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
                           >
-                            查看控制台
+                            控制台
                           </Button>,
                           <Button
                             key="folder"
                             icon={<FolderOutlined />}
                             onClick={() => handleOpenGameFolder(game.id)}
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
                           >
-                            打开文件夹
+                            文件夹
                           </Button>,
                           <Dropdown key="stop" overlay={
                             <Menu>
@@ -1545,7 +1826,7 @@ const App: React.FC = () => {
                               </Menu.Item>
                             </Menu>
                           } trigger={['click']} overlayClassName="stop-server-dropdown">
-                            <Button danger>
+                            <Button danger size="small" style={{ width: '100%', maxWidth: '100px' }}>
                               停止服务端 <DownOutlined />
                             </Button>
                           </Dropdown>
@@ -1605,22 +1886,116 @@ const App: React.FC = () => {
         title={`${selectedServerGame?.name || ''} 服务端控制台`}
         open={serverModalVisible}
         onCancel={() => setServerModalVisible(false)}
-        footer={null}
+        footer={
+          <div className="server-console-buttons">
+            <Button key="reconnect" type="primary" ghost 
+              onClick={() => {
+                // 重新连接到控制台，保留现有输出并获取历史记录
+                handleStartServer(selectedServerGame?.id, true);
+              }}
+              size="middle"
+            >
+              重新连接
+            </Button>
+            <Button key="clear" 
+              onClick={() => {
+                // 清空当前输出
+                if (selectedServerGame?.id) {
+                  setServerOutputs(prev => ({
+                    ...prev,
+                    [selectedServerGame.id]: []
+                  }));
+                }
+              }}
+              size="middle"
+            >
+              清空输出
+            </Button>
+            <Button key="stop" danger
+              onClick={() => {
+                handleStopServer(selectedServerGame?.id);
+              }}
+              size="middle"
+            >
+              停止服务器
+            </Button>
+            <Button key="close" 
+              onClick={() => setServerModalVisible(false)}
+              size="middle"
+            >
+              关闭控制台
+            </Button>
+          </div>
+        }
         width={800}
-        maskClosable={false}
-        style={{ top: 20 }}
-        bodyStyle={{ padding: 0 }}
       >
-        {selectedServerGame && (
-          <Terminal
-            output={serverOutputs[selectedServerGame.id] || []}
-            loading={false}
-            complete={false}
-            gameId={selectedServerGame.id}
-            onSendInput={handleServerInput}
-            allowInput={true}
-          />
-        )}
+        <div className="server-console">
+          <div className="terminal-container">
+            <div className="terminal-output">
+              {(serverOutputs[selectedServerGame?.id] || [])
+                .filter(line => !line.includes('等待服务器输出...'))
+                .map((line, index) => {
+                // 处理不同类型的输出行
+                let lineClass = "terminal-line";
+                let lineContent = line;
+                
+                // 检查是否为特殊类型的输出
+                if (typeof line === 'string') {
+                  if (line.includes('===')) {
+                    lineClass += " section-header";
+                  } else if (line.includes('[文件]') || line.includes('[文件输出]')) {
+                    lineClass += " file-output";
+                  } else if (line.includes('[心跳检查]')) {
+                    lineClass += " heartbeat-output";
+                  } else if (line.startsWith('>')) {
+                    lineClass += " command-input";
+                  }
+                }
+                
+                return (
+                  <div 
+                    key={index} 
+                    className={lineClass}
+                  >
+                    {lineContent}
+                  </div>
+                );
+              })}
+              <div ref={terminalEndRef} className="terminal-end-ref" />
+            </div>
+          </div>
+          <div className="terminal-input">
+            <Input.Search
+              placeholder="输入命令..."
+              enterButton="发送"
+              value={serverInput}
+              onChange={(e) => setServerInput(e.target.value)}
+              onSearch={value => {
+                if (value.trim()) {
+                  handleSendServerInput(selectedServerGame?.id, value);
+                  setServerInput('');
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowUp') {
+                  // 实现历史命令功能
+                  if (inputHistory.length > 0 && inputHistoryIndex < inputHistory.length - 1) {
+                    setInputHistoryIndex(prev => prev + 1);
+                    setServerInput(inputHistory[inputHistory.length - 1 - inputHistoryIndex - 1]);
+                  }
+                } else if (e.key === 'ArrowDown') {
+                  if (inputHistoryIndex > 0) {
+                    setInputHistoryIndex(prev => prev - 1);
+                    setServerInput(inputHistory[inputHistory.length - 1 - inputHistoryIndex + 1]);
+                  } else {
+                    setInputHistoryIndex(-1);
+                    setServerInput('');
+                  }
+                }
+              }}
+            />
+          </div>
+        </div>
       </Modal>
 
       {/* 账号输入Modal */}

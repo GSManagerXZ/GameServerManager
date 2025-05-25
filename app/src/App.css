@@ -745,4 +745,145 @@ body {
 
 .logout-animation {
   animation: fadeOut 0.5s ease-out forwards;
+}
+
+/* 服务器控制台样式 */
+.server-console {
+  display: flex;
+  flex-direction: column;
+  height: 500px;
+}
+
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  background-color: #1e1e1e;
+}
+
+.terminal-output {
+  height: 100%;
+  padding: 10px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #f0f0f0;
+}
+
+.terminal-line {
+  animation: fadeIn 0.1s ease-in-out;
+  margin: 2px 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0.8; }
+  to { opacity: 1; }
+}
+
+/* 历史记录行样式 */
+.terminal-line.history {
+  color: #888;
+  font-style: italic;
+}
+
+/* 分隔行样式 */
+.terminal-line.section-header {
+  color: #1677ff;
+  font-weight: bold;
+  border-bottom: 1px dashed #1677ff;
+  padding-bottom: 2px;
+  margin: 8px 0;
+}
+
+/* 文件输出样式 */
+.terminal-line.file-output {
+  color: #52c41a;
+}
+
+/* 心跳检查输出样式 */
+.terminal-line.heartbeat-output {
+  color: #faad14;
+}
+
+/* 命令输入样式 */
+.terminal-line.command-input {
+  color: #ff7a45;
+  font-weight: bold;
+}
+
+/* 终端输入区域样式 */
+.terminal-input {
+  padding: 10px 0;
+}
+
+/* 终端滚动条样式 */
+.terminal-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-output::-webkit-scrollbar-track {
+  background: #2e2e2e;
+}
+
+.terminal-output::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 4px;
+}
+
+.terminal-output::-webkit-scrollbar-thumb:hover {
+  background-color: #777;
+}
+
+/* 终端底部参考点 */
+.terminal-end-ref {
+  height: 1px;
+  width: 1px;
+}
+
+/* 卡片中的按钮样式优化 */
+.ant-card-actions {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.ant-card-actions > li {
+  width: auto !important;
+  margin: 0 2px !important;
+}
+
+.ant-card-actions .ant-btn {
+  font-size: 12px;
+  padding: 0 8px;
+  height: 28px;
+  line-height: 26px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+/* 下拉按钮样式优化 */
+.stop-server-dropdown .ant-dropdown-menu {
+  min-width: 160px;
+}
+
+/* 服务端控制台按钮样式 */
+.server-console-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.server-console-buttons .ant-btn {
+  flex: 1;
+  min-width: 100px;
+  max-width: 150px;
 } 

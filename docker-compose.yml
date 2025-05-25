@@ -19,7 +19,7 @@ services:
     environment:
       - TZ=Asia/Shanghai              # 设置时区
       - USE_GUNICORN=true             # 强制使用Gunicorn
-      - GUNICORN_WORKERS=4            # Gunicorn工作进程数
+      - GUNICORN_WORKERS=1            # 后端线程数量，最多设置2个 设置过多会存在进程打架造成的显示问题
       - GUNICORN_TIMEOUT=120          # Gunicorn超时设置
       #- GAME_TO_RUN=Palworld         # 可选：直接启动指定游戏，无需进入菜单
       #- GAME_ARGS="-port=8211 -players=32"  # 可选：游戏启动参数

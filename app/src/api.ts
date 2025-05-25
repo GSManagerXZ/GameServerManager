@@ -201,6 +201,7 @@ export const installGame = async (
 // 终止游戏安装
 export const terminateInstall = async (gameId: string): Promise<boolean> => {
   try {
+    // 确保使用正确的API路径
     const response = await api.post('/terminate_install', {
       game_id: gameId
     });

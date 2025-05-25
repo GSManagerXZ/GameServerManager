@@ -95,54 +95,83 @@ const parseColoredText = (text: string): React.ReactNode => {
 // 使用memo优化Terminal组件，避免不必要的重新渲染
 const Terminal: React.FC<TerminalProps> = memo(({ output, loading, complete, gameId, onSendInput, allowInput, onTerminate }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
-  const prevOutputLengthRef = useRef<number>(0);
+  const [terminalInput, setTerminalInput] = useState('');
   const [promptVisible, setPromptVisible] = useState(false);
   const [promptMsg, setPromptMsg] = useState('');
   const [inputValue, setInputValue] = useState('');
-  const [terminalInput, setTerminalInput] = useState('');
   const [terminateConfirmVisible, setTerminateConfirmVisible] = useState(false);
-
-  // 检测output中是否有prompt
+  
+  // 确保有终端滚动到最新输出
   useEffect(() => {
-    if (!output) return;
-    const last = output[output.length - 1];
-    if (last && typeof last === 'object' && last.prompt) {
-      setPromptMsg(last.prompt);
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [output]);
+  
+  // 检查输出中是否有需要输入的提示
+  useEffect(() => {
+    if (!output.length) return;
+    
+    const lastOutput = output[output.length - 1];
+    if (typeof lastOutput === 'object' && lastOutput.prompt) {
+      setPromptMsg(lastOutput.prompt);
       setPromptVisible(true);
     }
   }, [output]);
-
-  // 自动滚动到底部
+  
+  // 处理连接错误
   useEffect(() => {
-    if (terminalRef.current && output.length !== prevOutputLengthRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-      prevOutputLengthRef.current = output.length;
+    // 如果终端完成但没有明确的完成消息，添加一个
+    if (complete && output.length > 0) {
+      // console.log('终端完成状态变化:', complete);
+      const lastOutput = output[output.length - 1];
+      if (typeof lastOutput === 'object' && !lastOutput.line?.includes('已结束') && !lastOutput.line?.includes('已停止')) {
+        if (terminalRef.current) {
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'terminal-error';
+          errorDiv.textContent = '连接已断开，服务器可能已停止';
+          terminalRef.current.appendChild(errorDiv);
+        }
+      }
     }
-  }, [output.length]);
-
-  const handlePromptOk = () => {
-    if (onSendInput && gameId && inputValue) {
-      onSendInput(gameId, inputValue);
-    }
-    setPromptVisible(false);
-    setInputValue('');
-  };
-
+  }, [complete, output]);
+  
   // 处理终端输入提交
   const handleInputSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && onSendInput && gameId && terminalInput.trim()) {
+    if (e.key === 'Enter' && terminalInput.trim() && onSendInput && gameId) {
       onSendInput(gameId, terminalInput);
       setTerminalInput('');
     }
   };
-
+  
+  // 处理验证码/令牌提交
+  const handlePromptOk = () => {
+    if (inputValue.trim() && onSendInput && gameId) {
+      onSendInput(gameId, inputValue);
+      setInputValue('');
+      setPromptVisible(false);
+    }
+  };
+  
   // 处理终止安装
   const handleTerminate = () => {
     setTerminateConfirmVisible(true);
   };
-
+  
+  // 确认终止安装
   const confirmTerminate = () => {
     if (onTerminate && gameId) {
+      // 获取认证令牌
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        // 如果没有令牌，提示用户登录
+        Modal.error({
+          title: '认证错误',
+          content: '您需要登录才能执行此操作'
+        });
+        return;
+      }
+      
       onTerminate(gameId);
     }
     setTerminateConfirmVisible(false);

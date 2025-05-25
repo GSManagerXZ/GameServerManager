@@ -1,0 +1,521 @@
+import os
+import pty
+import fcntl
+import select
+import time
+import threading
+import queue
+import logging
+import subprocess
+import tempfile
+import psutil
+
+# 配置日志
+logger = logging.getLogger("pty_manager")
+
+class PTYProcess:
+    """通用PTY进程管理类，用于处理各种需要交互式终端的进程"""
+    
+    def __init__(self, process_id, cmd, cwd=None, env=None, log_prefix=None):
+        """
+        初始化PTY进程
+        
+        Args:
+            process_id: 进程唯一标识符
+            cmd: 要执行的命令
+            cwd: 工作目录
+            env: 环境变量
+            log_prefix: 日志文件前缀
+        """
+        self.process_id = process_id
+        self.cmd = cmd
+        self.cwd = cwd
+        self.env = env or dict(os.environ, TERM="xterm")
+        self.log_prefix = log_prefix or f"pty_{process_id}"
+        
+        # 进程状态
+        self.process = None
+        self.master_fd = None
+        self.slave_fd = None
+        self.started_at = None
+        self.return_code = None
+        self.running = False
+        self.complete = False
+        self.error = None
+        
+        # 输出相关
+        self.output = []
+        self.output_queue = queue.Queue()
+        self.output_file = None
+        self.output_thread = None
+        
+        # 输入相关
+        self.input_event = threading.Event()
+        self.input_value = None
+        
+        # 其他状态
+        self.final_message = None
+        self.sent_complete = False
+    
+    def start(self):
+        """启动PTY进程"""
+        try:
+            logger.info(f"开始使用PTY运行进程: {self.process_id}")
+            logger.info(f"执行命令: {self.cmd}, 工作目录: {self.cwd or '当前目录'}")
+            
+            # 创建PTY
+            self.master_fd, self.slave_fd = pty.openpty()
+            logger.info(f"创建PTY: master={self.master_fd}, slave={self.slave_fd}")
+            
+            # 启动进程，将输出连接到PTY从端
+            self.process = subprocess.Popen(
+                self.cmd,
+                shell=True,
+                stdin=self.slave_fd,
+                stdout=self.slave_fd,
+                stderr=self.slave_fd,
+                close_fds=True,
+                cwd=self.cwd,
+                env=self.env
+            )
+            
+            # 关闭PTY从端，主进程只需要主端
+            os.close(self.slave_fd)
+            self.slave_fd = None
+            
+            # 更新状态
+            self.started_at = time.time()
+            self.running = True
+            logger.info(f"进程已启动，PID: {self.process.pid}")
+            
+            # 创建一个单独的线程来读取PTY输出
+            self.output_thread = threading.Thread(
+                target=self._read_pty_output,
+                daemon=True
+            )
+            self.output_thread.start()
+            
+            return True
+        except Exception as e:
+            logger.error(f"启动PTY进程时出错: {str(e)}")
+            self.error = str(e)
+            self.running = False
+            self.complete = True
+            self.output_queue.put({'complete': True, 'status': 'error', 'message': f'启动错误: {str(e)}'})
+            return False
+    
+    def wait(self, timeout=None):
+        """等待进程完成"""
+        if not self.process:
+            return None
+        
+        return_code = self.process.wait()
+        
+        # 确保读取线程有时间完成
+        if self.output_thread:
+            self.output_thread.join(timeout=timeout or 5)
+        
+        return return_code
+    
+    def send_input(self, value):
+        """向进程发送输入"""
+        if not self.running or not self.master_fd:
+            logger.error(f"进程 {self.process_id} 未运行或无法获取PTY主端")
+            return False
+        
+        try:
+            send_str = value + '\n'
+            os.write(self.master_fd, send_str.encode('utf-8'))
+            logger.info(f"向进程 {self.process_id} 发送输入: {repr(send_str)}")
+            return True
+        except Exception as e:
+            logger.error(f"向进程 {self.process_id} 发送输入失败: {str(e)}")
+            return False
+    
+    def send_ctrl_c(self):
+        """向进程发送Ctrl+C信号"""
+        if not self.running or not self.master_fd:
+            logger.error(f"进程 {self.process_id} 未运行或无法获取PTY主端")
+            return False
+        
+        try:
+            # Ctrl+C对应ASCII码为3
+            os.write(self.master_fd, b'\x03')
+            logger.info(f"向进程 {self.process_id} 发送Ctrl+C信号")
+            return True
+        except Exception as e:
+            logger.error(f"向进程 {self.process_id} 发送Ctrl+C失败: {str(e)}")
+            return False
+    
+    def terminate(self, force=False):
+        """终止进程"""
+        if not self.process:
+            logger.warning(f"进程 {self.process_id} 不存在，无法终止")
+            return False
+        
+        if self.process.poll() is not None:
+            logger.info(f"进程 {self.process_id} 已经终止，返回码: {self.process.poll()}")
+            self.running = False
+            return True
+        
+        try:
+            if force:
+                # 强制模式：直接使用SIGKILL终止进程和所有子进程
+                logger.info(f"强制终止进程 {self.process_id}")
+                
+                # 获取当前进程的PID
+                pid = self.process.pid
+                logger.info(f"进程PID: {pid}")
+                
+                try:
+                    # 找到所有子进程
+                    parent = psutil.Process(pid)
+                    children = parent.children(recursive=True)
+                    
+                    # 首先杀死所有子进程
+                    for child in children:
+                        logger.info(f"杀死子进程: {child.pid}")
+                        try:
+                            child.kill()
+                        except:
+                            pass
+                    
+                    # 然后杀死主进程
+                    parent.kill()
+                    
+                    logger.info(f"已杀死进程及其子进程")
+                except psutil.NoSuchProcess:
+                    logger.warning(f"进程 {pid} 已不存在")
+                except Exception as e:
+                    logger.error(f"使用psutil杀死进程失败: {str(e)}")
+                    # 如果上面失败，使用原始方法
+                    self.process.kill()
+            else:
+                # 标准模式：先尝试发送Ctrl+C，然后等待一段时间，如果还未结束再使用terminate
+                self.send_ctrl_c()
+                
+                # 等待进程响应Ctrl+C
+                for _ in range(10):  # 最多等待5秒
+                    if self.process.poll() is not None:
+                        break
+                    time.sleep(0.5)
+                
+                # 如果进程仍在运行，使用terminate
+                if self.process.poll() is None:
+                    logger.info(f"进程 {self.process_id} 未响应Ctrl+C，使用terminate")
+                    self.process.terminate()
+                    
+                    # 再等待一段时间
+                    for _ in range(10):  # 最多等待5秒
+                        if self.process.poll() is not None:
+                            break
+                        time.sleep(0.5)
+                    
+                    # 如果进程仍在运行，使用kill
+                    if self.process.poll() is None:
+                        logger.info(f"进程 {self.process_id} 未响应terminate，使用kill")
+                        self.process.kill()
+            
+            # 检查进程是否已终止
+            return_code = self.process.poll()
+            if return_code is not None:
+                logger.info(f"进程 {self.process_id} 已终止，返回码: {return_code}")
+                self.running = False
+                self.return_code = return_code
+                return True
+            else:
+                logger.warning(f"无法终止进程 {self.process_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"终止进程 {self.process_id} 时出错: {str(e)}")
+            return False
+    
+    def is_running(self):
+        """检查进程是否在运行"""
+        if not self.process:
+            return False
+        
+        return self.process.poll() is None
+    
+    def get_status(self):
+        """获取进程状态"""
+        status = {
+            'process_id': self.process_id,
+            'cmd': self.cmd,
+            'running': self.is_running(),
+            'started_at': self.started_at,
+            'complete': self.complete
+        }
+        
+        if self.process:
+            status['pid'] = self.process.pid
+            status['return_code'] = self.process.poll()
+            if self.started_at:
+                status['uptime'] = time.time() - self.started_at
+        
+        if self.error:
+            status['error'] = self.error
+        
+        if self.final_message:
+            status['final_message'] = self.final_message
+            
+        if self.output_file:
+            status['output_file'] = self.output_file
+            
+        return status
+    
+    def clean_up(self):
+        """清理资源"""
+        # 关闭PTY主端
+        if self.master_fd:
+            try:
+                os.close(self.master_fd)
+            except:
+                pass
+            self.master_fd = None
+        
+        # 关闭PTY从端
+        if self.slave_fd:
+            try:
+                os.close(self.slave_fd)
+            except:
+                pass
+            self.slave_fd = None
+        
+        # 清理输出队列
+        try:
+            while not self.output_queue.empty():
+                self.output_queue.get_nowait()
+        except:
+            pass
+    
+    def _read_pty_output(self):
+        """从PTY主端读取输出并将其添加到队列中"""
+        logger.info(f"启动进程 {self.process_id} 的PTY输出读取线程")
+        
+        # 创建临时日志文件
+        output_log = tempfile.NamedTemporaryFile(mode='w+', delete=False, prefix=f"{self.log_prefix}_", suffix=".log")
+        output_log_path = output_log.name
+        logger.debug(f"日志将写入: {output_log_path}")
+        self.output_file = output_log_path
+        
+        # 设置非阻塞模式
+        flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        
+        buffer = ""
+        try:
+            while True:
+                try:
+                    # 读取PTY输出
+                    r, w, e = select.select([self.master_fd], [], [], 0.5)
+                    if self.master_fd in r:
+                        data = os.read(self.master_fd, 1024).decode('utf-8', errors='replace')
+                        if not data:  # EOF
+                            break
+                        
+                        # 处理数据，按行分割
+                        buffer += data
+                        lines = buffer.split('\n')
+                        buffer = lines.pop()  # 最后一个可能是不完整的行
+                        
+                        for line in lines:
+                            line = line.rstrip()
+                            if line:
+                                # 写入日志文件
+                                output_log.write(line + "\n")
+                                output_log.flush()
+                                
+                                # 添加到内存中的输出历史
+                                self.output.append(line)
+                                
+                                # 添加到队列以供实时传输
+                                self.output_queue.put(line)
+                                
+                                # 检测验证码/令牌提示
+                                if any(key in line for key in ["Steam Guard", "令牌", "验证码", "code", "Code"]):
+                                    # 推送prompt消息
+                                    self.output_queue.put({'prompt': '请输入Steam令牌/验证码'})
+                                    # 等待前端输入
+                                    logger.info(f"等待前端输入验证码: {self.process_id}")
+                                    self.input_event.clear()
+                                    self.input_event.wait(timeout=300)  # 最多等5分钟
+                                    input_value = self.input_value
+                                    if input_value:
+                                        # 先发送回车进入命令模式
+                                        logger.info(f"先发送回车进入命令模式")
+                                        os.write(self.master_fd, '\n'.encode('utf-8'))
+                                        time.sleep(0.5)  # 短暂等待
+                                        # 再发送验证码命令
+                                        send_str = f"set_steam_guard_code {input_value}\n"
+                                        os.write(self.master_fd, send_str.encode('utf-8'))
+                                        logger.info(f"收到前端输入，已写入pty: {repr(send_str)}")
+                                        self.input_value = None
+                                    else:
+                                        logger.warning(f"验证码输入超时或为空: {self.process_id}")
+                                        self.output_queue.put({'line': '验证码输入超时或未输入，安装可能失败'})
+                    
+                    # 检查进程是否结束
+                    if self.process and self.process.poll() is not None:
+                        # 处理剩余的buffer
+                        if buffer:
+                            output_log.write(buffer + "\n")
+                            self.output.append(buffer)
+                            self.output_queue.put(buffer)
+                        break
+                        
+                except (IOError, OSError) as e:
+                    if e.errno != 11:  # EAGAIN, 表示当前没有数据可读
+                        logger.error(f"读取PTY输出时出错: {str(e)}")
+                        break
+                    time.sleep(0.1)
+                    
+            # 进程结束，检查返回码
+            return_code = self.process.poll() if self.process else None
+            logger.info(f"进程 {self.process_id} 已结束，返回码: {return_code}")
+            
+            if return_code is not None:
+                self.return_code = return_code
+                self.running = False
+                self.complete = True
+                
+                # 发送完成消息
+                status = 'success' if return_code == 0 else 'error'
+                message = f'进程 {self.process_id} ' + ('成功完成' if return_code == 0 else f'失败，返回码: {return_code}')
+                self.final_message = message
+                
+                # 向队列添加完成消息
+                self.output_queue.put({'complete': True, 'status': status, 'message': message})
+                
+        except Exception as e:
+            logger.error(f"读取PTY输出线程出错: {str(e)}")
+            
+            # 向队列添加错误消息
+            self.output_queue.put({'complete': True, 'status': 'error', 'message': f'读取输出错误: {str(e)}'})
+            
+            # 更新状态
+            self.error = str(e)
+            self.running = False
+            self.complete = True
+            
+        finally:
+            # 关闭PTY主端
+            try:
+                os.close(self.master_fd)
+            except:
+                pass
+            self.master_fd = None
+                
+            # 关闭日志文件
+            try:
+                output_log.close()
+            except:
+                pass
+                
+            logger.info(f"进程 {self.process_id} 的PTY输出读取线程结束")
+
+
+class PTYManager:
+    """PTY进程管理器，用于管理多个PTY进程"""
+    
+    def __init__(self):
+        self.processes = {}  # process_id -> PTYProcess
+    
+    def create_process(self, process_id, cmd, cwd=None, env=None, log_prefix=None):
+        """创建一个新的PTY进程"""
+        if process_id in self.processes:
+            logger.warning(f"进程ID {process_id} 已存在，将替换旧进程")
+            self.terminate_process(process_id)
+        
+        process = PTYProcess(process_id, cmd, cwd, env, log_prefix)
+        self.processes[process_id] = process
+        return process
+    
+    def start_process(self, process_id):
+        """启动指定的PTY进程"""
+        if process_id not in self.processes:
+            logger.error(f"进程ID {process_id} 不存在")
+            return False
+        
+        return self.processes[process_id].start()
+    
+    def get_process(self, process_id):
+        """获取指定的PTY进程"""
+        return self.processes.get(process_id)
+    
+    def send_input(self, process_id, value):
+        """向指定的PTY进程发送输入"""
+        if process_id not in self.processes:
+            logger.error(f"进程ID {process_id} 不存在")
+            return False
+        
+        return self.processes[process_id].send_input(value)
+    
+    def set_input_value(self, process_id, value):
+        """设置输入值并触发输入事件"""
+        if process_id not in self.processes:
+            logger.error(f"进程ID {process_id} 不存在")
+            return False
+        
+        process = self.processes[process_id]
+        process.input_value = value
+        process.input_event.set()
+        return True
+    
+    def terminate_process(self, process_id, force=False):
+        """终止指定的PTY进程"""
+        if process_id not in self.processes:
+            logger.error(f"进程ID {process_id} 不存在")
+            return False
+        
+        result = self.processes[process_id].terminate(force)
+        if result:
+            # 清理资源
+            self.processes[process_id].clean_up()
+        return result
+    
+    def get_status(self, process_id=None):
+        """获取进程状态"""
+        if process_id:
+            if process_id not in self.processes:
+                return None
+            return self.processes[process_id].get_status()
+        else:
+            return {pid: process.get_status() for pid, process in self.processes.items()}
+    
+    def clean_up(self, process_id=None):
+        """清理资源"""
+        if process_id:
+            if process_id in self.processes:
+                self.processes[process_id].clean_up()
+                del self.processes[process_id]
+        else:
+            for process in self.processes.values():
+                process.clean_up()
+            self.processes.clear()
+    
+    def remove_process(self, process_id):
+        """从进程字典中移除进程，但不进行清理操作"""
+        if process_id in self.processes:
+            logger.info(f"从进程字典中移除进程: {process_id}")
+            del self.processes[process_id]
+            return True
+        else:
+            logger.warning(f"进程ID {process_id} 不存在，无法移除")
+            return False
+    
+    def is_running(self, process_id):
+        """检查进程是否在运行"""
+        if process_id not in self.processes:
+            return False
+        
+        return self.processes[process_id].is_running()
+    
+    def get_all_processes(self):
+        """获取所有进程"""
+        return self.processes
+
+
+# 创建全局PTY管理器实例
+pty_manager = PTYManager() 
