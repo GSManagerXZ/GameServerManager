@@ -13,6 +13,49 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+// 创建axios实例
+const api = axios.create({
+  baseURL: API_BASE_URL,
+});
+
+// 添加请求拦截器，自动添加身份验证令牌
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// 添加响应拦截器，处理未授权错误
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  (error) => {
+    // 如果是401未授权错误，重定向到登录页面
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('username');
+      
+      // 延迟跳转，避免循环重定向
+      if (!window.location.pathname.includes('/login')) {
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 500);
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
 export const fetchGames = async (): Promise<GameInfo[]> => {
   try {
     // 修正API响应类型
@@ -22,39 +65,83 @@ export const fetchGames = async (): Promise<GameInfo[]> => {
       message?: string;
     }
     
-    const response = await axios.get<GamesResponse>(`${API_BASE_URL}/games`);
+    const response = await api.get<GamesResponse>('/games');
     
     if (response.data.status === 'success' && response.data.games) {
-      // 检查每个游戏的安装状态
+      // 获取所有游戏列表
       const games = response.data.games;
       
-      // 并行检查所有游戏的安装状态
-      const gameStatusPromises = games.map(async (game: GameInfo) => {
+      // 使用批量检查API检查所有游戏的安装状态
+      if (games.length > 0) {
         try {
-          const statusResponse = await axios.get(`${API_BASE_URL}/check_installation?game_id=${game.id}`);
-          if (statusResponse.data.status === 'success') {
-            game.installed = statusResponse.data.installed;
+          const gameIds = games.map(game => game.id);
+          const batchResponse = await api.post('/batch_check_installation', {
+            game_ids: gameIds
+          });
+          
+          if (batchResponse.data.status === 'success') {
+            const installations = batchResponse.data.installations;
+            // 更新每个游戏的安装状态
+            games.forEach(game => {
+              game.installed = installations[game.id] || false;
+            });
           }
         } catch (error) {
-          console.error(`Failed to check installation status for ${game.id}:`, error);
-          game.installed = false;
+          console.error('批量检查游戏安装状态失败:', error);
+          // 如果批量检查失败，所有游戏都设为未安装
+          games.forEach(game => {
+            game.installed = false;
+          });
         }
-        return game;
-      });
+      }
       
-      return Promise.all(gameStatusPromises);
+      return games;
     } else {
       throw new Error(response.data.message || '获取游戏列表失败');
     }
   } catch (error) {
-    console.error('Error fetching games:', error);
+    // console.error('Error fetching games:', error);
     throw error;
+  }
+};
+
+// 批量检查游戏安装状态
+export const batchCheckInstallation = async (gameIds: string[]): Promise<Record<string, boolean>> => {
+  try {
+    const response = await api.post('/batch_check_installation', {
+      game_ids: gameIds
+    });
+    
+    if (response.data.status === 'success') {
+      return response.data.installations;
+    } else {
+      throw new Error(response.data.message || '批量检查安装状态失败');
+    }
+  } catch (error) {
+    console.error('批量检查游戏安装状态失败:', error);
+    throw error;
+  }
+};
+
+// 检查单个游戏的安装状态 (保留原有函数以兼容旧代码)
+export const checkInstallation = async (gameId: string): Promise<boolean> => {
+  try {
+    const response = await api.get(`/check_installation?game_id=${gameId}`);
+    
+    if (response.data.status === 'success') {
+      return response.data.installed;
+    } else {
+      throw new Error(response.data.message || '检查安装状态失败');
+    }
+  } catch (error) {
+    console.error(`检查游戏 ${gameId} 安装状态失败:`, error);
+    return false;
   }
 };
 
 export const installGame = async (
   gameId: string,
-  onOutput: (line: string) => void,
+  onOutput: (line: string | { prompt: string }) => void,
   onComplete: () => void,
   onError: (error: string) => void,
   account?: string,
@@ -62,7 +149,7 @@ export const installGame = async (
 ): Promise<EventSource | null> => {
   try {
     // 1. 先请求安装
-    const installResp = await axios.post(`${API_BASE_URL}/install`, {
+    const installResp = await api.post('/install', {
       game_id: gameId,
       ...(account ? { account } : {}),
       ...(password ? { password } : {})
@@ -71,8 +158,12 @@ export const installGame = async (
       onError(installResp.data.message || '安装请求失败');
       return null;
     }
+    
+    // 获取身份验证令牌
+    const token = localStorage.getItem('auth_token');
+    
     // 2. 再连接SSE
-    const sseUrl = `${API_BASE_URL}/install_stream?game_id=${gameId}`;
+    const sseUrl = `${API_BASE_URL}/install_stream?game_id=${gameId}${token ? `&token=${token}` : ''}`;
     const eventSource = new EventSource(sseUrl);
     eventSource.onmessage = (event) => {
       try {
@@ -92,7 +183,7 @@ export const installGame = async (
           }
         }
       } catch (error) {
-        console.error('Error parsing SSE data:', error);
+        // console.error('Error parsing SSE data:', error);
         onOutput(`解析安装输出错误: ${error}`);
       }
     };
@@ -110,13 +201,13 @@ export const installGame = async (
 // 终止游戏安装
 export const terminateInstall = async (gameId: string): Promise<boolean> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/terminate_install`, {
+    const response = await api.post('/terminate_install', {
       game_id: gameId
     });
     
     return response.data.status === 'success';
   } catch (error) {
-    console.error('Error terminating installation:', error);
+    // console.error('Error terminating installation:', error);
     throw error;
   }
 };
@@ -126,7 +217,7 @@ export const installByAppId = async (
   appId: string,
   name: string,
   anonymous: boolean,
-  onOutput: (line: string) => void,
+  onOutput: (line: string | { prompt: string }) => void,
   onComplete: () => void,
   onError: (error: string) => void,
   account?: string,
@@ -134,7 +225,7 @@ export const installByAppId = async (
 ): Promise<EventSource | null> => {
   try {
     // 1. 先请求安装
-    const installResp = await axios.post(`${API_BASE_URL}/install_by_appid`, {
+    const installResp = await api.post('/install_by_appid', {
       appid: appId,
       name: name,
       anonymous: anonymous,
@@ -147,9 +238,12 @@ export const installByAppId = async (
       return null;
     }
     
+    // 获取身份验证令牌
+    const token = localStorage.getItem('auth_token');
+    
     // 2. 再连接SSE，使用生成的game_id
     const gameId = `app_${appId}`;
-    const sseUrl = `${API_BASE_URL}/install_stream?game_id=${gameId}`;
+    const sseUrl = `${API_BASE_URL}/install_stream?game_id=${gameId}${token ? `&token=${token}` : ''}`;
     const eventSource = new EventSource(sseUrl);
     
     eventSource.onmessage = (event) => {
@@ -170,7 +264,7 @@ export const installByAppId = async (
           }
         }
       } catch (error) {
-        console.error('Error parsing SSE data:', error);
+        // console.error('Error parsing SSE data:', error);
         onOutput(`解析安装输出错误: ${error}`);
       }
     };
@@ -184,5 +278,18 @@ export const installByAppId = async (
   } catch (error: any) {
     onError(error?.message || '安装请求失败');
     return null;
+  }
+};
+
+// 打开游戏文件夹
+export const openGameFolder = async (gameId: string): Promise<boolean> => {
+  try {
+    const response = await api.post('/open_game_folder', {
+      game_id: gameId
+    });
+    
+    return response.data.status === 'success';
+  } catch (error) {
+    return false;
   }
 }; 

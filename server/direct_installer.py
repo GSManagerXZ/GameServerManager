@@ -146,11 +146,11 @@ def install_steam_game(app_id, game_id, use_custom_account=False, steam_account=
         return True
     else:
         print(f"{RED}AppID: {app_id} 安装失败! 返回码: {return_code}{NC}")
-        # 显示调试信息
-        print(f"{YELLOW}调试信息:{NC}")
-        print(f"{YELLOW}• 确认 docker-compose.yml 中的挂载设置是否正确{NC}")
-        print(f"{YELLOW}• 确认宿主机上的 game_data 目录权限是否为 777{NC}")
-        print(f"{YELLOW}• 尝试添加 user: root 到 docker-compose.yml{NC}")
+        # 仅在真正需要调试时才显示调试信息
+        # print(f"{YELLOW}调试信息:{NC}")
+        # print(f"{YELLOW}• 确认 docker-compose.yml 中的挂载设置是否正确{NC}")
+        # print(f"{YELLOW}• 确认宿主机上的 game_data 目录权限是否为 777{NC}")
+        # print(f"{YELLOW}• 尝试添加 user: root 到 docker-compose.yml{NC}")
         return False
 
 def create_simple_startup_script(install_dir, app_id):

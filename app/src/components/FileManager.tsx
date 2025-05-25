@@ -39,8 +39,12 @@ interface ContextMenuPosition {
   visible: boolean;
 }
 
-const FileManager: React.FC = () => {
-  const [currentPath, setCurrentPath] = useState<string>('/home/steam');
+interface FileManagerProps {
+  initialPath?: string;
+}
+
+const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }) => {
+  const [currentPath, setCurrentPath] = useState<string>(initialPath || '/home/steam');
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null);
@@ -71,6 +75,17 @@ const FileManager: React.FC = () => {
     y: 0,
     visible: false
   });
+  // 添加分页状态
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 20,
+  });
+
+  // 创建包含认证信息的请求头
+  const getHeaders = () => {
+    const token = localStorage.getItem('auth_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   // 处理右键菜单显示
   const handleContextMenu = (e: React.MouseEvent, file: FileInfo) => {
@@ -144,13 +159,29 @@ const FileManager: React.FC = () => {
       
       if (response.data.status === 'success') {
         setFiles(response.data.files || []);
-        setCurrentPath(path);
-        updateBreadcrumb(path);
+        // 使用服务器返回的实际路径，它可能与请求的路径不同
+        const actualPath = response.data.path || path;
+        setCurrentPath(actualPath);
+        updateBreadcrumb(actualPath);
+        // 切换目录时重置分页到第一页，但保留页面大小
+        setPagination(prev => ({
+          ...prev,
+          current: 1
+        }));
+        
+        // 如果服务器返回了消息，显示提示
+        if (response.data.message) {
+          message.info(response.data.message);
+        }
       } else {
         message.error(response.data.message || '无法加载目录');
+        // 如果路径无效，尝试导航到上一级目录
+        navigateToParentDirectory(path);
       }
     } catch (error: any) {
       message.error(`加载目录失败: ${error.message}`);
+      // 如果发生错误，尝试导航到上一级目录
+      navigateToParentDirectory(path);
     } finally {
       setLoading(false);
     }
@@ -173,9 +204,35 @@ const FileManager: React.FC = () => {
     setBreadcrumbItems(items);
   };
 
+  // 导航到父目录
+  const navigateToParentDirectory = (currentPath: string) => {
+    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+    // 如果父目录就是当前目录，则导航到根目录
+    if (parentPath === currentPath) {
+      navigateToDirectory('/');
+    } else {
+      navigateToDirectory(parentPath);
+    }
+  };
+
+  // 当initialPath变化时重新加载目录
+  useEffect(() => {
+    if (initialPath) {
+      loadDirectory(initialPath);
+    } else {
+      // 如果initialPath为空或无效，默认到/home/steam
+      loadDirectory('/home/steam');
+    }
+  }, [initialPath]);
+
   // 初始加载
   useEffect(() => {
-    loadDirectory(currentPath);
+    if (currentPath) {
+      loadDirectory(currentPath);
+    } else {
+      // 如果currentPath为空或无效，默认到/home/steam
+      loadDirectory('/home/steam');
+    }
   }, []);
 
   // 导航到目录
@@ -223,7 +280,10 @@ const FileManager: React.FC = () => {
   const previewImage = (file: FileInfo) => {
     if (file.type !== 'file' || !isImageFile(file.name)) return;
     
-    const imageUrl = `/api/download?path=${encodeURIComponent(file.path)}&preview=true`;
+    // 获取认证令牌
+    const token = localStorage.getItem('auth_token');
+    
+    const imageUrl = `/api/download?path=${encodeURIComponent(file.path)}&preview=true${token ? `&token=${token}` : ''}`;
     setPreviewImageUrl(imageUrl);
     setSelectedFile(file);
     setIsPreviewModalVisible(true);
@@ -424,8 +484,11 @@ const FileManager: React.FC = () => {
   const downloadFile = (file: FileInfo) => {
     if (file.type !== 'file') return;
     
-    // 创建下载链接
-    const downloadUrl = `/api/download?path=${encodeURIComponent(file.path)}`;
+    // 获取认证令牌
+    const token = localStorage.getItem('auth_token');
+    
+    // 创建下载链接，添加token参数
+    const downloadUrl = `/api/download?path=${encodeURIComponent(file.path)}${token ? `&token=${token}` : ''}`;
     
     if (downloadLinkRef.current) {
       downloadLinkRef.current.href = downloadUrl;
@@ -467,8 +530,11 @@ const FileManager: React.FC = () => {
           const zipPath = response.data.zipPath;
           const zipName = zipPath.split('/').pop() || 'download.zip';
           
+          // 获取认证令牌
+          const token = localStorage.getItem('auth_token');
+          
           // 下载压缩文件
-          const downloadUrl = `/api/download?path=${encodeURIComponent(zipPath)}`;
+          const downloadUrl = `/api/download?path=${encodeURIComponent(zipPath)}${token ? `&token=${token}` : ''}`;
           
           if (downloadLinkRef.current) {
             downloadLinkRef.current.href = downloadUrl;
@@ -489,7 +555,7 @@ const FileManager: React.FC = () => {
               path: zipPath,
               type: 'file'
             }).catch(error => {
-              console.error('删除临时压缩文件失败:', error);
+              // 忽略错误，不打印到控制台
             });
           }, 5000);
         } else {
@@ -630,7 +696,7 @@ const FileManager: React.FC = () => {
   ];
 
   return (
-    <div className="file-manager">
+    <div className="file-manager" style={{paddingBottom: '50px'}}>
       <div className="file-manager-toolbar">
         <Space>
           <Button 
@@ -697,8 +763,25 @@ const FileManager: React.FC = () => {
               }}
               columns={columns} 
               dataSource={files.map(file => ({ ...file, key: file.path }))} 
-              pagination={{ pageSize: 10 }}
+              pagination={{ 
+                current: pagination.current,
+                pageSize: pagination.pageSize,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50', '100'],
+                showTotal: (total) => `共 ${total} 项`,
+                style: { marginBottom: '30px', padding: '10px 0' },
+                onChange: (current: number, pageSize: number) => {
+                  setPagination({ current, pageSize });
+                },
+                onShowSizeChange: (current: number, size: number) => {
+                  setPagination({
+                    current: 1, // 改变每页显示数量时，通常会跳转到第一页
+                    pageSize: size
+                  });
+                }
+              }}
               size="middle"
+              scroll={{ y: 'calc(100vh - 420px)' }}
               onRow={(record: FileInfo) => ({
                 onClick: () => {
                   setSelectedFile(record);
@@ -990,7 +1073,8 @@ const FileManager: React.FC = () => {
         <Dragger
           name="file"
           multiple={true}
-          action={`/api/upload?path=${encodeURIComponent(currentPath)}`}
+          action={`/api/upload?path=${encodeURIComponent(currentPath)}${localStorage.getItem('auth_token') ? `&token=${localStorage.getItem('auth_token')}` : ''}`}
+          headers={getHeaders()}
           onChange={info => {
             const { status } = info.file;
             if (status === 'done') {
@@ -1015,7 +1099,7 @@ const FileManager: React.FC = () => {
       <style jsx>{`
         .file-manager {
           width: 100%;
-          padding: 0;
+          padding: 8px;
         }
         .file-manager-toolbar {
           margin-bottom: 16px;
@@ -1023,7 +1107,6 @@ const FileManager: React.FC = () => {
         .file-manager-content {
           background-color: white;
           border-radius: 4px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
         .directory-name {
           color: #1890ff;
@@ -1036,7 +1119,7 @@ const FileManager: React.FC = () => {
           display: flex;
           justify-content: center;
           align-items: center;
-          min-height: 300px;
+          min-height: 200px;
         }
         .image-preview-container {
           display: flex;

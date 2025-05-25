@@ -40,16 +40,23 @@ document.head.appendChild(style);
 // 获取游戏列表
 async function fetchGames() {
   try {
-    console.log("获取游戏列表...");
-    const response = await fetch(`${API_URL}/games`);
+    // console.log("获取游戏列表...");
+    // 获取身份验证令牌
+    const token = localStorage.getItem('auth_token');
+    const headers = new Headers();
+    if (token) {
+      headers.append('Authorization', `Bearer ${token}`);
+    }
+    
+    const response = await fetch(`${API_URL}/games`, { headers });
     if (!response.ok) {
       throw new Error(`获取游戏列表失败: ${response.status} ${response.statusText}`);
     }
     const data = await response.json();
-    console.log("游戏列表:", data);
+    // console.log("游戏列表:", data);
     return data.status === 'success' ? data.games : [];
   } catch (error) {
-    console.error("获取游戏列表失败:", error);
+    // console.error("获取游戏列表失败:", error);
     return [];
   }
 }
@@ -57,16 +64,23 @@ async function fetchGames() {
 // 检查安装状态
 async function checkInstallationStatus(gameId) {
   try {
-    console.log(`检查游戏 ${gameId} 的安装状态...`);
-    const response = await fetch(`${API_URL}/installation_status?game_id=${gameId}`);
+    // console.log(`检查游戏 ${gameId} 的安装状态...`);
+    // 获取身份验证令牌
+    const token = localStorage.getItem('auth_token');
+    const headers = new Headers();
+    if (token) {
+      headers.append('Authorization', `Bearer ${token}`);
+    }
+    
+    const response = await fetch(`${API_URL}/installation_status?game_id=${gameId}${token ? `&token=${token}` : ''}`, { headers });
     if (!response.ok) {
       return null;
     }
     const data = await response.json();
-    console.log(`游戏 ${gameId} 的安装状态:`, data);
+    // console.log(`游戏 ${gameId} 的安装状态:`, data);
     return data.status === 'success' ? data.installation : null;
   } catch (error) {
-    console.error(`检查游戏 ${gameId} 的安装状态失败:`, error);
+    // console.error(`检查游戏 ${gameId} 的安装状态失败:`, error);
     return null;
   }
 }
@@ -232,6 +246,18 @@ function clearOutput(outputElement) {
   outputElement.innerHTML = '';
 }
 
+// 检查游戏是否已安装
+async function checkInstallation(gameId) {
+  try {
+    const response = await fetch(`${API_URL}/check_installation?game_id=${gameId}`);
+    const data = await response.json();
+    return data.status === 'success' && data.installed;
+  } catch (error) {
+    // console.error("检查安装状态失败:", error);
+    return false;
+  }
+}
+
 // 初始化安装会话
 async function startInstallSession(gameId, outputElement) {
   if (!gameId) return false;
@@ -261,7 +287,7 @@ async function startInstallSession(gameId, outputElement) {
     }
     
     // 否则启动新的安装
-    console.log(`发送游戏安装请求: ${gameId}`);
+    // console.log(`发送游戏安装请求: ${gameId}`);
     const startResponse = await fetch(`${API_URL}/install`, {
       method: 'POST',
       headers: {
@@ -276,7 +302,7 @@ async function startInstallSession(gameId, outputElement) {
     }
     
     const startData = await startResponse.json();
-    console.log("安装请求响应:", startData);
+    // console.log("安装请求响应:", startData);
     appendOutput(outputElement, startData.message);
     
     // 等待服务器处理（给服务器一点时间启动进程）
@@ -286,7 +312,7 @@ async function startInstallSession(gameId, outputElement) {
     connectToEventStream(gameId, outputElement);
     return true;
   } catch (error) {
-    console.error("启动安装会话失败:", error);
+    // console.error("启动安装会话失败:", error);
     appendOutput(outputElement, `错误: ${error.message}`, true);
     window.gameInstallState.isInstalling = false;
     return false;
@@ -301,15 +327,18 @@ function connectToEventStream(gameId, outputElement) {
     // 关闭任何现有的EventSource
     closeSSEConnection();
     
-    const eventSourceUrl = `${API_URL}/install_stream?game_id=${gameId}`;
-    console.log('连接到SSE:', eventSourceUrl);
+    // 获取身份验证令牌
+    const token = localStorage.getItem('auth_token');
+    
+    const eventSourceUrl = `${API_URL}/install_stream?game_id=${gameId}${token ? `&token=${token}` : ''}`;
+    // console.log('连接到SSE:', eventSourceUrl);
     appendOutput(outputElement, '正在连接到安装流...');
     
     const eventSource = new EventSource(eventSourceUrl);
     window.activeEventSource = eventSource;
     
     eventSource.onopen = function() {
-      console.log('SSE连接已打开');
+      // console.log('SSE连接已打开');
       window.gameInstallState.sseConnected = true;
       window.gameInstallState.retryCount = 0;
       appendOutput(outputElement, '与服务器建立连接，开始接收安装进度...');
@@ -317,7 +346,7 @@ function connectToEventStream(gameId, outputElement) {
     
     eventSource.onmessage = function(event) {
       try {
-        console.log('收到SSE消息:', event.data);
+        // console.log('收到SSE消息:', event.data);
         const data = JSON.parse(event.data);
         
         if (data.line) {
@@ -329,7 +358,7 @@ function connectToEventStream(gameId, outputElement) {
         }
         
         if (data.complete) {
-          console.log('安装完成，关闭SSE连接');
+          // console.log('安装完成，关闭SSE连接');
           eventSource.close();
           window.activeEventSource = null;
           window.gameInstallState.sseConnected = false;
@@ -349,13 +378,13 @@ function connectToEventStream(gameId, outputElement) {
           }
         }
       } catch (error) {
-        console.error("解析服务器消息失败:", error);
+        // console.error("解析服务器消息失败:", error);
         appendOutput(outputElement, `解析错误: ${error.message}`, true);
       }
     };
     
     eventSource.onerror = function(event) {
-      console.error('SSE错误:', event);
+      // console.error('SSE错误:', event);
       window.gameInstallState.sseConnected = false;
       
       // 尝试重新连接
@@ -404,7 +433,7 @@ function connectToEventStream(gameId, outputElement) {
     
     return true;
   } catch (error) {
-    console.error("连接到安装流失败:", error);
+    // console.error("连接到安装流失败:", error);
     appendOutput(outputElement, `连接错误: ${error.message}`, true);
     window.gameInstallState.isInstalling = false;
     return false;
@@ -419,22 +448,10 @@ async function installGame(gameId) {
   return startInstallSession(gameId, outputElement);
 }
 
-// 检查游戏是否已安装
-async function checkInstallation(gameId) {
-  try {
-    const response = await fetch(`${API_URL}/check_installation?game_id=${gameId}`);
-    const data = await response.json();
-    return data.status === 'success' && data.installed;
-  } catch (error) {
-    console.error("检查安装状态失败:", error);
-    return false;
-  }
-}
-
 // 关闭SSE连接的函数
 function closeSSEConnection() {
   if (window.activeEventSource) {
-    console.log('手动关闭SSE连接');
+    // console.log('手动关闭SSE连接');
     window.activeEventSource.close();
     window.activeEventSource = null;
     window.gameInstallState.sseConnected = false;

@@ -75,8 +75,6 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
         
         setInstalledGames(allInstalledGames);
       }
-    } catch (error) {
-      console.error('获取容器信息失败:', error);
     } finally {
       setLoading(false);
     }

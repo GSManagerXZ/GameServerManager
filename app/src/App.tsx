@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio } from 'antd';
-import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
@@ -8,8 +8,11 @@ import './App.css';
 import Terminal from './components/Terminal';
 import ContainerInfo from './components/ContainerInfo';
 import FileManager from './components/FileManager';
-import { fetchGames, installGame, terminateInstall, installByAppId } from './api';
+import Register from './components/Register'; // 导入注册组件
+import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
 import { GameInfo } from './types';
+import { useAuth } from './context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Title, Paragraph } = Typography;
@@ -17,8 +20,8 @@ const { TabPane } = Tabs;
 
 // 定义一个类型化的错误处理函数
 const handleError = (err: any): void => {
-  console.error('Error:', err);
-  message.error(err?.message || '发生错误');
+  // console.error('Error:', err);
+  message.error(err?.message || '发生未知错误');
 };
 
 interface InstallOutput {
@@ -30,31 +33,32 @@ interface InstallOutput {
 // 新增API函数
 const startServer = async (gameId: string, callback?: (line: any) => void, onComplete?: () => void, onError?: (error: any) => void) => {
   try {
-    console.log(`正在启动服务器 ${gameId}...`);
+    // console.log(`正在启动服务器 ${gameId}...`);
     
     // 发送启动服务器请求
     const response = await axios.post('/api/server/start', { game_id: gameId });
-    console.log('启动服务器响应:', response.data);
+    // console.log('启动服务器响应:', response.data);
     
     if (response.data.status !== 'success') {
       const errorMsg = response.data.message || '启动失败';
-      console.error(`启动服务器失败: ${errorMsg}`);
+      // console.error(`启动服务器失败: ${errorMsg}`);
       if (onError) onError(new Error(errorMsg));
       throw new Error(errorMsg);
     }
     
     // 使用EventSource获取实时输出
-    const eventSource = new EventSource(`/api/server/stream?game_id=${gameId}`);
-    console.log(`已建立到 ${gameId} 服务器的SSE连接`);
+    const token = localStorage.getItem('auth_token');
+    const eventSource = new EventSource(`/api/server/stream?game_id=${gameId}${token ? `&token=${token}` : ''}`);
+    // console.log(`已建立到 ${gameId} 服务器的SSE连接`);
     
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log(`收到服务器输出:`, data);
+        // console.log(`收到服务器输出:`, data);
         
         // 处理完成消息
         if (data.complete) {
-          console.log(`服务器输出完成，关闭SSE连接`);
+          // console.log(`服务器输出完成，关闭SSE连接`);
           eventSource.close();
           if (onComplete) onComplete();
           return;
@@ -65,7 +69,7 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
         
         // 处理超时消息
         if (data.timeout) {
-          console.log(`服务器连接超时`);
+          // console.log(`服务器连接超时`);
           eventSource.close();
           if (onError) onError(new Error(data.message || '连接超时'));
           return;
@@ -73,7 +77,7 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
         
         // 处理错误消息
         if (data.error) {
-          console.error(`服务器返回错误: ${data.error}`);
+          // console.error(`服务器返回错误: ${data.error}`);
           eventSource.close();
           if (onError) onError(new Error(data.error));
           return;
@@ -84,20 +88,20 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
           callback(data.line);
         }
       } catch (err) {
-        console.error('解析服务器输出失败:', err, event.data);
+        // console.error('解析服务器输出失败:', err, event.data);
         if (onError) onError(new Error(`解析服务器输出失败: ${err}`));
       }
     };
     
     eventSource.onerror = (error) => {
-      console.error('SSE连接错误:', error);
+      // console.error('SSE连接错误:', error);
       eventSource.close();
       if (onError) onError(error || new Error('服务器连接错误'));
     };
     
     return eventSource;
   } catch (error) {
-    console.error('启动服务器函数出错:', error);
+    // console.error('启动服务器函数出错:', error);
     if (onError) onError(error);
     throw error;
   }
@@ -137,8 +141,9 @@ const checkServerStatus = async (gameId: string) => {
 };
 
 const App: React.FC = () => {
+  const { login, logout, username, isAuthenticated, loading, isFirstUse, setAuthenticated } = useAuth();
   const [games, setGames] = useState<GameInfo[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [gameLoading, setGameLoading] = useState<boolean>(true);
   const [selectedGame, setSelectedGame] = useState<GameInfo | null>(null);
   const [terminalVisible, setTerminalVisible] = useState<boolean>(false);
   // 保存每个游戏的输出和状态
@@ -154,6 +159,7 @@ const App: React.FC = () => {
   const [detailGame, setDetailGame] = useState<GameInfo | null>(null);
   // 新增AppID安装状态
   const [appIdInstalling, setAppIdInstalling] = useState(false);
+  const [accountFormLoading, setAccountFormLoading] = useState<boolean>(false);
 
   // 新增：服务器相关状态
   const [serverOutputs, setServerOutputs] = useState<{[key: string]: any[]}>({});
@@ -165,11 +171,17 @@ const App: React.FC = () => {
   const [currentNav, setCurrentNav] = useState<string>('dashboard');
   const [collapsed, setCollapsed] = useState<boolean>(false);
 
+  // 新增：文件管理窗口相关状态
+  const [fileManagerVisible, setFileManagerVisible] = useState<boolean>(false);
+  const [fileManagerPath, setFileManagerPath] = useState<string>('/home/steam');
+
+  const navigate = useNavigate();
+
   // 加载游戏列表
   useEffect(() => {
     // 并行加载游戏列表和已安装游戏
     const loadAll = async () => {
-      setLoading(true);
+      setGameLoading(true);
       try {
         const [gameList, installedResp] = await Promise.all([
           fetchGames(),
@@ -195,7 +207,7 @@ const App: React.FC = () => {
       } catch (error) {
         handleError(error);
       } finally {
-        setLoading(false);
+        setGameLoading(false);
       }
     };
     loadAll();
@@ -212,7 +224,7 @@ const App: React.FC = () => {
         setRunningServers(running);
       }
     } catch (error) {
-      console.error('检查服务器状态失败:', error);
+      // console.error('检查服务器状态失败:', error);
     }
   }, []);
 
@@ -231,7 +243,7 @@ const App: React.FC = () => {
       const eventSource = await installGame(
         game.id,
         (line) => {
-          console.log('SSE output:', line);
+          // console.log('SSE output:', line);
           setInstallOutputs(prev => {
             const old = prev[game.id]?.output || [];
             return {
@@ -297,7 +309,7 @@ const App: React.FC = () => {
 
   // 获取当前选中游戏的输出和状态
   const currentOutput = selectedGame ? installOutputs[selectedGame.id]?.output || [] : [];
-  console.log('currentOutput:', currentOutput);
+  // console.log('currentOutput:', currentOutput);
   const currentInstalling = selectedGame ? installOutputs[selectedGame.id]?.installing || false : false;
   const currentComplete = selectedGame ? installOutputs[selectedGame.id]?.complete || false : false;
 
@@ -383,31 +395,38 @@ const App: React.FC = () => {
   };
 
   // 提交账号密码表单
-  const onAccountModalOk = async () => {
+  const onAccountModalOk = async (values: { username: string; password: string }) => {
     try {
-      const values = await accountForm.validateFields();
-      setAccountModalVisible(false);
-      if (pendingInstallGame) {
-        handleInstall(pendingInstallGame, values.account, values.password);
+      setAccountFormLoading(true);
+      const success = await login(values.username, values.password);
+      
+      if (success) {
+        message.success('登录成功');
+      } else {
+        message.error('登录失败，请检查用户名和密码');
       }
-    } catch {}
+    } catch (error) {
+      message.error('登录失败，请稍后重试');
+    } finally {
+      setAccountFormLoading(false);
+    }
   };
 
   // 刷新已安装游戏和外部游戏列表
   const refreshGameLists = useCallback(async () => {
     try {
-      console.log('刷新游戏列表...');
+      // console.log('刷新游戏列表...');
       const response = await axios.get('/api/installed_games');
       if (response.data.status === 'success') {
         setInstalledGames(response.data.installed || []);
         setExternalGames(response.data.external || []);
-        console.log('游戏列表已更新', {
-          installed: response.data.installed?.length || 0,
-          external: response.data.external?.length || 0
-        });
+        // console.log('游戏列表已更新', {
+        //   installed: response.data.installed?.length || 0,
+        //   external: response.data.external?.length || 0
+        // });
       }
     } catch (error) {
-      console.error('刷新游戏列表失败:', error);
+      // console.error('刷新游戏列表失败:', error);
     }
   }, []);
 
@@ -419,7 +438,7 @@ const App: React.FC = () => {
   // 服务器相关函数
   const handleStartServer = useCallback(async (gameId: string) => {
     try {
-      console.log(`处理启动服务器请求: ${gameId}`);
+      // console.log(`处理启动服务器请求: ${gameId}`);
       
       // 对于外部游戏，获取游戏名称
       let gameName = gameId;
@@ -431,16 +450,16 @@ const App: React.FC = () => {
         if (externalGame) {
           gameObj = externalGame;
           gameName = externalGame.name;
-          console.log(`找到外部游戏: ${gameName}`);
+          // console.log(`找到外部游戏: ${gameName}`);
         } else {
-          console.log(`警告: 找不到游戏对象 ${gameId}`);
+          // console.log(`警告: 找不到游戏对象 ${gameId}`);
         }
       }
       
       const response = await startServer(
         gameId,
         (line) => {
-          console.log(`服务器输出 (${gameId}):`, line);
+          // console.log(`服务器输出 (${gameId}):`, line);
           setServerOutputs(prev => {
             const old = prev[gameId] || [];
             return {
@@ -451,12 +470,12 @@ const App: React.FC = () => {
         },
         () => {
           // 服务器已停止
-          console.log(`服务器已停止: ${gameId}`);
+          // console.log(`服务器已停止: ${gameId}`);
           message.success(`服务器已停止`);
           refreshServerStatus();
         },
         (error) => {
-          console.error(`启动服务器错误: ${error?.message || error}`);
+          // console.error(`启动服务器错误: ${error?.message || error}`);
           message.error(`启动服务器失败: ${error?.message || '未知错误'}`);
         }
       );
@@ -480,7 +499,7 @@ const App: React.FC = () => {
       
       return response;
     } catch (error) {
-      console.error(`handleStartServer错误:`, error);
+      // console.error(`handleStartServer错误:`, error);
       handleError(error);
       return null;
     }
@@ -577,12 +596,6 @@ const App: React.FC = () => {
   // 渲染游戏卡片安装按钮 (用于游戏安装页面)
   const renderGameButtons = (game: GameInfo) => {
     // 添加调试代码
-    console.log(`游戏 ${game.id} 的安装状态:`, {
-      installedGames: installedGames.includes(game.id),
-      installing: installOutputs[game.id]?.installing,
-      installOutputsValue: installOutputs[game.id]
-    });
-    
     const primaryBtnStyle = {
       background: 'linear-gradient(90deg, #1677ff 0%, #69b1ff 100%)',
       color: 'white',
@@ -651,21 +664,39 @@ const App: React.FC = () => {
           <Button 
             type="primary" 
             size="small"
+            style={{marginRight: 8}}
             onClick={() => handleStartServer(game.id)}
           >
             控制台
+          </Button>
+          <Button
+            icon={<FolderOutlined />}
+            size="small"
+            onClick={() => handleOpenGameFolder(game.id)}
+          >
+            文件夹
           </Button>
         </>
       );
     } else {
       return (
-        <Button 
-          type="primary" 
-          size="small"
-          onClick={() => handleStartServer(game.id)}
-        >
-          启动
-        </Button>
+        <>
+          <Button 
+            type="primary" 
+            size="small"
+            style={{marginRight: 8}}
+            onClick={() => handleStartServer(game.id)}
+          >
+            启动
+          </Button>
+          <Button
+            icon={<FolderOutlined />}
+            size="small"
+            onClick={() => handleOpenGameFolder(game.id)}
+          >
+            文件夹
+          </Button>
+        </>
       );
     }
   };
@@ -696,7 +727,7 @@ const App: React.FC = () => {
 
         {/* 显示外部游戏 */}
         {externalGames.map(game => (
-          <Col xs={24} sm={12} md={8} lg={6} key={game.id}>
+          <Col xs={24} sm={12} md={8} lg={6}>
             <Card
               hoverable
               className="game-card"
@@ -723,19 +754,37 @@ const App: React.FC = () => {
                     <Button
                       type="primary"
                       size="small"
+                      style={{marginRight: 8}}
                       onClick={() => handleStartServer(game.id)}
                     >
                       控制台
                     </Button>
+                    <Button
+                      icon={<FolderOutlined />}
+                      size="small"
+                      onClick={() => handleOpenGameFolder(game.id)}
+                    >
+                      文件夹
+                    </Button>
                   </>
                 ) : (
-                  <Button
-                    type="primary"
-                    size="small"
-                    onClick={() => handleStartServer(game.id)}
-                  >
-                    启动
-                  </Button>
+                  <>
+                    <Button
+                      type="primary"
+                      size="small"
+                      style={{marginRight: 8}}
+                      onClick={() => handleStartServer(game.id)}
+                    >
+                      启动
+                    </Button>
+                    <Button
+                      icon={<FolderOutlined />}
+                      size="small"
+                      onClick={() => handleOpenGameFolder(game.id)}
+                    >
+                      文件夹
+                    </Button>
+                  </>
                 )}
               </div>
               <Button
@@ -831,7 +880,7 @@ const App: React.FC = () => {
         values.name,
         values.anonymous,
         (line) => {
-          console.log('SSE output:', line);
+          // console.log('SSE output:', line);
           setInstallOutputs(prev => {
             const old = prev[gameId]?.output || [];
             return {
@@ -900,6 +949,159 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // 监听打开文件管理器的事件
+  useEffect(() => {
+    const handleOpenFileManager = (event: CustomEvent) => {
+      const path = event.detail?.path;
+      // 检查路径是否有效，如果无效则使用默认路径
+      if (path && typeof path === 'string' && path.startsWith('/')) {
+        setFileManagerPath(path);
+      } else {
+        // 使用默认路径
+        setFileManagerPath('/home/steam');
+      }
+      setFileManagerVisible(true);
+    };
+
+    window.addEventListener('openFileManager', handleOpenFileManager as EventListener);
+    
+    return () => {
+      window.removeEventListener('openFileManager', handleOpenFileManager as EventListener);
+    };
+  }, []);
+
+  // 添加处理打开文件夹的函数
+  const handleOpenGameFolder = async (gameId: string) => {
+    try {
+      const success = await openGameFolder(gameId);
+      if (!success) {
+        message.error('无法打开游戏文件夹');
+      }
+    } catch (error) {
+      message.error(`打开游戏文件夹失败: ${error}`);
+    }
+  };
+
+  // 处理注册成功
+  const handleRegisterSuccess = (token: string, username: string, role: string) => {
+    setAuthenticated(token, username, role);
+    message.success('注册成功，欢迎使用游戏容器！');
+  };
+
+  // 初始化
+  useEffect(() => {
+    // 如果已登录，加载游戏列表
+    if (isAuthenticated) {
+      // 并行加载游戏列表和已安装游戏
+      const loadGames = async () => {
+        setGameLoading(true);
+        try {
+          const [gameList, installedResp] = await Promise.all([
+            fetchGames(),
+            axios.get('/api/installed_games')
+          ]);
+          setGames(gameList);
+          if (installedResp.data.status === 'success') {
+            setInstalledGames(installedResp.data.installed || []);
+            setExternalGames(installedResp.data.external || []);  // 设置外部游戏
+          }
+          
+          // 初始化每个游戏的installOutputs
+          const initialOutputs: {[key: string]: InstallOutput} = {};
+          gameList.forEach(game => {
+            initialOutputs[game.id] = {
+              output: [],
+              complete: false,
+              installing: false
+            };
+          });
+          setInstallOutputs(initialOutputs);
+          
+        } catch (error) {
+          message.error('加载游戏列表失败，请刷新页面重试');
+        } finally {
+          setGameLoading(false);
+        }
+      };
+      
+      loadGames();
+    }
+  }, [isAuthenticated]);
+
+  // 如果正在加载认证状态，显示加载中
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Spin size="large" tip="加载中..." />
+      </div>
+    );
+  }
+
+  // 如果是首次使用，显示注册界面 - 强制渲染
+  if (isFirstUse === true) {
+    // 使用行内样式确保显示，避免样式冲突
+    return (
+      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 9999 }}>
+        <Register onRegisterSuccess={handleRegisterSuccess} />
+      </div>
+    );
+  }
+
+  // 如果未认证，显示登录界面
+  if (!isAuthenticated) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
+        <Card style={{ width: 400, boxShadow: '0 4px 8px rgba(0,0,0,0.1)' }}>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <Title level={2}>游戏容器登录</Title>
+          </div>
+          
+          <Form
+            name="login_form"
+            initialValues={{ remember: true }}
+            onFinish={onAccountModalOk}
+            layout="vertical"
+          >
+            <Form.Item
+              name="username"
+              rules={[{ required: true, message: '请输入用户名!' }]}
+            >
+              <Input 
+                prefix={<UserOutlined />} 
+                placeholder="用户名" 
+                size="large"
+              />
+            </Form.Item>
+            
+            <Form.Item
+              name="password"
+              rules={[{ required: true, message: '请输入密码!' }]}
+            >
+              <Input.Password 
+                prefix={<LockOutlined />} 
+                placeholder="密码" 
+                size="large"
+              />
+            </Form.Item>
+            
+            <Form.Item>
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                style={{ width: '100%' }} 
+                size="large"
+                loading={accountFormLoading}
+              >
+                登录
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      </div>
+    );
+  }
+
+  // 主应用界面
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider 
@@ -912,13 +1114,19 @@ const App: React.FC = () => {
         collapsedWidth="var(--sider-collapsed-width)"
       >
         <div className="logo">
-          <CloudServerOutlined /> {!collapsed && <span>游戏服务器管理</span>}
+          <CloudServerOutlined /> {!collapsed && <span>GSManager</span>}
         </div>
         <Menu
           theme="light"
           mode="inline"
           selectedKeys={[currentNav]}
-          onClick={({ key }) => setCurrentNav(key.toString())}
+          onClick={({ key }) => {
+            setCurrentNav(key.toString());
+            // 当切换到文件管理时，确保设置有效的默认路径
+            if (key === 'files' && (!fileManagerPath || fileManagerPath === '')) {
+              setFileManagerPath('/home/steam');
+            }
+          }}
           items={[
             {
               key: 'dashboard',
@@ -948,7 +1156,21 @@ const App: React.FC = () => {
       >
         <Header className="site-header">
           <div className="header-title">
-            通用游戏服务器容器管理系统
+            GameServerManager
+          </div>
+          <div className="user-info">
+            <span><UserOutlined /> {username}</span>
+            <Button 
+              type="link" 
+              icon={<LogoutOutlined className="logout-icon" />} 
+              onClick={async () => {
+                await logout();
+                navigate('/login');
+              }}
+              className="logout-btn"
+            >
+              退出
+            </Button>
           </div>
         </Header>
         <Content style={{ width: '100%', maxWidth: '100%', margin: 0, padding: '16px' }}>
@@ -965,7 +1187,7 @@ const App: React.FC = () => {
               <Title level={2}>游戏服务器管理</Title>
               <Tabs activeKey={tabKey} onChange={setTabKey}>
                 <TabPane tab="快速部署" key="install">
-                  {loading ? (
+                  {gameLoading ? (
                     <div className="loading-container">
                       <Spin size="large" />
                     </div>
@@ -1158,13 +1380,6 @@ const App: React.FC = () => {
                                 <Tag color="orange">外来</Tag>
                               </div>
                             }
-                            extra={
-                              runningServers.includes(game.id) ? (
-                                <Tag color="green">运行中</Tag>
-                              ) : (
-                                <Tag color="default">未运行</Tag>
-                              )
-                            }
                           >
                             <p>位置: /home/steam/games/{game.id}</p>
                             <div style={{marginTop: 12}}>
@@ -1181,19 +1396,37 @@ const App: React.FC = () => {
                                   <Button
                                     type="primary"
                                     size="small"
+                                    style={{marginRight: 8}}
                                     onClick={() => handleStartServer(game.id)}
                                   >
                                     控制台
                                   </Button>
+                                  <Button
+                                    icon={<FolderOutlined />}
+                                    size="small"
+                                    onClick={() => handleOpenGameFolder(game.id)}
+                                  >
+                                    文件夹
+                                  </Button>
                                 </>
                               ) : (
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  onClick={() => handleStartServer(game.id)}
-                                >
-                                  启动
-                                </Button>
+                                <>
+                                  <Button
+                                    type="primary"
+                                    size="small"
+                                    style={{marginRight: 8}}
+                                    onClick={() => handleStartServer(game.id)}
+                                  >
+                                    启动
+                                  </Button>
+                                  <Button
+                                    icon={<FolderOutlined />}
+                                    size="small"
+                                    onClick={() => handleOpenGameFolder(game.id)}
+                                  >
+                                    文件夹
+                                  </Button>
+                                </>
                               )}
                             </div>
                             <Button
@@ -1243,6 +1476,13 @@ const App: React.FC = () => {
                           >
                             查看控制台
                           </Button>,
+                          <Button
+                            key="folder"
+                            icon={<FolderOutlined />}
+                            onClick={() => handleOpenGameFolder(game.id)}
+                          >
+                            打开文件夹
+                          </Button>,
                           <Dropdown key="stop" overlay={
                             <Menu>
                               <Menu.Item key="1" onClick={() => handleStopServer(game.id, false)}>
@@ -1288,6 +1528,13 @@ const App: React.FC = () => {
                           >
                             查看控制台
                           </Button>,
+                          <Button
+                            key="folder"
+                            icon={<FolderOutlined />}
+                            onClick={() => handleOpenGameFolder(game.id)}
+                          >
+                            打开文件夹
+                          </Button>,
                           <Dropdown key="stop" overlay={
                             <Menu>
                               <Menu.Item key="1" onClick={() => handleStopServer(game.id, false)}>
@@ -1323,7 +1570,7 @@ const App: React.FC = () => {
           {currentNav === 'files' && (
             <div className="file-management">
               <Title level={2}>文件管理</Title>
-              <FileManager />
+              <FileManager initialPath={fileManagerPath || '/home/steam'} />
             </div>
           )}
         </Content>
@@ -1457,7 +1704,24 @@ const App: React.FC = () => {
         )}
       </Modal>
       
-
+      {/* 文件管理器Modal */}
+      <Modal
+        title={`游戏文件管理 - ${fileManagerPath.split('/').pop() || ''}`}
+        open={fileManagerVisible}
+        onCancel={() => setFileManagerVisible(false)}
+        footer={null}
+        width="80%"
+        style={{ top: 20 }}
+        bodyStyle={{ 
+          padding: 0, 
+          maxHeight: 'calc(100vh - 150px)',
+          minHeight: '550px',
+          overflow: 'auto',
+          paddingBottom: '30px'
+        }}
+      >
+        <FileManager initialPath={fileManagerPath} />
+      </Modal>
     </Layout>
   );
 };

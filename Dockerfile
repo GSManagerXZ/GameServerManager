@@ -168,7 +168,7 @@ RUN mkdir -p ${STEAMCMD_DIR} \
     && mkdir -p ${STEAM_HOME}/.steam/sdk32 ${STEAM_HOME}/.steam/sdk64 \
     && ln -sf ${STEAMCMD_DIR}/linux32/steamclient.so ${STEAM_HOME}/.steam/sdk32/steamclient.so \
     && ln -sf ${STEAMCMD_DIR}/linux64/steamclient.so ${STEAM_HOME}/.steam/sdk64/steamclient.so \
-    # 创建额外的游戏常用目录链接
+    # 创建额外的游戏常用目录链接    
     && mkdir -p ${STEAM_HOME}/.steam/sdk32/steamclient.so.dbg.sig ${STEAM_HOME}/.steam/sdk64/steamclient.so.dbg.sig \
     && mkdir -p ${STEAM_HOME}/.steam/steam \
     && ln -sf ${STEAMCMD_DIR}/linux32 ${STEAM_HOME}/.steam/steam/linux32 \
@@ -180,22 +180,27 @@ RUN mkdir -p ${STEAMCMD_DIR} \
 # 复制前端package.json并安装依赖
 COPY --chown=steam:steam ./app/package.json ./app/package-lock.json* /home/steam/app/
 WORKDIR /home/steam/app
-RUN npm install --legacy-peer-deps --no-fund
+RUN npm install --legacy-peer-deps --no-fund && \
+    npm install react-router-dom @types/react @types/react-dom react-dom
 
 # 安装后端依赖
-RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil
+RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil PyJWT
 
 # 复制后端代码
 COPY --chown=steam:steam ./server /home/steam/server
+RUN chmod +x /home/steam/server/start_web.sh
 
 # 添加启动脚本
 RUN echo '#!/bin/bash\n\
 echo "启动游戏服务器部署Web界面..."\n\
 echo "请访问 http://[服务器IP]:5000 使用Web界面"\n\
 \n\
+# 确保start_web.sh有执行权限\n\
+chmod +x /home/steam/server/start_web.sh\n\
+\n\
 # 启动API服务器\n\
 cd /home/steam/server\n\
-python3 api_server.py\n\
+./start_web.sh\n\
 ' > /home/steam/start_web.sh \
 && chmod +x /home/steam/start_web.sh
 

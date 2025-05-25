@@ -3,7 +3,11 @@ import os
 import sys
 import json
 import subprocess
-from flask import Flask, request, jsonify, send_from_directory, render_template_string, Response, stream_with_context, send_file
+
+# 禁用Flask开发服务器警告
+# os.environ['WERKZEUG_RUN_MAIN'] = 'true'
+
+from flask import Flask, request, jsonify, send_from_directory, render_template_string, Response, stream_with_context, send_file, g
 from flask_cors import CORS
 import threading
 import time
@@ -21,9 +25,30 @@ import stat  # 用于文件权限管理
 import zipfile  # 用于压缩文件
 import uuid  # 用于生成唯一文件名
 from werkzeug.utils import secure_filename  # 用于安全处理文件名
+from auth_middleware import auth_required, authenticate_user, generate_token, is_public_route, verify_token, save_user
+
+# 错误页面模板
+ERROR_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>游戏服务器部署系统</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        h1 { color: #1890ff; }
+        .error { color: #ff4d4f; }
+    </style>
+</head>
+<body>
+    <h1>游戏服务器部署系统</h1>
+    <p class="error">{{ error_message }}</p>
+    <p><a href="/">返回首页</a></p>
+</body>
+</html>
+"""
 
 # 配置日志
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('game_server')
 
@@ -33,10 +58,67 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用缓存，确保始终获取
 # 允许跨域请求
 CORS(app, resources={r"/*": {"origins": "*"}})  # 允许所有来源的跨域请求
 
+# 在每个请求前检查认证
+@app.before_request
+def check_auth():
+    # 记录请求路径，帮助调试
+    logger.debug(f"收到请求: {request.method} {request.path}, 参数: {request.args}, 头部: {request.headers}")
+    
+    # 前端资源路由不需要认证
+    if request.path == '/' or not request.path.startswith('/api/') or is_public_route(request.path):
+        # logger.debug(f"公共路由，无需认证: {request.path}")
+        return None
+        
+    # 所有API路由需要认证，除了登录API
+    if request.path.startswith('/api/'):
+        # 登录路由不需要认证
+        if request.path == '/api/auth/login' or request.path == '/api/auth/register' or request.path == '/api/auth/check_first_use':
+            # logger.debug("登录/注册路由，无需认证")
+            return None
+            
+        auth_header = request.headers.get('Authorization')
+        token_param = request.args.get('token')
+        
+        # logger.debug(f"认证检查 - 路径: {request.path}, 认证头: {auth_header}, Token参数: {token_param}")
+        
+        # 检查是否有令牌
+        if not auth_header and not token_param:
+            logger.warning(f"API请求无认证令牌: {request.path}")
+            return jsonify({
+                'status': 'error',
+                'message': '未授权的访问，请先登录'
+            }), 401
+            
+        # 验证令牌
+        token = None
+        if auth_header:
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0].lower() == 'bearer':
+                token = parts[1]
+                # logger.debug(f"从认证头部获取到token: {token[:10]}...")
+                
+        if not token and token_param:
+            token = token_param
+            # logger.debug(f"从URL参数获取到token: {token_param[:10]}...")
+            
+        if token:
+            payload = verify_token(token)
+            if not payload:
+                logger.warning(f"无效令牌: {request.path}, token: {token[:10]}...")
+                return jsonify({
+                    'status': 'error',
+                    'message': '令牌无效或已过期，请重新登录'
+                }), 401
+            # 令牌有效，保存用户信息到g对象
+            g.user = payload
+            # logger.debug(f"认证通过: {request.path}, 用户: {payload.get('username')}")
+            return None
+
 # 游戏安装脚本路径
 INSTALLER_SCRIPT = os.path.join(os.path.dirname(__file__), "game_installer.py")
 GAMES_CONFIG = os.path.join(os.path.dirname(__file__), "installgame.json")
 GAMES_DIR = "/home/steam/games"
+USER_CONFIG_PATH = os.path.join(GAMES_DIR, "config.json")
 
 # 用于存储正在进行的安装进程和它们的输出
 active_installations = {}
@@ -76,7 +158,7 @@ def read_pty_output(master_fd, game_id):
     # 创建临时日志文件
     output_log = tempfile.NamedTemporaryFile(mode='w+', delete=False, prefix=f"game_install_{game_id}_", suffix=".log")
     output_log_path = output_log.name
-    logger.info(f"安装日志将写入: {output_log_path}")
+    logger.debug(f"安装日志将写入: {output_log_path}")
     installation_data['output_file'] = output_log_path
     
     # 设置非阻塞模式
@@ -105,7 +187,8 @@ def read_pty_output(master_fd, game_id):
                     for line in lines:
                         line = line.rstrip()
                         if line:
-                            logger.debug(f"PTY输出[{game_id}]: {line}")
+                            # 减少debug级别日志输出
+                            # logger.debug(f"PTY输出[{game_id}]: {line}")
                             
                             # 写入日志文件
                             output_log.write(line + "\n")
@@ -143,7 +226,7 @@ def read_pty_output(master_fd, game_id):
                 if installation_data.get('process') and installation_data['process'].poll() is not None:
                     # 处理剩余的buffer
                     if buffer:
-                        logger.debug(f"PTY最终输出[{game_id}]: {buffer}")
+                        # logger.debug(f"PTY最终输出[{game_id}]: {buffer}")
                         output_log.write(buffer + "\n")
                         installation_data['output'].append(buffer)
                         output_queue.put(buffer)
@@ -281,7 +364,7 @@ def read_server_pty_output(master_fd, game_id):
     # 创建临时日志文件
     output_log = tempfile.NamedTemporaryFile(mode='w+', delete=False, prefix=f"game_server_{game_id}_", suffix=".log")
     output_log_path = output_log.name
-    logger.info(f"服务器日志将写入: {output_log_path}")
+    logger.debug(f"服务器日志将写入: {output_log_path}")
     server_data['output_file'] = output_log_path
     
     # 设置非阻塞模式
@@ -307,7 +390,8 @@ def read_server_pty_output(master_fd, game_id):
                     for line in lines:
                         line = line.rstrip()
                         if line:
-                            logger.debug(f"服务器PTY输出[{game_id}]: {line}")
+                            # 减少debug级别日志输出
+                            # logger.debug(f"服务器PTY输出[{game_id}]: {line}")
                             
                             # 写入日志文件
                             output_log.write(line + "\n")
@@ -323,7 +407,7 @@ def read_server_pty_output(master_fd, game_id):
                 if server_data.get('process') and server_data['process'].poll() is not None:
                     # 处理剩余的buffer
                     if buffer:
-                        logger.debug(f"服务器PTY最终输出[{game_id}]: {buffer}")
+                        # logger.debug(f"服务器PTY最终输出[{game_id}]: {buffer}")
                         output_log.write(buffer + "\n")
                         server_data['output'].append(buffer)
                         output_queue.put(buffer)
@@ -504,15 +588,26 @@ def index():
 def static_files(path):
     """静态文件路由"""
     try:
-        return send_from_directory('../app/dist', path)
+        # 如果请求的是API路径，不进行处理，让后续的路由处理
+        if path.startswith('api/'):
+            return None
+            
+        # 检查是否存在对应的静态文件
+        file_path = os.path.join('../app/dist', path)
+        if os.path.isfile(file_path):
+            return send_from_directory('../app/dist', path)
+        
+        # 如果不是静态文件，返回index.html给前端路由处理
+        return send_from_directory('../app/dist', 'index.html')
     except Exception as e:
-        return render_template_string(ERROR_PAGE, error_message=f"文件未找到：{str(e)}"), 404
+        # 遇到错误也返回index.html，让前端路由处理
+        return send_from_directory('../app/dist', 'index.html')
 
 @app.route('/api/games', methods=['GET'])
 def get_games():
     """获取所有可安装的游戏列表"""
     try:
-        logger.info("获取游戏列表")
+        logger.debug("获取游戏列表")
         games = load_games_config()
         game_list = []
         
@@ -528,7 +623,7 @@ def get_games():
                 'url': game_info.get('url', '')
             })
         
-        logger.info(f"找到 {len(game_list)} 个游戏")
+        logger.debug(f"找到 {len(game_list)} 个游戏")
         return jsonify({'status': 'success', 'games': game_list})
     except Exception as e:
         logger.error(f"获取游戏列表失败: {str(e)}")
@@ -701,26 +796,26 @@ def install_game_stream():
                         
                         # 处理完成消息
                         if isinstance(item, dict) and item.get('complete', False):
-                            logger.info(f"发送安装完成消息: {item.get('message', '')}")
+                            # logger.debug(f"发送安装完成消息: {item.get('message', '')}")
                             yield f"data: {json.dumps(item)}\n\n"
                             break
                         
                         # 处理 prompt 消息
                         if isinstance(item, dict) and item.get('prompt'):
-                            logger.info(f"发送prompt消息: {item.get('prompt')}")
+                            # logger.debug(f"发送prompt消息: {item.get('prompt')}")
                             yield f"data: {json.dumps(item)}\n\n"
                             continue
                         
                         # 处理普通输出
                         if isinstance(item, str):
-                            logger.debug(f"发送输出: {item}")
+                            # logger.debug(f"发送输出: {item}")
                             yield f"data: {json.dumps({'line': item})}\n\n"
                         
                     except queue.Empty:
                         # 心跳检查
                         current_time = time.time()
                         if current_time >= next_heartbeat:
-                            logger.debug("发送心跳包")
+                            # logger.debug("发送心跳包")
                             yield f"data: {json.dumps({'heartbeat': True, 'timestamp': current_time})}\n\n"
                             next_heartbeat = current_time + heartbeat_interval
                         
@@ -734,7 +829,7 @@ def install_game_stream():
                         # 检查进程是否结束但未发送完成消息
                         process = installation_data.get('process')
                         if process and process.poll() is not None and installation_data.get('complete', False):
-                            logger.info(f"进程已结束但未发送完成消息，发送完成状态")
+                            logger.warn(f"进程已结束但未发送完成消息，发送完成状态")
                             status = 'success' if installation_data.get('return_code', 1) == 0 else 'error'
                             message = installation_data.get('final_message', f'游戏 {game_id} 安装已完成')
                             yield f"data: {json.dumps({'complete': True, 'status': status, 'message': message})}\n\n"
@@ -765,7 +860,7 @@ def check_installation():
     if not game_id:
         return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
     
-    logger.info(f"检查游戏 {game_id} 是否已安装")
+    logger.debug(f"检查游戏 {game_id} 是否已安装")
     
     games_dir = "/home/steam/games"
     game_dir = os.path.join(games_dir, game_id)
@@ -773,11 +868,43 @@ def check_installation():
     if os.path.exists(game_dir) and os.path.isdir(game_dir):
         # 检查目录是否不为空
         if os.listdir(game_dir):
-            logger.info(f"游戏 {game_id} 已安装")
+            logger.debug(f"游戏 {game_id} 已安装")
             return jsonify({'status': 'success', 'installed': True})
     
-    logger.info(f"游戏 {game_id} 未安装")
+    logger.debug(f"游戏 {game_id} 未安装")
     return jsonify({'status': 'success', 'installed': False})
+
+@app.route('/api/batch_check_installation', methods=['POST'])
+def batch_check_installation():
+    """批量检查多个游戏是否已安装"""
+    try:
+        data = request.json
+        game_ids = data.get('game_ids', [])
+        
+        if not game_ids:
+            return jsonify({'status': 'error', 'message': '缺少游戏ID列表'}), 400
+        
+        logger.debug(f"批量检查游戏安装状态: {game_ids}")
+        
+        games_dir = "/home/steam/games"
+        result = {}
+        
+        for game_id in game_ids:
+            game_dir = os.path.join(games_dir, game_id)
+            
+            if os.path.exists(game_dir) and os.path.isdir(game_dir):
+                # 检查目录是否不为空
+                if os.listdir(game_dir):
+                    result[game_id] = True
+                    continue
+            
+            result[game_id] = False
+        
+        return jsonify({'status': 'success', 'installations': result})
+        
+    except Exception as e:
+        logger.error(f"批量检查游戏安装状态失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/installation_status', methods=['GET'])
 def installation_status():
@@ -1358,7 +1485,7 @@ def server_stream():
             output_queue = server_output_queues[game_id]
             
             # 发送所有已有的输出
-            logger.info(f"准备发送游戏服务器 {game_id} 的输出")
+            # logger.info(f"准备发送游戏服务器 {game_id} 的输出")
             
             # 马上发送一条测试消息，验证流正常工作
             if is_external:
@@ -1382,20 +1509,20 @@ def server_stream():
                         
                         # 处理完成消息
                         if isinstance(item, dict) and item.get('complete', False):
-                            logger.info(f"发送服务器完成消息: {item.get('message', '')}")
+                            logger.debug(f"发送服务器完成消息: {item.get('message', '')}")
                             yield f"data: {json.dumps(item)}\n\n"
                             break
                             
                         # 处理普通输出
                         if isinstance(item, str):
-                            logger.debug(f"发送服务器输出: {item}")
+                            # logger.debug(f"发送服务器输出: {item}")
                             yield f"data: {json.dumps({'line': item})}\n\n"
                             
                     except queue.Empty:
                         # 心跳检查
                         current_time = time.time()
                         if current_time >= next_heartbeat:
-                            logger.debug("发送心跳包")
+                            # logger.debug("发送心跳包")
                             yield f"data: {json.dumps({'heartbeat': True, 'timestamp': current_time})}\n\n"
                             next_heartbeat = current_time + heartbeat_interval
                             
@@ -1409,7 +1536,7 @@ def server_stream():
                         # 检查进程是否结束但未发送完成消息
                         process = server_data.get('process')
                         if process and process.poll() is not None and not server_data.get('sent_complete', False):
-                            logger.info(f"进程已结束但未发送完成消息，发送完成状态")
+                            logger.warn(f"进程已结束但未发送完成消息，发送完成状态")
                             status = 'success' if process.poll() == 0 else 'error'
                             message = f'游戏服务器 {game_id} ' + ('正常关闭' if process.poll() == 0 else f'异常退出，返回码: {process.poll()}')
                             yield f"data: {json.dumps({'complete': True, 'status': status, 'message': message})}\n\n"
@@ -1664,19 +1791,42 @@ def terminate_install():
 def list_files():
     """列出指定目录下的文件和子目录"""
     try:
-        path = request.args.get('path', '/data')
+        path = request.args.get('path', '/home/steam')
         
         # 安全检查：防止目录遍历攻击
         if '..' in path or not path.startswith('/'):
-            return jsonify({'status': 'error', 'message': '无效的路径'})
+            # 返回默认目录内容而不是错误
+            logger.warning(f"检测到无效路径: {path}，已自动切换到默认路径")
+            path = '/home/steam'
         
         # 确保路径存在
         if not os.path.exists(path):
-            return jsonify({'status': 'error', 'message': '路径不存在'})
+            # 尝试使用父目录
+            parent_path = os.path.dirname(path)
+            if parent_path == path:  # 如果已经是根目录
+                parent_path = '/home/steam'
+                
+            logger.warning(f"路径不存在: {path}，尝试切换到父目录: {parent_path}")
+            
+            if os.path.exists(parent_path) and os.path.isdir(parent_path):
+                path = parent_path
+            else:
+                # 如果父目录也不存在，使用默认目录
+                path = '/home/steam'
+                logger.warning(f"父目录也不存在，切换到默认目录: {path}")
             
         # 确保是目录
         if not os.path.isdir(path):
-            return jsonify({'status': 'error', 'message': '路径不是目录'})
+            # 如果不是目录，使用其所在的目录
+            parent_path = os.path.dirname(path)
+            logger.warning(f"路径不是目录: {path}，切换到其所在目录: {parent_path}")
+            
+            if os.path.exists(parent_path) and os.path.isdir(parent_path):
+                path = parent_path
+            else:
+                # 如果父目录不是有效目录，使用默认目录
+                path = '/home/steam'
+                logger.warning(f"父目录不是有效目录，切换到默认目录: {path}")
             
         # 获取目录内容
         items = []
@@ -1704,11 +1854,71 @@ def list_files():
         # 按照类型和名称排序，先显示目录，再显示文件
         items.sort(key=lambda x: (0 if x['type'] == 'directory' else 1, x['name']))
         
-        return jsonify({'status': 'success', 'files': items})
+        return jsonify({'status': 'success', 'files': items, 'path': path})
         
     except Exception as e:
         logger.error(f"列出文件时出错: {str(e)}")
-        return jsonify({'status': 'error', 'message': f'列出文件失败: {str(e)}'})
+        # 发生错误时，尝试返回默认目录
+        try:
+            default_path = '/home/steam'
+            default_items = []
+            for name in os.listdir(default_path):
+                full_path = os.path.join(default_path, name)
+                stat_result = os.stat(full_path)
+                
+                item_type = 'directory' if os.path.isdir(full_path) else 'file'
+                mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_result.st_mtime))
+                size = 0 if item_type == 'directory' else stat_result.st_size
+                
+                default_items.append({
+                    'name': name,
+                    'path': full_path,
+                    'type': item_type,
+                    'size': size,
+                    'modified': mtime
+                })
+                
+            default_items.sort(key=lambda x: (0 if x['type'] == 'directory' else 1, x['name']))
+            
+            return jsonify({
+                'status': 'success', 
+                'files': default_items, 
+                'path': default_path,
+                'message': f'原路径出错，已切换到默认路径: {str(e)}'
+            })
+        except Exception as inner_e:
+            logger.error(f"尝试使用默认路径也失败: {str(inner_e)}")
+            return jsonify({'status': 'error', 'message': f'无法列出文件: {str(e)}'})
+
+@app.route('/api/open_folder', methods=['GET'])
+def open_folder():
+    """在客户端打开指定的文件夹"""
+    try:
+        path = request.args.get('path', '/home/steam')
+        
+        # 安全检查
+        if not path or '..' in path or not path.startswith('/'):
+            return jsonify({'status': 'error', 'message': '无效的文件夹路径'})
+            
+        # 确保目录存在
+        if not os.path.exists(path):
+            return jsonify({'status': 'error', 'message': '文件夹不存在'})
+            
+        # 确保是目录
+        if not os.path.isdir(path):
+            return jsonify({'status': 'error', 'message': '路径不是文件夹'})
+        
+        # 在这里，我们只返回路径信息，因为在Web应用中无法直接打开客户端的文件夹
+        # 实际的打开操作将在前端通过专门的功能（例如electron的shell.openPath）完成
+        return jsonify({
+            'status': 'success', 
+            'path': path,
+            'message': '请求打开文件夹'
+        })
+        
+    except Exception as e:
+        logger.error(f"请求打开文件夹时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'无法打开文件夹: {str(e)}'})
 
 @app.route('/api/file_content', methods=['GET'])
 def get_file_content():
@@ -1930,8 +2140,35 @@ def upload_file():
     """上传文件"""
     try:
         # 获取目标目录
-        path = request.args.get('path')
+        path = request.args.get('path', '/home/steam')
         
+        # 获取认证令牌
+        token_param = request.args.get('token')
+        auth_header = request.headers.get('Authorization')
+        
+        # 检查认证
+        token = None
+        if auth_header:
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0].lower() == 'bearer':
+                token = parts[1]
+                
+        if not token and token_param:
+            token = token_param
+            
+        if not token:
+            logger.warning(f"上传文件请求缺少认证令牌: {path}")
+            return jsonify({'status': 'error', 'message': '未授权的访问，请先登录'}), 401
+            
+        # 验证令牌
+        payload = verify_token(token)
+        if not payload:
+            logger.warning(f"上传文件请求的令牌无效: {path}")
+            return jsonify({'status': 'error', 'message': '令牌无效或已过期，请重新登录'}), 401
+            
+        # 认证通过，将用户信息保存到g对象
+        g.user = payload
+            
         # 安全检查
         if not path or '..' in path or not path.startswith('/'):
             return jsonify({'status': 'error', 'message': '无效的目标路径'}), 400
@@ -1960,7 +2197,7 @@ def upload_file():
         file_path = os.path.join(path, filename)
         file.save(file_path)
         
-        logger.info(f"文件已上传: {file_path}")
+        logger.info(f"文件已上传: {file_path}, 用户: {payload.get('username')}")
         
         return jsonify({'status': 'success', 'message': '文件上传成功'})
         
@@ -1972,8 +2209,11 @@ def upload_file():
 def download_file():
     """下载文件"""
     try:
+        # 从参数中获取文件路径和预览选项
         path = request.args.get('path')
         preview = request.args.get('preview', 'false').lower() == 'true'
+        
+        # logger.debug(f"下载文件请求: path={path}, preview={preview}, token={request.args.get('token', '')[:5]}...")
         
         # 安全检查
         if not path or '..' in path or not path.startswith('/'):
@@ -2009,11 +2249,16 @@ def download_file():
             elif file_ext == '.svg':
                 mime_type = 'image/svg+xml'
             
-            # 如果是图片文件，直接发送，不作为附件
-            if mime_type:
+            # 对于图片文件，如果是预览模式，设置合适的Content-Type
+            if preview and mime_type.startswith('image/'):
+                # logger.debug(f"预览图片: {path}, MIME类型: {mime_type}")
                 return send_file(path, mimetype=mime_type)
+            else:
+                # logger.debug(f"下载文件: {path}, 文件名: {filename}")
+                return send_file(path, as_attachment=True, download_name=filename, mimetype=mime_type)
         
         # 发送文件作为附件下载
+        # logger.debug(f"下载文件: {path}, 文件名: {filename}")
         return send_file(path, as_attachment=True, download_name=filename)
         
     except Exception as e:
@@ -2183,7 +2428,307 @@ def install_by_appid():
         logger.error(f"启动通过AppID安装进程失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# 添加检查首次使用和注册的API
+@app.route('/api/auth/check_first_use', methods=['GET'])
+def check_first_use():
+    """检查是否为首次使用，是否需要注册"""
+    try:
+        # 确保游戏目录存在
+        if not os.path.exists(GAMES_DIR):
+            try:
+                os.makedirs(GAMES_DIR, exist_ok=True)
+                logger.info(f"已创建游戏目录: {GAMES_DIR}")
+                # 设置目录权限
+                os.chmod(GAMES_DIR, 0o755)
+                # 设置为steam用户所有
+                subprocess.run(['chown', '-R', 'steam:steam', GAMES_DIR])
+            except Exception as e:
+                logger.error(f"创建游戏目录失败: {str(e)}")
+                return jsonify({'status': 'error', 'message': f'创建游戏目录失败: {str(e)}'}), 500
+        
+        logger.info(f"检查是否首次使用，配置文件路径: {USER_CONFIG_PATH}")
+        
+        # 检查config.json是否存在
+        if not os.path.exists(USER_CONFIG_PATH):
+            logger.info(f"配置文件不存在，创建新文件: {USER_CONFIG_PATH}")
+            # 创建一个空的config.json文件
+            with open(USER_CONFIG_PATH, 'w') as f:
+                json.dump({"first_use": True, "users": []}, f, indent=4)
+            
+            # 设置文件权限
+            os.chmod(USER_CONFIG_PATH, 0o644)
+            # 设置为steam用户所有
+            subprocess.run(['chown', 'steam:steam', USER_CONFIG_PATH])
+            
+            logger.debug("返回首次使用状态: True (文件不存在)")
+            return jsonify({
+                'status': 'success',
+                'first_use': True,
+                'message': '首次使用，需要注册账号'
+            })
+        
+        # 读取config.json
+        with open(USER_CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+            logger.info(f"配置文件内容: {config}")
+        
+        # 检查是否有用户注册
+        if not config.get('users') or len(config.get('users', [])) == 0:
+            logger.debug("返回首次使用状态: True (无用户)")
+            return jsonify({
+                'status': 'success',
+                'first_use': True,
+                'message': '首次使用，需要注册账号'
+            })
+        
+        logger.debug("返回首次使用状态: False (已有用户)")
+        return jsonify({
+            'status': 'success',
+            'first_use': False,
+            'message': '系统已完成初始设置'
+        })
+        
+    except Exception as e:
+        logger.error(f"检查首次使用状态失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 添加注册路由
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """用户注册路由"""
+    try:
+        data = request.json
+        logger.info(f"收到注册请求: {data}")
+        
+        if not data:
+            logger.warning("注册请求无效: 缺少请求数据")
+            return jsonify({
+                'status': 'error',
+                'message': '无效的请求'
+            }), 400
+            
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            logger.warning("注册请求无效: 用户名或密码为空")
+            return jsonify({
+                'status': 'error',
+                'message': '用户名和密码不能为空'
+            }), 400
+            
+        # 确保游戏目录存在
+        if not os.path.exists(GAMES_DIR):
+            try:
+                os.makedirs(GAMES_DIR, exist_ok=True)
+                logger.info(f"已创建游戏目录: {GAMES_DIR}")
+                # 设置目录权限
+                os.chmod(GAMES_DIR, 0o755)
+                # 设置为steam用户所有
+                subprocess.run(['chown', '-R', 'steam:steam', GAMES_DIR])
+            except Exception as e:
+                logger.error(f"创建游戏目录失败: {str(e)}")
+                return jsonify({'status': 'error', 'message': f'创建游戏目录失败: {str(e)}'}), 500
+            
+        # 检查config.json是否存在，不存在则创建
+        if not os.path.exists(USER_CONFIG_PATH):
+            logger.info(f"配置文件不存在，创建新文件: {USER_CONFIG_PATH}")
+            with open(USER_CONFIG_PATH, 'w') as f:
+                json.dump({"first_use": True, "users": []}, f, indent=4)
+            # 设置文件权限
+            os.chmod(USER_CONFIG_PATH, 0o644)
+            # 设置为steam用户所有
+            subprocess.run(['chown', 'steam:steam', USER_CONFIG_PATH])
+        
+        # 读取现有配置
+        try:
+            with open(USER_CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                logger.info(f"读取配置文件成功，内容: {config}")
+        except Exception as e:
+            logger.warning(f"读取配置文件失败，创建新配置: {str(e)}")
+            config = {"first_use": True, "users": []}
+        
+        # 检查是否已有用户注册，如果有则拒绝新的注册
+        users = config.get('users', [])
+        if len(users) > 0:
+            logger.warning(f"已有用户注册，拒绝新用户注册请求: {username}")
+            return jsonify({
+                'status': 'error',
+                'message': '系统仅允许一个用户注册，已有用户存在'
+            }), 403
+            
+        # 检查用户名是否已存在
+        for user in users:
+            if user.get('username') == username:
+                logger.warning(f"用户名已存在: {username}")
+                return jsonify({
+                    'status': 'error',
+                    'message': '用户名已存在'
+                }), 400
+        
+        # 添加新用户
+        new_user = {
+            'username': username,
+            'password': password,
+            'role': 'admin' if not users else 'user',  # 第一个注册的用户为管理员
+            'created_at': time.time()
+        }
+        
+        logger.info(f"创建新用户: {username}, 角色: {new_user['role']}")
+        
+        users.append(new_user)
+        config['users'] = users
+        config['first_use'] = False
+        
+        # 保存配置
+        with open(USER_CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=4)
+            logger.info(f"成功保存配置文件，用户数: {len(users)}")
+        
+        # 设置文件权限
+        os.chmod(USER_CONFIG_PATH, 0o644)
+        # 设置为steam用户所有
+        subprocess.run(['chown', 'steam:steam', USER_CONFIG_PATH])
+        
+        # 同时也更新用户到auth_middleware中的users.json
+        if save_user(new_user):
+            logger.info(f"成功保存用户到auth_middleware: {username}")
+        else:
+            logger.warning(f"保存用户到auth_middleware失败: {username}")
+        
+        # 生成令牌
+        token = generate_token(new_user)
+        logger.info(f"生成令牌成功: {username}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': '注册成功',
+            'token': token,
+            'username': username,
+            'role': new_user.get('role', 'user')
+        })
+        
+    except Exception as e:
+        logger.error(f"注册失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 修改登录路由，从config.json中验证
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """用户登录路由"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '无效的请求'
+            }), 400
+            
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({
+                'status': 'error',
+                'message': '用户名和密码不能为空'
+            }), 400
+            
+        # 确保游戏目录存在
+        if not os.path.exists(GAMES_DIR):
+            try:
+                os.makedirs(GAMES_DIR, exist_ok=True)
+                logger.info(f"已创建游戏目录: {GAMES_DIR}")
+                # 设置目录权限
+                os.chmod(GAMES_DIR, 0o755)
+                # 设置为steam用户所有
+                subprocess.run(['chown', '-R', 'steam:steam', GAMES_DIR])
+            except Exception as e:
+                logger.error(f"创建游戏目录失败: {str(e)}")
+                # 目录创建失败不阻止登录流程
+                
+        # 检查config.json是否存在，不存在则创建
+        is_first_use = False
+        if not os.path.exists(USER_CONFIG_PATH):
+            with open(USER_CONFIG_PATH, 'w') as f:
+                json.dump({"first_use": True, "users": []}, f, indent=4)
+            # 设置文件权限
+            os.chmod(USER_CONFIG_PATH, 0o644)
+            # 设置为steam用户所有
+            subprocess.run(['chown', 'steam:steam', USER_CONFIG_PATH])
+            is_first_use = True
+            
+        # 从config.json验证用户
+        user = None
+        if os.path.exists(USER_CONFIG_PATH):
+            try:
+                with open(USER_CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+                
+                # 如果是首次使用，直接返回需要注册的提示
+                if is_first_use or not config.get('users'):
+                    return jsonify({
+                        'status': 'error',
+                        'message': '首次使用，请先注册账号',
+                        'first_use': True
+                    }), 401
+                
+                users = config.get('users', [])
+                for u in users:
+                    if u.get('username') == username and u.get('password') == password:
+                        user = u
+                        break
+            except Exception as e:
+                logger.error(f"从config.json验证用户失败: {str(e)}")
+        
+        # 如果没有找到用户或密码不匹配，返回错误
+        if not user:
+            logger.warning(f"用户名或密码错误: {username}")
+            return jsonify({
+                'status': 'error',
+                'message': '用户名或密码错误'
+            }), 401
+            
+        # 生成令牌
+        token = generate_token(user)
+        logger.info(f"用户 {username} 登录成功")
+        
+        return jsonify({
+            'status': 'success',
+            'token': token,
+            'username': username,
+            'role': user.get('role', 'user')
+        })
+    except Exception as e:
+        logger.error(f"登录失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
-    logger.info("启动游戏服务器API")
-    # 绑定到所有网络接口，允许外部访问
+    logger.info("检测到直接运行api_server.py")
+    logger.warning("======================================================")
+    logger.warning("警告: 不建议直接运行此文件。请使用Gunicorn启动服务器:")
+    logger.warning("gunicorn -w 4 -b 0.0.0.0:5000 api_server:app")
+    logger.warning("或者使用start_web.sh脚本")
+    logger.warning("======================================================")
+    
+    # 判断是否真的想直接运行
+    should_continue = input("是否仍要使用Flask开发服务器启动? (y/N): ")
+    if should_continue.lower() != 'y':
+        logger.info("退出程序，请使用Gunicorn启动")
+        sys.exit(0)
+    
+    # 确保游戏目录存在
+    if not os.path.exists(GAMES_DIR):
+        try:
+            os.makedirs(GAMES_DIR, exist_ok=True)
+            logger.info(f"已创建游戏目录: {GAMES_DIR}")
+            # 设置目录权限
+            os.chmod(GAMES_DIR, 0o755)
+            # 设置为steam用户所有
+            subprocess.run(['chown', '-R', 'steam:steam', GAMES_DIR])
+        except Exception as e:
+            logger.error(f"创建游戏目录失败: {str(e)}")
+    
+    # 直接运行时使用Flask内置服务器，而不是通过Gunicorn导入时
+    logger.warning("使用Flask开发服务器启动 - 不推荐用于生产环境")
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True) 
