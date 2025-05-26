@@ -20,6 +20,13 @@ import hashlib
 import base64
 import datetime
 import zipfile
+import tarfile
+import gzip
+import bz2
+import rarfile
+import lzma
+import stat
+import zstandard as zstd
 from functools import wraps
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context, g, render_template_string, send_file
 from werkzeug.utils import secure_filename
@@ -39,6 +46,33 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("api_server")
+
+# FRP相关配置
+FRP_DIR = "/home/steam/FRP"
+FRP_CONFIG_FILE = os.path.join("/home/steam/games", "frp.json")
+FRP_BINARY = os.path.join(FRP_DIR, "LoCyanFrp/frpc")
+FRP_LOGS_DIR = os.path.join(FRP_DIR, "logs")
+CUSTOM_FRP_DIR = os.path.join(FRP_DIR, "frpc")
+CUSTOM_FRP_CONFIG_FILE = os.path.join(CUSTOM_FRP_DIR, "frpc.toml")
+CUSTOM_FRP_BINARY = os.path.join(CUSTOM_FRP_DIR, "frpc")
+# 添加mefrp相关配置
+MEFRP_DIR = os.path.join(FRP_DIR, "mefrp")
+MEFRP_BINARY = os.path.join(MEFRP_DIR, "frpc")
+# Sakura内网穿透
+SAKURA_DIR = os.path.join(FRP_DIR, "Sakura")
+SAKURA_BINARY = os.path.join(SAKURA_DIR, "frpc")
+
+# 确保FRP相关目录存在
+os.makedirs(FRP_DIR, exist_ok=True)
+os.makedirs(os.path.join(FRP_DIR, "LoCyanFrp"), exist_ok=True)
+os.makedirs(FRP_LOGS_DIR, exist_ok=True)
+os.makedirs(CUSTOM_FRP_DIR, exist_ok=True)
+os.makedirs(os.path.join(FRP_DIR, "logs"), exist_ok=True)
+os.makedirs(MEFRP_DIR, exist_ok=True)
+os.makedirs(SAKURA_DIR, exist_ok=True)
+
+# FRP进程字典
+running_frp_processes = {}  # id: {'process': process, 'log_file': log_file_path}
 
 app = Flask(__name__, static_folder='../app/dist')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用缓存，确保始终获取最新文件
@@ -1349,7 +1383,47 @@ def stop_game_server():
             logger.info(f"直接终止PTY进程对象")
             pty_result = pty_process.terminate(force=force)
             
-        if pty_result:
+        # 进行额外的进程检查
+        process = running_servers[game_id].get('process')
+        process_still_running = False
+        
+        if process:
+            # 检查进程是否仍在运行
+            if process.poll() is None:
+                process_still_running = True
+                logger.warning(f"PTY管理器报告终止成功，但进程仍在运行，PID: {process.pid}")
+                
+                # 尝试使用psutil进行更深入的检查
+                try:
+                    # 检查进程是否真的存在
+                    if psutil.pid_exists(process.pid):
+                        p = psutil.Process(process.pid)
+                        logger.warning(f"进程 {process.pid} 仍然存在，状态: {p.status()}")
+                        
+                        # 如果是强制模式或PTY终止失败，直接杀死进程
+                        if force or not pty_result:
+                            logger.info(f"强制杀死进程 {process.pid}")
+                            p.kill()
+                            
+                            # 检查子进程并杀死
+                            try:
+                                children = p.children(recursive=True)
+                                for child in children:
+                                    logger.info(f"杀死子进程: {child.pid}")
+                                    child.kill()
+                            except:
+                                pass
+                    else:
+                        logger.info(f"进程 {process.pid} 不存在于系统中，可能已经终止")
+                        process_still_running = False
+                except Exception as e:
+                    logger.error(f"检查进程状态时出错: {str(e)}")
+            else:
+                logger.info(f"进程已终止，返回码: {process.poll()}")
+                process_still_running = False
+        
+        # 如果PTY终止成功或进程确实不再运行
+        if pty_result or not process_still_running:
             logger.info(f"成功终止进程: {process_id}")
             # 更新服务器状态
             running_servers[game_id]['running'] = False
@@ -1559,26 +1633,97 @@ def server_status():
             if game_id not in running_servers:
                 return jsonify({'status': 'success', 'server_status': 'stopped'})
                 
-            process = running_servers[game_id].get('process')
-            if not process or process.poll() is not None:
+            server_data = running_servers[game_id]
+            process = server_data.get('process')
+            pty_process = server_data.get('pty_process')
+            process_id = server_data.get('process_id') or f"server_{game_id}"
+            
+            # 检查进程是否仍在运行
+            is_running = False
+            
+            # 首先检查subprocess进程
+            if process:
+                if process.poll() is None:
+                    is_running = True
+                    # 使用psutil进行额外验证
+                    try:
+                        if psutil.pid_exists(process.pid):
+                            p = psutil.Process(process.pid)
+                            if p.status() in ['running', 'sleeping', 'disk-sleep', 'waking']:
+                                is_running = True
+                            else:
+                                logger.warning(f"进程 {process.pid} 存在但状态为: {p.status()}")
+                                is_running = False
+                        else:
+                            is_running = False
+                    except Exception as e:
+                        logger.error(f"使用psutil检查进程状态时出错: {str(e)}")
+            
+            # 然后检查PTY进程
+            if not is_running and pty_process:
+                if hasattr(pty_process, 'running') and pty_process.running:
+                    is_running = True
+            
+            # 最后检查PTY管理器中的进程
+            if not is_running and pty_manager.get_process(process_id):
+                pty_proc = pty_manager.get_process(process_id)
+                if pty_proc and pty_proc.is_running():
+                    is_running = True
+            
+            if not is_running:
                 return jsonify({'status': 'success', 'server_status': 'stopped'})
                 
             return jsonify({
                 'status': 'success',
                 'server_status': 'running',
-                'pid': process.pid,
-                'started_at': running_servers[game_id].get('started_at'),
-                'uptime': time.time() - running_servers[game_id].get('started_at', time.time())
+                'pid': process.pid if process else None,
+                'started_at': server_data.get('started_at'),
+                'uptime': time.time() - server_data.get('started_at', time.time())
             })
         else:
             # 获取所有游戏服务器的状态
             servers = {}
             for game_id, server_data in running_servers.items():
                 process = server_data.get('process')
-                if process and process.poll() is None:
+                pty_process = server_data.get('pty_process')
+                process_id = server_data.get('process_id') or f"server_{game_id}"
+                
+                # 检查进程是否仍在运行
+                is_running = False
+                
+                # 首先检查subprocess进程
+                if process:
+                    if process.poll() is None:
+                        is_running = True
+                        # 使用psutil进行额外验证
+                        try:
+                            if psutil.pid_exists(process.pid):
+                                p = psutil.Process(process.pid)
+                                if p.status() in ['running', 'sleeping', 'disk-sleep', 'waking']:
+                                    is_running = True
+                                else:
+                                    logger.warning(f"进程 {process.pid} 存在但状态为: {p.status()}")
+                                    is_running = False
+                            else:
+                                is_running = False
+                        except Exception as e:
+                            logger.error(f"使用psutil检查进程状态时出错: {str(e)}")
+                
+                # 然后检查PTY进程
+                if not is_running and pty_process:
+                    if hasattr(pty_process, 'running') and pty_process.running:
+                        is_running = True
+                
+                # 最后检查PTY管理器中的进程
+                if not is_running and pty_manager.get_process(process_id):
+                    pty_proc = pty_manager.get_process(process_id)
+                    if pty_proc and pty_proc.is_running():
+                        is_running = True
+                
+                if is_running:
                     servers[game_id] = {
                         'status': 'running',
-                        'pid': process.pid,
+                        'pid': process.pid if process else None,
                         'started_at': server_data.get('started_at'),
                         'uptime': time.time() - server_data.get('started_at', time.time())
                     }
@@ -1599,26 +1744,23 @@ def server_status():
 
 @app.route('/api/server/stream', methods=['GET'])
 def server_stream():
-    """以流式方式获取游戏服务器输出"""
+    """游戏服务器输出流"""
     try:
         game_id = request.args.get('game_id')
-        include_history = request.args.get('include_history', 'true').lower() == 'true'  # 默认包含历史记录
-        max_history_lines = int(request.args.get('max_history', '1000'))  # 最多返回多少行历史记录
-        is_restart = request.args.get('restart', 'false').lower() == 'true'  # 是否是重启请求
+        token = request.args.get('token')
+        include_history = request.args.get('include_history', 'true').lower() == 'true'
+        is_restart = request.args.get('restart', 'false').lower() == 'true'
         
         if not game_id:
-            logger.error("流式获取服务器输出时缺少游戏ID")
-            return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
+            return jsonify({'status': 'error', 'message': '缺少游戏ID参数'}), 400
             
-        logger.info(f"开始流式获取游戏服务器 {game_id} 的输出，包含历史记录: {include_history}, 是否重启: {is_restart}")
+        # 验证token (如果提供)
+        if token:
+            payload = verify_token(token)
+            if not payload:
+                return jsonify({'status': 'error', 'message': '无效的认证令牌'}), 401
         
-        # 检查游戏是否存在于配置中，但允许外部游戏
-        games = load_games_config()
-        is_external = False
-        
-        if game_id not in games:
-            logger.info(f"游戏 {game_id} 不在配置列表中，作为外部游戏处理")
-            is_external = True
+        logger.info(f"请求游戏 {game_id} 的输出流, include_history={include_history}, is_restart={is_restart}")
             
         # 如果服务器不在运行中，但请求了流
         if game_id not in running_servers:
@@ -1652,49 +1794,38 @@ def server_stream():
         if game_id in running_servers:
             server_data = running_servers[game_id]
             output_history = server_data.get('output', [])
+            
+        # 添加历史记录到队列开头
+        if include_history and output_history:
+            logger.info(f"将 {len(output_history)} 行历史输出添加到流中: game_id={game_id}")
+            for line in output_history:
+                if isinstance(line, str) and not line.startswith('[历史记录]'):
+                    server_output_queues[game_id].put(f"[历史记录] {line}")
+                else:
+                    server_output_queues[game_id].put(line)
         
-        # 使用队列传输数据
+        # 生成器函数
         def generate():
             output_queue = server_output_queues[game_id]
-            logger.info(f"开始生成服务器输出流: game_id={game_id}, 队列ID={id(output_queue)}")
             
-            # 马上发送一条测试消息，验证流正常工作
-            yield f"data: {json.dumps({'line': '建立连接成功，开始接收服务器输出...'})}\n\n"
-            
-            # 发送历史输出
-            if include_history and output_history:
-                # 首先发送提示消息
-                history_len = len(output_history)
-                logger.info(f"开始发送历史输出: game_id={game_id}, 历史长度={history_len}")
-                if history_len > 0:
-                    yield f"data: {json.dumps({'line': f'=== 开始加载历史输出 (共 {history_len} 行) ==='})}\n\n"
-                    
-                    if history_len > max_history_lines:
-                        start_idx = history_len - max_history_lines
-                        yield f"data: {json.dumps({'line': f'=== 开始加载历史输出 (共 {history_len} 行) ==='})}\n\n"
-                        yield f"data: {json.dumps({'line': f'正在加载最近 {max_history_lines} 行历史输出 (共 {history_len} 行)...'})}\n\n"
-                        for i, line in enumerate(output_history[start_idx:]):
-                            if isinstance(line, str):
-                                logger.debug(f"发送历史输出 {i+1}/{min(max_history_lines, history_len)}: {line[:50]}...")
-                                yield f"data: {json.dumps({'line': line})}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'line': f'=== 开始加载历史输出 (共 {history_len} 行) ==='})}\n\n"
-                        yield f"data: {json.dumps({'line': f'正在加载历史输出 ({history_len} 行)...'})}\n\n"
-                        for i, line in enumerate(output_history):
-                            if isinstance(line, str):
-                                logger.debug(f"发送历史输出 {i+1}/{history_len}: {line[:50]}...")
-                                yield f"data: {json.dumps({'line': line})}\n\n"
-                    
-                    yield f"data: {json.dumps({'line': '=== 历史输出结束，开始接收实时输出 ==='})}\n\n"
-                    logger.info(f"历史输出发送完成: game_id={game_id}")
-            
-            # 如果服务器已停止，添加停止消息
-            process = server_data.get('process')
-            pty_process = server_data.get('pty_process')
+            # 发送一条连接成功消息
+            yield f"data: {json.dumps({'line': '已连接到服务器输出流，等待服务器输出...'})}\n\n"
             
             # 检查进程是否已结束
             process_ended = False
             return_code = None
+            
+            if game_id in running_servers:
+                process = running_servers[game_id].get('process')
+                pty_process = running_servers[game_id].get('pty_process')
+            else:
+                process = None
+                pty_process = None
+                # 如果是重启请求，尝试从PTY管理器获取进程
+                if is_restart:
+                    process_id = f"server_{game_id}"
+                    if pty_manager.get_process(process_id):
+                        pty_process = pty_manager.get_process(process_id)
             
             if process and hasattr(process, 'poll'):
                 return_code = process.poll()
@@ -1731,48 +1862,17 @@ def server_stream():
             # 添加一个计数器，用于记录处理的输出行数
             output_count = 0
             
-            while True:
-                try:
-                    # 尝试获取队列中的数据，最多等待1秒
-                    try:
-                        item = output_queue.get(timeout=1)
-                        output_count += 1
-                        last_output_time = time.time()  # 重置超时时间
-                        logger.debug(f"从队列获取实时输出 #{output_count}: {item[:100] if isinstance(item, str) else str(item)}")
-                        
-                        # 处理完成消息
-                        if isinstance(item, dict) and item.get('complete', False):
-                            logger.info(f"发送服务器完成消息: {item.get('message', '')}")
-                            yield f"data: {json.dumps(item)}\n\n"
-                            break
-                            
-                        # 处理普通输出
-                        if isinstance(item, str):
-                            logger.debug(f"发送服务器输出 #{output_count}: {item[:100]}...")
-                            yield f"data: {json.dumps({'line': item})}\n\n"
-                            
-                    except queue.Empty:
-                        # 心跳检查
-                        current_time = time.time()
-                        if current_time >= next_heartbeat:
-                            logger.debug(f"发送心跳包: game_id={game_id}, 已处理 {output_count} 行")
-                            yield f"data: {json.dumps({'heartbeat': True, 'timestamp': current_time, 'count': output_count})}\n\n"
-                            next_heartbeat = current_time + heartbeat_interval
-                            
-                        # 检查是否超时
-                        if time.time() - last_output_time > timeout_seconds:
-                            logger.warning(f"游戏服务器 {game_id} 的输出流超过 {timeout_seconds}秒 无输出，结束连接")
-                            yield f"data: {json.dumps({'line': '输出流超时，请刷新页面查看最新状态'})}\n\n"
-                            yield f"data: {json.dumps({'timeout': True, 'message': '输出流超时'})}\n\n"
-                            break
-                            
-                        # 检查进程是否结束但未发送完成消息
-                        process = server_data.get('process')
-                        pty_process = server_data.get('pty_process')
-                        
-                        # 检查进程是否已结束
-                        process_ended = False
-                        return_code = None
+            # 记录错误消息
+            error_messages = []
+            has_exit_message = False
+            
+            try:
+                while True:
+                    # 检查进程是否已结束
+                    process_ended = False
+                    if game_id in running_servers:
+                        process = running_servers[game_id].get('process')
+                        pty_process = running_servers[game_id].get('pty_process')
                         
                         if process and hasattr(process, 'poll'):
                             return_code = process.poll()
@@ -1785,33 +1885,111 @@ def server_stream():
                             elif hasattr(pty_process, 'running') and not pty_process.running:
                                 process_ended = True
                                 return_code = pty_process.return_code if hasattr(pty_process, 'return_code') else 0
-                        
-                        if process_ended and not server_data.get('sent_complete', False):
-                            logger.warn(f"进程已结束但未发送完成消息，发送完成状态: game_id={game_id}")
+                    else:
+                        # 进程已从running_servers中移除
+                        process_ended = True
+                        return_code = 0  # 假设成功完成
+                        process = None
+                        pty_process = None
+                    
+                    # 如果进程已结束且队列为空，发送完成消息并退出
+                    if process_ended and output_queue.empty():
+                        if not has_exit_message:
+                            # 收集可能的错误消息
+                            if error_messages:
+                                error_summary = "; ".join(error_messages)
+                                logger.warning(f"服务器 {game_id} 退出时有错误: {error_summary}")
+                                yield f"data: {json.dumps({'line': f'服务器退出时有错误: {error_summary}'})}\n\n"
+                            
+                            # 发送完成消息
                             status = 'success' if return_code == 0 else 'error'
                             message = f'游戏服务器 {game_id} ' + ('正常关闭' if return_code == 0 else f'异常退出，返回码: {return_code}')
+                            logger.info(f"服务器已停止，发送完成消息: game_id={game_id}, 状态={status}, 已处理 {output_count} 行输出")
                             yield f"data: {json.dumps({'complete': True, 'status': status, 'message': message})}\n\n"
-                            server_data['sent_complete'] = True
+                            has_exit_message = True
+                        break
+                    
+                    # 检查是否有新输出
+                    try:
+                        line = output_queue.get(timeout=0.5)
+                        output_count += 1
+                        
+                        # 如果是字典类型（特殊消息），直接发送
+                        if isinstance(line, dict):
+                            if 'complete' in line:  # 完成消息
+                                logger.info(f"检测到完成消息: game_id={game_id}, 状态={line.get('status', 'unknown')}")
+                                yield f"data: {json.dumps(line)}\n\n"
+                                has_exit_message = True
+                                break
+                            else:  # 其他特殊消息
+                                logger.debug(f"发送特殊消息 #{output_count}: {line}")
+                                yield f"data: {json.dumps(line)}\n\n"
+                        else:  # 普通文本行
+                            # 检查是否包含错误信息
+                            if isinstance(line, str) and any(err_keyword in line.lower() for err_keyword in ['error', 'exception', 'fail', '错误', '异常', '失败']):
+                                # 保存错误消息
+                                if len(error_messages) < 5:  # 最多保存5条错误消息
+                                    error_messages.append(line)
+                            
+                            # 检查是否包含退出信息
+                            if isinstance(line, str) and any(exit_keyword in line.lower() for exit_keyword in ['exit', 'shutdown', 'terminate', '退出', '关闭', '停止']):
+                                logger.info(f"检测到退出消息: {line}")
+                            
+                            if output_count % 10 == 0:  # 每10行输出打印一次调试信息
+                                logger.debug(f"已处理 {output_count} 行输出: game_id={game_id}")
+                            
+                            # 截断长输出
+                            if isinstance(line, str) and len(line) > 10000:
+                                logger.warning(f"输出行过长，已截断: {len(line)} 字符")
+                                line = line[:10000] + "... (输出过长，已截断)"
+                            
+                            logger.debug(f"发送服务器输出 #{output_count}: {line[:100]}...")
+                            yield f"data: {json.dumps({'line': line})}\n\n"
+                        
+                        # 更新最后输出时间
+                        last_output_time = time.time()
+                        
+                    except queue.Empty:
+                        # 队列为空，检查是否需要发送心跳
+                        current_time = time.time()
+                        
+                        # 检查是否超时
+                        if current_time - last_output_time > timeout_seconds:
+                            logger.warning(f"服务器 {game_id} 长时间无输出，超时")
+                            yield f"data: {json.dumps({'line': '[心跳检查] 服务器长时间无输出，连接超时'})}\n\n"
+                            yield f"data: {json.dumps({'complete': True, 'status': 'timeout', 'message': '服务器长时间无输出，连接超时'})}\n\n"
                             break
                         
-                        continue
-                
-                except Exception as e:
-                    logger.error(f"生成服务器流数据时出错: {str(e)}")
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
-                    break
-                    
-            logger.info(f"服务器输出流生成结束: game_id={game_id}, 总共处理 {output_count} 行")
+                        # 发送心跳包
+                        if current_time > next_heartbeat:
+                            heartbeat_msg = f"[心跳检查] 连接正常，等待服务器输出... ({time.strftime('%H:%M:%S')})"
+                            logger.debug(f"发送心跳包: game_id={game_id}, 已处理 {output_count} 行")
+                            yield f"data: {json.dumps({'line': heartbeat_msg})}\n\n"
+                            next_heartbeat = current_time + heartbeat_interval
+                        
+                        # 如果队列为空且进程仍在运行，等待片刻再继续
+                        if not process_ended:
+                            logger.info(f"队列为空，等待输出: game_id={game_id}, 已处理 {output_count} 行")
+                            time.sleep(1)
+            except GeneratorExit:
+                logger.info(f"客户端断开连接: game_id={game_id}, 已处理 {output_count} 行输出")
+            except Exception as e:
+                logger.error(f"生成输出流时出错: {str(e)}")
+                yield f"data: {json.dumps({'line': f'处理输出流时出错: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'complete': True, 'status': 'error', 'message': f'处理输出流时出错: {str(e)}'})}\n\n"
+            
+            logger.info(f"输出转发线程结束: game_id={game_id}, 总共处理 {output_count} 行输出")
         
+        # 返回流式响应
         return Response(stream_with_context(generate()), 
                        mimetype='text/event-stream',
                        headers={
                            'Cache-Control': 'no-cache',
                            'X-Accel-Buffering': 'no'  # 禁用Nginx缓冲
                        })
-                       
+    
     except Exception as e:
-        logger.error(f"服务器输出流处理错误: {str(e)}")
+        logger.error(f"创建服务器输出流失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/container_info', methods=['GET'])
@@ -2408,59 +2586,109 @@ def download_file():
 
 @app.route('/api/compress', methods=['POST'])
 def compress_files():
-    """压缩文件和目录"""
+    """压缩文件，支持多种格式"""
     try:
         data = request.json
         paths = data.get('paths', [])
         current_path = data.get('currentPath', '')
-        
-        # 安全检查
-        if not paths:
-            return jsonify({'status': 'error', 'message': '没有指定要压缩的文件'}), 400
-            
-        for path in paths:
-            if '..' in path or not path.startswith('/'):
-                return jsonify({'status': 'error', 'message': f'无效的路径: {path}'}), 400
-                
-            if not os.path.exists(path):
-                return jsonify({'status': 'error', 'message': f'路径不存在: {path}'}), 404
+        format = data.get('format', 'zip')  # 默认使用zip格式
+        level = data.get('level', 6)  # 默认压缩级别
         
         # 创建临时目录用于存放压缩文件
-        temp_dir = tempfile.gettempdir()
+        temp_dir = tempfile.mkdtemp()
         
-        # 生成唯一的文件名
-        zip_filename = f"files_{uuid.uuid4().hex}.zip"
-        zip_path = os.path.join(temp_dir, zip_filename)
+        # 根据格式选择文件扩展名
+        if format == 'zip':
+            ext = '.zip'
+        elif format == 'tar':
+            ext = '.tar'
+        elif format == 'tgz':
+            ext = '.tar.gz'
+        elif format == 'tbz2':
+            ext = '.tar.bz2'
+        elif format == 'txz':
+            ext = '.tar.xz'
+        elif format == 'tzst':
+            ext = '.tar.zst'
+        else:
+            ext = '.zip'
+            
+        # 生成临时文件名
+        temp_file = os.path.join(temp_dir, f'archive_{int(time.time())}{ext}')
         
-        # 创建压缩文件
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # 处理每个路径
-            for path in paths:
-                if os.path.isdir(path):
-                    # 如果是目录，递归添加所有文件
-                    dir_name = os.path.basename(path)
-                    for root, dirs, files in os.walk(path):
-                        # 计算在压缩文件中的相对路径
-                        archive_root = os.path.join(dir_name, os.path.relpath(root, path))
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            archive_name = os.path.join(archive_root, file)
-                            zipf.write(file_path, archive_name)
-                else:
-                    # 如果是文件，直接添加
-                    file_name = os.path.basename(path)
-                    zipf.write(path, file_name)
+        # 检查所有路径是否合法
+        for path in paths:
+            if not path.startswith('/') or '..' in path:
+                return jsonify({'status': 'error', 'message': '无效的文件路径'}), 400
+            if not os.path.exists(path):
+                return jsonify({'status': 'error', 'message': f'文件不存在: {path}'}), 404
+                
+        # 获取所有文件的共同父目录
+        common_path = os.path.commonpath([os.path.abspath(p) for p in paths])
+        
+        if format == 'zip':
+            # 使用ZIP格式压缩
+            with zipfile.ZipFile(temp_file, 'w', zipfile.ZIP_DEFLATED, compresslevel=level) as zipf:
+                for path in paths:
+                    if os.path.isfile(path):
+                        # 添加文件
+                        arcname = os.path.relpath(path, common_path)
+                        zipf.write(path, arcname)
+                    elif os.path.isdir(path):
+                        # 添加目录及其内容
+                        for root, dirs, files in os.walk(path):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, common_path)
+                                zipf.write(file_path, arcname)
+                                
+        elif format in ['tar', 'tgz', 'tbz2', 'txz']:
+            # 使用TAR格式压缩
+            mode = 'w:'
+            if format == 'tgz':
+                mode = 'w:gz'
+            elif format == 'tbz2':
+                mode = 'w:bz2'
+            elif format == 'txz':
+                mode = 'w:xz'
+                
+            with tarfile.open(temp_file, mode) as tarf:
+                for path in paths:
+                    # 添加文件或目录
+                    arcname = os.path.relpath(path, common_path)
+                    tarf.add(path, arcname=arcname)
                     
-        logger.info(f"压缩文件已创建: {zip_path}")
-        
+        elif format == 'tzst':
+            # 使用TAR+ZSTD格式压缩
+            # 首先创建tar文件
+            tar_temp = os.path.join(temp_dir, 'temp.tar')
+            with tarfile.open(tar_temp, 'w') as tarf:
+                for path in paths:
+                    arcname = os.path.relpath(path, common_path)
+                    tarf.add(path, arcname=arcname)
+            
+            # 然后用zstd压缩tar文件
+            cctx = zstd.ZstdCompressor(level=level)
+            with open(tar_temp, 'rb') as tar_data:
+                with open(temp_file, 'wb') as compressed:
+                    cctx.copy_stream(tar_data, compressed)
+            
+            # 删除临时tar文件
+            os.unlink(tar_temp)
+            
         return jsonify({
             'status': 'success',
             'message': '文件已压缩',
-            'zipPath': zip_path
+            'zipPath': temp_file
         })
         
     except Exception as e:
         logger.error(f"压缩文件时出错: {str(e)}")
+        # 清理临时文件
+        if 'temp_file' in locals() and os.path.exists(temp_file):
+            os.unlink(temp_file)
+        if 'temp_dir' in locals() and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
         return jsonify({'status': 'error', 'message': f'压缩文件失败: {str(e)}'}), 500
 
 @app.route('/api/install_by_appid', methods=['POST'])
@@ -2883,6 +3111,947 @@ def open_game_folder():
     except Exception as e:
         logger.error(f"请求打开文件夹时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'无法打开文件夹: {str(e)}'})
+
+# FRP相关API
+
+# 加载FRP配置
+def load_frp_configs():
+    """加载FRP配置"""
+    if not os.path.exists(FRP_CONFIG_FILE):
+        return []
+    
+    try:
+        with open(FRP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"加载FRP配置失败: {str(e)}")
+        return []
+
+# 保存FRP配置
+def save_frp_configs(configs):
+    """保存FRP配置"""
+    try:
+        with open(FRP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(configs, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"保存FRP配置失败: {str(e)}")
+        return False
+
+# 获取FRP状态
+def get_frp_status(frp_id):
+    """获取FRP状态"""
+    if frp_id in running_frp_processes:
+        process = running_frp_processes[frp_id]['process']
+        if process.poll() is None:  # 进程仍在运行
+            return 'running'
+    return 'stopped'
+
+# 更新所有FRP状态
+def update_all_frp_status():
+    """更新所有FRP状态"""
+    configs = load_frp_configs()
+    updated_configs = []
+    
+    for config in configs:
+        config['status'] = get_frp_status(config['id'])
+        updated_configs.append(config)
+    
+    return updated_configs
+
+# 获取FRP列表
+@app.route('/api/frp/list', methods=['GET'])
+def list_frp():
+    try:
+        configs = update_all_frp_status()
+        return jsonify({
+            'status': 'success',
+            'configs': configs
+        })
+    except Exception as e:
+        logger.error(f"获取FRP列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"获取FRP列表失败: {str(e)}"
+        }), 500
+
+# 创建FRP配置
+@app.route('/api/frp/create', methods=['POST'])
+def create_frp():
+    try:
+        data = request.json
+        name = data.get('name')
+        frp_type = data.get('type', 'general')
+        command = data.get('command')
+        
+        if not name or not command:
+            return jsonify({
+                'status': 'error',
+                'message': '配置名称和命令不能为空'
+            }), 400
+        
+        # 生成唯一ID
+        frp_id = str(uuid.uuid4())
+        
+        # 创建新配置
+        new_config = {
+            'id': frp_id,
+            'name': name,
+            'type': frp_type,
+            'command': command,
+            'status': 'stopped',
+            'created_at': time.time()
+        }
+        
+        # 加载现有配置并添加新配置
+        configs = load_frp_configs()
+        configs.append(new_config)
+        
+        # 保存配置
+        if save_frp_configs(configs):
+            return jsonify({
+                'status': 'success',
+                'message': 'FRP配置创建成功',
+                'config': new_config
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '保存FRP配置失败'
+            }), 500
+    except Exception as e:
+        logger.error(f"创建FRP配置失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"创建FRP配置失败: {str(e)}"
+        }), 500
+
+# 启动FRP
+@app.route('/api/frp/start', methods=['POST'])
+def start_frp():
+    try:
+        data = request.json
+        frp_id = data.get('id')
+        
+        if not frp_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'FRP ID不能为空'
+            }), 400
+        
+        # 加载配置
+        configs = load_frp_configs()
+        target_config = None
+        
+        for config in configs:
+            if config['id'] == frp_id:
+                target_config = config
+                break
+        
+        if not target_config:
+            return jsonify({
+                'status': 'error',
+                'message': '未找到指定的FRP配置'
+            }), 404
+        
+        # 检查FRP是否已经在运行
+        if frp_id in running_frp_processes:
+            process = running_frp_processes[frp_id]['process']
+            if process.poll() is None:  # 进程仍在运行
+                return jsonify({
+                    'status': 'success',
+                    'message': 'FRP已经在运行中'
+                })
+        
+        # 根据FRP类型选择不同的二进制文件和目录
+        frp_binary = FRP_BINARY
+        frp_dir = os.path.join(FRP_DIR, "LoCyanFrp")
+        
+        if target_config['type'] == 'custom':
+            frp_binary = CUSTOM_FRP_BINARY
+            frp_dir = CUSTOM_FRP_DIR
+        elif target_config['type'] == 'mefrp':
+            frp_binary = MEFRP_BINARY
+            frp_dir = MEFRP_DIR
+        elif target_config['type'] == 'sakura':
+            frp_binary = SAKURA_BINARY
+            frp_dir = SAKURA_DIR
+        
+        # 确保FRP可执行
+        if not os.path.exists(frp_binary):
+            return jsonify({
+                'status': 'error',
+                'message': f'{target_config["type"]}客户端程序不存在'
+            }), 500
+        
+        # 设置可执行权限
+        os.chmod(frp_binary, 0o755)
+        
+        # 创建日志文件
+        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        log_file = open(log_file_path, 'w')
+        
+        # 构建命令
+        command = f"{frp_binary} {target_config['command']}"
+        
+        # 启动FRP进程
+        process = subprocess.Popen(
+            shlex.split(command),
+            stdout=log_file,
+            stderr=log_file,
+            cwd=frp_dir
+        )
+        
+        # 保存进程信息
+        running_frp_processes[frp_id] = {
+            'process': process,
+            'log_file': log_file_path,
+            'started_at': time.time()
+        }
+        
+        # 更新配置状态
+        for config in configs:
+            if config['id'] == frp_id:
+                config['status'] = 'running'
+                break
+        
+        save_frp_configs(configs)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'FRP已启动'
+        })
+    except Exception as e:
+        logger.error(f"启动FRP失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"启动FRP失败: {str(e)}"
+        }), 500
+
+# 停止FRP
+@app.route('/api/frp/stop', methods=['POST'])
+def stop_frp():
+    try:
+        data = request.json
+        frp_id = data.get('id')
+        
+        if not frp_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'FRP ID不能为空'
+            }), 400
+        
+        # 检查FRP是否在运行
+        if frp_id not in running_frp_processes:
+            return jsonify({
+                'status': 'success',
+                'message': 'FRP未在运行'
+            })
+        
+        # 获取进程信息
+        process_info = running_frp_processes[frp_id]
+        process = process_info['process']
+        
+        # 尝试终止进程
+        if process.poll() is None:  # 进程仍在运行
+            process.terminate()
+            try:
+                process.wait(timeout=5)  # 等待进程终止
+            except subprocess.TimeoutExpired:
+                process.kill()  # 如果超时，强制终止
+        
+        # 关闭日志文件
+        log_file_path = process_info['log_file']
+        
+        # 从运行列表中移除
+        del running_frp_processes[frp_id]
+        
+        # 更新配置状态
+        configs = load_frp_configs()
+        for config in configs:
+            if config['id'] == frp_id:
+                config['status'] = 'stopped'
+                break
+        
+        save_frp_configs(configs)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'FRP已停止'
+        })
+    except Exception as e:
+        logger.error(f"停止FRP失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"停止FRP失败: {str(e)}"
+        }), 500
+
+# 删除FRP配置
+@app.route('/api/frp/delete', methods=['POST'])
+def delete_frp():
+    try:
+        data = request.json
+        frp_id = data.get('id')
+        
+        if not frp_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'FRP ID不能为空'
+            }), 400
+        
+        # 如果FRP正在运行，先停止它
+        if frp_id in running_frp_processes:
+            process_info = running_frp_processes[frp_id]
+            process = process_info['process']
+            
+            if process.poll() is None:  # 进程仍在运行
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            
+            # 从运行列表中移除
+            del running_frp_processes[frp_id]
+        
+        # 删除日志文件
+        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        if os.path.exists(log_file_path):
+            os.remove(log_file_path)
+        
+        # 更新配置
+        configs = load_frp_configs()
+        configs = [config for config in configs if config['id'] != frp_id]
+        save_frp_configs(configs)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'FRP配置已删除'
+        })
+    except Exception as e:
+        logger.error(f"删除FRP配置失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"删除FRP配置失败: {str(e)}"
+        }), 500
+
+# 获取FRP日志
+@app.route('/api/frp/log', methods=['GET'])
+def get_frp_log():
+    try:
+        frp_id = request.args.get('id')
+        if not frp_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'FRP ID不能为空'
+            }), 400
+        
+        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        if not os.path.exists(log_file_path):
+            return jsonify({
+                'status': 'success',
+                'log': '暂无日志'
+            })
+        
+        with open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+            log_content = f.read()
+        
+        return jsonify({
+            'status': 'success',
+            'log': log_content
+        })
+    except Exception as e:
+        logger.error(f"获取FRP日志失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"获取FRP日志失败: {str(e)}"
+        }), 500
+
+# 获取自建FRP配置
+@app.route('/api/frp/custom/config', methods=['GET'])
+def get_custom_frp_config():
+    try:
+        if not os.path.exists(CUSTOM_FRP_CONFIG_FILE):
+            # 如果配置文件不存在，返回默认配置
+            default_config = {
+                'serverAddr': '127.0.0.1',
+                'serverPort': 7000,
+                'token': '',
+                'proxies': []
+            }
+            return jsonify({
+                'status': 'success',
+                'config': default_config
+            })
+        
+        # 读取配置文件
+        with open(CUSTOM_FRP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 解析TOML配置
+        config = {
+            'serverAddr': '',
+            'serverPort': 7000,
+            'token': '',
+            'proxies': []
+        }
+        
+        # 简单解析TOML文件
+        lines = content.split('\n')
+        current_proxy = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            if line.startswith('serverAddr'):
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    config['serverAddr'] = parts[1].strip().strip('"\'')
+            elif line.startswith('serverPort'):
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    try:
+                        config['serverPort'] = int(parts[1].strip())
+                    except ValueError:
+                        pass
+            elif line.startswith('token'):
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    config['token'] = parts[1].strip().strip('"\'')
+            elif line.startswith('[[proxies]]'):
+                current_proxy = {}
+                config['proxies'].append(current_proxy)
+            elif current_proxy is not None and '=' in line:
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip().strip('"\'')
+                    if key == 'localPort' or key == 'remotePort':
+                        try:
+                            current_proxy[key] = int(value)
+                        except ValueError:
+                            current_proxy[key] = value
+                    else:
+                        current_proxy[key] = value
+        
+        return jsonify({
+            'status': 'success',
+            'config': config
+        })
+    except Exception as e:
+        logger.error(f"获取自建FRP配置失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"获取自建FRP配置失败: {str(e)}"
+        }), 500
+
+# 保存自建FRP配置
+@app.route('/api/frp/custom/config', methods=['POST'])
+def save_custom_frp_config():
+    try:
+        data = request.json
+        server_addr = data.get('serverAddr')
+        server_port = data.get('serverPort')
+        token = data.get('token', '')
+        proxies = data.get('proxies', [])
+        
+        if not server_addr:
+            return jsonify({
+                'status': 'error',
+                'message': '服务器地址不能为空'
+            }), 400
+        
+        # 生成TOML配置
+        config_content = f'serverAddr = "{server_addr}"\n'
+        config_content += f'serverPort = {server_port}\n'
+        
+        if token:
+            config_content += f'token = "{token}"\n'
+        
+        # 添加代理配置
+        for proxy in proxies:
+            config_content += '\n[[proxies]]\n'
+            for key, value in proxy.items():
+                if isinstance(value, str):
+                    config_content += f'{key} = "{value}"\n'
+                else:
+                    config_content += f'{key} = {value}\n'
+        
+        # 保存配置文件
+        with open(CUSTOM_FRP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            f.write(config_content)
+        
+        return jsonify({
+            'status': 'success',
+            'message': '自建FRP配置保存成功'
+        })
+    except Exception as e:
+        logger.error(f"保存自建FRP配置失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"保存自建FRP配置失败: {str(e)}"
+        }), 500
+
+# 启动自建FRP
+@app.route('/api/frp/custom/start', methods=['POST'])
+def start_custom_frp():
+    try:
+        # 生成唯一ID
+        frp_id = 'custom_frp'
+        
+        # 检查FRP是否已经在运行
+        if frp_id in running_frp_processes:
+            process = running_frp_processes[frp_id]['process']
+            if process.poll() is None:  # 进程仍在运行
+                return jsonify({
+                    'status': 'success',
+                    'message': '自建FRP已经在运行中'
+                })
+        
+        # 确保FRP可执行
+        if not os.path.exists(CUSTOM_FRP_BINARY):
+            return jsonify({
+                'status': 'error',
+                'message': '自建FRP客户端程序不存在'
+            }), 500
+        
+        # 设置可执行权限
+        os.chmod(CUSTOM_FRP_BINARY, 0o755)
+        
+        # 创建日志文件
+        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        log_file = open(log_file_path, 'w')
+        
+        # 构建命令
+        command = f"{CUSTOM_FRP_BINARY} -c {CUSTOM_FRP_CONFIG_FILE}"
+        
+        # 启动FRP进程
+        process = subprocess.Popen(
+            shlex.split(command),
+            stdout=log_file,
+            stderr=log_file,
+            cwd=CUSTOM_FRP_DIR
+        )
+        
+        # 保存进程信息
+        running_frp_processes[frp_id] = {
+            'process': process,
+            'log_file': log_file_path,
+            'started_at': time.time()
+        }
+        
+        # 更新配置状态
+        configs = load_frp_configs()
+        for config in configs:
+            if config['id'] == frp_id:
+                config['status'] = 'running'
+                break
+        
+        save_frp_configs(configs)
+        
+        return jsonify({
+            'status': 'success',
+            'message': '自建FRP已启动'
+        })
+    except Exception as e:
+        logger.error(f"启动自建FRP失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"启动自建FRP失败: {str(e)}"
+        }), 500
+
+# 停止自建FRP
+@app.route('/api/frp/custom/stop', methods=['POST'])
+def stop_custom_frp():
+    try:
+        frp_id = 'custom_frp'
+        
+        # 检查FRP是否在运行
+        if frp_id not in running_frp_processes:
+            return jsonify({
+                'status': 'success',
+                'message': '自建FRP未在运行'
+            })
+        
+        # 获取进程信息
+        process_info = running_frp_processes[frp_id]
+        process = process_info['process']
+        
+        # 尝试终止进程
+        if process.poll() is None:  # 进程仍在运行
+            process.terminate()
+            try:
+                process.wait(timeout=5)  # 等待进程终止
+            except subprocess.TimeoutExpired:
+                process.kill()  # 如果超时，强制终止
+        
+        # 从运行列表中移除
+        del running_frp_processes[frp_id]
+        
+        return jsonify({
+            'status': 'success',
+            'message': '自建FRP已停止'
+        })
+    except Exception as e:
+        logger.error(f"停止自建FRP失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"停止自建FRP失败: {str(e)}"
+        }), 500
+
+# 获取自建FRP状态
+@app.route('/api/frp/custom/status', methods=['GET'])
+def get_custom_frp_status():
+    try:
+        frp_id = 'custom_frp'
+        status = get_frp_status(frp_id)
+        
+        return jsonify({
+            'status': 'success',
+            'frp_status': status
+        })
+    except Exception as e:
+        logger.error(f"获取自建FRP状态失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f"获取自建FRP状态失败: {str(e)}"
+        }), 500
+
+@app.route('/api/extract', methods=['POST'])
+def extract_archive():
+    """解压缩文件，支持多种格式"""
+    try:
+        data = request.json
+        file_path = data.get('path')
+        target_dir = data.get('targetDir')
+        
+        # 安全检查
+        if not file_path or '..' in file_path or not file_path.startswith('/'):
+            return jsonify({'status': 'error', 'message': '无效的文件路径'}), 400
+            
+        if not target_dir or '..' in target_dir or not target_dir.startswith('/'):
+            return jsonify({'status': 'error', 'message': '无效的目标目录'}), 400
+            
+        # 确保文件存在
+        if not os.path.exists(file_path):
+            return jsonify({'status': 'error', 'message': '文件不存在'}), 404
+            
+        if not os.path.isfile(file_path):
+            return jsonify({'status': 'error', 'message': '路径不是文件'}), 400
+            
+        # 确保目标目录存在
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir)
+        elif not os.path.isdir(target_dir):
+            return jsonify({'status': 'error', 'message': '目标路径不是目录'}), 400
+            
+        # 获取文件扩展名
+        file_ext = os.path.splitext(file_path)[1].lower()
+        file_name = os.path.basename(file_path)
+        
+        # 特别处理.tar.gz、.tar.xz和.tar.zst格式
+        if file_path.endswith('.tar.gz') or file_path.endswith('.tar.xz') or file_path.endswith('.tar.zst'):
+            if file_path.endswith('.tar.gz'):
+                mode = 'r:gz'
+            elif file_path.endswith('.tar.xz'):
+                mode = 'r:xz'
+            elif file_path.endswith('.tar.zst'):
+                # 对于tar.zst，我们需要先解压zst，然后再解压tar
+                with open(file_path, 'rb') as compressed:
+                    dctx = zstd.ZstdDecompressor()
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                        dctx.copy_stream(compressed, tmp)
+                        tmp_path = tmp.name
+                
+                try:
+                    with tarfile.open(tmp_path, 'r:') as tarf:
+                        tarf.extractall(target_dir)
+                finally:
+                    os.unlink(tmp_path)
+                return jsonify({
+                    'status': 'success',
+                    'message': '文件已解压',
+                    'targetDir': target_dir
+                })
+                
+            with tarfile.open(file_path, mode) as tarf:
+                tarf.extractall(target_dir)
+            return jsonify({
+                'status': 'success',
+                'message': '文件已解压',
+                'targetDir': target_dir
+            })
+            
+        # 根据文件扩展名选择解压方法
+        if file_ext in ['.zip', '.jar', '.apk']:
+            # 处理ZIP文件
+            with zipfile.ZipFile(file_path, 'r') as zipf:
+                zipf.extractall(target_dir)
+                
+        elif file_ext in ['.tar']:
+            # 处理TAR文件
+            with tarfile.open(file_path, 'r') as tarf:
+                tarf.extractall(target_dir)
+                
+        elif file_ext in ['.gz', '.tgz']:
+            # 处理TAR.GZ文件
+            if file_ext == '.tgz' or file_path.endswith('.tar.gz'):
+                with tarfile.open(file_path, 'r:gz') as tarf:
+                    tarf.extractall(target_dir)
+            else:
+                # 处理单个gzip文件
+                with gzip.open(file_path, 'rb') as f_in:
+                    # 提取不带.gz扩展名的原始文件名
+                    output_file = os.path.join(target_dir, os.path.splitext(file_name)[0])
+                    with open(output_file, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                        
+        elif file_ext in ['.bz2']:
+            # 处理TAR.BZ2或单个BZ2文件
+            if file_path.endswith('.tar.bz2'):
+                with tarfile.open(file_path, 'r:bz2') as tarf:
+                    tarf.extractall(target_dir)
+            else:
+                # 处理单个bzip2文件
+                with bz2.open(file_path, 'rb') as f_in:
+                    # 提取不带.bz2扩展名的原始文件名
+                    output_file = os.path.join(target_dir, os.path.splitext(file_name)[0])
+                    with open(output_file, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                        
+        elif file_ext in ['.xz']:
+            # 处理.xz文件
+            if file_path.endswith('.tar.xz'):
+                with tarfile.open(file_path, 'r:xz') as tarf:
+                    tarf.extractall(target_dir)
+            else:
+                # 处理单个xz文件
+                with lzma.open(file_path, 'rb') as f_in:
+                    # 提取不带.xz扩展名的原始文件名
+                    output_file = os.path.join(target_dir, os.path.splitext(file_name)[0])
+                    with open(output_file, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                        
+        elif file_ext in ['.zst']:
+            # 处理.zst文件
+            with open(file_path, 'rb') as compressed:
+                dctx = zstd.ZstdDecompressor()
+                # 提取不带.zst扩展名的原始文件名
+                output_file = os.path.join(target_dir, os.path.splitext(file_name)[0])
+                with open(output_file, 'wb') as f_out:
+                    dctx.copy_stream(compressed, f_out)
+                        
+        elif file_ext in ['.rar']:
+            # 处理RAR文件，需要安装python-rarfile库
+            try:
+                with rarfile.RarFile(file_path) as rf:
+                    rf.extractall(target_dir)
+            except ImportError:
+                # 如果没有安装rarfile库，尝试使用unrar命令
+                try:
+                    subprocess.run(['unrar', 'x', file_path, target_dir], check=True)
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    return jsonify({
+                        'status': 'error', 
+                        'message': '解压RAR文件失败，系统未安装rarfile模块或unrar命令'
+                    }), 500
+                    
+        elif file_ext in ['.7z']:
+            # 处理7z文件，需要系统安装p7zip
+            try:
+                subprocess.run(['7z', 'x', file_path, '-o' + target_dir], check=True)
+            except (subprocess.SubprocessError, FileNotFoundError):
+                return jsonify({
+                    'status': 'error', 
+                    'message': '解压7Z文件失败，系统未安装7z命令'
+                }), 500
+                
+        else:
+            return jsonify({
+                'status': 'error', 
+                'message': f'不支持的文件格式: {file_ext}'
+            }), 400
+            
+        logger.info(f"文件已解压: {file_path} -> {target_dir}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': '文件已解压',
+            'targetDir': target_dir
+        })
+        
+    except Exception as e:
+        logger.error(f"解压文件时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'解压文件失败: {str(e)}'}), 500
+
+@app.route('/api/chmod', methods=['POST'])
+def change_permissions():
+    """修改文件或目录的权限"""
+    try:
+        data = request.json
+        path = data.get('path')
+        mode = data.get('mode')  # 数字形式的权限，如：0o755
+        recursive = data.get('recursive', False)  # 是否递归修改子目录和文件
+        
+        # 安全检查
+        if not path or '..' in path or not path.startswith('/'):
+            return jsonify({'status': 'error', 'message': '无效的文件路径'}), 400
+            
+        if not os.path.exists(path):
+            return jsonify({'status': 'error', 'message': '文件或目录不存在'}), 404
+            
+        if not isinstance(mode, int):
+            try:
+                # 如果传入的是字符串，尝试转换为整数
+                mode = int(str(mode), 8)
+            except ValueError:
+                return jsonify({'status': 'error', 'message': '无效的权限值'}), 400
+
+        if recursive and os.path.isdir(path):
+            # 递归修改目录及其内容的权限
+            for root, dirs, files in os.walk(path):
+                # 修改目录权限
+                os.chmod(root, mode)
+                # 修改文件权限
+                for file in files:
+                    os.chmod(os.path.join(root, file), mode)
+        else:
+            # 仅修改当前文件或目录的权限
+            os.chmod(path, mode)
+            
+        # 获取更新后的权限
+        current_mode = stat.S_IMODE(os.stat(path).st_mode)
+        
+        return jsonify({
+            'status': 'success',
+            'message': '权限修改成功',
+            'path': path,
+            'mode': oct(current_mode)
+        })
+        
+    except Exception as e:
+        logger.error(f"修改权限失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'修改权限失败: {str(e)}'}), 500
+
+@app.route('/api/server/start_steamcmd', methods=['POST'])
+def start_steamcmd():
+    """启动SteamCMD"""
+    try:
+        logger.info("请求启动SteamCMD")
+        
+        # SteamCMD目录
+        steamcmd_dir = "/home/steam/steamcmd"
+        steamcmd_path = os.path.join(steamcmd_dir, "steamcmd.sh")
+        
+        # 检查steamcmd.sh是否存在
+        if not os.path.exists(steamcmd_path):
+            logger.error(f"SteamCMD不存在: {steamcmd_path}")
+            return jsonify({'status': 'error', 'message': f'SteamCMD不存在，请确保系统中已安装SteamCMD'}), 400
+            
+        # 确保steamcmd.sh有执行权限
+        if not os.access(steamcmd_path, os.X_OK):
+            logger.info(f"添加SteamCMD执行权限: {steamcmd_path}")
+            os.chmod(steamcmd_path, 0o755)
+        
+        # 固定的游戏ID用于steamcmd
+        game_id = "steamcmd"
+        process_id = f"server_{game_id}"
+        
+        # 首先检查PTY管理器中是否存在该进程ID
+        if pty_manager.get_process(process_id):
+            logger.info(f"PTY管理器中存在进程ID {process_id}，但可能是残留的记录")
+            # 移除PTY管理器中的进程记录
+            pty_manager.remove_process(process_id)
+            logger.info(f"已从PTY管理器中移除可能残留的进程记录: {process_id}")
+        
+        # 检查running_servers字典中是否存在steamcmd
+        if game_id in running_servers:
+            server_data = running_servers[game_id]
+            process = server_data.get('process')
+            
+            # 检查进程是否仍在运行
+            if process and process.poll() is None:
+                logger.info(f"SteamCMD已经在运行中")
+                return jsonify({
+                    'status': 'success', 
+                    'message': 'SteamCMD已经在运行中',
+                    'already_running': True
+                })
+            else:
+                # 进程已结束，但字典中仍有记录，清理旧数据
+                logger.info(f"清理SteamCMD的旧运行数据")
+                
+                # 尝试终止任何可能仍在运行的进程
+                try:
+                    if process and process.poll() is None:
+                        process.terminate()
+                        time.sleep(0.5)
+                        if process.poll() is None:
+                            process.kill()
+                except Exception as e:
+                    logger.warning(f"终止旧进程时出错: {str(e)}")
+                
+                # 从字典中移除
+                del running_servers[game_id]
+        
+        # 清理输出队列
+        if game_id in server_output_queues:
+            try:
+                while not server_output_queues[game_id].empty():
+                    server_output_queues[game_id].get_nowait()
+            except:
+                server_output_queues[game_id] = queue.Queue()
+        else:
+            server_output_queues[game_id] = queue.Queue()
+            
+        # 构建启动命令，确保以steam用户运行
+        cmd = f"su - steam -c 'cd {steamcmd_dir} && ./steamcmd.sh'"
+        logger.debug(f"准备执行命令 (将使用PTY): {cmd}")
+        
+        # 初始化服务器状态跟踪
+        running_servers[game_id] = {
+            'process': None,
+            'output': [],
+            'started_at': time.time(),
+            'running': True,
+            'return_code': None,
+            'cmd': cmd,
+            'master_fd': None,
+            'game_dir': steamcmd_dir,
+            'external': False
+        }
+        
+        # 在单独的线程中启动服务器
+        server_thread = threading.Thread(
+            target=run_game_server,
+            args=(game_id, cmd, steamcmd_dir),
+            daemon=True
+        )
+        server_thread.start()
+        
+        logger.info(f"SteamCMD启动线程已启动")
+        time.sleep(0.5)
+        server_output_queues[game_id].put("SteamCMD启动中...")
+        server_output_queues[game_id].put(f"SteamCMD目录: {steamcmd_dir}")
+        server_output_queues[game_id].put(f"启动命令: {cmd}")
+        
+        # 添加到输出历史
+        if 'output' not in running_servers[game_id]:
+            running_servers[game_id]['output'] = []
+        running_servers[game_id]['output'].append("SteamCMD启动中...")
+        running_servers[game_id]['output'].append(f"SteamCMD目录: {steamcmd_dir}")
+        running_servers[game_id]['output'].append(f"启动命令: {cmd}")
+        
+        return jsonify({
+            'status': 'success', 
+            'message': 'SteamCMD启动已开始'
+        })
+        
+    except Exception as e:
+        logger.error(f"启动SteamCMD失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")

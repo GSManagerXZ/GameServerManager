@@ -181,14 +181,10 @@ RUN mkdir -p ${STEAMCMD_DIR} \
 COPY --chown=steam:steam ./app/package.json ./app/package-lock.json* /home/steam/app/
 WORKDIR /home/steam/app
 RUN npm install --legacy-peer-deps --no-fund && \
-    npm install react-router-dom @types/react @types/react-dom react-dom
+    npm install react-router-dom @types/react @types/react-dom react-dom @monaco-editor/react monaco-editor
 
 # 安装后端依赖
-RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil PyJWT
-
-# 复制后端代码
-COPY --chown=steam:steam ./server /home/steam/server
-RUN chmod +x /home/steam/server/start_web.sh
+RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil PyJWT rarfile zstandard
 
 # 添加启动脚本
 RUN echo '#!/bin/bash\n\
@@ -219,6 +215,20 @@ COPY --chown=steam:steam ./app /home/steam/app
 WORKDIR /home/steam/app
 RUN npm run build && \
     echo "前端构建完成"
+
+# 复制后端代码
+COPY --chown=steam:steam ./server /home/steam/server
+RUN chmod +x /home/steam/server/start_web.sh
+
+# 复制FRP文件
+COPY --chown=steam:steam ./frp/LoCyanFrp /home/steam/FRP/LoCyanFrp
+COPY --chown=steam:steam ./frp/frpc /home/steam/FRP/frpc
+COPY --chown=steam:steam ./frp/mefrp /home/steam/FRP/mefrp
+COPY --chown=steam:steam ./frp/Sakura /home/steam/FRP/Sakura
+RUN chmod +x /home/steam/FRP/LoCyanFrp/frpc
+RUN chmod +x /home/steam/FRP/frpc/frpc
+RUN chmod +x /home/steam/FRP/mefrp/frpc
+RUN chmod +x /home/steam/FRP/Sakura/frpc
 
 # 设置工作目录和启动命令
 WORKDIR /home/steam

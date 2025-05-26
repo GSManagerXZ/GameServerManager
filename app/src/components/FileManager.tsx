@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Table, Button, Input, Modal, Form, 
   Space, message, Breadcrumb, Menu, Dropdown, 
-  Tooltip, Typography, Spin, Upload, Image
+  Tooltip, Typography, Spin, Upload, Image, Select, Slider, InputNumber,
+  Checkbox
 } from 'antd';
 import { 
   FileOutlined, FolderOutlined, 
@@ -11,9 +12,11 @@ import {
   DownloadOutlined, UploadOutlined, 
   SaveOutlined, ArrowUpOutlined,
   FileAddOutlined, FolderAddOutlined,
-  InboxOutlined, EyeOutlined, FileImageOutlined
+  InboxOutlined, EyeOutlined, FileImageOutlined,
+  ReloadOutlined, CompressOutlined, FileZipOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import Editor from "@monaco-editor/react";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -93,41 +96,45 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  // 处理右键菜单显示
-  const handleContextMenu = (e: React.MouseEvent, file: FileInfo) => {
+  // 处理右键菜单位置
+  const handleContextMenuPosition = (e: React.MouseEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    // 设置选中的文件
-    setSelectedFile(file);
-    // 同时更新多选列表，如果当前文件不在已选中列表中，则清空已选中列表并只选中当前文件
-    if (!selectedFiles.some(item => item.path === file.path)) {
-      setSelectedFiles([file]);
-    }
-    setContextMenuFile(file);
-    setContextMenuPosition({
-      x: e.clientX,
-      y: e.clientY,
-      visible: true
-    });
-    // 隐藏空白区域右键菜单
-    setBlankContextMenuPosition(prev => ({ ...prev, visible: false }));
-  };
-
-  // 处理空白区域右键菜单
-  const handleBlankContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    // 确保点击的是空白区域，而不是表格行
-    if ((e.target as HTMLElement).closest('tr')) {
-      return;
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const menuHeight = 350; // 估计的菜单高度
+    const menuWidth = 200; // 估计的菜单宽度
+    
+    let x = e.clientX;
+    let y = e.clientY;
+    
+    // 检查右侧空间
+    if (x + menuWidth > viewportWidth) {
+      x = viewportWidth - menuWidth;
     }
     
-    setBlankContextMenuPosition({
-      x: e.clientX,
-      y: e.clientY,
-      visible: true
-    });
-    // 隐藏文件右键菜单
-    setContextMenuPosition(prev => ({ ...prev, visible: false }));
+    // 检查底部空间
+    if (y + menuHeight > viewportHeight) {
+      y = viewportHeight - menuHeight;
+    }
+    
+    return { x, y };
+  };
+
+  // 文件右键菜单处理
+  const handleContextMenu = (e: React.MouseEvent, file: FileInfo) => {
+    e.preventDefault();
+    const { x, y } = handleContextMenuPosition(e);
+    setContextMenuPosition({ x, y, visible: true });
+    setContextMenuFile(file);
+    setBlankContextMenuPosition({ x: 0, y: 0, visible: false });
+  };
+
+  // 空白区域右键菜单处理
+  const handleBlankContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const { x, y } = handleContextMenuPosition(e);
+    setBlankContextMenuPosition({ x, y, visible: true });
+    setContextMenuPosition({ x: 0, y: 0, visible: false });
   };
 
   // 隐藏所有右键菜单
@@ -798,6 +805,341 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     }
   ];
 
+  const [isCompressModalVisible, setIsCompressModalVisible] = useState<boolean>(false);
+  const [isExtractModalVisible, setIsExtractModalVisible] = useState<boolean>(false);
+  const [extractPath, setExtractPath] = useState<string>('');
+  const [compressName, setCompressName] = useState<string>('');
+  const [compressFormat, setCompressFormat] = useState<string>('zip');
+  const [compressionLevel, setCompressionLevel] = useState<number>(6);
+  const [isCompressing, setIsCompressing] = useState<boolean>(false);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const [isChangingPermissions, setIsChangingPermissions] = useState<boolean>(false);
+  const [isPermissionsModalVisible, setIsPermissionsModalVisible] = useState<boolean>(false);
+  const [permissions, setPermissions] = useState<{
+    owner: { read: boolean; write: boolean; execute: boolean };
+    group: { read: boolean; write: boolean; execute: boolean };
+    others: { read: boolean; write: boolean; execute: boolean };
+  }>({
+    owner: { read: true, write: true, execute: false },
+    group: { read: true, write: false, execute: false },
+    others: { read: true, write: false, execute: false }
+  });
+  const [isRecursive, setIsRecursive] = useState<boolean>(false);
+
+  // 压缩文件
+  const compressFiles = async () => {
+    if (selectedFiles.length === 0) {
+      message.warning('请选择要压缩的文件或文件夹');
+      return;
+    }
+    
+    setIsCompressing(true);
+    setLoading(true);
+    
+    // 显示全局压缩进度提示
+    const compressNotification = message.loading({
+      content: '正在压缩文件，请稍候...',
+      duration: 0,
+    });
+    
+    // 构建要压缩的文件路径列表
+    const paths = selectedFiles.map(file => file.path);
+    
+    try {
+      const response = await axios.post('/api/compress', { 
+        paths, 
+        currentPath,
+        format: compressFormat,
+        level: compressionLevel
+      });
+      
+      if (response.data.status === 'success') {
+        const zipPath = response.data.zipPath;
+        
+        // 根据选择的格式确定文件扩展名
+        let fileExtension = '.zip';
+        switch (compressFormat) {
+          case 'tar':
+            fileExtension = '.tar';
+            break;
+          case 'tgz':
+            fileExtension = '.tar.gz';
+            break;
+          case 'tbz2':
+            fileExtension = '.tar.bz2';
+            break;
+          case 'txz':
+            fileExtension = '.tar.xz';
+            break;
+          case 'tzst':
+            fileExtension = '.tar.zst';
+            break;
+          default:
+            fileExtension = '.zip';
+        }
+        
+        // 移动压缩文件到当前目录，使用新的文件名
+        const zipName = compressName.endsWith(fileExtension) ? compressName : `${compressName}${fileExtension}`;
+        const destinationPath = `${currentPath}/${zipName}`;
+        
+        const moveResponse = await axios.post('/api/move', {
+          sourcePath: zipPath,
+          destinationPath: destinationPath
+        });
+        
+        if (moveResponse.data.status === 'success') {
+          compressNotification(); // 关闭加载通知
+          message.success('文件已压缩完成');
+          // 刷新当前目录
+          loadDirectory(currentPath);
+        } else {
+          compressNotification(); // 关闭加载通知
+          message.error(moveResponse.data.message || '移动压缩文件失败');
+        }
+      } else {
+        compressNotification(); // 关闭加载通知
+        message.error(response.data.message || '压缩文件失败');
+      }
+    } catch (error) {
+      compressNotification(); // 关闭加载通知
+      message.error(`压缩文件失败: ${error.message}`);
+    } finally {
+      setIsCompressing(false);
+      setLoading(false);
+      setIsCompressModalVisible(false);
+      setCompressName('');
+      setCompressFormat('zip');
+      setCompressionLevel(6);
+    }
+  };
+  
+  // 解压文件
+  const extractFile = async () => {
+    if (!selectedFile) {
+      message.warning('请选择要解压的文件');
+      return;
+    }
+    
+    if (selectedFile.type !== 'file') {
+      message.warning('只能解压文件');
+      return;
+    }
+    
+    // 判断文件类型是否为可解压类型
+    const fileExt = selectedFile.name.toLowerCase();
+    const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
+    const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
+    
+    if (!isArchive) {
+      message.warning('不支持解压此类型的文件');
+      return;
+    }
+    
+    setLoading(true);
+    setIsExtracting(true);
+    
+    // 显示全局解压进度提示
+    const extractNotification = message.loading({
+      content: '正在解压文件，请稍候...',
+      duration: 0,
+    });
+    
+    try {
+      // 默认解压到当前目录或指定目录
+      const targetDir = extractPath || currentPath;
+      
+      const response = await axios.post('/api/extract', {
+        path: selectedFile.path,
+        targetDir
+      });
+      
+      if (response.data.status === 'success') {
+        extractNotification(); // 关闭加载通知
+        message.success('文件已解压');
+        // 刷新当前目录或跳转到解压目标目录
+        loadDirectory(targetDir);
+      } else {
+        extractNotification(); // 关闭加载通知
+        message.error(response.data.message || '解压文件失败');
+      }
+    } catch (error) {
+      extractNotification(); // 关闭加载通知
+      message.error(`解压文件失败: ${error.message}`);
+    } finally {
+      setLoading(false);
+      setIsExtracting(false);
+      setIsExtractModalVisible(false);
+      setExtractPath('');
+    }
+  };
+
+  // 批量删除选中的文件和文件夹
+  const deleteSelectedItems = () => {
+    if (selectedFiles.length === 0) {
+      message.warning('请选择要删除的文件或文件夹');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除选中的 ${selectedFiles.length} 个文件/文件夹吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setLoading(true);
+        try {
+          let successCount = 0;
+          let failCount = 0;
+          
+          // 逐个删除选中的文件/文件夹
+          for (const file of selectedFiles) {
+            try {
+              const response = await axios.post('/api/delete', {
+                path: file.path,
+                type: file.type
+              });
+              
+              if (response.data.status === 'success') {
+                successCount++;
+              } else {
+                failCount++;
+              }
+            } catch (error) {
+              failCount++;
+              console.error(`删除失败: ${file.path}`, error);
+            }
+          }
+          
+          // 显示结果消息
+          if (successCount > 0 && failCount === 0) {
+            message.success(`成功删除 ${successCount} 个文件/文件夹`);
+          } else if (successCount > 0 && failCount > 0) {
+            message.warning(`删除完成: ${successCount} 个成功, ${failCount} 个失败`);
+          } else {
+            message.error('删除失败');
+          }
+          
+          // 刷新目录
+          loadDirectory(currentPath);
+          // 清空选择
+          setSelectedFiles([]);
+          setSelectedFile(null);
+        } catch (error) {
+          message.error(`删除操作失败: ${error.message}`);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  // 将权限对象转换为数字模式
+  const permissionsToMode = (perms: typeof permissions): number => {
+    let mode = 0;
+    if (perms.owner.read) mode |= 0o400;
+    if (perms.owner.write) mode |= 0o200;
+    if (perms.owner.execute) mode |= 0o100;
+    if (perms.group.read) mode |= 0o040;
+    if (perms.group.write) mode |= 0o020;
+    if (perms.group.execute) mode |= 0o010;
+    if (perms.others.read) mode |= 0o004;
+    if (perms.others.write) mode |= 0o002;
+    if (perms.others.execute) mode |= 0o001;
+    return mode;
+  };
+
+  // 将数字模式转换为权限对象
+  const modeToPermissions = (mode: number) => {
+    return {
+      owner: {
+        read: !!(mode & 0o400),
+        write: !!(mode & 0o200),
+        execute: !!(mode & 0o100)
+      },
+      group: {
+        read: !!(mode & 0o040),
+        write: !!(mode & 0o020),
+        execute: !!(mode & 0o010)
+      },
+      others: {
+        read: !!(mode & 0o004),
+        write: !!(mode & 0o002),
+        execute: !!(mode & 0o001)
+      }
+    };
+  };
+
+  // 修改文件权限
+  const changePermissions = async () => {
+    if (!selectedFile) {
+      message.warning('请选择要修改权限的文件或文件夹');
+      return;
+    }
+
+    setIsChangingPermissions(true);
+    
+    try {
+      const mode = permissionsToMode(permissions);
+      const response = await axios.post('/api/chmod', {
+        path: selectedFile.path,
+        mode: mode,
+        recursive: isRecursive
+      });
+      
+      if (response.data.status === 'success') {
+        message.success('权限修改成功');
+        loadDirectory(currentPath); // 刷新当前目录
+      } else {
+        message.error(response.data.message || '权限修改失败');
+      }
+    } catch (error) {
+      message.error(`权限修改失败: ${error.message}`);
+    } finally {
+      setIsChangingPermissions(false);
+      setIsPermissionsModalVisible(false);
+      setIsRecursive(false);
+    }
+  };
+
+  // 获取文件语言类型
+  const getFileLanguage = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop() || '';
+    const languageMap: { [key: string]: string } = {
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'py': 'python',
+      'java': 'java',
+      'c': 'c',
+      'cpp': 'cpp',
+      'h': 'cpp',
+      'hpp': 'cpp',
+      'cs': 'csharp',
+      'json': 'json',
+      'xml': 'xml',
+      'html': 'html',
+      'htm': 'html',
+      'css': 'css',
+      'scss': 'scss',
+      'less': 'less',
+      'md': 'markdown',
+      'yml': 'yaml',
+      'yaml': 'yaml',
+      'sh': 'shell',
+      'bash': 'shell',
+      'sql': 'sql',
+      'txt': 'plaintext',
+      'log': 'plaintext',
+      'ini': 'ini',
+      'conf': 'plaintext',
+      'cfg': 'plaintext',
+      'properties': 'plaintext'
+    };
+    return languageMap[ext] || 'plaintext';
+  };
+
   return (
     <div className="file-manager" style={{paddingBottom: '50px'}}>
       <div className="file-manager-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -808,6 +1150,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             disabled={currentPath === '/'}
           >
             上级目录
+          </Button>
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={() => loadDirectory(currentPath)}
+          >
+            刷新
           </Button>
           <Button 
             icon={<FolderAddOutlined />} 
@@ -833,6 +1181,54 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             onClick={() => setIsUploadModalVisible(true)}
           >
             上传
+          </Button>
+          <Button 
+            icon={<CompressOutlined />}
+            disabled={selectedFiles.length === 0}
+            onClick={() => {
+              if (selectedFiles.length > 0) {
+                // 默认压缩文件名
+                const defaultName = selectedFiles.length === 1 
+                  ? `${selectedFiles[0].name}.zip` 
+                  : `archive_${new Date().getTime()}.zip`;
+                setCompressName(defaultName);
+                setIsCompressModalVisible(true);
+              } else {
+                message.warning('请选择要压缩的文件或文件夹');
+              }
+            }}
+          >
+            压缩
+          </Button>
+          <Button 
+            icon={<FileZipOutlined />}
+            disabled={!selectedFile || selectedFile.type !== 'file'}
+            onClick={() => {
+              if (selectedFile && selectedFile.type === 'file') {
+                const fileExt = selectedFile.name.toLowerCase();
+                const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
+                const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
+                
+                if (isArchive) {
+                  setExtractPath(currentPath);
+                  setIsExtractModalVisible(true);
+                } else {
+                  message.warning('不支持解压此类型的文件');
+                }
+              } else {
+                message.warning('请选择要解压的文件');
+              }
+            }}
+          >
+            解压
+          </Button>
+          <Button 
+            icon={<DeleteOutlined />}
+            danger
+            disabled={selectedFiles.length === 0}
+            onClick={deleteSelectedItems}
+          >
+            删除
           </Button>
           <Button 
             icon={<SaveOutlined />} 
@@ -927,7 +1323,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             position: 'fixed',
             top: contextMenuPosition.y,
             left: contextMenuPosition.x,
-            zIndex: 1000
+            zIndex: 1000,
+            maxHeight: 'calc(100vh - 20px)',
+            overflowY: 'auto'
           }}
         >
           <Menu>
@@ -947,19 +1345,38 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
                   编辑
                 </Menu.Item>
                 {isImageFile(contextMenuFile.name) && (
-                  <Menu.Item key="preview" onClick={() => {
-                    previewImage(contextMenuFile);
-                    hideAllContextMenus();
-                  }}>
-                    预览
-                  </Menu.Item>
-                )}
-                <Menu.Item key="download" onClick={() => {
-                  downloadFile(contextMenuFile);
-                  hideAllContextMenus();
-                }}>
-                  下载
-                </Menu.Item>
+                                <Menu.Item key="preview" onClick={() => {
+                previewImage(contextMenuFile);
+                hideAllContextMenus();
+              }}>
+                预览
+              </Menu.Item>
+            )}
+            <Menu.Item key="download" onClick={() => {
+              downloadFile(contextMenuFile);
+              hideAllContextMenus();
+            }}>
+              下载
+            </Menu.Item>
+            {contextMenuFile && contextMenuFile.type === 'file' && (
+              <Menu.Item key="extract" onClick={() => {
+                // 判断文件类型是否为可解压类型
+                const fileExt = contextMenuFile.name.toLowerCase();
+                const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
+                const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
+                
+                if (isArchive) {
+                  setSelectedFile(contextMenuFile);
+                  setExtractPath(currentPath);
+                  setIsExtractModalVisible(true);
+                } else {
+                  message.warning('不支持解压此类型的文件');
+                }
+                hideAllContextMenus();
+              }}>
+                解压
+              </Menu.Item>
+            )}
               </>
             )}
             <Menu.Divider />
@@ -983,6 +1400,25 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             }}>
               重命名
             </Menu.Item>
+            <Menu.Item key="permissions" onClick={() => {
+              setSelectedFile(contextMenuFile);
+              setSelectedFiles([contextMenuFile]);
+              setIsPermissionsModalVisible(true);
+              hideAllContextMenus();
+            }}>
+              修改权限
+            </Menu.Item>
+            <Menu.Item key="compress-file" onClick={() => {
+              // 设置当前文件为选中文件
+              setSelectedFiles([contextMenuFile]);
+              // 默认压缩文件名
+              const defaultName = `${contextMenuFile.name}.zip`;
+              setCompressName(defaultName);
+              setIsCompressModalVisible(true);
+              hideAllContextMenus();
+            }}>
+              压缩
+            </Menu.Item>
             <Menu.Divider />
             <Menu.Item key="delete" danger onClick={() => {
               deleteItem(contextMenuFile);
@@ -1002,7 +1438,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             position: 'fixed',
             top: blankContextMenuPosition.y,
             left: blankContextMenuPosition.x,
-            zIndex: 1000
+            zIndex: 1000,
+            maxHeight: 'calc(100vh - 20px)',
+            overflowY: 'auto'
           }}
         >
           <Menu>
@@ -1032,6 +1470,37 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
                 粘贴
               </Menu.Item>
             )}
+            {selectedFiles.length > 0 && (
+              <>
+                <Menu.Item key="delete-selected" danger onClick={() => {
+                  deleteSelectedItems();
+                  hideAllContextMenus();
+                }}>
+                  删除选中项
+                </Menu.Item>
+                <Menu.Item key="permissions-selected" onClick={() => {
+                  setIsPermissionsModalVisible(true);
+                  hideAllContextMenus();
+                }}>
+                  修改权限
+                </Menu.Item>
+              </>
+            )}
+            <Menu.Item key="compress" onClick={() => {
+              if (selectedFiles.length > 0) {
+                // 默认压缩文件名
+                const defaultName = selectedFiles.length === 1 
+                  ? `${selectedFiles[0].name}.zip` 
+                  : `archive_${new Date().getTime()}.zip`;
+                setCompressName(defaultName);
+                setIsCompressModalVisible(true);
+              } else {
+                message.warning('请选择要压缩的文件或文件夹');
+              }
+              hideAllContextMenus();
+            }}>
+              压缩选中文件
+            </Menu.Item>
             <Menu.Item key="refresh" onClick={() => {
               loadDirectory(currentPath);
               hideAllContextMenus();
@@ -1051,25 +1520,51 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       {/* 文件编辑对话框 */}
       <Modal
         title={`编辑文件: ${selectedFile?.name}`}
-        visible={isEditModalVisible}
+        open={isEditModalVisible}
         onCancel={() => setIsEditModalVisible(false)}
         onOk={saveFile}
-        width={800}
+        width={1000}
         okText="保存"
         cancelText="取消"
-        bodyStyle={{ maxHeight: '70vh', overflow: 'auto' }}
+        bodyStyle={{ 
+          maxHeight: '80vh',
+          overflow: 'hidden',
+          padding: '12px'
+        }}
       >
-        <TextArea
-          value={fileContent}
-          onChange={(e) => setFileContent(e.target.value)}
-          autoSize={{ minRows: 20, maxRows: 30 }}
-        />
+        <div style={{ height: 'calc(80vh - 130px)' }}>
+          <Editor
+            height="100%"
+            defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
+            value={fileContent}
+            onChange={(value) => setFileContent(value || '')}
+            theme="vs-dark"
+            options={{
+              fontSize: 14,
+              minimap: { enabled: true },
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              lineNumbers: 'on',
+              folding: true,
+              foldingHighlight: true,
+              foldingStrategy: 'auto',
+              showFoldingControls: 'always',
+              matchBrackets: 'always',
+              autoClosingBrackets: 'always',
+              autoClosingQuotes: 'always',
+              formatOnPaste: true,
+              formatOnType: true,
+              wordWrap: 'on',
+              wrappingIndent: 'same'
+            }}
+          />
+        </div>
       </Modal>
 
       {/* 图片预览对话框 */}
       <Modal
         title={`预览图片: ${selectedFile?.name}`}
-        visible={isPreviewModalVisible}
+        open={isPreviewModalVisible}
         onCancel={() => setIsPreviewModalVisible(false)}
         footer={null}
         width={800}
@@ -1105,7 +1600,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       {/* 重命名对话框 */}
       <Modal
         title={`重命名${selectedFile?.type === 'file' ? '文件' : '文件夹'}`}
-        visible={isRenameModalVisible}
+        open={isRenameModalVisible}
         onCancel={() => setIsRenameModalVisible(false)}
         onOk={renameItem}
         okText="确定"
@@ -1125,7 +1620,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       {/* 新建文件夹对话框 */}
       <Modal
         title="新建文件夹"
-        visible={isNewFolderModalVisible}
+        open={isNewFolderModalVisible}
         onCancel={() => {
           setIsNewFolderModalVisible(false);
           setNewItemName('');
@@ -1148,7 +1643,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       {/* 新建文件对话框 */}
       <Modal
         title="新建文件"
-        visible={isNewFileModalVisible}
+        open={isNewFileModalVisible}
         onCancel={() => {
           setIsNewFileModalVisible(false);
           setNewItemName('');
@@ -1171,7 +1666,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       {/* 上传文件对话框 */}
       <Modal
         title="上传文件"
-        visible={isUploadModalVisible}
+        open={isUploadModalVisible}
         onCancel={() => setIsUploadModalVisible(false)}
         footer={null}
         width={600}
@@ -1200,6 +1695,252 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             支持单个或批量上传。当前上传目录: {currentPath}
           </p>
         </Dragger>
+      </Modal>
+
+      {/* 压缩文件对话框 */}
+      <Modal
+        title="压缩文件"
+        open={isCompressModalVisible}
+        onCancel={() => {
+          if (!isCompressing) {
+            setIsCompressModalVisible(false);
+            setCompressName('');
+            setCompressFormat('zip');
+            setCompressionLevel(6);
+          }
+        }}
+        onOk={compressFiles}
+        okText={isCompressing ? "压缩中..." : "压缩"}
+        okButtonProps={{ loading: isCompressing, disabled: isCompressing }}
+        cancelButtonProps={{ disabled: isCompressing }}
+        closable={!isCompressing}
+        maskClosable={!isCompressing}
+        cancelText="取消"
+      >
+        <Form layout="vertical">
+          <Form.Item label="压缩文件名称">
+            <Input 
+              value={compressName} 
+              onChange={(e) => setCompressName(e.target.value)} 
+              autoFocus 
+              disabled={isCompressing}
+              placeholder="输入压缩文件名称（文件扩展名将根据格式自动添加）"
+            />
+          </Form.Item>
+          <Form.Item label="压缩格式">
+            <Select
+              value={compressFormat}
+              onChange={(value) => setCompressFormat(value)}
+              style={{ width: '100%' }}
+              disabled={isCompressing}
+            >
+              <Select.Option value="zip">ZIP (兼容性最好)</Select.Option>
+              <Select.Option value="tar">TAR (无压缩)</Select.Option>
+              <Select.Option value="tgz">TAR.GZ (Linux常用)</Select.Option>
+              <Select.Option value="tbz2">TAR.BZ2 (压缩率高)</Select.Option>
+              <Select.Option value="txz">TAR.XZ (最高压缩率)</Select.Option>
+              <Select.Option value="tzst">TAR.ZST (高压缩率+高速)</Select.Option>
+            </Select>
+          </Form.Item>
+          {(compressFormat === 'zip' || compressFormat === 'tgz' || compressFormat === 'tbz2' || compressFormat === 'txz' || compressFormat === 'tzst') && (
+            <Form.Item label="压缩级别">
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Slider
+                  min={1}
+                  max={9}
+                  value={compressionLevel}
+                  onChange={(value) => setCompressionLevel(value)}
+                  style={{ flex: 1, marginRight: 16 }}
+                  disabled={isCompressing}
+                  marks={{
+                    1: '快速',
+                    5: '均衡',
+                    9: '最小'
+                  }}
+                />
+                <InputNumber
+                  min={1}
+                  max={9}
+                  value={compressionLevel}
+                  onChange={(value) => setCompressionLevel(value as number)}
+                  disabled={isCompressing}
+                />
+              </div>
+              <div style={{ color: '#888', fontSize: '12px', marginTop: '4px' }}>
+                级别越高，压缩率越高，但速度越慢 (1-最快, 9-最高压缩率)
+              </div>
+            </Form.Item>
+          )}
+          <div style={{ marginBottom: '10px' }}>
+            将压缩以下 {selectedFiles.length} 个文件/文件夹:
+          </div>
+          <div style={{ maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9', padding: '8px', borderRadius: '2px' }}>
+            {selectedFiles.map((file, index) => (
+              <div key={index} style={{ marginBottom: '4px' }}>
+                {file.type === 'directory' ? <FolderOutlined style={{ marginRight: '8px', color: '#1890ff' }} /> : <FileOutlined style={{ marginRight: '8px' }} />}
+                {file.name}
+              </div>
+            ))}
+          </div>
+          {isCompressing && (
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+              <Spin />
+              <div style={{ marginTop: '8px', color: '#1890ff' }}>正在压缩文件，请稍候...</div>
+            </div>
+          )}
+        </Form>
+      </Modal>
+
+      {/* 解压文件对话框 */}
+      <Modal
+        title={`解压文件: ${selectedFile?.name}`}
+        open={isExtractModalVisible}
+        onCancel={() => {
+          if (!isExtracting) {
+            setIsExtractModalVisible(false);
+            setExtractPath('');
+          }
+        }}
+        onOk={extractFile}
+        okText={isExtracting ? "解压中..." : "解压"}
+        okButtonProps={{ loading: isExtracting, disabled: isExtracting }}
+        cancelButtonProps={{ disabled: isExtracting }}
+        closable={!isExtracting}
+        maskClosable={!isExtracting}
+        cancelText="取消"
+      >
+        <Form layout="vertical">
+          <Form.Item label="解压到目录">
+            <Input 
+              value={extractPath} 
+              onChange={(e) => setExtractPath(e.target.value)} 
+              placeholder="留空表示解压到当前目录"
+              disabled={isExtracting}
+            />
+          </Form.Item>
+          <div style={{ color: '#888', fontSize: '12px' }}>
+            支持的压缩格式: ZIP, TAR, GZ, TGZ, BZ2, XZ, ZST, TAR.ZST, RAR, 7Z, JAR, APK
+          </div>
+          {isExtracting && (
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+              <Spin />
+              <div style={{ marginTop: '8px', color: '#1890ff' }}>正在解压文件，请稍候...</div>
+            </div>
+          )}
+        </Form>
+      </Modal>
+
+      {/* 修改权限对话框 */}
+      <Modal
+        title="修改文件权限"
+        open={isPermissionsModalVisible}
+        onCancel={() => {
+          if (!isChangingPermissions) {
+            setIsPermissionsModalVisible(false);
+            setIsRecursive(false);
+          }
+        }}
+        onOk={changePermissions}
+        okText={isChangingPermissions ? "修改中..." : "修改"}
+        okButtonProps={{ loading: isChangingPermissions, disabled: isChangingPermissions }}
+        cancelButtonProps={{ disabled: isChangingPermissions }}
+        closable={!isChangingPermissions}
+        maskClosable={!isChangingPermissions}
+        cancelText="取消"
+      >
+        <Form layout="vertical">
+          <Form.Item label="权限">
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox
+                checked={permissions.owner.read}
+                onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, read: e.target.checked } }))}
+              >
+                读取
+              </Checkbox>
+              <Checkbox
+                checked={permissions.owner.write}
+                onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, write: e.target.checked } }))}
+              >
+                写入
+              </Checkbox>
+              <Checkbox
+                checked={permissions.owner.execute}
+                onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, execute: e.target.checked } }))}
+              >
+                执行
+              </Checkbox>
+            </div>
+          </Form.Item>
+          <Form.Item label="组权限">
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox
+                checked={permissions.group.read}
+                onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, read: e.target.checked } }))}
+              >
+                读取
+              </Checkbox>
+              <Checkbox
+                checked={permissions.group.write}
+                onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, write: e.target.checked } }))}
+              >
+                写入
+              </Checkbox>
+              <Checkbox
+                checked={permissions.group.execute}
+                onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, execute: e.target.checked } }))}
+              >
+                执行
+              </Checkbox>
+            </div>
+          </Form.Item>
+          <Form.Item label="其他权限">
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox
+                checked={permissions.others.read}
+                onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, read: e.target.checked } }))}
+              >
+                读取
+              </Checkbox>
+              <Checkbox
+                checked={permissions.others.write}
+                onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, write: e.target.checked } }))}
+              >
+                写入
+              </Checkbox>
+              <Checkbox
+                checked={permissions.others.execute}
+                onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, execute: e.target.checked } }))}
+              >
+                执行
+              </Checkbox>
+            </div>
+          </Form.Item>
+          <Form.Item label="递归修改">
+            <Checkbox
+              checked={isRecursive}
+              onChange={(e) => setIsRecursive(e.target.checked)}
+            >
+              递归修改子目录和文件
+            </Checkbox>
+          </Form.Item>
+          <div style={{ marginBottom: '10px' }}>
+            将修改以下 {selectedFiles.length} 个文件/文件夹:
+          </div>
+          <div style={{ maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9', padding: '8px', borderRadius: '2px' }}>
+            {selectedFiles.map((file, index) => (
+              <div key={index} style={{ marginBottom: '4px' }}>
+                {file.type === 'directory' ? <FolderOutlined style={{ marginRight: '8px', color: '#1890ff' }} /> : <FileOutlined style={{ marginRight: '8px' }} />}
+                {file.name}
+              </div>
+            ))}
+          </div>
+          {isChangingPermissions && (
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+              <Spin />
+              <div style={{ marginTop: '8px', color: '#1890ff' }}>正在修改权限，请稍候...</div>
+            </div>
+          )}
+        </Form>
       </Modal>
 
       <style jsx>{`
@@ -1243,6 +1984,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
           border-radius: 2px;
           box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16);
           min-width: 160px;
+          max-width: 280px;
         }
         .selected-row {
           background-color: #e6f7ff !important;

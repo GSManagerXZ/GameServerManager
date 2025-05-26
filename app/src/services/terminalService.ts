@@ -55,6 +55,36 @@ const terminalHandlers: Record<TerminalType, TerminalInputHandler> = {
     terminate: async (gameId: string, force: boolean = false) => {
       try {
         const response = await axios.post('/api/server/stop', { game_id: gameId, force });
+        
+        // 增加对警告状态的处理
+        if (response.data.status === 'warning') {
+          message.warning(response.data.message || '服务器可能未完全停止');
+          
+          // 如果不是强制模式，提示用户是否要强制停止
+          if (!force) {
+            if (window.confirm('服务器未完全停止，是否尝试强制停止？')) {
+              // 递归调用，使用强制模式
+              return await terminalHandlers.server.terminate(gameId, true);
+            }
+          }
+          // 即使有警告，也返回成功，因为服务器已标记为停止
+          return true;
+        }
+        
+        // 停止后验证服务器状态
+        try {
+          const statusCheck = await axios.get(`/api/server/status?game_id=${gameId}`);
+          if (statusCheck.data.server_status === 'running') {
+            message.warning('服务器仍在运行，尝试强制停止');
+            // 如果仍在运行且不是强制模式，使用强制模式再次尝试
+            if (!force) {
+              return await terminalHandlers.server.terminate(gameId, true);
+            }
+          }
+        } catch (statusError) {
+          console.error('检查服务器状态失败:', statusError);
+        }
+        
         return response.data.status === 'success';
       } catch (error) {
         message.error('停止服务器失败');

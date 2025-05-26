@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio } from 'antd';
-import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
@@ -9,6 +9,7 @@ import Terminal from './components/Terminal';
 import ContainerInfo from './components/ContainerInfo';
 import FileManager from './components/FileManager';
 import Register from './components/Register'; // 导入注册组件
+import FrpManager from './components/FrpManager'; // 导入内网穿透组件
 import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
 import { GameInfo } from './types';
 import { useAuth } from './context/AuthContext';
@@ -130,12 +131,48 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
 
 const stopServer = async (gameId: string, force: boolean = false) => {
   try {
+    // 显示加载消息
+    const loadingKey = `stopping_${gameId}`;
+    message.loading({ content: `正在${force ? '强制' : ''}停止服务器...`, key: loadingKey, duration: 0 });
+    
+    // 发送停止请求
     const response = await axios.post('/api/server/stop', { 
       game_id: gameId,
       force
     });
+    
+    // 如果成功或警告，验证服务器是否真的停止了
+    if (response.data.status === 'success' || response.data.status === 'warning') {
+      message.success({ content: `服务器已${force ? '强制' : '标准'}停止`, key: loadingKey });
+      
+      // 等待一小段时间，让服务器有时间完全停止
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      try {
+        // 验证服务器是否真的停止了
+        const statusResponse = await axios.get(`/api/server/status?game_id=${gameId}`);
+        if (statusResponse.data.server_status === 'running') {
+          console.warn('服务器报告已停止，但状态检查显示仍在运行');
+          
+          // 如果不是强制模式，记录警告但不改变返回状态
+          if (!force) {
+            response.data._serverStillRunning = true;
+          }
+        }
+      } catch (error) {
+        console.error('验证服务器状态失败:', error);
+        // 确保即使状态检查失败，也关闭加载消息
+        message.error({ content: `服务器状态验证失败，但操作已完成`, key: loadingKey });
+      }
+    } else {
+      message.error({ content: `停止服务器失败: ${response.data.message || '未知错误'}`, key: loadingKey });
+    }
+    
     return response.data;
   } catch (error) {
+    // 确保在发生错误时关闭加载消息
+    const loadingKey = `stopping_${gameId}`;
+    message.error({ content: `停止服务器时发生错误: ${error.message || '未知错误'}`, key: loadingKey });
     throw error;
   }
 };
@@ -161,7 +198,7 @@ const checkServerStatus = async (gameId: string) => {
   }
 };
 
-const App: React.FC = () => {
+  const App: React.FC = () => {
   const { login, logout, username, isAuthenticated, loading, isFirstUse, setAuthenticated } = useAuth();
   const [games, setGames] = useState<GameInfo[]>([]);
   const [gameLoading, setGameLoading] = useState<boolean>(true);
@@ -181,7 +218,6 @@ const App: React.FC = () => {
   // 新增AppID安装状态
   const [appIdInstalling, setAppIdInstalling] = useState(false);
   const [accountFormLoading, setAccountFormLoading] = useState<boolean>(false);
-
   // 新增：服务器相关状态
   const [serverOutputs, setServerOutputs] = useState<{[key: string]: string[]}>({});
   const [runningServers, setRunningServers] = useState<string[]>([]);
@@ -202,11 +238,9 @@ const App: React.FC = () => {
     }
   }, [serverModalVisible]);
 
-  // 导航相关状态
+  // 导航和文件管理相关状态
   const [currentNav, setCurrentNav] = useState<string>('dashboard');
   const [collapsed, setCollapsed] = useState<boolean>(false);
-
-  // 新增：文件管理窗口相关状态
   const [fileManagerVisible, setFileManagerVisible] = useState<boolean>(false);
   const [fileManagerPath, setFileManagerPath] = useState<string>('/home/steam');
 
@@ -538,6 +572,128 @@ const App: React.FC = () => {
     refreshServerStatus();
   }, [installedGames, externalGames, refreshServerStatus]);
 
+  // 添加启动SteamCMD的函数
+  const handleStartSteamCmd = async () => {
+    try {
+      // 设置当前选中的服务器游戏为steamcmd
+      const steamcmd = { id: "steamcmd", name: "SteamCMD", external: false };
+      
+      setSelectedServerGame(steamcmd);
+      setServerModalVisible(true);
+      
+      // 清空之前的输出
+      setServerOutputs(prev => ({
+        ...prev,
+        ["steamcmd"]: []
+      }));
+      
+      // 启动SteamCMD并获取输出流
+      const eventSource = await axios.post('/api/server/start_steamcmd')
+        .then(() => {
+          // 建立EventSource连接
+          const token = localStorage.getItem('auth_token');
+          const source = new EventSource(`/api/server/stream?game_id=steamcmd${token ? `&token=${token}` : ''}&include_history=true`);
+          
+          source.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              
+              // 处理完成消息
+              if (data.complete) {
+                console.log(`SteamCMD输出完成，关闭SSE连接`);
+                source.close();
+                message.success(`SteamCMD已停止`);
+                // 刷新状态
+                refreshServerStatus();
+                // 清除EventSource引用
+                serverEventSourceRef.current = null;
+                return;
+              }
+              
+              // 处理心跳包
+              if (data.heartbeat) {
+                return;
+              }
+              
+              // 处理超时消息
+              if (data.timeout) {
+                console.log(`SteamCMD连接超时`);
+                source.close();
+                handleError(new Error(data.message || '连接超时'));
+                return;
+              }
+              
+              // 处理错误消息
+              if (data.error) {
+                console.error(`SteamCMD返回错误: ${data.error}`);
+                source.close();
+                handleError(new Error(data.error));
+                return;
+              }
+              
+              // 处理普通输出行
+              if (data.line) {
+                setServerOutputs(prev => {
+                  const oldOutput = prev["steamcmd"] || [];
+                  return {
+                    ...prev,
+                    ["steamcmd"]: [...oldOutput, data.line]
+                  };
+                });
+                
+                // 确保滚动到底部
+                setTimeout(() => {
+                  const terminalEndRef = document.querySelector('.terminal-end-ref');
+                  if (terminalEndRef) {
+                    terminalEndRef.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }, 10);
+              }
+            } catch (err) {
+              console.error('解析SteamCMD输出失败:', err, event.data);
+              handleError(new Error(`解析SteamCMD输出失败: ${err}`));
+            }
+          };
+          
+          source.onerror = (error) => {
+            console.error('SSE连接错误:', error);
+            source.close();
+            handleError(error || new Error('SteamCMD连接错误'));
+          };
+          
+          return source;
+        })
+        .catch(error => {
+          console.error(`启动SteamCMD失败: ${error}`);
+          handleError(error);
+          throw error;
+        });
+      
+      // 保存EventSource引用
+      serverEventSourceRef.current = eventSource;
+      
+      // 服务器启动后立即刷新状态列表
+      message.success(`SteamCMD启动成功`);
+      
+      // 添加到运行中服务器列表
+      setRunningServers(prev => {
+        if (!prev.includes("steamcmd")) {
+          return [...prev, "steamcmd"];
+        }
+        return prev;
+      });
+      
+      // 延迟再次刷新以确保状态更新
+      setTimeout(() => {
+        refreshServerStatus();
+      }, 2000);
+      
+    } catch (error) {
+      console.error(`启动SteamCMD失败: ${error}`);
+      handleError(error);
+    }
+  };
+
   // 服务器相关函数
   const handleStartServer = async (gameId: string, reconnect: boolean = false) => {
     try {
@@ -708,11 +864,23 @@ const App: React.FC = () => {
       const response = await stopServer(gameId, force);
       
       if (response.status === 'success') {
-        message.success(`服务器已${force ? '强行' : '标准'}停止`);
         // 刷新运行中的服务器列表
         refreshServerStatus();
         // 清空服务器输出
         clearServerOutput(gameId);
+        
+        // 检查是否有隐藏的服务器仍在运行警告
+        if (response._serverStillRunning) {
+          // 处理警告状态，服务器可能仍在运行
+          Modal.confirm({
+            title: '服务器可能仍在运行',
+            content: '服务器报告已停止，但状态检查显示可能仍在运行。是否尝试强制停止？',
+            okText: '强制停止',
+            cancelText: '忽略',
+            okButtonProps: { danger: true },
+            onOk: () => handleStopServer(gameId, true),
+          });
+        }
       } else if (response.status === 'warning') {
         // 处理警告状态，例如服务器未响应标准停止
         Modal.confirm({
@@ -725,6 +893,8 @@ const App: React.FC = () => {
         });
       }
     } catch (error) {
+      // 即使出错也刷新服务器状态
+      refreshServerStatus();
       handleError(error);
     }
   }, [refreshServerStatus]);
@@ -805,6 +975,57 @@ const App: React.FC = () => {
     <div style={{marginTop: 32}}>
       <Title level={3}>已安装的游戏</Title>
       <Row gutter={[16, 16]}>
+        {/* 固定显示SteamCMD */}
+        <Col xs={24} sm={12} md={8} lg={6} key="steamcmd">
+          <Card
+            hoverable
+            className="game-card"
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>SteamCMD</span>
+                <Tag color="blue">工具</Tag>
+              </div>
+            }
+          >
+            <p>Steam游戏服务器命令行工具</p>
+            <p>位置: /home/steam/steamcmd</p>
+            <div style={{marginTop: 12}}>
+              <div style={{marginBottom: 8}}>SteamCMD控制:</div>
+              {runningServers.includes("steamcmd") ? (
+                <div>
+                  <Button 
+                    type="default" 
+                    size="small" 
+                    style={{marginRight: 8}}
+                    onClick={() => handleStopServer("steamcmd")}
+                  >
+                    停止
+                  </Button>
+                  <Button 
+                    type="primary" 
+                    size="small"
+                    style={{marginRight: 8}}
+                    onClick={() => handleStartSteamCmd()}
+                  >
+                    控制台
+                  </Button>
+                </div>
+              ) : (
+                <div style={{display: 'flex', justifyContent: 'center'}}>
+                  <Button 
+                    type="primary"
+                    size="middle"
+                    style={{width: '100%'}}
+                    onClick={() => handleStartSteamCmd()}
+                  >
+                    启动
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+        </Col>
+        
         {/* 显示配置中的已安装游戏 */}
         {games.filter(g => installedGames.includes(g.id)).map(game => (
           <Col xs={24} sm={12} md={8} lg={6} key={game.id}>
@@ -977,7 +1198,7 @@ const App: React.FC = () => {
         ))}
 
         {games.filter(g => installedGames.includes(g.id)).length === 0 && externalGames.length === 0 && (
-          <Col span={24}><p>暂无已安装的游戏。</p></Col>
+          <Col span={24}><p>除了SteamCMD外，暂无已安装的游戏。</p></Col>
         )}
       </Row>
     </div>
@@ -1345,6 +1566,11 @@ const App: React.FC = () => {
               label: '运行服务端'
             },
             {
+              key: 'frp',
+              icon: <GlobalOutlined />,
+              label: '内网穿透'
+            },
+            {
               key: 'files',
               icon: <FolderOutlined />,
               label: '文件管理'
@@ -1541,6 +1767,57 @@ const App: React.FC = () => {
                       <Button onClick={refreshServerStatus} icon={<ReloadOutlined />}>刷新状态</Button>
                     </div>
                     <Row gutter={[16, 16]}>
+                      {/* 固定显示SteamCMD */}
+                      <Col xs={24} sm={12} md={8} lg={6} key="steamcmd">
+                        <Card
+                          hoverable
+                          className="game-card"
+                          title={
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <span>SteamCMD</span>
+                              <Tag color="blue">工具</Tag>
+                            </div>
+                          }
+                        >
+                          <p>Steam游戏服务器命令行工具</p>
+                          <p>位置: /home/steam/steamcmd</p>
+                          <div style={{marginTop: 12}}>
+                            <div style={{marginBottom: 8}}>SteamCMD控制:</div>
+                            {runningServers.includes("steamcmd") ? (
+                              <div>
+                                <Button 
+                                  type="default" 
+                                  size="small" 
+                                  style={{marginRight: 8}}
+                                  onClick={() => handleStopServer("steamcmd")}
+                                >
+                                  停止
+                                </Button>
+                                <Button 
+                                  type="primary" 
+                                  size="small"
+                                  style={{marginRight: 8}}
+                                  onClick={() => handleStartSteamCmd()}
+                                >
+                                  控制台
+                                </Button>
+                              </div>
+                            ) : (
+                              <div style={{display: 'flex', justifyContent: 'center'}}>
+                                <Button 
+                                  type="primary"
+                                  size="middle"
+                                  style={{width: '100%'}}
+                                  onClick={() => handleStartSteamCmd()}
+                                >
+                                  启动
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </Card>
+                      </Col>
+                      
                       {/* 显示配置中的已安装游戏 */}
                       {games
                         .filter(game => installedGames.includes(game.id))
@@ -1714,7 +1991,7 @@ const App: React.FC = () => {
                       ))}
 
                       {games.filter(g => installedGames.includes(g.id)).length === 0 && externalGames.length === 0 && (
-                        <Col span={24}><p>暂无已安装的游戏。</p></Col>
+                        <Col span={24}><p>除了SteamCMD外，暂无已安装的游戏。</p></Col>
                       )}
                     </Row>
                   </div>
@@ -1854,6 +2131,12 @@ const App: React.FC = () => {
               <FileManager initialPath={fileManagerPath || '/home/steam'} />
             </div>
           )}
+
+          {currentNav === 'frp' && (
+            <div className="frp-management">
+              <FrpManager />
+            </div>
+          )}
         </Content>
         <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱</Footer>
       </Layout>
@@ -1885,7 +2168,11 @@ const App: React.FC = () => {
       <Modal
         title={`${selectedServerGame?.name || ''} 服务端控制台`}
         open={serverModalVisible}
-        onCancel={() => setServerModalVisible(false)}
+        onCancel={() => {
+          setServerModalVisible(false);
+          // 关闭控制台时刷新服务器状态
+          refreshServerStatus();
+        }}
         footer={
           <div className="server-console-buttons">
             <Button key="reconnect" type="primary" ghost 
@@ -1920,7 +2207,11 @@ const App: React.FC = () => {
               停止服务器
             </Button>
             <Button key="close" 
-              onClick={() => setServerModalVisible(false)}
+              onClick={() => {
+                setServerModalVisible(false);
+                // 关闭控制台时刷新服务器状态
+                refreshServerStatus();
+              }}
               size="middle"
             >
               关闭控制台

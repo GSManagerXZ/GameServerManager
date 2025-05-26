@@ -316,19 +316,15 @@ body {
 }
 
 .game-card {
-  border-radius: 16px !important;
-  box-shadow: 0 4px 24px rgba(22,119,255,0.08);
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(22,119,255,0.08);
   border: none !important;
-  transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), box-shadow 0.3s;
+  transition: all 0.3s ease;
   background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
   min-height: 180px;
   position: relative;
   overflow: hidden;
-}
-
-.game-card:hover {
-  transform: translateY(-8px) scale(1.03);
-  box-shadow: 0 8px 32px rgba(22,119,255,0.18);
+  height: 100%;
 }
 
 .ant-card-head-title {
@@ -381,7 +377,7 @@ body {
 /* 面板动画 - 优化防止重复触发 */
 /*
 .ant-modal-root .ant-modal-wrap {
-  animation: none !important; /* 禁用默认动画 */
+  animation: none !important;
 }
 
 .ant-modal {
@@ -474,21 +470,14 @@ body {
   color: rgba(0, 255, 144, 0.4);
 }
 
-/* 添加自定义游戏卡片样式 */
-.custom-game-card {
-  border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(22,119,255,0.08);
-  background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
-  min-height: 180px;
-  position: relative;
-  overflow: hidden;
-  padding: 16px;
-  transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), box-shadow 0.3s;
+.custom-game-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(22,119,255,0.15);
 }
 
-.custom-game-card:hover {
-  transform: translateY(-8px) scale(1.03);
-  box-shadow: 0 8px 32px rgba(22,119,255,0.18);
+.card-content {
+  flex: 1;
+  padding: 0 16px;
 }
 
 .custom-game-card .card-header {
@@ -627,26 +616,6 @@ body {
   border-radius: 0 4px 4px 0;
   font-size: 14px;
   line-height: 1.6;
-}
-
-/* 游戏卡片样式优化 */
-.custom-game-card {
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  overflow: hidden;
-  transition: all 0.3s;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.custom-game-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.card-content {
-  flex: 1;
-  padding: 0 16px;
 }
 
 /* 用户信息样式 */
@@ -886,4 +855,132 @@ body {
   flex: 1;
   min-width: 100px;
   max-width: 150px;
-} 
+}
+
+/* 卡片上浮动画 */
+@keyframes floatUp {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-6px);
+  }
+}
+
+/* 修改通用卡片样式，添加上浮效果 */
+.ant-card {
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(22,119,255,0.08);
+  margin-bottom: 12px;
+  border-radius: 8px !important;
+  border: none !important;
+}
+
+.ant-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(22,119,255,0.15);
+}
+
+/* 游戏卡片样式 */
+.game-card {
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(22,119,255,0.08);
+  border: none !important;
+  transition: all 0.3s ease;
+  background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
+  min-height: 180px;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+.game-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(22,119,255,0.15);
+}
+
+/* 自定义游戏卡片样式 */
+.custom-game-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(22,119,255,0.08);
+  background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
+  min-height: 180px;
+  position: relative;
+  overflow: hidden;
+  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+  border: none !important;
+}
+
+.custom-game-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(22,119,255,0.15);
+}
+
+/* 添加游戏卡片进入动画效果 */
+@keyframes jumpUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 快速部署中的游戏卡片动画 */
+.game-cards .ant-col {
+  animation: jumpUp 0.5s ease-out forwards;
+}
+
+/* 为不同卡片设置不同的延迟，创造波浪效果 */
+.game-cards .ant-col:nth-child(1) { animation-delay: 0.05s; }
+.game-cards .ant-col:nth-child(2) { animation-delay: 0.1s; }
+.game-cards .ant-col:nth-child(3) { animation-delay: 0.15s; }
+.game-cards .ant-col:nth-child(4) { animation-delay: 0.2s; }
+.game-cards .ant-col:nth-child(5) { animation-delay: 0.25s; }
+.game-cards .ant-col:nth-child(6) { animation-delay: 0.3s; }
+.game-cards .ant-col:nth-child(7) { animation-delay: 0.35s; }
+.game-cards .ant-col:nth-child(8) { animation-delay: 0.4s; }
+.game-cards .ant-col:nth-child(9) { animation-delay: 0.45s; }
+.game-cards .ant-col:nth-child(10) { animation-delay: 0.5s; }
+.game-cards .ant-col:nth-child(11) { animation-delay: 0.55s; }
+.game-cards .ant-col:nth-child(12) { animation-delay: 0.6s; }
+
+/* 服务端管理页面的卡片动画 */
+.server-management .ant-col {
+  animation: jumpUp 0.5s ease-out forwards;
+}
+
+/* 为服务端管理页面的卡片设置不同的延迟 */
+.server-management .ant-col:nth-child(1) { animation-delay: 0.05s; }
+.server-management .ant-col:nth-child(2) { animation-delay: 0.1s; }
+.server-management .ant-col:nth-child(3) { animation-delay: 0.15s; }
+.server-management .ant-col:nth-child(4) { animation-delay: 0.2s; }
+.server-management .ant-col:nth-child(5) { animation-delay: 0.25s; }
+.server-management .ant-col:nth-child(6) { animation-delay: 0.3s; }
+.server-management .ant-col:nth-child(7) { animation-delay: 0.35s; }
+.server-management .ant-col:nth-child(8) { animation-delay: 0.4s; }
+.server-management .ant-col:nth-child(9) { animation-delay: 0.45s; }
+.server-management .ant-col:nth-child(10) { animation-delay: 0.5s; }
+
+/* 运行中服务器页面的卡片动画 */
+.running-servers .ant-col {
+  animation: jumpUp 0.5s ease-out forwards;
+}
+
+/* 为运行中服务器页面的卡片设置不同的延迟 */
+.running-servers .ant-col:nth-child(1) { animation-delay: 0.05s; }
+.running-servers .ant-col:nth-child(2) { animation-delay: 0.1s; }
+.running-servers .ant-col:nth-child(3) { animation-delay: 0.15s; }
+.running-servers .ant-col:nth-child(4) { animation-delay: 0.2s; }
+.running-servers .ant-col:nth-child(5) { animation-delay: 0.25s; }
+.running-servers .ant-col:nth-child(6) { animation-delay: 0.3s; }
+.running-servers .ant-col:nth-child(7) { animation-delay: 0.35s; }
+.running-servers .ant-col:nth-child(8) { animation-delay: 0.4s; }
+.running-servers .ant-col:nth-child(9) { animation-delay: 0.45s; }
+.running-servers .ant-col:nth-child(10) { animation-delay: 0.5s; }

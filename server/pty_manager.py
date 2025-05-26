@@ -194,15 +194,38 @@ class PTYProcess:
                 # 标准模式：先尝试发送Ctrl+C，然后等待一段时间，如果还未结束再使用terminate
                 self.send_ctrl_c()
                 
-                # 等待进程响应Ctrl+C
-                for _ in range(10):  # 最多等待5秒
+                # 等待进程响应Ctrl+C (增加等待时间和检查频率)
+                max_wait = 20  # 增加到最多等待10秒
+                for i in range(max_wait):
                     if self.process.poll() is not None:
                         break
+                    # 每隔0.5秒检查一次进程状态
                     time.sleep(0.5)
+                    # 每2秒额外再发送一次Ctrl+C
+                    if i > 0 and i % 4 == 0:
+                        logger.info(f"进程 {self.process_id} 未响应Ctrl+C，再次发送")
+                        self.send_ctrl_c()
                 
                 # 如果进程仍在运行，使用terminate
                 if self.process.poll() is None:
                     logger.info(f"进程 {self.process_id} 未响应Ctrl+C，使用terminate")
+                    
+                    # 尝试使用psutil查找并终止所有子进程
+                    try:
+                        parent = psutil.Process(self.process.pid)
+                        children = parent.children(recursive=True)
+                        
+                        # 首先终止所有子进程
+                        for child in children:
+                            logger.info(f"终止子进程: {child.pid}")
+                            try:
+                                child.terminate()
+                            except:
+                                pass
+                    except Exception as e:
+                        logger.warning(f"终止子进程时出错: {str(e)}")
+                    
+                    # 然后终止主进程
                     self.process.terminate()
                     
                     # 再等待一段时间
@@ -214,7 +237,26 @@ class PTYProcess:
                     # 如果进程仍在运行，使用kill
                     if self.process.poll() is None:
                         logger.info(f"进程 {self.process_id} 未响应terminate，使用kill")
-                        self.process.kill()
+                        
+                        # 强制杀死所有相关进程
+                        try:
+                            parent = psutil.Process(self.process.pid)
+                            children = parent.children(recursive=True)
+                            
+                            # 首先杀死所有子进程
+                            for child in children:
+                                logger.info(f"强制杀死子进程: {child.pid}")
+                                try:
+                                    child.kill()
+                                except:
+                                    pass
+                            
+                            # 然后杀死主进程
+                            parent.kill()
+                        except Exception as e:
+                            logger.warning(f"强制杀死子进程时出错: {str(e)}")
+                            # 如果上面失败，直接杀死主进程
+                            self.process.kill()
             
             # 检查进程是否已终止
             return_code = self.process.poll()
@@ -323,6 +365,24 @@ class PTYProcess:
                         for line in lines:
                             line = line.rstrip()
                             if line:
+                                # 过滤掉多个连续的^C符号，只保留一个
+                                if line.startswith('^C'):
+                                    # 计算^C的数量
+                                    control_c_count = 0
+                                    for char in line:
+                                        if char == '^' and control_c_count % 2 == 0:
+                                            control_c_count += 1
+                                        elif char == 'C' and control_c_count % 2 == 1:
+                                            control_c_count += 1
+                                    
+                                    # 如果有多个^C，只保留一个并添加剩余内容
+                                    if control_c_count > 2:  # 超过一个^C
+                                        remaining_content = line.replace('^C', '')
+                                        if remaining_content:
+                                            line = "^C " + remaining_content
+                                        else:
+                                            line = "^C"
+                                
                                 # 写入日志文件
                                 output_log.write(line + "\n")
                                 output_log.flush()
@@ -360,6 +420,22 @@ class PTYProcess:
                     if self.process and self.process.poll() is not None:
                         # 处理剩余的buffer
                         if buffer:
+                            # 同样过滤多个^C
+                            if buffer.startswith('^C'):
+                                control_c_count = 0
+                                for char in buffer:
+                                    if char == '^' and control_c_count % 2 == 0:
+                                        control_c_count += 1
+                                    elif char == 'C' and control_c_count % 2 == 1:
+                                        control_c_count += 1
+                                
+                                if control_c_count > 2:  # 超过一个^C
+                                    remaining_content = buffer.replace('^C', '')
+                                    if remaining_content:
+                                        buffer = "^C " + remaining_content
+                                    else:
+                                        buffer = "^C"
+                            
                             output_log.write(buffer + "\n")
                             self.output.append(buffer)
                             self.output_queue.put(buffer)
