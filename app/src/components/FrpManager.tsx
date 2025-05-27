@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Tabs, Form, Input, Button, Table, Space, Modal, Typography, message, Popconfirm, Divider, InputNumber, Select } from 'antd';
+import { Card, Tabs, Form, Input, Button, Table, Space, Modal, Typography, message, Popconfirm, Divider, InputNumber, Select, Switch } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, MinusCircleOutlined, GlobalOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -53,6 +53,7 @@ const FrpManager: React.FC = () => {
   const [locyanWebsiteVisible, setLocyanWebsiteVisible] = useState<boolean>(false);
   const [mefrpWebsiteVisible, setMefrpWebsiteVisible] = useState<boolean>(false);
   const [sakuraWebsiteVisible, setSakuraWebsiteVisible] = useState<boolean>(false);
+  const [autoRestartFrps, setAutoRestartFrps] = useState<string[]>([]);
 
   // 加载FRP配置
   const loadFrpConfigs = async () => {
@@ -183,6 +184,38 @@ const FrpManager: React.FC = () => {
       }
     } catch (error: any) {
       console.error('获取自建FRP状态失败:', error);
+    }
+  };
+
+  // 加载自启动FRP列表
+  const loadAutoRestartFrps = async () => {
+    try {
+      const response = await axios.get('/api/frp/auto_restart');
+      if (response.data.status === 'success') {
+        setAutoRestartFrps(response.data.auto_restart_frps || []);
+      }
+    } catch (error: any) {
+      console.error('加载自启动FRP列表失败:', error);
+    }
+  };
+
+  // 处理自启动开关变化
+  const handleAutoRestartChange = async (frpId: string, checked: boolean) => {
+    try {
+      const response = await axios.post('/api/frp/set_auto_restart', {
+        frp_id: frpId,
+        auto_restart: checked
+      });
+      
+      if (response.data.status === 'success') {
+        message.success(`已${checked ? '开启' : '关闭'}内网穿透自启动`);
+        // 更新自启动FRP列表
+        setAutoRestartFrps(response.data.auto_restart_frps || []);
+      } else {
+        message.error(response.data.message || '操作失败');
+      }
+    } catch (error: any) {
+      message.error(error.message || '设置自启动状态失败');
     }
   };
 
@@ -337,6 +370,7 @@ const FrpManager: React.FC = () => {
   // 组件加载时获取配置
   useEffect(() => {
     loadFrpConfigs();
+    loadAutoRestartFrps();
   }, []);
 
   // 切换到自建FRP标签时加载配置
@@ -377,6 +411,17 @@ const FrpManager: React.FC = () => {
       key: 'status',
       render: (text: string) => text === 'running' ? 
         <Text type="success">运行中</Text> : <Text type="danger">已停止</Text>
+    },
+    {
+      title: '自启动',
+      key: 'auto_restart',
+      render: (text: any, record: FrpConfig) => (
+        <Switch
+          size="small"
+          checked={autoRestartFrps.includes(record.id)}
+          onChange={(checked) => handleAutoRestartChange(record.id, checked)}
+        />
+      ),
     },
     {
       title: '操作',
@@ -584,6 +629,15 @@ const FrpManager: React.FC = () => {
                     <Text type="success">运行中</Text> : 
                     <Text type="danger">已停止</Text>}
                 </Text>
+                <div style={{ marginLeft: 16 }}>
+                  自启动: 
+                  <Switch 
+                    size="small" 
+                    style={{ marginLeft: 8 }}
+                    checked={autoRestartFrps.includes('custom_frp')}
+                    onChange={(checked) => handleAutoRestartChange('custom_frp', checked)}
+                  />
+                </div>
               </Space>
             </div>
           </TabPane>

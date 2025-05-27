@@ -243,7 +243,68 @@ body {
 /* 响应式样式 */
 @media (max-width: 768px) {
   .site-header {
-    padding: 0 12px;
+    padding: 0 8px;
+    flex-direction: row;
+    height: 42px;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .header-title {
+    font-size: 15px;
+    margin: 0;
+    flex: 1;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .user-info {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 0;
+  }
+  
+  .user-info span {
+    margin-right: 0;
+    font-size: 12px;
+    max-width: 60px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .logout-btn {
+    padding: 0 4px;
+    font-size: 12px;
+    height: 24px;
+    min-width: 24px;
+  }
+  
+  .logout-icon {
+    margin-right: 0;
+    font-size: 14px;
+  }
+  
+  .fixed-sider {
+    width: 100% !important;
+    position: relative;
+    height: auto;
+    max-height: 50px;
+    overflow: hidden;
+    transition: max-height 0.3s;
+  }
+  
+  .fixed-sider.expanded {
+    max-height: 300px;
+    overflow: auto;
+  }
+  
+  .content-with-fixed-sider {
+    margin-left: 0 !important;
   }
   
   .resource-cards .ant-col {
@@ -254,6 +315,181 @@ body {
   .games-tables .ant-col {
     width: 100%;
     margin-bottom: 16px;
+  }
+  
+  .game-cards .ant-col {
+    width: 100%;
+  }
+  
+  .server-management .ant-col {
+    width: 100%;
+  }
+  
+  .running-servers .ant-col {
+    width: 100%;
+  }
+  
+  .terminal {
+    height: 240px;
+  }
+  
+  .game-cover {
+    max-width: 100%;
+    height: auto;
+  }
+  
+  .ant-row {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+  }
+  
+  .ant-card-actions {
+    flex-direction: column;
+  }
+  
+  .ant-card-actions > li {
+    width: 100% !important;
+    margin: 4px 0;
+  }
+  
+  .login-card {
+    width: 95% !important;
+    max-width: 350px;
+  }
+  
+  .ant-form-item-label {
+    text-align: left !important;
+  }
+  
+  /* 容器信息面板响应式样式 */
+  .container-info {
+    padding: 8px;
+  }
+  
+  .container-info .page-header {
+    margin-bottom: 12px;
+  }
+  
+  .container-info .resource-cards {
+    margin-bottom: 12px;
+  }
+  
+  .container-info .ant-divider {
+    margin: 12px 0;
+  }
+  
+  .container-info .ant-card-head {
+    min-height: 40px;
+    padding: 0 12px;
+  }
+  
+  .container-info .ant-card-head-title {
+    padding: 8px 0;
+    font-size: 14px;
+  }
+  
+  .container-info .ant-statistic-title {
+    font-size: 12px;
+    margin-bottom: 2px;
+  }
+  
+  .container-info .ant-statistic-content {
+    font-size: 18px;
+  }
+  
+  .container-info .ant-progress-text {
+    font-size: 14px !important;
+  }
+  
+  .container-info .ant-table {
+    font-size: 12px;
+  }
+  
+  .container-info .ant-table-thead > tr > th,
+  .container-info .ant-table-tbody > tr > td {
+    padding: 8px 4px;
+  }
+  
+  /* 移动端游戏表格单列布局样式 */
+  .container-info .ant-table-cell {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+/* 小屏幕手机适配 */
+@media (max-width: 480px) {
+  .ant-card-head-title {
+    font-size: 16px;
+  }
+  
+  .terminal {
+    height: 200px;
+    font-size: 12px;
+  }
+  
+  .server-console-buttons .ant-btn {
+    padding: 0 8px;
+    font-size: 12px;
+    height: 28px;
+  }
+  
+  .ant-tabs-tab {
+    padding: 8px 10px;
+  }
+  
+  .game-tip {
+    padding: 10px;
+    font-size: 12px;
+  }
+  
+  .game-tip h4 {
+    font-size: 14px;
+  }
+  
+  /* 容器信息超小屏幕适配 */
+  .container-info {
+    padding: 6px;
+  }
+  
+  .container-info .page-header {
+    margin-bottom: 8px;
+  }
+  
+  .container-info .page-header h3 {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  
+  .container-info .page-header p {
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  
+  .container-info .ant-card {
+    margin-bottom: 6px;
+  }
+  
+  .container-info .ant-card-head-title {
+    font-size: 12px;
+  }
+  
+  .container-info .ant-progress-text {
+    font-size: 12px !important;
+  }
+  
+  .container-info .ant-statistic-content {
+    font-size: 14px;
+  }
+  
+  .container-info .ant-table-cell .ant-space {
+    gap: 4px !important;
+  }
+  
+  .container-info .ant-btn-sm {
+    padding: 0 6px;
+    height: 24px;
+    font-size: 12px;
   }
 }
 

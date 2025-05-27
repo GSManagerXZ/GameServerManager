@@ -28,10 +28,15 @@ import lzma
 import stat
 import zstandard as zstd
 from functools import wraps
-from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context, g, render_template_string, send_file
+from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context, g, render_template_string, send_file, make_response
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
+from auth_middleware import auth_required, generate_token, verify_token, save_user, is_public_route, hash_password, verify_password
 import jwt
+import signal
+import secrets
+import socket
+import requests
 
 # 导入PTY管理器
 from pty_manager import pty_manager
@@ -74,15 +79,20 @@ os.makedirs(SAKURA_DIR, exist_ok=True)
 # FRP进程字典
 running_frp_processes = {}  # id: {'process': process, 'log_file': log_file_path}
 
+# 添加一个全局变量来跟踪人工停止的服务器
+manually_stopped_servers = set()  # 存储人工停止的服务器ID
+
+# 添加一个全局变量来跟踪人工停止的内网穿透
+manually_stopped_frps = set()  # 存储人工停止的内网穿透ID
+
 app = Flask(__name__, static_folder='../app/dist')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用缓存，确保始终获取最新文件
 
 # 允许跨域请求
 CORS(app, resources={r"/*": {"origins": "*"}})  # 允许所有来源的跨域请求
 
-# 定义JWT密钥
-JWT_SECRET = "your_secret_key_here"
-TOKEN_EXPIRATION = 24 * 60 * 60  # 24小时过期
+# 导入JWT配置
+from config import JWT_SECRET, JWT_EXPIRATION
 
 # 生成JWT令牌
 def generate_token(user):
@@ -90,7 +100,7 @@ def generate_token(user):
     payload = {
         'username': user.get('username'),
         'role': user.get('role', 'user'),
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=TOKEN_EXPIRATION)
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=JWT_EXPIRATION)
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
     return token
@@ -508,6 +518,28 @@ def run_game_server(game_id, cmd, cwd):
             running_servers[game_id]['return_code'] = return_code
             running_servers[game_id]['running'] = False
             running_servers[game_id]['output_file'] = process.output_file
+            
+            # 检查是否是异常退出（非人工关闭）
+            if game_id not in manually_stopped_servers:
+                # 检查是否需要自动重启
+                config = load_config()
+                auto_restart_servers = config.get('auto_restart_servers', [])
+                
+                if game_id in auto_restart_servers:
+                    logger.info(f"游戏服务器 {game_id} 异常退出（非人工停止），自动重启中...")
+                    
+                    # 在新线程中重启服务器
+                    restart_thread = threading.Thread(
+                        target=lambda: restart_server(game_id, cwd),
+                        daemon=True
+                    )
+                    restart_thread.start()
+                else:
+                    logger.info(f"游戏服务器 {game_id} 异常退出，但未配置自动重启")
+            else:
+                # 从人工停止集合中移除
+                manually_stopped_servers.discard(game_id)
+                logger.info(f"游戏服务器 {game_id} 人工停止，不进行自动重启，返回码: {return_code}")
             
     except Exception as e:
         logger.error(f"运行服务器进程时出错: {str(e)}")
@@ -1354,6 +1386,10 @@ def stop_game_server():
             return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
             
         logger.info(f"请求停止游戏服务器: {game_id}, 强制模式: {force}")
+        
+        # 将此服务器标记为人工停止
+        manually_stopped_servers.add(game_id)
+        logger.info(f"已将游戏服务器 {game_id} 标记为人工停止")
         
         # 检查游戏服务器是否在运行
         if game_id not in running_servers:
@@ -2936,10 +2972,14 @@ def register():
                     'message': '用户名已存在'
                 }), 400
         
-        # 添加新用户
+        # 对密码进行哈希处理
+        password_hash, salt = hash_password(password)
+        
+        # 添加新用户，存储哈希密码和盐值
         new_user = {
             'username': username,
-            'password': password,
+            'password_hash': password_hash,  # 存储哈希后的密码
+            'salt': salt,  # 存储盐值
             'role': 'admin' if not users else 'user',  # 第一个注册的用户为管理员
             'created_at': time.time()
         }
@@ -3044,9 +3084,29 @@ def login():
                 
                 users = config.get('users', [])
                 for u in users:
-                    if u.get('username') == username and u.get('password') == password:
-                        user = u
-                        break
+                    # 兼容旧版本纯文本密码存储
+                    if u.get('username') == username:
+                        if 'password_hash' in u and 'salt' in u:
+                            # 使用新的哈希验证
+                            if verify_password(password, u.get('password_hash'), u.get('salt')):
+                                user = u
+                                break
+                        elif 'password' in u:
+                            # 兼容旧的明文密码验证
+                            if u.get('password') == password:
+                                # 自动升级到哈希存储
+                                password_hash, salt = hash_password(password)
+                                u['password_hash'] = password_hash
+                                u['salt'] = salt
+                                del u['password']  # 删除明文密码
+                                
+                                # 保存更新后的配置
+                                with open(USER_CONFIG_PATH, 'w') as fw:
+                                    json.dump(config, fw, indent=4)
+                                logger.info(f"已升级用户 {username} 的密码存储到哈希格式")
+                                
+                                user = u
+                                break
             except Exception as e:
                 logger.error(f"从config.json验证用户失败: {str(e)}")
         
@@ -3341,6 +3401,10 @@ def stop_frp():
                 'message': 'FRP ID不能为空'
             }), 400
         
+        # 将此FRP标记为人工停止
+        manually_stopped_frps.add(frp_id)
+        logger.info(f"已将FRP {frp_id} 标记为人工停止")
+        
         # 检查FRP是否在运行
         if frp_id not in running_frp_processes:
             return jsonify({
@@ -3440,22 +3504,32 @@ def delete_frp():
 def get_frp_log():
     try:
         frp_id = request.args.get('id')
+        
         if not frp_id:
             return jsonify({
                 'status': 'error',
                 'message': 'FRP ID不能为空'
             }), 400
         
-        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        # 获取日志文件路径
+        if frp_id in running_frp_processes:
+            # 如果FRP正在运行，使用当前日志文件
+            log_file_path = running_frp_processes[frp_id]['log_file']
+        else:
+            # 如果FRP未运行，尝试读取历史日志文件
+            log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        
+        # 检查日志文件是否存在
         if not os.path.exists(log_file_path):
             return jsonify({
                 'status': 'success',
-                'log': '暂无日志'
+                'log': '暂无日志记录'
             })
         
-        with open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+        # 读取日志内容
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
             log_content = f.read()
-        
+            
         return jsonify({
             'status': 'success',
             'log': log_content
@@ -3667,6 +3741,10 @@ def start_custom_frp():
 def stop_custom_frp():
     try:
         frp_id = 'custom_frp'
+        
+        # 将自建FRP标记为人工停止
+        manually_stopped_frps.add(frp_id)
+        logger.info(f"已将自建FRP {frp_id} 标记为人工停止")
         
         # 检查FRP是否在运行
         if frp_id not in running_frp_processes:
@@ -4052,6 +4130,424 @@ def start_steamcmd():
     except Exception as e:
         logger.error(f"启动SteamCMD失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 密码哈希功能从auth_middleware.py导入
+
+@app.route('/api/network_info', methods=['GET'])
+def get_network_info():
+    """获取网络状态和公网IP信息"""
+    try:
+        # 获取网络接口信息
+        network_interfaces = {}
+        for interface, addrs in psutil.net_if_addrs().items():
+            # 过滤掉lo接口
+            if interface == 'lo':
+                continue
+                
+            network_interfaces[interface] = {
+                'addresses': [],
+                'status': 'down'  # 默认为down
+            }
+            
+            # 获取地址信息
+            for addr in addrs:
+                if addr.family == socket.AF_INET:  # IPv4
+                    network_interfaces[interface]['addresses'].append({
+                        'type': 'ipv4',
+                        'address': addr.address,
+                        'netmask': addr.netmask
+                    })
+                elif addr.family == socket.AF_INET6:  # IPv6
+                    network_interfaces[interface]['addresses'].append({
+                        'type': 'ipv6',
+                        'address': addr.address,
+                        'netmask': addr.netmask
+                    })
+        
+        # 获取接口状态
+        for interface, stats in psutil.net_if_stats().items():
+            if interface in network_interfaces:
+                network_interfaces[interface]['status'] = 'up' if stats.isup else 'down'
+                network_interfaces[interface]['speed'] = stats.speed  # Mbps
+                network_interfaces[interface]['duplex'] = stats.duplex
+                network_interfaces[interface]['mtu'] = stats.mtu
+        
+        # 获取公网IP
+        public_ip = {
+            'ipv4': None,
+            'ipv6': None
+        }
+        
+        try:
+            # 获取公网IPv4
+            ipv4_response = requests.get('https://ipv4.ip.mir6.com', timeout=5)
+            if ipv4_response.status_code == 200:
+                public_ip['ipv4'] = ipv4_response.text
+        except Exception as e:
+            logger.warning(f"获取公网IPv4失败: {str(e)}")
+            
+        try:
+            # 获取公网IPv6
+            ipv6_response = requests.get('https://ipv6.ip.mir6.com', timeout=5)
+            if ipv6_response.status_code == 200:
+                public_ip['ipv6'] = ipv6_response.text
+        except Exception as e:
+            logger.warning(f"获取公网IPv6失败: {str(e)}")
+            
+        # 获取网络流量统计
+        net_io = psutil.net_io_counters(pernic=True)
+        io_stats = {}
+        
+        for interface, stats in net_io.items():
+            if interface in network_interfaces:
+                io_stats[interface] = {
+                    'bytes_sent': stats.bytes_sent,
+                    'bytes_recv': stats.bytes_recv,
+                    'packets_sent': stats.packets_sent,
+                    'packets_recv': stats.packets_recv,
+                    'errin': stats.errin,
+                    'errout': stats.errout,
+                    'dropin': stats.dropin,
+                    'dropout': stats.dropout
+                }
+        
+        return jsonify({
+            'status': 'success',
+            'network_interfaces': network_interfaces,
+            'public_ip': public_ip,
+            'io_stats': io_stats
+        })
+    except Exception as e:
+        logger.error(f"获取网络信息失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 添加自启动相关的常量和函数
+CONFIG_FILE = "/home/steam/games/config.json"
+
+def load_config():
+    """加载配置文件"""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        logger.error(f"加载配置文件失败: {str(e)}")
+        return {}
+
+def save_config(config):
+    """保存配置文件"""
+    try:
+        # 确保目录存在
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4)
+        return True
+    except Exception as e:
+        logger.error(f"保存配置文件失败: {str(e)}")
+        return False
+
+@app.route('/api/server/auto_restart', methods=['GET'])
+def get_auto_restart_servers():
+    """获取自启动服务器列表"""
+    try:
+        config = load_config()
+        auto_restart_servers = config.get('auto_restart_servers', [])
+        
+        return jsonify({
+            'status': 'success',
+            'auto_restart_servers': auto_restart_servers
+        })
+    except Exception as e:
+        logger.error(f"获取自启动服务器列表失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/server/set_auto_restart', methods=['POST'])
+def set_auto_restart():
+    """设置服务器自启动状态"""
+    try:
+        data = request.json
+        game_id = data.get('game_id')
+        auto_restart = data.get('auto_restart', False)
+        
+        if not game_id:
+            return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
+            
+        # 加载配置
+        config = load_config()
+        auto_restart_servers = config.get('auto_restart_servers', [])
+        
+        if auto_restart:
+            # 添加到自启动列表
+            if game_id not in auto_restart_servers:
+                auto_restart_servers.append(game_id)
+                logger.info(f"添加游戏服务器 {game_id} 到自启动列表")
+        else:
+            # 从自启动列表移除
+            if game_id in auto_restart_servers:
+                auto_restart_servers.remove(game_id)
+                logger.info(f"从自启动列表移除游戏服务器 {game_id}")
+        
+        # 更新配置
+        config['auto_restart_servers'] = auto_restart_servers
+        save_config(config)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f"已{'开启' if auto_restart else '关闭'}服务端自启动",
+            'auto_restart_servers': auto_restart_servers
+        })
+    except Exception as e:
+        logger.error(f"设置自启动状态失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 添加重启服务器的函数
+def restart_server(game_id, cwd):
+    """重启游戏服务器"""
+    try:
+        logger.info(f"准备重启游戏服务器 {game_id}")
+        
+        # 确保服务器不在人工停止列表中
+        if game_id in manually_stopped_servers:
+            manually_stopped_servers.discard(game_id)
+            logger.info(f"从人工停止列表中移除游戏服务器 {game_id}")
+        
+        # 等待一小段时间再重启
+        time.sleep(3)
+        
+        # 构建启动命令
+        cmd = f"su - steam -c 'cd {cwd} && ./start.sh'"
+        
+        # 初始化服务器状态跟踪
+        running_servers[game_id] = {
+            'process': None,
+            'output': [],
+            'started_at': time.time(),
+            'running': True,
+            'return_code': None,
+            'cmd': cmd,
+            'master_fd': None,
+            'game_dir': cwd,
+            'external': running_servers[game_id].get('external', False) if game_id in running_servers else False
+        }
+        
+        # 在单独的线程中启动服务器
+        server_thread = threading.Thread(
+            target=run_game_server,
+            args=(game_id, cmd, cwd),
+            daemon=True
+        )
+        server_thread.start()
+        
+        logger.info(f"游戏服务器 {game_id} 重启线程已启动")
+        
+        # 添加到输出队列
+        if game_id in server_output_queues:
+            server_output_queues[game_id].put("服务器自动重启中...")
+            server_output_queues[game_id].put(f"游戏目录: {cwd}")
+            server_output_queues[game_id].put(f"启动命令: {cmd}")
+        
+        # 添加到输出历史
+        if game_id in running_servers:
+            if 'output' not in running_servers[game_id]:
+                running_servers[game_id]['output'] = []
+            running_servers[game_id]['output'].append("服务器自动重启中...")
+            running_servers[game_id]['output'].append(f"游戏目录: {cwd}")
+            running_servers[game_id]['output'].append(f"启动命令: {cmd}")
+    
+    except Exception as e:
+        logger.error(f"重启游戏服务器 {game_id} 失败: {str(e)}")
+        if game_id in running_servers:
+            running_servers[game_id]['error'] = str(e)
+            running_servers[game_id]['running'] = False
+
+# 获取FRP自启动列表
+@app.route('/api/frp/auto_restart', methods=['GET'])
+def get_auto_restart_frps():
+    """获取自启动内网穿透列表"""
+    try:
+        config = load_config()
+        auto_restart_frps = config.get('auto_restart_frps', [])
+        
+        return jsonify({
+            'status': 'success',
+            'auto_restart_frps': auto_restart_frps
+        })
+    except Exception as e:
+        logger.error(f"获取自启动内网穿透列表失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 设置FRP自启动状态
+@app.route('/api/frp/set_auto_restart', methods=['POST'])
+def set_frp_auto_restart():
+    """设置内网穿透自启动状态"""
+    try:
+        data = request.json
+        frp_id = data.get('frp_id')
+        auto_restart = data.get('auto_restart', False)
+        
+        if not frp_id:
+            return jsonify({'status': 'error', 'message': '缺少FRP ID'}), 400
+            
+        # 加载配置
+        config = load_config()
+        auto_restart_frps = config.get('auto_restart_frps', [])
+        
+        if auto_restart:
+            # 添加到自启动列表
+            if frp_id not in auto_restart_frps:
+                auto_restart_frps.append(frp_id)
+                logger.info(f"添加内网穿透 {frp_id} 到自启动列表")
+        else:
+            # 从自启动列表移除
+            if frp_id in auto_restart_frps:
+                auto_restart_frps.remove(frp_id)
+                logger.info(f"从自启动列表移除内网穿透 {frp_id}")
+        
+        # 更新配置
+        config['auto_restart_frps'] = auto_restart_frps
+        save_config(config)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f"已{'开启' if auto_restart else '关闭'}内网穿透自启动",
+            'auto_restart_frps': auto_restart_frps
+        })
+    except Exception as e:
+        logger.error(f"设置内网穿透自启动状态失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 添加FRP自动重启函数
+def restart_frp(frp_id):
+    """重启内网穿透"""
+    try:
+        logger.info(f"准备重启内网穿透 {frp_id}")
+        
+        # 确保FRP不在人工停止列表中
+        if frp_id in manually_stopped_frps:
+            manually_stopped_frps.discard(frp_id)
+            logger.info(f"从人工停止列表中移除内网穿透 {frp_id}")
+        
+        # 等待一小段时间再重启
+        time.sleep(3)
+        
+        # 加载配置
+        configs = load_frp_configs()
+        target_config = None
+        
+        for config in configs:
+            if config['id'] == frp_id:
+                target_config = config
+                break
+        
+        if not target_config:
+            logger.error(f"未找到内网穿透 {frp_id} 的配置")
+            return
+        
+        # 根据FRP类型选择不同的二进制文件和目录
+        frp_binary = FRP_BINARY
+        frp_dir = os.path.join(FRP_DIR, "LoCyanFrp")
+        
+        if target_config['type'] == 'custom':
+            frp_binary = CUSTOM_FRP_BINARY
+            frp_dir = CUSTOM_FRP_DIR
+        elif target_config['type'] == 'mefrp':
+            frp_binary = MEFRP_BINARY
+            frp_dir = MEFRP_DIR
+        elif target_config['type'] == 'sakura':
+            frp_binary = SAKURA_BINARY
+            frp_dir = SAKURA_DIR
+        
+        # 确保FRP可执行
+        if not os.path.exists(frp_binary):
+            logger.error(f"{target_config['type']}客户端程序不存在")
+            return
+        
+        # 设置可执行权限
+        os.chmod(frp_binary, 0o755)
+        
+        # 创建日志文件
+        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+        log_file = open(log_file_path, 'w')
+        
+        # 构建命令
+        command = f"{frp_binary} {target_config['command']}"
+        
+        # 启动FRP进程
+        process = subprocess.Popen(
+            shlex.split(command),
+            stdout=log_file,
+            stderr=log_file,
+            cwd=frp_dir
+        )
+        
+        # 保存进程信息
+        running_frp_processes[frp_id] = {
+            'process': process,
+            'log_file': log_file_path,
+            'started_at': time.time()
+        }
+        
+        # 更新配置状态
+        for config in configs:
+            if config['id'] == frp_id:
+                config['status'] = 'running'
+                break
+        
+        save_frp_configs(configs)
+        
+        logger.info(f"内网穿透 {frp_id} 重启成功")
+        
+    except Exception as e:
+        logger.error(f"重启内网穿透 {frp_id} 失败: {str(e)}")
+
+# 添加FRP进程监控线程
+def monitor_frp_processes():
+    """监控内网穿透进程，自动重启异常退出的进程"""
+    while True:
+        try:
+            # 加载配置
+            config = load_config()
+            auto_restart_frps = config.get('auto_restart_frps', [])
+            
+            # 检查所有运行中的FRP进程
+            for frp_id, process_info in list(running_frp_processes.items()):
+                process = process_info['process']
+                
+                # 检查进程是否仍在运行
+                if process.poll() is not None:  # 进程已退出
+                    logger.info(f"检测到内网穿透 {frp_id} 已退出，返回码: {process.returncode}")
+                    
+                    # 如果不是人工停止且配置了自启动，则重启
+                    if frp_id not in manually_stopped_frps and frp_id in auto_restart_frps:
+                        logger.info(f"内网穿透 {frp_id} 异常退出（非人工停止），自动重启中...")
+                        restart_frp(frp_id)
+                    else:
+                        # 如果是人工停止，从列表中移除
+                        if frp_id in manually_stopped_frps:
+                            manually_stopped_frps.discard(frp_id)
+                            logger.info(f"内网穿透 {frp_id} 人工停止，不进行自动重启")
+                        
+                        # 从运行列表中移除
+                        del running_frp_processes[frp_id]
+                        
+                        # 更新配置状态
+                        configs = load_frp_configs()
+                        for config in configs:
+                            if config['id'] == frp_id:
+                                config['status'] = 'stopped'
+                                break
+                        save_frp_configs(configs)
+            
+            # 每5秒检查一次
+            time.sleep(5)
+        except Exception as e:
+            logger.error(f"监控内网穿透进程时出错: {str(e)}")
+            time.sleep(10)  # 出错时等待更长时间
+
+# 启动FRP监控线程
+frp_monitor_thread = threading.Thread(target=monitor_frp_processes, daemon=True)
+frp_monitor_thread.start()
 
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")

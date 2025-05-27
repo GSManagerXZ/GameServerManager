@@ -3,10 +3,10 @@ import os
 import jwt
 import time
 import json
+import hashlib
+import secrets
 from flask import request, jsonify, g
-
-# JWT密钥
-JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key')  # 实际应用中应使用环境变量
+from config import JWT_SECRET, JWT_EXPIRATION
 
 # 读取用户信息配置文件
 def load_users():
@@ -25,13 +25,52 @@ def load_users():
         # 不再返回默认admin用户
         return []
 
+# 哈希密码函数
+def hash_password(password, salt=None):
+    """
+    使用SHA-256算法对密码进行哈希处理
+    如果没有提供salt，会生成一个新的salt
+    返回 (hashed_password, salt)
+    """
+    if salt is None:
+        salt = secrets.token_hex(16)  # 生成一个32字符的随机salt
+    
+    # 将密码和salt组合并进行哈希
+    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+    
+    return password_hash, salt
+
+def verify_password(password, stored_hash, salt):
+    """
+    验证密码是否正确
+    """
+    calculated_hash, _ = hash_password(password, salt)
+    return calculated_hash == stored_hash
+
 # 认证用户
 def authenticate_user(username, password):
     users = load_users()
     
     for user in users:
-        if user["username"] == username and user["password"] == password:
-            return user
+        if user["username"] == username:
+            # 支持两种密码验证方式：哈希和明文
+            if "password_hash" in user and "salt" in user:
+                # 使用哈希验证
+                if verify_password(password, user["password_hash"], user["salt"]):
+                    return user
+            elif "password" in user:
+                # 兼容旧的明文密码验证
+                if user["password"] == password:
+                    # 自动升级到哈希存储
+                    password_hash, salt = hash_password(password)
+                    user["password_hash"] = password_hash
+                    user["salt"] = salt
+                    del user["password"]  # 删除明文密码
+                    
+                    # 保存更新后的用户信息
+                    save_user(user)
+                    
+                    return user
     
     return None
 

@@ -16,7 +16,8 @@ import {
   ReloadOutlined, CompressOutlined, FileZipOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-import Editor from "@monaco-editor/react";
+import Editor, { Monaco } from "@monaco-editor/react";
+import * as monaco from 'monaco-editor';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -90,6 +91,63 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   const pasteFromClipboardRef = useRef<() => void>();
   const loadDirectoryRef = useRef<(path: string) => void>();
 
+  // 添加一个状态来跟踪编辑器中的语法错误
+  const [syntaxErrors, setSyntaxErrors] = useState<monaco.editor.IMarker[]>([]);
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  
+  // 实际保存文件的函数
+  const saveFileContent = useCallback(async () => {
+    if (!selectedFile) return;
+    
+    setLoading(true);
+    try {
+      const response = await axios.post(`/api/save_file`, {
+        path: selectedFile.path,
+        content: fileContent
+      });
+      
+      if (response.data.status === 'success') {
+        message.success('文件已保存');
+        setIsEditModalVisible(false);
+        if (loadDirectoryRef.current) {
+          loadDirectoryRef.current(currentPath); // 刷新目录
+        }
+      } else {
+        message.error(response.data.message || '保存文件失败');
+      }
+    } catch (error: any) {
+      message.error(`保存文件失败: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedFile, fileContent, currentPath]);
+
+  // 保存文件内容
+  const saveFile = useCallback(async () => {
+    if (!selectedFile) return;
+    
+    // 如果存在语法错误，显示确认对话框
+    if (syntaxErrors.length > 0) {
+      Modal.confirm({
+        title: '警告',
+        content: `当前代码存在 ${syntaxErrors.length} 个语法错误，是否仍要保存？`,
+        okText: '继续保存',
+        cancelText: '返回编辑',
+        onOk: () => saveFileContent(),
+        onCancel: () => {} // 不做任何操作，用户可以继续编辑
+      });
+      return;
+    }
+    
+    // 如果没有语法错误，直接保存
+    saveFileContent();
+  }, [selectedFile, syntaxErrors, saveFileContent]);
+
+  const saveFileRef = useRef(saveFile);
+  useEffect(() => {
+    saveFileRef.current = saveFile;
+  }, [saveFile]);
+
   // 创建包含认证信息的请求头
   const getHeaders = () => {
     const token = localStorage.getItem('auth_token');
@@ -162,6 +220,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       // 如果有模态框打开，不处理快捷键
       if (isEditModalVisible || isRenameModalVisible || isPreviewModalVisible || 
           isNewFolderModalVisible || isNewFileModalVisible || isUploadModalVisible) {
+        // 如果编辑器模态框打开，处理Ctrl+S快捷键
+        if (isEditModalVisible && e.ctrlKey && e.key.toLowerCase() === 's') {
+          e.preventDefault();
+          saveFile();
+          return;
+        }
         return;
       }
 
@@ -190,6 +254,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
               message.info('剪贴板为空');
             }
             break;
+          case 's': // Ctrl+S: 保存（如果编辑器模态框已打开）
+            if (isEditModalVisible) {
+              e.preventDefault();
+              saveFile();
+            }
+            break;
           default:
             break;
         }
@@ -208,7 +278,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     isPreviewModalVisible, 
     isNewFolderModalVisible, 
     isNewFileModalVisible, 
-    isUploadModalVisible
+    isUploadModalVisible,
+    saveFile  // 添加saveFile到依赖数组
   ]);
 
   // 检查文件是否为图片
@@ -440,33 +511,6 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     setPreviewImageUrl(imageUrl);
     setSelectedFile(file);
     setIsPreviewModalVisible(true);
-  };
-
-  // 保存文件内容
-  const saveFile = async () => {
-    if (!selectedFile) return;
-    
-    setLoading(true);
-    try {
-      const response = await axios.post(`/api/save_file`, {
-        path: selectedFile.path,
-        content: fileContent
-      });
-      
-      if (response.data.status === 'success') {
-        message.success('文件已保存');
-        setIsEditModalVisible(false);
-        if (loadDirectoryRef.current) {
-          loadDirectoryRef.current(currentPath); // 刷新目录
-        }
-      } else {
-        message.error(response.data.message || '保存文件失败');
-      }
-    } catch (error: any) {
-      message.error(`保存文件失败: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
   };
 
   // 重命名文件/文件夹
@@ -1140,6 +1184,27 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     return languageMap[ext] || 'plaintext';
   };
 
+  // 处理编辑器加载完成的事件
+  const handleEditorDidMount = (editor: monaco.editor.IStandaloneCodeEditor, monacoInstance: Monaco) => {
+    editorRef.current = editor;
+    
+    // 监听编辑器的标记（错误、警告等）变化
+    monacoInstance.editor.onDidChangeMarkers((uris) => {
+      const editorUri = editor.getModel()?.uri;
+      if (editorUri && uris.some(uri => uri.toString() === editorUri.toString())) {
+        const currentErrors = monacoInstance.editor.getModelMarkers({ resource: editorUri })
+          .filter(marker => marker.severity === monacoInstance.MarkerSeverity.Error);
+        setSyntaxErrors(currentErrors);
+      }
+    });
+
+    // 添加Ctrl+S快捷键支持
+    editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
+      saveFileRef.current();
+      return null; // 防止事件继续传播
+    });
+  };
+
   return (
     <div className="file-manager" style={{paddingBottom: '50px'}}>
       <div className="file-manager-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1538,6 +1603,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
             defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
             value={fileContent}
             onChange={(value) => setFileContent(value || '')}
+            onMount={handleEditorDidMount}
             theme="vs-dark"
             options={{
               fontSize: 14,
@@ -1558,6 +1624,32 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
               wrappingIndent: 'same'
             }}
           />
+          {syntaxErrors.length > 0 && (
+            <div style={{ 
+              backgroundColor: '#FFF2F0', 
+              border: '1px solid #FFCCC7', 
+              padding: '8px 12px', 
+              marginTop: '10px', 
+              borderRadius: '4px',
+              color: '#CF1322',
+              maxHeight: '120px',
+              overflowY: 'auto'
+            }}>
+              <div style={{ marginBottom: '5px', fontWeight: 'bold' }}>
+                检测到 {syntaxErrors.length} 个语法错误:
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                {syntaxErrors.slice(0, 5).map((error, index) => (
+                  <li key={index}>
+                    第 {error.startLineNumber} 行: {error.message}
+                  </li>
+                ))}
+                {syntaxErrors.length > 5 && (
+                  <li>... 还有 {syntaxErrors.length - 5} 个错误</li>
+                )}
+              </ul>
+            </div>
+          )}
         </div>
       </Modal>
 

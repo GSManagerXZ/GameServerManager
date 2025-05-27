@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio } from 'antd';
-import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined } from '@ant-design/icons';
+import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch } from 'antd';
+import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
@@ -14,6 +14,7 @@ import { fetchGames, installGame, terminateInstall, installByAppId, openGameFold
 import { GameInfo } from './types';
 import { useAuth } from './context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useIsMobile } from './hooks/useIsMobile'; // 导入移动设备检测钩子
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Title, Paragraph } = Typography;
@@ -221,6 +222,8 @@ const checkServerStatus = async (gameId: string) => {
   // 新增：服务器相关状态
   const [serverOutputs, setServerOutputs] = useState<{[key: string]: string[]}>({});
   const [runningServers, setRunningServers] = useState<string[]>([]);
+  // 新增：自启动服务器列表
+  const [autoRestartServers, setAutoRestartServers] = useState<string[]>([]);
   const [selectedServerGame, setSelectedServerGame] = useState<GameInfo | null>(null);
   const [serverModalVisible, setServerModalVisible] = useState<boolean>(false);
   const [serverInput, setServerInput] = useState<string>('');
@@ -243,6 +246,17 @@ const checkServerStatus = async (gameId: string) => {
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [fileManagerVisible, setFileManagerVisible] = useState<boolean>(false);
   const [fileManagerPath, setFileManagerPath] = useState<string>('/home/steam');
+  
+  // 移动端适配状态
+  const isMobile = useIsMobile();
+  const [mobileMenuVisible, setMobileMenuVisible] = useState<boolean>(false);
+
+  // 在移动设备上自动折叠侧边栏
+  useEffect(() => {
+    if (isMobile) {
+      setCollapsed(true);
+    }
+  }, [isMobile]);
 
   const navigate = useNavigate();
 
@@ -974,7 +988,7 @@ const checkServerStatus = async (gameId: string) => {
   const renderServerManager = () => (
     <div style={{marginTop: 32}}>
       <Title level={3}>已安装的游戏</Title>
-      <Row gutter={[16, 16]}>
+      <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
         {/* 固定显示SteamCMD */}
         <Col xs={24} sm={12} md={8} lg={6} key="steamcmd">
           <Card
@@ -986,43 +1000,17 @@ const checkServerStatus = async (gameId: string) => {
                 <Tag color="blue">工具</Tag>
               </div>
             }
+            size={isMobile ? "small" : "default"}
           >
             <p>Steam游戏服务器命令行工具</p>
             <p>位置: /home/steam/steamcmd</p>
-            <div style={{marginTop: 12}}>
-              <div style={{marginBottom: 8}}>SteamCMD控制:</div>
-              {runningServers.includes("steamcmd") ? (
-                <div>
-                  <Button 
-                    type="default" 
-                    size="small" 
-                    style={{marginRight: 8}}
-                    onClick={() => handleStopServer("steamcmd")}
-                  >
-                    停止
-                  </Button>
-                  <Button 
-                    type="primary" 
-                    size="small"
-                    style={{marginRight: 8}}
-                    onClick={() => handleStartSteamCmd()}
-                  >
-                    控制台
-                  </Button>
-                </div>
-              ) : (
-                <div style={{display: 'flex', justifyContent: 'center'}}>
-                  <Button 
-                    type="primary"
-                    size="middle"
-                    style={{width: '100%'}}
-                    onClick={() => handleStartSteamCmd()}
-                  >
-                    启动
-                  </Button>
-                </div>
-              )}
-            </div>
+            <Button 
+              type="primary" 
+              size="small"
+              onClick={() => handleStartSteamCmd()}
+            >
+              启动
+            </Button>
           </Card>
         </Col>
         
@@ -1032,80 +1020,100 @@ const checkServerStatus = async (gameId: string) => {
             <Card
               hoverable
               className="game-card"
-              title={game.name}
-              extra={renderGameButtons(game)}
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>{game.name}</span>
+                  {runningServers.includes(game.id) ? (
+                    <Tag color="green">运行中</Tag>
+                  ) : (
+                    <Tag color="default">未运行</Tag>
+                  )}
+                </div>
+              }
+              size={isMobile ? "small" : "default"}
             >
-              <p>AppID: {game.appid}</p>
-              <p>账户: {game.anonymous ? '匿名' : '需要账户'}</p>
-              <div style={{marginTop: 12}}>
-                <div style={{marginBottom: 8}}>服务器控制:</div>
-                {runningServers.includes(game.id) ? (
-                  <div>
-                    <div style={{marginBottom: 8}}>
-                      <Button 
-                        danger
-                        size="small"
-                        onClick={() => handleUninstall(game.id)}
-                      >
-                        卸载
-                      </Button>
-                    </div>
+              <p>位置: /home/steam/games/{game.id}</p>
+              {runningServers.includes(game.id) ? (
+                <div>
+                  <div style={{marginBottom: 8}}>
                     <Button 
-                      type="default" 
-                      size="small" 
-                      style={{marginRight: 8}}
-                      onClick={() => handleStopServer(game.id)}
+                      danger
+                      size="small"
+                      onClick={() => handleUninstall(game.id)}
                     >
-                      停止
+                      卸载
                     </Button>
+                    <span style={{marginLeft: 8}}>
+                      自启动: 
+                      <Switch 
+                        size="small" 
+                        checked={autoRestartServers.includes(game.id)}
+                        onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                        style={{marginLeft: 4}}
+                      />
+                    </span>
+                  </div>
+                  <Button 
+                    type="default" 
+                    size="small" 
+                    style={{marginRight: 8}}
+                    onClick={() => handleStopServer(game.id)}
+                  >
+                    停止
+                  </Button>
+                  <Button 
+                    type="primary" 
+                    size="small"
+                    style={{marginRight: 8}}
+                    onClick={() => handleStartServer(game.id)}
+                  >
+                    控制台
+                  </Button>
+                  <Button
+                    icon={<FolderOutlined />}
+                    size="small"
+                    onClick={() => handleOpenGameFolder(game.id)}
+                  >
+                    文件夹
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{marginBottom: 8}}>
                     <Button 
-                      type="primary" 
+                      danger
                       size="small"
-                      style={{marginRight: 8}}
-                      onClick={() => handleStartServer(game.id)}
+                      onClick={() => handleUninstall(game.id)}
                     >
-                      控制台
+                      卸载
                     </Button>
-                    <Button
-                      icon={<FolderOutlined />}
-                      size="small"
-                      onClick={() => handleOpenGameFolder(game.id)}
-                    >
-                      文件夹
-                    </Button>
+                    <span style={{marginLeft: 8}}>
+                      自启动: 
+                      <Switch 
+                        size="small" 
+                        checked={autoRestartServers.includes(game.id)}
+                        onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                        style={{marginLeft: 4}}
+                      />
+                    </span>
                   </div>
-                ) : (
-                  <div>
-                    <div style={{marginBottom: 8}}>
-                      <Button 
-                        danger
-                        size="small"
-                        onClick={() => handleUninstall(game.id)}
-                      >
-                        卸载
-                      </Button>
-                    </div>
-                    <div style={{display: 'flex', justifyContent: 'center'}}>
-                      <Button 
-                        type="primary"
-                        size="middle"
-                        style={{marginRight: 8, width: '45%'}}
-                        onClick={() => handleStartServer(game.id)}
-                      >
-                        启动
-                      </Button>
-                      <Button
-                        icon={<FolderOutlined />}
-                        size="middle"
-                        style={{width: '45%'}}
-                        onClick={() => handleOpenGameFolder(game.id)}
-                      >
-                        文件夹
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  <Button 
+                    type="primary" 
+                    size="small"
+                    style={{marginRight: 8}}
+                    onClick={() => handleStartServer(game.id)}
+                  >
+                    启动
+                  </Button>
+                  <Button
+                    icon={<FolderOutlined />}
+                    size="small"
+                    onClick={() => handleOpenGameFolder(game.id)}
+                  >
+                    文件夹
+                  </Button>
+                </div>
+              )}
             </Card>
           </Col>
         ))}
@@ -1136,6 +1144,15 @@ const checkServerStatus = async (gameId: string) => {
                       >
                         卸载
                       </Button>
+                      <span style={{marginLeft: 8}}>
+                        自启动: 
+                        <Switch 
+                          size="small" 
+                          checked={autoRestartServers.includes(game.id)}
+                          onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                          style={{marginLeft: 4}}
+                        />
+                      </span>
                     </div>
                     <Button 
                       type="default" 
@@ -1171,6 +1188,15 @@ const checkServerStatus = async (gameId: string) => {
                       >
                         卸载
                       </Button>
+                      <span style={{marginLeft: 8}}>
+                        自启动: 
+                        <Switch 
+                          size="small" 
+                          checked={autoRestartServers.includes(game.id)}
+                          onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                          style={{marginLeft: 4}}
+                        />
+                      </span>
                     </div>
                     <div style={{display: 'flex', justifyContent: 'center'}}>
                       <Button 
@@ -1427,10 +1453,46 @@ const checkServerStatus = async (gameId: string) => {
     }
   }, [isAuthenticated]);
 
+  // 加载自启动服务器列表
+  const loadAutoRestartServers = async () => {
+    try {
+      const response = await axios.get('/api/server/auto_restart');
+      if (response.data.status === 'success') {
+        setAutoRestartServers(response.data.auto_restart_servers || []);
+      }
+    } catch (error) {
+      console.error('加载自启动服务器列表失败:', error);
+    }
+  };
+
+  // 处理自启动开关变化
+  const handleAutoRestartChange = async (gameId: string, checked: boolean) => {
+    try {
+      const response = await axios.post('/api/server/set_auto_restart', {
+        game_id: gameId,
+        auto_restart: checked
+      });
+      
+      if (response.data.status === 'success') {
+        message.success(`已${checked ? '开启' : '关闭'}服务端自启动`);
+        // 更新自启动服务器列表
+        loadAutoRestartServers();
+      } else {
+        message.error(response.data.message || '操作失败');
+      }
+    } catch (error) {
+      console.error('设置自启动失败:', error);
+      message.error('设置自启动失败');
+    }
+  };
+
   // 添加定期刷新服务器状态
   useEffect(() => {
     // 初始加载时刷新一次服务器状态
     refreshServerStatus();
+    
+    // 加载自启动服务器列表
+    loadAutoRestartServers();
     
     // 设置定时器，每10秒刷新一次服务器状态
     const intervalId = setInterval(() => {
@@ -1526,6 +1588,89 @@ const checkServerStatus = async (gameId: string) => {
   // 主应用界面
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      {isMobile ? (
+        // 移动端侧边栏使用抽屉组件
+        <>
+          <Header className="site-header">
+            <Button 
+              type="text" 
+              icon={<MenuOutlined />}
+              onClick={() => setMobileMenuVisible(true)}
+              style={{ fontSize: '16px', padding: '0 8px' }}
+            />
+            <div className="header-title">
+              GameServerManager
+            </div>
+            <div className="user-info">
+              <span><UserOutlined /> {username}</span>
+              <Button 
+                type="link" 
+                icon={<LogoutOutlined className="logout-icon" />} 
+                onClick={async () => {
+                  await logout();
+                  navigate('/login');
+                }}
+                className="logout-btn"
+                size={isMobile ? "small" : "middle"}
+              >
+                {!isMobile && "退出"}
+              </Button>
+            </div>
+          </Header>
+          <Drawer
+            title="GameServerManager"
+            placement="left"
+            onClose={() => setMobileMenuVisible(false)}
+            visible={mobileMenuVisible}
+            bodyStyle={{ padding: 0 }}
+          >
+            <div className="logo">
+              <CloudServerOutlined /> <span>GSManager</span>
+            </div>
+            <Menu
+              theme="light"
+              mode="inline"
+              selectedKeys={[currentNav]}
+              onClick={({ key }) => {
+                setCurrentNav(key.toString());
+                setMobileMenuVisible(false);
+                // 当切换到文件管理时，确保设置有效的默认路径
+                if (key === 'files' && (!fileManagerPath || fileManagerPath === '')) {
+                  setFileManagerPath('/home/steam');
+                }
+              }}
+              items={[
+                {
+                  key: 'dashboard',
+                  icon: <DashboardOutlined />,
+                  label: '系统概览'
+                },
+                {
+                  key: 'games',
+                  icon: <AppstoreOutlined />,
+                  label: '游戏管理'
+                },
+                {
+                  key: 'servers',
+                  icon: <PlayCircleOutlined />,
+                  label: '运行服务端'
+                },
+                {
+                  key: 'frp',
+                  icon: <GlobalOutlined />,
+                  label: '内网穿透'
+                },
+                {
+                  key: 'files',
+                  icon: <FolderOutlined />,
+                  label: '文件管理'
+                }
+              ]}
+            />
+          </Drawer>
+        </>
+      ) : (
+        // 桌面端侧边栏
       <Sider 
         className="fixed-sider"
         collapsible 
@@ -1578,9 +1723,12 @@ const checkServerStatus = async (gameId: string) => {
           ]}
         />
       </Sider>
+      )}
+      
       <Layout 
-        className={`site-layout content-with-fixed-sider ${collapsed ? 'sider-collapsed' : 'sider-expanded'}`}
+        className={`site-layout content-with-fixed-sider ${isMobile ? '' : (collapsed ? 'sider-collapsed' : 'sider-expanded')}`}
       >
+        {!isMobile && (
         <Header className="site-header">
           <div className="header-title">
             GameServerManager
@@ -1595,12 +1743,15 @@ const checkServerStatus = async (gameId: string) => {
                 navigate('/login');
               }}
               className="logout-btn"
+                size={isMobile ? "small" : "middle"}
             >
-              退出
+                {!isMobile && "退出"}
             </Button>
           </div>
         </Header>
-        <Content style={{ width: '100%', maxWidth: '100%', margin: 0, padding: '16px' }}>
+        )}
+        
+        <Content style={{ width: '100%', maxWidth: '100%', margin: 0, padding: isMobile ? '4px' : '16px' }}>
           {currentNav === 'dashboard' && (
             <ContainerInfo 
               onStartServer={handleStartServer}
@@ -1845,6 +1996,15 @@ const checkServerStatus = async (gameId: string) => {
                                       >
                                         卸载
                                       </Button>
+                                      <span style={{marginLeft: 8}}>
+                                        自启动: 
+                                        <Switch 
+                                          size="small" 
+                                          checked={autoRestartServers.includes(game.id)}
+                                          onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                                          style={{marginLeft: 4}}
+                                        />
+                                      </span>
                                     </div>
                                     <Button 
                                       type="default" 
@@ -1880,6 +2040,15 @@ const checkServerStatus = async (gameId: string) => {
                                       >
                                         卸载
                                       </Button>
+                                      <span style={{marginLeft: 8}}>
+                                        自启动: 
+                                        <Switch 
+                                          size="small" 
+                                          checked={autoRestartServers.includes(game.id)}
+                                          onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                                          style={{marginLeft: 4}}
+                                        />
+                                      </span>
                                     </div>
                                     <div style={{display: 'flex', justifyContent: 'center'}}>
                                       <Button 
@@ -1919,6 +2088,7 @@ const checkServerStatus = async (gameId: string) => {
                           >
                             <p>位置: /home/steam/games/{game.id}</p>
                             <div style={{marginTop: 12}}>
+                              <div style={{marginBottom: 8}}>服务器控制:</div>
                               {runningServers.includes(game.id) ? (
                                 <div>
                                   <div style={{marginBottom: 8}}>
@@ -1929,6 +2099,15 @@ const checkServerStatus = async (gameId: string) => {
                                     >
                                       卸载
                                     </Button>
+                                    <span style={{marginLeft: 8}}>
+                                      自启动: 
+                                      <Switch 
+                                        size="small" 
+                                        checked={autoRestartServers.includes(game.id)}
+                                        onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                                        style={{marginLeft: 4}}
+                                      />
+                                    </span>
                                   </div>
                                   <Button 
                                     type="default" 
@@ -1964,6 +2143,15 @@ const checkServerStatus = async (gameId: string) => {
                                     >
                                       卸载
                                     </Button>
+                                    <span style={{marginLeft: 8}}>
+                                      自启动: 
+                                      <Switch 
+                                        size="small" 
+                                        checked={autoRestartServers.includes(game.id)}
+                                        onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                                        style={{marginLeft: 4}}
+                                      />
+                                    </span>
                                   </div>
                                   <div style={{display: 'flex', justifyContent: 'center'}}>
                                     <Button 
@@ -2016,80 +2204,21 @@ const checkServerStatus = async (gameId: string) => {
                         title={game.name}
                         extra={<Tag color="green">运行中</Tag>}
                         actions={[
-                          <Button 
-                            key="view" 
-                            type="primary" 
-                            onClick={() => {
-                              setSelectedServerGame(game);
-                              setServerModalVisible(true);
-                            }}
+                          <Button
+                            key="console"
+                            type="primary"
                             size="small"
                             style={{ width: '100%', maxWidth: '100px' }}
+                            onClick={() => handleStartServer(game.id)}
                           >
                             控制台
                           </Button>,
                           <Button
                             key="folder"
                             icon={<FolderOutlined />}
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
                             onClick={() => handleOpenGameFolder(game.id)}
-                            size="small"
-                            style={{ width: '100%', maxWidth: '100px' }}
-                          >
-                            文件夹
-                          </Button>,
-                          <Dropdown key="stop" overlay={
-                            <Menu>
-                              <Menu.Item key="1" onClick={() => handleStopServer(game.id, false)}>
-                                标准停止(Ctrl+C)
-                              </Menu.Item>
-                              <Menu.Item key="2" danger onClick={() => handleStopServer(game.id, true)}>
-                                强行停止(Kill)
-                              </Menu.Item>
-                            </Menu>
-                          } trigger={['click']} overlayClassName="stop-server-dropdown">
-                            <Button danger size="small" style={{ width: '100%', maxWidth: '100px' }}>
-                              停止服务端 <DownOutlined />
-                            </Button>
-                          </Dropdown>
-                        ]}
-                      >
-                        <p>游戏ID: {game.id}</p>
-                      </Card>
-                    </Col>
-                  ))}
-                  
-                {/* 显示运行中的外部游戏 */}
-                {externalGames
-                  .filter(game => runningServers.includes(game.id))
-                  .map(game => (
-                    <Col key={game.id} xs={24} sm={12} md={8} lg={6}>
-                      <Card
-                        title={
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span>{game.name}</span>
-                            <Tag color="orange">外来</Tag>
-                          </div>
-                        }
-                        extra={<Tag color="green">运行中</Tag>}
-                        actions={[
-                          <Button 
-                            key="view" 
-                            type="primary" 
-                            onClick={() => {
-                              setSelectedServerGame(game);
-                              setServerModalVisible(true);
-                            }}
-                            size="small"
-                            style={{ width: '100%', maxWidth: '100px' }}
-                          >
-                            控制台
-                          </Button>,
-                          <Button
-                            key="folder"
-                            icon={<FolderOutlined />}
-                            onClick={() => handleOpenGameFolder(game.id)}
-                            size="small"
-                            style={{ width: '100%', maxWidth: '100px' }}
                           >
                             文件夹
                           </Button>,
@@ -2110,6 +2239,77 @@ const checkServerStatus = async (gameId: string) => {
                         ]}
                       >
                         <p>位置: /home/steam/games/{game.id}</p>
+                        <div style={{marginTop: 8}}>
+                          自启动: 
+                          <Switch 
+                            size="small" 
+                            checked={autoRestartServers.includes(game.id)}
+                            onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                            style={{marginLeft: 4}}
+                          />
+                        </div>
+                      </Card>
+                    </Col>
+                  ))}
+                  
+                {/* 显示运行中的外部游戏 */}
+                {externalGames
+                  .filter(game => runningServers.includes(game.id))
+                  .map(game => (
+                    <Col key={game.id} xs={24} sm={12} md={8} lg={6}>
+                      <Card
+                        title={
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>{game.name}</span>
+                            <Tag color="orange">外来</Tag>
+                          </div>
+                        }
+                        extra={<Tag color="green">运行中</Tag>}
+                        actions={[
+                          <Button
+                            key="console"
+                            type="primary"
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
+                            onClick={() => handleStartServer(game.id)}
+                          >
+                            控制台
+                          </Button>,
+                          <Button
+                            key="folder"
+                            icon={<FolderOutlined />}
+                            size="small"
+                            style={{ width: '100%', maxWidth: '100px' }}
+                            onClick={() => handleOpenGameFolder(game.id)}
+                          >
+                            文件夹
+                          </Button>,
+                          <Dropdown key="stop" overlay={
+                            <Menu>
+                              <Menu.Item key="1" onClick={() => handleStopServer(game.id, false)}>
+                                标准停止(Ctrl+C)
+                              </Menu.Item>
+                              <Menu.Item key="2" danger onClick={() => handleStopServer(game.id, true)}>
+                                强行停止(Kill)
+                              </Menu.Item>
+                            </Menu>
+                          } trigger={['click']} overlayClassName="stop-server-dropdown">
+                            <Button danger size="small" style={{ width: '100%', maxWidth: '100px' }}>
+                              停止服务端 <DownOutlined />
+                            </Button>
+                          </Dropdown>
+                        ]}
+                      >
+                        <p>位置: /home/steam/games/{game.id}</p>
+                        <div style={{marginTop: 8}}>
+                          自启动: 
+                          <Switch 
+                            size="small" 
+                            checked={autoRestartServers.includes(game.id)}
+                            onChange={(checked) => handleAutoRestartChange(game.id, checked)}
+                            style={{marginLeft: 4}}
+                          />
+                        </div>
                       </Card>
                     </Col>
                   ))}
@@ -2180,7 +2380,7 @@ const checkServerStatus = async (gameId: string) => {
                 // 重新连接到控制台，保留现有输出并获取历史记录
                 handleStartServer(selectedServerGame?.id, true);
               }}
-              size="middle"
+              size={isMobile ? "small" : "middle"}
             >
               重新连接
             </Button>
@@ -2194,7 +2394,7 @@ const checkServerStatus = async (gameId: string) => {
                   }));
                 }
               }}
-              size="middle"
+              size={isMobile ? "small" : "middle"}
             >
               清空输出
             </Button>
@@ -2202,7 +2402,7 @@ const checkServerStatus = async (gameId: string) => {
               onClick={() => {
                 handleStopServer(selectedServerGame?.id);
               }}
-              size="middle"
+              size={isMobile ? "small" : "middle"}
             >
               停止服务器
             </Button>
@@ -2212,13 +2412,13 @@ const checkServerStatus = async (gameId: string) => {
                 // 关闭控制台时刷新服务器状态
                 refreshServerStatus();
               }}
-              size="middle"
+              size={isMobile ? "small" : "middle"}
             >
               关闭控制台
             </Button>
           </div>
         }
-        width={800}
+        width={isMobile ? "95%" : 800}
       >
         <div className="server-console">
           <div className="terminal-container">
@@ -2325,7 +2525,7 @@ const checkServerStatus = async (gameId: string) => {
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={null}
-        width={600}
+        width={isMobile ? "95%" : 600}
       >
         {detailGame && (
           <div className="game-detail">
@@ -2376,12 +2576,12 @@ const checkServerStatus = async (gameId: string) => {
         open={fileManagerVisible}
         onCancel={() => setFileManagerVisible(false)}
         footer={null}
-        width="80%"
+        width={isMobile ? "95%" : "80%"}
         style={{ top: 20 }}
         bodyStyle={{ 
           padding: 0, 
           maxHeight: 'calc(100vh - 150px)',
-          minHeight: '550px',
+          minHeight: isMobile ? '400px' : '550px',
           overflow: 'auto',
           paddingBottom: '30px'
         }}
