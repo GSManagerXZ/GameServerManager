@@ -18,6 +18,7 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
   const [loginError, setLoginError] = useState(false);
+  const [hasFocus, setHasFocus] = useState(false);
   const navigate = useNavigate();
 
   // 组件加载时检查是否首次使用
@@ -102,11 +103,28 @@ const Login: React.FC = () => {
     }
   };
 
+  // 处理表单项获得焦点的函数
+  const handleFocus = () => {
+    setHasFocus(true);
+  };
+
+  // 处理表单项失去焦点的函数
+  const handleBlur = () => {
+    // 延迟设置失去焦点，以防止在切换表单项时闪烁
+    setTimeout(() => {
+      const activeElement = document.activeElement;
+      const formElement = document.querySelector('.login-card');
+      if (formElement && !formElement.contains(activeElement)) {
+        setHasFocus(false);
+      }
+    }, 100);
+  };
+
   return (
     <div className={`login-container ${loginSuccess ? 'login-success' : ''}`}>
       <Card 
         title="GameServerManager"
-        className="login-card"
+        className={`login-card ${hasFocus ? 'focused' : ''}`}
       >
         <Form
           name="login"
@@ -122,6 +140,8 @@ const Login: React.FC = () => {
             <Input 
               prefix={<UserOutlined />} 
               placeholder="用户名" 
+              onFocus={handleFocus}
+              onBlur={handleBlur}
             />
           </Form.Item>
 
@@ -132,6 +152,8 @@ const Login: React.FC = () => {
             <Input.Password
               prefix={<LockOutlined />}
               placeholder="密码"
+              onFocus={handleFocus}
+              onBlur={handleBlur}
             />
           </Form.Item>
 

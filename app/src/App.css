@@ -74,7 +74,9 @@ body {
 
 /* 内容区域样式，根据侧边栏的展开/折叠状态调整 */
 .content-with-fixed-sider {
-  transition: margin-left 0.2s;
+  transition: margin-left 0.05s;
+  position: relative;
+  z-index: 1;
 }
 
 .content-with-fixed-sider.sider-collapsed {
@@ -86,12 +88,10 @@ body {
 }
 
 .site-header {
-  background: #fff;
   padding: 0 24px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 10;
   display: flex;
   align-items: center;
   width: 100%;
@@ -123,8 +123,9 @@ body {
 /* 容器信息页面样式 */
 .container-info {
   padding: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.7);
   border-radius: 8px;
+  backdrop-filter: blur(10px);
 }
 
 .container-info .page-header {
@@ -153,16 +154,26 @@ body {
 /* 游戏管理页面样式 */
 .game-cards {
   padding: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
   border-radius: 8px;
 }
 
 .game-tip {
-  font-size: 12px;
-  color: #888;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-top: 20px;
+  padding: 14px 18px;
+  background: rgba(240, 246, 255, 0.7);
+  border-radius: 8px;
+  font-size: 15px;
+  color: #333;
+  box-shadow: 0 2px 8px rgba(22,119,255,0.04);
+  backdrop-filter: blur(10px);
+}
+
+.game-tip h4 {
+  margin-bottom: 8px;
+  color: #1677ff;
+  font-size: 16px;
 }
 
 .loading-container {
@@ -183,7 +194,8 @@ body {
 
 .running-servers {
   padding: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
   border-radius: 8px;
 }
 
@@ -248,6 +260,8 @@ body {
     height: 42px;
     justify-content: space-between;
     align-items: center;
+    background: rgba(255, 255, 255, 0.8) !important;
+    backdrop-filter: blur(10px);
   }
   
   .header-title {
@@ -296,11 +310,15 @@ body {
     max-height: 50px;
     overflow: hidden;
     transition: max-height 0.3s;
+    background: rgba(255, 255, 255, 0.8) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(240, 240, 240, 0.5);
   }
   
   .fixed-sider.expanded {
     max-height: 300px;
     overflow: auto;
+    background: rgba(255, 255, 255, 0.9) !important;
   }
   
   .content-with-fixed-sider {
@@ -415,6 +433,17 @@ body {
     white-space: normal;
     word-break: break-word;
   }
+  
+  /* 移动端抽屉菜单 */
+  .ant-drawer-content {
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(15px);
+  }
+  
+  .ant-drawer-header {
+    background: transparent;
+    border-bottom: 1px solid rgba(240, 240, 240, 0.5);
+  }
 }
 
 /* 小屏幕手机适配 */
@@ -495,10 +524,10 @@ body {
 
 .layout {
   min-height: 100vh;
-  background: linear-gradient(135deg, #e0e7ff 0%, #f5f7fa 100%);
   width: 100%;
   max-width: none;
   padding: 0;
+  position: relative;
 }
 
 .header {
@@ -518,7 +547,7 @@ body {
   color: rgba(255, 255, 255, 0.85);
   margin-right: 20px;
   font-size: 16px;
-  transition: color 0.3s ease;
+  transition: color 0.1s ease;
 }
 
 .navbar a:hover {
@@ -530,6 +559,11 @@ body {
   min-height: 600px;
   width: 100%;
   max-width: 100%;
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(3px);
+  border-radius: 10px;
 }
 
 .app-container {
@@ -537,6 +571,8 @@ body {
   width: 100%;
   margin: 0;
   padding: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .footer {
@@ -555,7 +591,7 @@ body {
   border-radius: 8px !important;
   box-shadow: 0 2px 8px rgba(22,119,255,0.08);
   border: none !important;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
   min-height: 180px;
   position: relative;
@@ -573,7 +609,7 @@ body {
   background: linear-gradient(90deg, #1677ff 0%, #69b1ff 100%);
   border: none;
   font-weight: 500;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.15s;
 }
 
 .ant-btn-primary:hover, .ant-btn-primary:focus {
@@ -639,32 +675,19 @@ body {
 }
 */
 
-.game-tip {
-  margin-top: 20px;
-  padding: 14px 18px;
-  background: linear-gradient(90deg, #f0f6ff 0%, #fff 100%);
-  border-radius: 8px;
-  font-size: 15px;
-  color: #333;
-  box-shadow: 0 2px 8px rgba(22,119,255,0.04);
-}
-
-.game-tip h4 {
-  margin-bottom: 8px;
-  color: #1677ff;
-  font-size: 16px;
-}
-
 /* 终端面板风格 */
 .terminal-container {
-  background: #181c27;
+  background: rgba(24, 28, 39, 0.85);
   border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
   padding: 12px 0 0 0;
   margin-bottom: 8px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
 .terminal {
-  background: #181c27;
+  background: rgba(24, 28, 39, 0.7);
   color: #00ff90;
   font-family: 'JetBrains Mono', 'Fira Mono', 'Consolas', monospace;
   padding: 16px;
@@ -675,7 +698,9 @@ body {
   white-space: pre-wrap;
   font-size: 15px;
   box-shadow: none;
+  backdrop-filter: blur(5px);
 }
+
 .terminal .green { color: #00ff90; }
 .terminal .yellow { color: #ffe066; }
 .terminal .red { color: #ff4d4f; }
@@ -686,14 +711,16 @@ body {
 /* 终端输入框样式 */
 .terminal-input-container {
   padding: 8px 16px 16px 16px;
-  background: #181c27;
+  background: rgba(24, 28, 39, 0.8);
   border-radius: 0 0 10px 10px;
+  backdrop-filter: blur(5px);
 }
 
 .terminal-input-container .ant-input-affix-wrapper {
-  background: #252a37;
-  border: 1px solid #323846;
+  background: rgba(37, 42, 55, 0.9);
+  border: 1px solid rgba(50, 56, 70, 0.8);
   color: #00ff90;
+  backdrop-filter: blur(5px);
 }
 
 .terminal-input-container .ant-input {
@@ -749,7 +776,7 @@ body {
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.3s;
+  transition: all 0.15s;
 }
 
 .btn-primary:hover {
@@ -766,7 +793,7 @@ body {
   cursor: pointer;
   margin-right: 8px;
   font-size: 14px;
-  transition: all 0.3s;
+  transition: all 0.15s;
 }
 
 .btn-default:hover {
@@ -780,6 +807,8 @@ body {
   max-width: 100%;
   margin: 0 !important;
   padding: 16px;
+  position: relative;
+  z-index: 1;
 }
 
 /* 停止服务器按钮样式 */
@@ -790,7 +819,7 @@ body {
 
 .stop-server-dropdown .ant-dropdown-menu-item {
   padding: 8px 16px;
-  transition: all 0.3s;
+  transition: all 0.15s;
 }
 
 .stop-server-dropdown .ant-dropdown-menu-item-danger {
@@ -873,7 +902,7 @@ body {
 .logout-btn {
   color: #ff4d4f !important;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.15s;
 }
 
 .logout-btn:hover {
@@ -887,23 +916,86 @@ body {
   justify-content: center;
   align-items: center;
   height: 100vh;
-  background: linear-gradient(135deg, #1677ff 0%, #69b1ff 100%);
+  background: url('https://t.alcy.cc/ycy') center center no-repeat fixed;
+  background-size: cover;
   animation: fadeIn 0.8s ease-out;
+  position: relative;
+}
+
+.login-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.3);
+  z-index: 1;
 }
 
 .login-card {
   width: 100%;
   max-width: 400px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
   border-radius: 8px;
   animation: fadeIn 0.6s ease-out 0.2s backwards;
+  position: relative;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+  background-color: rgba(255, 255, 255, 0.8);
+  transition: all 0.15s ease;
+}
+
+.login-card:focus-within {
+  backdrop-filter: blur(15px);
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+}
+
+.login-card.focused {
+  backdrop-filter: blur(15px);
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+  transform: translateY(-5px);
 }
 
 .login-card .ant-card-head {
   text-align: center;
   font-size: 20px;
   font-weight: bold;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid rgba(240, 240, 240, 0.8);
+  background-color: transparent;
+}
+
+.login-container .ant-form-item {
+  margin-bottom: 16px; /* 调整FormItem的底部边距，减少与输入框边框的重叠感 */
+  border: none !important; /* 强制移除FormItem可能带有的边框 */
+  box-shadow: none !important; /* 强制移除FormItem可能带有的阴影 */
+}
+
+.login-container .ant-input-affix-wrapper {
+  background-color: rgba(255, 255, 255, 0.9);
+  transition: all 0.15s ease;
+  border: 1px solid rgba(217, 217, 217, 0.6);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.login-container .ant-input-affix-wrapper:hover {
+  border-color: #40a9ff;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.15);
+}
+
+.login-container .ant-input-affix-wrapper:focus,
+.login-container .ant-input-affix-wrapper-focused {
+  background-color: rgba(255, 255, 255, 1);
+  box-shadow: 0 0 10px rgba(22, 119, 255, 0.3);
+  border-color: #1677ff;
+  transform: translateY(-2px);
+}
+
+.login-container .ant-input {
+  background-color: transparent;
+  border: none !important; /* 确保Input本身没有额外的边框 */
 }
 
 .loading-container {
@@ -918,16 +1010,23 @@ body {
 .login-form-button {
   position: relative;
   overflow: hidden;
-  transition: all 0.3s;
+  transition: all 0.15s;
+  background-image: linear-gradient(135deg, #1677ff 0%, #69b1ff 100%);
+  border: none;
+  height: 45px;
+  margin-top: 10px;
+  box-shadow: 0 4px 8px rgba(22, 119, 255, 0.3);
 }
 
 .login-form-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.2);
+  box-shadow: 0 6px 12px rgba(22, 119, 255, 0.4);
+  background-image: linear-gradient(135deg, #1677ff 10%, #69b1ff 90%);
 }
 
 .login-form-button:active {
   transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.3);
 }
 
 .login-success {
@@ -941,7 +1040,7 @@ body {
 /* 用户信息和退出按钮动画 */
 .logout-icon {
   margin-right: 4px;
-  transition: all 0.3s;
+  transition: all 0.15s;
 }
 
 .logout-btn:hover .logout-icon {
@@ -957,6 +1056,10 @@ body {
   display: flex;
   flex-direction: column;
   height: 500px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  padding: 10px;
+  backdrop-filter: blur(5px);
 }
 
 .terminal-container {
@@ -1028,20 +1131,19 @@ body {
 
 /* 终端滚动条样式 */
 .terminal-output::-webkit-scrollbar {
-  width: 8px;
+  display: none;
 }
 
 .terminal-output::-webkit-scrollbar-track {
-  background: #2e2e2e;
+  display: none;
 }
 
 .terminal-output::-webkit-scrollbar-thumb {
-  background-color: #555;
-  border-radius: 4px;
+  display: none;
 }
 
 .terminal-output::-webkit-scrollbar-thumb:hover {
-  background-color: #777;
+  display: none;
 }
 
 /* 终端底部参考点 */
@@ -1085,6 +1187,10 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 10px;
+  border-radius: 8px;
+  backdrop-filter: blur(5px);
 }
 
 .server-console-buttons .ant-btn {
@@ -1105,16 +1211,20 @@ body {
 
 /* 修改通用卡片样式，添加上浮效果 */
 .ant-card {
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   box-shadow: 0 2px 8px rgba(22,119,255,0.08);
   margin-bottom: 12px;
   border-radius: 8px !important;
   border: none !important;
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(10px);
 }
 
 .ant-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 6px 16px rgba(22,119,255,0.15);
+  backdrop-filter: blur(15px);
+  background-color: rgba(255, 255, 255, 0.9) !important;
 }
 
 /* 游戏卡片样式 */
@@ -1122,7 +1232,7 @@ body {
   border-radius: 8px !important;
   box-shadow: 0 2px 8px rgba(22,119,255,0.08);
   border: none !important;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
   min-height: 180px;
   position: relative;
@@ -1147,7 +1257,7 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s ease;
+  transition: all 0.15s ease;
   border: none !important;
 }
 
@@ -1220,3 +1330,832 @@ body {
 .running-servers .ant-col:nth-child(8) { animation-delay: 0.4s; }
 .running-servers .ant-col:nth-child(9) { animation-delay: 0.45s; }
 .running-servers .ant-col:nth-child(10) { animation-delay: 0.5s; }
+
+/* 页签样式优化 */
+.ant-tabs-nav {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  padding: 5px;
+  margin-bottom: 16px;
+}
+
+.ant-tabs-tab {
+  background: transparent !important;
+  border-radius: 6px !important;
+  transition: all 0.15s;
+}
+
+.ant-tabs-tab-active {
+  background: rgba(22, 119, 255, 0.1) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #1677ff !important;
+}
+
+/* 表格样式优化 */
+.ant-table {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+}
+
+.ant-table-thead > tr > th {
+  background: rgba(245, 245, 245, 0.8) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: rgba(230, 247, 255, 0.5) !important;
+}
+
+/* 模态框样式 */
+.ant-modal-content {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(15px);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(240, 240, 240, 0.8);
+}
+
+.ant-modal-footer {
+  border-top: 1px solid rgba(240, 240, 240, 0.8);
+}
+
+/* 补充下拉菜单、通知、输入框等组件的毛玻璃效果 */
+.ant-dropdown-menu,
+.ant-notification-notice,
+.ant-message-notice-content {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+.ant-dropdown-menu-item:hover {
+  background: rgba(22, 119, 255, 0.1) !important;
+}
+
+.ant-select-dropdown {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+.ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(22, 119, 255, 0.1) !important;
+}
+
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(22, 119, 255, 0.2) !important;
+}
+
+/* 优化表单、输入框样式 */
+.ant-form-item-label > label {
+  color: rgba(0, 0, 0, 0.75);
+  font-weight: 500;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-select-selector,
+.ant-radio-button-wrapper {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(217, 217, 217, 0.7) !important;
+  transition: all 0.15s;
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-input-number:hover,
+.ant-select-selector:hover,
+.ant-radio-button-wrapper:hover {
+  border-color: #40a9ff !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused,
+.ant-select-focused .ant-select-selector,
+.ant-radio-button-wrapper-checked {
+  border-color: #1677ff !important;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.2) !important;
+  background: rgba(255, 255, 255, 1) !important;
+}
+
+/* 确保终端文字内容不被毛玻璃效果影响可读性 */
+.terminal .terminal-line {
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+/* 背景图片和毛玻璃效果切换样式 */
+.with-random-bg {
+  background: url('https://t.alcy.cc/ycy') center center no-repeat fixed;
+  background-size: cover;
+  position: relative;
+}
+
+.with-random-bg::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.3);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.without-random-bg {
+  background: linear-gradient(135deg, #e0e7ff 0%, #f5f7fa 100%);
+  position: relative;
+}
+
+/* 针对不同组件在背景开关状态下的样式 */
+.with-random-bg .site-header {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
+}
+
+.without-random-bg .site-header {
+  background: #fff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.with-random-bg .fixed-sider {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(10px);
+  border-right: 1px solid rgba(240, 240, 240, 0.8);
+}
+
+.without-random-bg .fixed-sider {
+  background: #fff !important;
+  border-right: 1px solid #f0f0f0;
+}
+
+.with-random-bg .ant-card {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(10px);
+}
+
+.without-random-bg .ant-card {
+  background-color: #fff !important;
+}
+
+.with-random-bg .game-cards,
+.with-random-bg .running-servers,
+.with-random-bg .container-info {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.without-random-bg .game-cards,
+.without-random-bg .running-servers,
+.without-random-bg .container-info {
+  background: #fff;
+}
+
+/* 设置背景开关样式 */
+.user-info .ant-switch {
+  margin-right: 12px;
+  vertical-align: middle;
+}
+
+/* 登录页面样式保持不变，始终使用随机背景 */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background: url('https://t.alcy.cc/ycy') center center no-repeat fixed;
+  background-size: cover;
+  animation: fadeIn 0.8s ease-out;
+  position: relative;
+}
+
+/* 用户不活跃状态下的透明度变化 */
+.user-inactive .ant-card,
+.user-inactive .game-cards,
+.user-inactive .running-servers,
+.user-inactive .container-info,
+.user-inactive .ant-modal-content,
+.user-inactive .ant-tabs-nav,
+.user-inactive .ant-tabs-content-holder,
+.user-inactive .ant-card-head,
+.user-inactive .ant-card-body,
+.user-inactive .ant-modal-header,
+.user-inactive .ant-modal-body,
+.user-inactive .ant-modal-footer {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(1px) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.01) !important;
+  opacity: 0.08;
+}
+
+/* 不活跃状态下的头部和侧边栏透明度变化 */
+.user-inactive .site-header {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(1px) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.01) !important;
+  opacity: 0.08;
+}
+
+.user-inactive .fixed-sider {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(1px) !important;
+  opacity: 0.08;
+}
+
+/* 不活跃状态下的表格透明度变化 */
+.user-inactive .ant-table {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(1px) !important;
+  opacity: 0.08;
+}
+
+.user-inactive .ant-table-thead > tr > th {
+  background: rgba(245, 245, 245, 0.05) !important;
+}
+
+/* 不活跃状态下的表单组件透明度变化 */
+.user-inactive .ant-input,
+.user-inactive .ant-input-affix-wrapper,
+.user-inactive .ant-input-number,
+.user-inactive .ant-select-selector,
+.user-inactive .ant-radio-button-wrapper {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(1px) !important;
+  opacity: 0.08;
+}
+
+/* 不活跃状态下的按钮透明度变化 */
+.user-inactive .ant-btn {
+  opacity: 0.05;
+}
+
+/* 控制台区域在不活跃状态下的透明度 */
+.user-inactive .server-console {
+  background: rgba(0, 0, 0, 0.01) !important;
+  opacity: 0.08;
+}
+
+.user-inactive .terminal-container {
+  background: rgba(24, 28, 39, 0.1) !important;
+  opacity: 0.08;
+}
+
+/* 使用关键帧动画来实现呼吸效果 */
+@keyframes breathe {
+  0% {
+    opacity: 0.03;
+  }
+  50% {
+    opacity: 0.10;
+  }
+  100% {
+    opacity: 0.03;
+  }
+}
+
+/* 当用户不活跃时，添加呼吸动画效果 */
+.user-inactive .ant-card {
+  animation: breathe 3s infinite ease-in-out;
+}
+
+/* 用户不活跃状态下的卡片透明度动画 */
+/* 所有元素的基础过渡效果 */
+.site-layout * {
+  transition: all 0.5s ease-in-out;
+}
+
+/* 当鼠标悬停在不活跃状态的元素上时，提高可见度以便交互 */
+.user-inactive .ant-card:hover,
+.user-inactive .game-cards:hover,
+.user-inactive .running-servers:hover,
+.user-inactive .container-info:hover,
+.user-inactive .site-header:hover,
+.user-inactive .fixed-sider:hover,
+.user-inactive .ant-table:hover,
+.user-inactive .server-console:hover,
+.user-inactive .terminal-container:hover {
+  opacity: 0.9 !important;
+  backdrop-filter: blur(12px) !important;
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2) !important;
+  transition: all 0.05s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  animation: none !important;
+  transform: translateY(-3px) !important;
+  z-index: 10 !important;
+}
+
+/* 按钮和表单元素悬停时的样式 */
+.user-inactive .ant-btn:hover,
+.user-inactive .ant-input:hover,
+.user-inactive .ant-input-affix-wrapper:hover,
+.user-inactive .ant-input-number:hover,
+.user-inactive .ant-select-selector:hover {
+  opacity: 0.95 !important;
+  transition: all 0.05s ease-out !important;
+  transform: scale(1.03) !important;
+}
+
+/* 确保切换开关在不活跃状态下仍然清晰可见 */
+.user-inactive .user-info .ant-switch {
+  opacity: 0.95 !important;
+  box-shadow: 0 0 8px rgba(22, 119, 255, 0.5) !important;
+}
+
+/* 禁用所有滚动条但保留滚动功能 */
+* {
+  -ms-overflow-style: none;  /* IE 和 Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Chrome, Safari 和 Opera 的滚动条 */
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* 终端滚动条已被全局样式禁用 */
+
+/* 关于项目页面样式 */
+.about-page {
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  border-radius: 0;
+  animation: fadeIn 0.5s ease-out;
+  height: calc(100vh - 84px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.about-card {
+  max-width: 1000px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.about-card.full-width {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+}
+
+.about-card.full-width .ant-card-body {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.about-card.full-width .ant-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.about-card.full-width .ant-tabs-content {
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+
+.about-card.full-width .ant-tabs-tabpane {
+  height: 100%;
+  overflow: hidden;
+}
+
+.about-card.full-width .official-website-container {
+  height: 100%;
+  overflow: hidden;
+}
+
+.about-card.full-width .official-website-container iframe {
+  height: calc(100vh - 200px);
+}
+
+.about-card ul {
+  padding-left: 20px;
+}
+
+.about-card li {
+  margin-bottom: 8px;
+}
+
+.about-card .ant-typography {
+  color: #333;
+}
+
+.about-card .ant-typography h2 {
+  color: #1677ff;
+  margin-bottom: 16px;
+}
+
+.about-card .ant-typography h3 {
+  color: #1677ff;
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+
+/* 关于项目页面标签页样式 */
+.about-card .ant-tabs-nav {
+  margin-bottom: 20px;
+  background-color: #f5f7fa;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.about-card .ant-tabs-tab {
+  padding: 12px 20px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  border-radius: 8px !important;
+  margin-left: 4px;
+}
+
+.about-card .ant-tabs-tab.ant-tabs-tab-active {
+  font-weight: 500;
+  background-color: #1677ff !important;
+}
+
+.about-card .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: white !important;
+}
+
+.about-card .ant-tabs-ink-bar {
+  display: none;
+}
+
+.about-card .ant-tabs-content {
+  padding: 0;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .about-card .ant-tabs-tab {
+    padding: 10px 15px;
+    font-size: 14px;
+  }
+}
+
+/* 官网内容iframe样式 */
+.official-website-container, .github-container {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.official-website-container iframe, .github-container iframe {
+  transition: all 0.3s ease;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .official-website-container iframe, .github-container iframe {
+    height: 500px;
+  }
+}
+
+@media (max-width: 480px) {
+  .official-website-container iframe, .github-container iframe {
+    height: 400px;
+  }
+}
+
+/* GitHub信息容器样式 */
+.github-info-container {
+  padding: 20px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  max-width: 800px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.github-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.github-logo {
+  font-size: 40px;
+  margin-right: 16px;
+  color: #333;
+}
+
+.github-description {
+  font-size: 18px;
+  color: #555;
+  margin-bottom: 24px;
+}
+
+.github-stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.github-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1677ff;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.language-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.language-stat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.language-name {
+  font-size: 16px;
+  color: #333;
+}
+
+.language-percentage {
+  font-size: 14px;
+  color: #666;
+  margin-left: auto;
+}
+
+.github-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 32px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .github-info-container {
+    padding: 16px;
+  }
+  
+  .github-logo {
+    font-size: 32px;
+  }
+  
+  .github-stats {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .github-info-container {
+    padding: 12px;
+  }
+  
+  .github-logo {
+    font-size: 28px;
+  }
+  
+  .github-stats {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .github-stat {
+    flex-direction: row;
+    gap: 8px;
+  }
+  
+  .stat-number {
+    font-size: 20px;
+  }
+}
+
+/* BetaNotice 样式 */
+.beta-notice-modal .ant-modal-content {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.beta-notice-modal .ant-modal-header {
+  background-color: #1890ff;
+  padding: 16px 24px;
+}
+
+.beta-notice-modal .ant-modal-title h4 {
+  color: #fff;
+  margin: 0;
+}
+
+.beta-notice-modal .ant-modal-body {
+  padding: 24px;
+}
+
+.beta-notice-modal .ant-modal-footer {
+  border-top: none;
+  padding: 10px 24px 24px;
+}
+
+.beta-notice-modal .ant-btn-primary {
+  height: 40px;
+  font-size: 16px;
+  width: 100%;
+}
+
+/* 赞助项目页面样式 */
+.sponsor-container {
+  padding: 20px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  max-width: 800px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.sponsor-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.sponsor-logo {
+  font-size: 40px;
+  margin-right: 16px;
+  color: #ff4d4f;
+}
+
+.sponsor-description {
+  font-size: 18px;
+  color: #555;
+  margin-bottom: 24px;
+  line-height: 1.8;
+}
+
+.sponsor-quote {
+  padding: 16px;
+  background-color: rgba(24, 144, 255, 0.05);
+  border-left: 4px solid #1890ff;
+  border-radius: 0 8px 8px 0;
+  margin: 24px 0;
+}
+
+.sponsor-quote blockquote {
+  margin: 0;
+  font-size: 18px;
+  font-style: italic;
+  color: #1890ff;
+  text-align: center;
+}
+
+.sponsor-options {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin: 24px 0;
+}
+
+.sponsor-option {
+  display: flex;
+  background-color: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.sponsor-option:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.sponsor-option-icon {
+  font-size: 36px;
+  margin-right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1890ff 0%, #69c0ff 100%);
+  color: white;
+}
+
+.sponsor-option:nth-child(2) .sponsor-option-icon {
+  background: linear-gradient(135deg, #722ed1 0%, #b37feb 100%);
+}
+
+.sponsor-option:nth-child(3) .sponsor-option-icon {
+  background: linear-gradient(135deg, #13c2c2 0%, #5cdbd3 100%);
+}
+
+.sponsor-option-content {
+  flex: 1;
+}
+
+.sponsor-option-content h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.sponsor-button {
+  margin-top: 12px;
+}
+
+.sponsor-footer {
+  margin-top: 32px;
+  text-align: center;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .sponsor-container {
+    padding: 16px;
+  }
+  
+  .sponsor-logo {
+    font-size: 32px;
+  }
+  
+  .sponsor-option {
+    padding: 16px;
+  }
+  
+  .sponsor-option-icon {
+    font-size: 28px;
+    width: 50px;
+    height: 50px;
+    margin-right: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sponsor-container {
+    padding: 12px;
+  }
+  
+  .sponsor-logo {
+    font-size: 28px;
+  }
+  
+  .sponsor-description {
+    font-size: 16px;
+  }
+  
+  .sponsor-quote blockquote {
+    font-size: 16px;
+  }
+  
+  .sponsor-option {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 16px 12px;
+  }
+  
+  .sponsor-option-icon {
+    margin-right: 0;
+    margin-bottom: 16px;
+  }
+}

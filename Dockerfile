@@ -181,7 +181,7 @@ RUN mkdir -p ${STEAMCMD_DIR} \
 COPY --chown=steam:steam ./app/package.json ./app/package-lock.json* /home/steam/app/
 WORKDIR /home/steam/app
 RUN npm install --legacy-peer-deps --no-fund && \
-    npm install react-router-dom @types/react @types/react-dom react-dom @monaco-editor/react monaco-editor
+    npm install react-router-dom @types/react @types/react-dom react-dom @monaco-editor/react monaco-editor js-cookie @types/js-cookie
 
 # 安装后端依赖
 RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil PyJWT rarfile zstandard
@@ -208,7 +208,16 @@ EXPOSE 5000
 # 暴露常用游戏端口
 EXPOSE 27015-27020/tcp
 EXPOSE 27015-27020/udp
-EXPOSE 7777/udp 7778/udp 8211/udp
+
+# 复制FRP文件
+COPY --chown=steam:steam ./frp/LoCyanFrp /home/steam/FRP/LoCyanFrp
+COPY --chown=steam:steam ./frp/frpc /home/steam/FRP/frpc
+COPY --chown=steam:steam ./frp/mefrp /home/steam/FRP/mefrp
+COPY --chown=steam:steam ./frp/Sakura /home/steam/FRP/Sakura
+RUN chmod +x /home/steam/FRP/LoCyanFrp/frpc
+RUN chmod +x /home/steam/FRP/frpc/frpc
+RUN chmod +x /home/steam/FRP/mefrp/frpc
+RUN chmod +x /home/steam/FRP/Sakura/frpc
 
 # 最后一步：复制前端代码并构建
 COPY --chown=steam:steam ./app /home/steam/app
@@ -220,15 +229,6 @@ RUN npm run build && \
 COPY --chown=steam:steam ./server /home/steam/server
 RUN chmod +x /home/steam/server/start_web.sh
 
-# 复制FRP文件
-COPY --chown=steam:steam ./frp/LoCyanFrp /home/steam/FRP/LoCyanFrp
-COPY --chown=steam:steam ./frp/frpc /home/steam/FRP/frpc
-COPY --chown=steam:steam ./frp/mefrp /home/steam/FRP/mefrp
-COPY --chown=steam:steam ./frp/Sakura /home/steam/FRP/Sakura
-RUN chmod +x /home/steam/FRP/LoCyanFrp/frpc
-RUN chmod +x /home/steam/FRP/frpc/frpc
-RUN chmod +x /home/steam/FRP/mefrp/frpc
-RUN chmod +x /home/steam/FRP/Sakura/frpc
 
 # 设置工作目录和启动命令
 WORKDIR /home/steam

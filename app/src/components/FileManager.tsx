@@ -13,11 +13,16 @@ import {
   SaveOutlined, ArrowUpOutlined,
   FileAddOutlined, FolderAddOutlined,
   InboxOutlined, EyeOutlined, FileImageOutlined,
-  ReloadOutlined, CompressOutlined, FileZipOutlined
+  ReloadOutlined, CompressOutlined, FileZipOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import Editor, { Monaco } from "@monaco-editor/react";
 import * as monaco from 'monaco-editor';
+import ReactDOM from 'react-dom';
+import FileManagerHelpModal from './FileManagerHelpModal';
+import Cookies from 'js-cookie';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -66,6 +71,14 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   const [newItemName, setNewItemName] = useState<string>('');
   const [breadcrumbItems, setBreadcrumbItems] = useState<{ path: string; title: string }[]>([]);
   const downloadLinkRef = useRef<HTMLAnchorElement>(null);
+  // 工具栏折叠状态
+  const [toolbarCollapsed, setToolbarCollapsed] = useState<boolean>(() => {
+    // 从本地存储中获取工具栏折叠状态
+    const savedState = localStorage.getItem('fileManagerToolbarCollapsed');
+    return savedState ? JSON.parse(savedState) : false;
+  });
+  // 悬停状态
+  const [isHovering, setIsHovering] = useState<boolean>(false);
   // 右键菜单状态
   const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenuPosition>({
     x: 0,
@@ -108,7 +121,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       
       if (response.data.status === 'success') {
         message.success('文件已保存');
-        setIsEditModalVisible(false);
+        // 不再自动关闭编辑器模态框
         if (loadDirectoryRef.current) {
           loadDirectoryRef.current(currentPath); // 刷新目录
         }
@@ -143,6 +156,13 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     saveFileContent();
   }, [selectedFile, syntaxErrors, saveFileContent]);
 
+  // 处理点击保存按钮的事件
+  const handleSaveClick = useCallback(async () => {
+    await saveFile();
+    // 不关闭编辑器模态框
+    return false; // 返回false阻止Modal自动关闭
+  }, [saveFile]);
+
   const saveFileRef = useRef(saveFile);
   useEffect(() => {
     saveFileRef.current = saveFile;
@@ -154,34 +174,30 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  // 处理右键菜单位置
-  const handleContextMenuPosition = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const viewportHeight = window.innerHeight;
-    const viewportWidth = window.innerWidth;
-    const menuHeight = 350; // 估计的菜单高度
-    const menuWidth = 200; // 估计的菜单宽度
-    
-    let x = e.clientX;
-    let y = e.clientY;
-    
-    // 检查右侧空间
-    if (x + menuWidth > viewportWidth) {
-      x = viewportWidth - menuWidth;
-    }
-    
-    // 检查底部空间
-    if (y + menuHeight > viewportHeight) {
-      y = viewportHeight - menuHeight;
-    }
-    
-    return { x, y };
-  };
-
   // 文件右键菜单处理
   const handleContextMenu = (e: React.MouseEvent, file: FileInfo) => {
     e.preventDefault();
-    const { x, y } = handleContextMenuPosition(e);
+    e.stopPropagation(); // 阻止事件冒泡
+
+    // 获取视口尺寸
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const menuWidth = 200; // 估计的菜单宽度
+    const menuHeight = 350; // 估计的菜单高度
+
+    // 直接使用鼠标事件的客户端坐标
+    let x = e.clientX;
+    let y = e.clientY;
+
+    // 确保菜单不会超出屏幕
+    if (x + menuWidth > viewportWidth) {
+      x = viewportWidth - menuWidth - 5;
+    }
+    if (y + menuHeight > viewportHeight) {
+      y = viewportHeight - menuHeight - 5;
+    }
+
+    // 设置菜单位置
     setContextMenuPosition({ x, y, visible: true });
     setContextMenuFile(file);
     setBlankContextMenuPosition({ x: 0, y: 0, visible: false });
@@ -190,7 +206,29 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   // 空白区域右键菜单处理
   const handleBlankContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    const { x, y } = handleContextMenuPosition(e);
+    // 确保点击的是空白区域，而不是表格行
+    if ((e.target as HTMLElement).closest('tr')) {
+      return;
+    }
+
+    // 获取视口尺寸
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const menuWidth = 200; // 估计的菜单宽度
+    const menuHeight = 350; // 估计的菜单高度
+
+    // 直接使用鼠标事件的客户端坐标
+    let x = e.clientX;
+    let y = e.clientY;
+
+    // 确保菜单不会超出屏幕
+    if (x + menuWidth > viewportWidth) {
+      x = viewportWidth - menuWidth - 5;
+    }
+    if (y + menuHeight > viewportHeight) {
+      y = viewportHeight - menuHeight - 5;
+    }
+
     setBlankContextMenuPosition({ x, y, visible: true });
     setContextMenuPosition({ x: 0, y: 0, visible: false });
   };
@@ -1205,887 +1243,1004 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     });
   };
 
+  // 工具栏切换函数
+  const toggleToolbar = () => {
+    const newState = !toolbarCollapsed;
+    setToolbarCollapsed(newState);
+    // 保存到本地存储
+    localStorage.setItem('fileManagerToolbarCollapsed', JSON.stringify(newState));
+  };
+
+  // 组件挂载时添加全局样式
+  useEffect(() => {
+    // 创建全局样式元素
+    const styleElement = document.createElement('style');
+    styleElement.innerHTML = `
+      .context-menu {
+        background-color: white;
+        border-radius: 4px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+        min-width: 160px;
+        max-width: 280px;
+        animation: contextMenuFadeIn 0.15s ease-in-out;
+      }
+      @keyframes contextMenuFadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    `;
+    document.head.appendChild(styleElement);
+
+    // 组件卸载时移除全局样式
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+
+  // 添加帮助弹窗状态
+  const [helpModalVisible, setHelpModalVisible] = useState<boolean>(false);
+
+  // 检查是否需要显示帮助弹窗
+  useEffect(() => {
+    const fileManagerHelpViewed = Cookies.get('file_manager_help_viewed');
+    if (!fileManagerHelpViewed) {
+      setHelpModalVisible(true);
+    }
+  }, []);
+
+  // 关闭帮助弹窗
+  const handleCloseHelpModal = () => {
+    setHelpModalVisible(false);
+  };
+
+  // 显示帮助弹窗
+  const showHelpModal = () => {
+    setHelpModalVisible(true);
+  };
+
   return (
-    <div className="file-manager" style={{paddingBottom: '50px'}}>
-      <div className="file-manager-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <Button 
-            icon={<ArrowUpOutlined />} 
-            onClick={navigateUp}
-            disabled={currentPath === '/'}
-          >
-            上级目录
-          </Button>
-          <Button 
-            icon={<ReloadOutlined />} 
-            onClick={() => loadDirectory(currentPath)}
-          >
-            刷新
-          </Button>
-          <Button 
-            icon={<FolderAddOutlined />} 
-            onClick={() => setIsNewFolderModalVisible(true)}
-          >
-            新建文件夹
-          </Button>
-          <Button 
-            icon={<FileAddOutlined />} 
-            onClick={() => setIsNewFileModalVisible(true)}
-          >
-            新建文件
-          </Button>
-          <Button 
-            icon={<DownloadOutlined />} 
-            disabled={selectedFiles.length === 0}
-            onClick={downloadMultipleFiles}
-          >
-            下载
-          </Button>
-          <Button 
-            icon={<UploadOutlined />}
-            onClick={() => setIsUploadModalVisible(true)}
-          >
-            上传
-          </Button>
-          <Button 
-            icon={<CompressOutlined />}
-            disabled={selectedFiles.length === 0}
-            onClick={() => {
-              if (selectedFiles.length > 0) {
-                // 默认压缩文件名
-                const defaultName = selectedFiles.length === 1 
-                  ? `${selectedFiles[0].name}.zip` 
-                  : `archive_${new Date().getTime()}.zip`;
-                setCompressName(defaultName);
-                setIsCompressModalVisible(true);
-              } else {
-                message.warning('请选择要压缩的文件或文件夹');
-              }
-            }}
-          >
-            压缩
-          </Button>
-          <Button 
-            icon={<FileZipOutlined />}
-            disabled={!selectedFile || selectedFile.type !== 'file'}
-            onClick={() => {
-              if (selectedFile && selectedFile.type === 'file') {
-                const fileExt = selectedFile.name.toLowerCase();
-                const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
-                const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
-                
-                if (isArchive) {
-                  setExtractPath(currentPath);
-                  setIsExtractModalVisible(true);
-                } else {
-                  message.warning('不支持解压此类型的文件');
-                }
-              } else {
-                message.warning('请选择要解压的文件');
-              }
-            }}
-          >
-            解压
-          </Button>
-          <Button 
-            icon={<DeleteOutlined />}
-            danger
-            disabled={selectedFiles.length === 0}
-            onClick={deleteSelectedItems}
-          >
-            删除
-          </Button>
-          <Button 
-            icon={<SaveOutlined />} 
-            disabled={!clipboard}
-            onClick={pasteFromClipboard}
-          >
-            粘贴
-          </Button>
-        </Space>
-        <div style={{ fontSize: '12px', color: '#888' }}>
-          支持快捷键：Ctrl+C 复制 | Ctrl+X 剪切 | Ctrl+V 粘贴
-        </div>
-      </div>
-
-      <Breadcrumb style={{ margin: '16px 0' }}>
-        {breadcrumbItems.map((item, index) => (
-          <Breadcrumb.Item key={index} onClick={() => navigateToDirectory(item.path)}>
-            <a>{item.title}</a>
-          </Breadcrumb.Item>
-        ))}
-      </Breadcrumb>
-
-      <div className="file-manager-content">
-        {loading ? (
-          <div className="loading-container">
-            <Spin size="large" />
-          </div>
-        ) : (
-          <div onContextMenu={handleBlankContextMenu}>
-            <Table 
-              rowSelection={{
-                type: 'checkbox',
-                ...rowSelection,
-              }}
-              columns={columns} 
-              dataSource={files.map(file => ({ ...file, key: file.path }))} 
-              pagination={{ 
-                current: pagination.current,
-                pageSize: pagination.pageSize,
-                showSizeChanger: true,
-                pageSizeOptions: ['10', '20', '50', '100'],
-                showTotal: (total) => `共 ${total} 项`,
-                style: { marginBottom: '30px', padding: '10px 0' },
-                onChange: (current: number, pageSize: number) => {
-                  setPagination({ current, pageSize });
-                },
-                onShowSizeChange: (current: number, size: number) => {
-                  setPagination({
-                    current: 1, // 改变每页显示数量时，通常会跳转到第一页
-                    pageSize: size
-                  });
-                }
-              }}
-              size="middle"
-              scroll={{ y: 'calc(100vh - 420px)' }}
-              onRow={(record: FileInfo) => ({
-                onClick: () => {
-                  setSelectedFile(record);
-                  // 如果按住Ctrl键，则添加到多选列表
-                  if (window.event && (window.event as any).ctrlKey) {
-                    const isSelected = selectedFiles.some(file => file.path === record.path);
-                    if (isSelected) {
-                      setSelectedFiles(selectedFiles.filter(file => file.path !== record.path));
-                    } else {
-                      setSelectedFiles([...selectedFiles, record]);
-                    }
-                  } else {
-                    // 否则只选中当前文件
-                    setSelectedFiles([record]);
-                  }
-                },
-                onDoubleClick: () => {
-                  if (record.type === 'directory') {
-                    navigateToDirectory(record.path);
-                  } else {
-                    openFileForEdit(record);
-                  }
-                },
-                onContextMenu: (e) => handleContextMenu(e, record),
-                className: selectedFiles.some(file => file.path === record.path) ? 'selected-row' : ''
-              })}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* 文件右键菜单 */}
-      {contextMenuPosition.visible && contextMenuFile && (
-        <div 
-          className="context-menu"
-          style={{
-            position: 'fixed',
-            top: contextMenuPosition.y,
-            left: contextMenuPosition.x,
-            zIndex: 1000,
-            maxHeight: 'calc(100vh - 20px)',
-            overflowY: 'auto'
-          }}
-        >
-          <Menu>
-            {contextMenuFile.type === 'directory' ? (
-              <Menu.Item key="open" onClick={() => {
-                navigateToDirectory(contextMenuFile.path);
-                hideAllContextMenus();
-              }}>
-                打开文件夹
-              </Menu.Item>
-            ) : (
-              <>
-                <Menu.Item key="edit" onClick={() => {
-                  openFileForEdit(contextMenuFile);
-                  hideAllContextMenus();
-                }}>
-                  编辑
-                </Menu.Item>
-                {isImageFile(contextMenuFile.name) && (
-                                <Menu.Item key="preview" onClick={() => {
-                previewImage(contextMenuFile);
-                hideAllContextMenus();
-              }}>
-                预览
-              </Menu.Item>
-            )}
-            <Menu.Item key="download" onClick={() => {
-              downloadFile(contextMenuFile);
-              hideAllContextMenus();
-            }}>
-              下载
-            </Menu.Item>
-            {contextMenuFile && contextMenuFile.type === 'file' && (
-              <Menu.Item key="extract" onClick={() => {
-                // 判断文件类型是否为可解压类型
-                const fileExt = contextMenuFile.name.toLowerCase();
-                const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
-                const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
-                
-                if (isArchive) {
-                  setSelectedFile(contextMenuFile);
-                  setExtractPath(currentPath);
-                  setIsExtractModalVisible(true);
-                } else {
-                  message.warning('不支持解压此类型的文件');
-                }
-                hideAllContextMenus();
-              }}>
-                解压
-              </Menu.Item>
-            )}
-              </>
-            )}
-            <Menu.Divider />
-            <Menu.Item key="copy" onClick={() => {
-              copyToClipboard(contextMenuFile);
-              hideAllContextMenus();
-            }}>
-              复制
-            </Menu.Item>
-            <Menu.Item key="cut" onClick={() => {
-              cutToClipboard(contextMenuFile);
-              hideAllContextMenus();
-            }}>
-              剪切
-            </Menu.Item>
-            <Menu.Item key="rename" onClick={() => {
-              setSelectedFile(contextMenuFile);
-              setNewFileName(contextMenuFile.name);
-              setIsRenameModalVisible(true);
-              hideAllContextMenus();
-            }}>
-              重命名
-            </Menu.Item>
-            <Menu.Item key="permissions" onClick={() => {
-              setSelectedFile(contextMenuFile);
-              setSelectedFiles([contextMenuFile]);
-              setIsPermissionsModalVisible(true);
-              hideAllContextMenus();
-            }}>
-              修改权限
-            </Menu.Item>
-            <Menu.Item key="compress-file" onClick={() => {
-              // 设置当前文件为选中文件
-              setSelectedFiles([contextMenuFile]);
-              // 默认压缩文件名
-              const defaultName = `${contextMenuFile.name}.zip`;
-              setCompressName(defaultName);
-              setIsCompressModalVisible(true);
-              hideAllContextMenus();
-            }}>
-              压缩
-            </Menu.Item>
-            <Menu.Divider />
-            <Menu.Item key="delete" danger onClick={() => {
-              deleteItem(contextMenuFile);
-              hideAllContextMenus();
-            }}>
-              删除
-            </Menu.Item>
-          </Menu>
-        </div>
-      )}
-
-      {/* 空白区域右键菜单 */}
-      {blankContextMenuPosition.visible && (
-        <div 
-          className="context-menu"
-          style={{
-            position: 'fixed',
-            top: blankContextMenuPosition.y,
-            left: blankContextMenuPosition.x,
-            zIndex: 1000,
-            maxHeight: 'calc(100vh - 20px)',
-            overflowY: 'auto'
-          }}
-        >
-          <Menu>
-            <Menu.Item key="new-folder" onClick={() => {
-              setIsNewFolderModalVisible(true);
-              hideAllContextMenus();
-            }}>
-              新建文件夹
-            </Menu.Item>
-            <Menu.Item key="new-file" onClick={() => {
-              setIsNewFileModalVisible(true);
-              hideAllContextMenus();
-            }}>
-              新建文件
-            </Menu.Item>
-            <Menu.Item key="upload" onClick={() => {
-              setIsUploadModalVisible(true);
-              hideAllContextMenus();
-            }}>
-              上传文件
-            </Menu.Item>
-            {clipboard && (
-              <Menu.Item key="paste" onClick={() => {
-                pasteFromClipboard();
-                hideAllContextMenus();
-              }}>
-                粘贴
-              </Menu.Item>
-            )}
-            {selectedFiles.length > 0 && (
-              <>
-                <Menu.Item key="delete-selected" danger onClick={() => {
-                  deleteSelectedItems();
-                  hideAllContextMenus();
-                }}>
-                  删除选中项
-                </Menu.Item>
-                <Menu.Item key="permissions-selected" onClick={() => {
-                  setIsPermissionsModalVisible(true);
-                  hideAllContextMenus();
-                }}>
-                  修改权限
-                </Menu.Item>
-              </>
-            )}
-            <Menu.Item key="compress" onClick={() => {
-              if (selectedFiles.length > 0) {
-                // 默认压缩文件名
-                const defaultName = selectedFiles.length === 1 
-                  ? `${selectedFiles[0].name}.zip` 
-                  : `archive_${new Date().getTime()}.zip`;
-                setCompressName(defaultName);
-                setIsCompressModalVisible(true);
-              } else {
-                message.warning('请选择要压缩的文件或文件夹');
-              }
-              hideAllContextMenus();
-            }}>
-              压缩选中文件
-            </Menu.Item>
-            <Menu.Item key="refresh" onClick={() => {
-              loadDirectory(currentPath);
-              hideAllContextMenus();
-            }}>
-              刷新
-            </Menu.Item>
-          </Menu>
-        </div>
-      )}
-
-      {/* 隐藏的下载链接 */}
-      <a
-        ref={downloadLinkRef}
-        style={{ display: 'none' }}
-      />
-
-      {/* 文件编辑对话框 */}
-      <Modal
-        title={`编辑文件: ${selectedFile?.name}`}
-        open={isEditModalVisible}
-        onCancel={() => setIsEditModalVisible(false)}
-        onOk={saveFile}
-        width={1000}
-        okText="保存"
-        cancelText="取消"
-        bodyStyle={{ 
-          maxHeight: '80vh',
-          overflow: 'hidden',
-          padding: '12px'
-        }}
+    <>
+      <div 
+        className="file-manager-container"
+        onContextMenu={handleBlankContextMenu}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        onClick={hideAllContextMenus}
       >
-        <div style={{ height: 'calc(80vh - 130px)' }}>
-          <Editor
-            height="100%"
-            defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
-            value={fileContent}
-            onChange={(value) => setFileContent(value || '')}
-            onMount={handleEditorDidMount}
-            theme="vs-dark"
-            options={{
-              fontSize: 14,
-              minimap: { enabled: true },
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              lineNumbers: 'on',
-              folding: true,
-              foldingHighlight: true,
-              foldingStrategy: 'auto',
-              showFoldingControls: 'always',
-              matchBrackets: 'always',
-              autoClosingBrackets: 'always',
-              autoClosingQuotes: 'always',
-              formatOnPaste: true,
-              formatOnType: true,
-              wordWrap: 'on',
-              wrappingIndent: 'same'
-            }}
-          />
-          {syntaxErrors.length > 0 && (
-            <div style={{ 
-              backgroundColor: '#FFF2F0', 
-              border: '1px solid #FFCCC7', 
-              padding: '8px 12px', 
-              marginTop: '10px', 
-              borderRadius: '4px',
-              color: '#CF1322',
-              maxHeight: '120px',
-              overflowY: 'auto'
-            }}>
-              <div style={{ marginBottom: '5px', fontWeight: 'bold' }}>
-                检测到 {syntaxErrors.length} 个语法错误:
-              </div>
-              <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                {syntaxErrors.slice(0, 5).map((error, index) => (
-                  <li key={index}>
-                    第 {error.startLineNumber} 行: {error.message}
-                  </li>
-                ))}
-                {syntaxErrors.length > 5 && (
-                  <li>... 还有 {syntaxErrors.length - 5} 个错误</li>
-                )}
-              </ul>
+        <div className="file-manager-toolbar" style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          marginBottom: '16px',
+          transition: 'all 0.3s ease',
+          padding: isHovering ? '5px 10px' : '0',
+          backgroundColor: isHovering ? 'rgba(230, 247, 255, 0.5)' : 'transparent',
+          borderRadius: '4px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Button
+              icon={toolbarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={toggleToolbar}
+              style={{ marginRight: '8px' }}
+            />
+            {!toolbarCollapsed && (
+              <Space>
+                <Button 
+                  icon={<FileAddOutlined />} 
+                  onClick={() => setIsNewFileModalVisible(true)}
+                >
+                  新建文件
+                </Button>
+                <Button 
+                  icon={<FolderAddOutlined />} 
+                  onClick={() => setIsNewFolderModalVisible(true)}
+                >
+                  新建文件夹
+                </Button>
+                <Button 
+                  icon={<UploadOutlined />} 
+                  onClick={() => setIsUploadModalVisible(true)}
+                >
+                  上传
+                </Button>
+                <Button 
+                  icon={<CompressOutlined />} 
+                  onClick={compressFiles}
+                  disabled={selectedFiles.length === 0}
+                >
+                  压缩
+                </Button>
+                <Button 
+                  icon={<ReloadOutlined />} 
+                  onClick={() => {
+                    if (loadDirectoryRef.current) {
+                      loadDirectoryRef.current(currentPath);
+                    }
+                  }}
+                >
+                  刷新
+                </Button>
+                <Button 
+                  icon={<QuestionCircleOutlined />} 
+                  onClick={showHelpModal}
+                >
+                  帮助
+                </Button>
+              </Space>
+            )}
+          </div>
+        </div>
+
+        <Breadcrumb style={{ 
+          margin: '16px 0', 
+          transition: 'all 0.3s ease',
+          padding: isHovering ? '5px 10px' : '0',
+          backgroundColor: isHovering ? 'rgba(230, 247, 255, 0.5)' : 'transparent',
+          borderRadius: '4px'
+        }}>
+          {breadcrumbItems.map((item, index) => (
+            <Breadcrumb.Item key={index} onClick={() => navigateToDirectory(item.path)}>
+              <a>{item.title}</a>
+            </Breadcrumb.Item>
+          ))}
+        </Breadcrumb>
+
+        <div className="file-manager-content">
+          {loading ? (
+            <div className="loading-container">
+              <Spin size="large" />
+            </div>
+          ) : (
+            <div onContextMenu={handleBlankContextMenu}>
+              <Table 
+                rowSelection={{
+                  type: 'checkbox',
+                  ...rowSelection,
+                }}
+                columns={columns} 
+                dataSource={files.map(file => ({ ...file, key: file.path }))} 
+                pagination={{ 
+                  current: pagination.current,
+                  pageSize: pagination.pageSize,
+                  showSizeChanger: true,
+                  pageSizeOptions: ['10', '20', '50', '100'],
+                  showTotal: (total) => `共 ${total} 项`,
+                  style: { marginBottom: '30px', padding: '10px 0' },
+                  onChange: (current: number, pageSize: number) => {
+                    setPagination({ current, pageSize });
+                  },
+                  onShowSizeChange: (current: number, size: number) => {
+                    setPagination({
+                      current: 1, // 改变每页显示数量时，通常会跳转到第一页
+                      pageSize: size
+                    });
+                  }
+                }}
+                size="middle"
+                scroll={{ y: isHovering ? 'calc(100vh - 350px)' : 'calc(100vh - 420px)' }}
+                onRow={(record: FileInfo) => ({
+                  onClick: () => {
+                    setSelectedFile(record);
+                    // 如果按住Ctrl键，则添加到多选列表
+                    if (window.event && (window.event as any).ctrlKey) {
+                      const isSelected = selectedFiles.some(file => file.path === record.path);
+                      if (isSelected) {
+                        setSelectedFiles(selectedFiles.filter(file => file.path !== record.path));
+                      } else {
+                        setSelectedFiles([...selectedFiles, record]);
+                      }
+                    } else {
+                      // 否则只选中当前文件
+                      setSelectedFiles([record]);
+                    }
+                  },
+                  onDoubleClick: () => {
+                    if (record.type === 'directory') {
+                      navigateToDirectory(record.path);
+                    } else {
+                      openFileForEdit(record);
+                    }
+                  },
+                  onContextMenu: (e) => handleContextMenu(e, record),
+                  className: selectedFiles.some(file => file.path === record.path) ? 'selected-row' : ''
+                })}
+              />
             </div>
           )}
         </div>
-      </Modal>
 
-      {/* 图片预览对话框 */}
-      <Modal
-        title={`预览图片: ${selectedFile?.name}`}
-        open={isPreviewModalVisible}
-        onCancel={() => setIsPreviewModalVisible(false)}
-        footer={null}
-        width={800}
-        centered
-        bodyStyle={{ textAlign: 'center', padding: '20px' }}
-      >
-        <div className="image-preview-container">
-          <Image
-            src={previewImageUrl}
-            alt={selectedFile?.name || '图片预览'}
-            style={{ maxWidth: '100%' }}
-            preview={false}
-          />
-          <div className="image-preview-actions" style={{ marginTop: '16px' }}>
-            <Button 
-              type="primary" 
-              onClick={() => selectedFile && downloadFile(selectedFile)}
-              icon={<DownloadOutlined />}
-              style={{ marginRight: '8px' }}
-            >
-              下载图片
-            </Button>
-            <Button 
-              onClick={() => window.open(previewImageUrl, '_blank')}
-              icon={<EyeOutlined />}
-            >
-              在新窗口打开
-            </Button>
+        <style jsx>{`
+          .file-manager-container {
+            width: 100%;
+            padding: 8px;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+            z-index: 1;
+            border-radius: 8px;
+            overflow: hidden;
+          }
+          .file-manager-hover {
+            transform: scale(1.01, 1.06);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            overflow: visible;
+            margin: 20px -5px;
+            border: 1px solid rgba(24, 144, 255, 0.3);
+            background-color: rgba(255, 255, 255, 0.95);
+          }
+          .file-manager-toolbar {
+            margin-bottom: 16px;
+            transition: all 0.3s ease;
+            border-radius: 6px;
+          }
+          .file-manager-hover .file-manager-toolbar {
+            background-color: rgba(230, 247, 255, 0.5);
+            padding: 5px;
+          }
+          .file-manager-hover .ant-btn {
+            transition: all 0.3s ease;
+            transform: translateY(-1px);
+          }
+          .file-manager-hover .ant-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+          }
+          .file-manager-content {
+            background-color: white;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+          }
+          .file-manager-hover .file-manager-content {
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+          }
+          .file-manager-hover .ant-table {
+            transition: all 0.3s ease;
+            max-height: calc(100vh - 320px);
+          }
+          .file-manager-hover .ant-pagination {
+            margin-top: 12px;
+            margin-bottom: 5px;
+          }
+          .directory-name {
+            color: #1890ff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+          }
+          .file-manager-hover .directory-name:hover {
+            color: #40a9ff;
+            text-decoration: underline;
+          }
+          .file-name {
+            cursor: pointer;
+            transition: all 0.2s ease;
+          }
+          .file-manager-hover .file-name:hover {
+            color: #1890ff;
+          }
+          .loading-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+          }
+          .image-preview-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+          }
+          .image-preview-actions {
+            margin-top: 16px;
+            display: flex;
+            justify-content: center;
+          }
+          .selected-row {
+            background-color: #e6f7ff !important;
+          }
+          .selected-row:hover > td {
+            background-color: #bae7ff !important;
+          }
+          .file-manager-hover .ant-table-row:hover > td {
+            background-color: #e6f7ff !important;
+            transition: all 0.3s ease;
+          }
+        `}</style>
+
+        {/* 使用Portal将右键菜单渲染到body上，避免受到文件管理器变换的影响 */}
+        {contextMenuPosition.visible && contextMenuFile && ReactDOM.createPortal(
+          <div 
+            className="context-menu"
+            style={{
+              position: 'fixed',
+              top: contextMenuPosition.y,
+              left: contextMenuPosition.x,
+              zIndex: 1050,
+              maxHeight: 'calc(100vh - 20px)',
+              overflowY: 'auto',
+              boxShadow: '0 3px 10px rgba(0, 0, 0, 0.2)',
+              border: '1px solid rgba(24, 144, 255, 0.2)',
+              borderRadius: '4px',
+              background: 'white'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Menu>
+              {contextMenuFile.type === 'directory' ? (
+                <Menu.Item key="open" onClick={() => {
+                  navigateToDirectory(contextMenuFile.path);
+                  hideAllContextMenus();
+                }}>
+                  打开文件夹
+                </Menu.Item>
+              ) : (
+                <>
+                  <Menu.Item key="edit" onClick={() => {
+                    openFileForEdit(contextMenuFile);
+                    hideAllContextMenus();
+                  }}>
+                    编辑
+                  </Menu.Item>
+                  {isImageFile(contextMenuFile.name) && (
+                    <Menu.Item key="preview" onClick={() => {
+                      previewImage(contextMenuFile);
+                      hideAllContextMenus();
+                    }}>
+                      预览
+                    </Menu.Item>
+                  )}
+                  <Menu.Item key="download" onClick={() => {
+                    downloadFile(contextMenuFile);
+                    hideAllContextMenus();
+                  }}>
+                    下载
+                  </Menu.Item>
+                  {(() => {
+                    // 判断文件类型是否为可解压类型
+                    const fileExt = contextMenuFile.name.toLowerCase();
+                    const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
+                    const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
+                    
+                    if (isArchive) {
+                      return (
+                        <Menu.Item key="extract" onClick={() => {
+                          setSelectedFile(contextMenuFile);
+                          setExtractPath(currentPath);
+                          setIsExtractModalVisible(true);
+                          hideAllContextMenus();
+                        }}>
+                          解压
+                        </Menu.Item>
+                      );
+                    }
+                    return null;
+                  })()}
+                </>
+              )}
+              <Menu.Divider />
+              <Menu.Item key="copy" onClick={() => {
+                copyToClipboard(contextMenuFile);
+                hideAllContextMenus();
+              }}>
+                复制
+              </Menu.Item>
+              <Menu.Item key="cut" onClick={() => {
+                cutToClipboard(contextMenuFile);
+                hideAllContextMenus();
+              }}>
+                剪切
+              </Menu.Item>
+              <Menu.Item key="rename" onClick={() => {
+                setSelectedFile(contextMenuFile);
+                setNewFileName(contextMenuFile.name);
+                setIsRenameModalVisible(true);
+                hideAllContextMenus();
+              }}>
+                重命名
+              </Menu.Item>
+              <Menu.Item key="permissions" onClick={() => {
+                setSelectedFile(contextMenuFile);
+                setSelectedFiles([contextMenuFile]);
+                setIsPermissionsModalVisible(true);
+                hideAllContextMenus();
+              }}>
+                修改权限
+              </Menu.Item>
+              <Menu.Item key="compress-file" onClick={() => {
+                // 设置当前文件为选中文件
+                setSelectedFiles([contextMenuFile]);
+                // 默认压缩文件名
+                const defaultName = `${contextMenuFile.name}.zip`;
+                setCompressName(defaultName);
+                setIsCompressModalVisible(true);
+                hideAllContextMenus();
+              }}>
+                压缩
+              </Menu.Item>
+              <Menu.Divider />
+              <Menu.Item key="delete" danger onClick={() => {
+                deleteItem(contextMenuFile);
+                hideAllContextMenus();
+              }}>
+                删除
+              </Menu.Item>
+            </Menu>
+          </div>,
+          document.body
+        )}
+
+        {/* 空白区域右键菜单也使用Portal */}
+        {blankContextMenuPosition.visible && ReactDOM.createPortal(
+          <div 
+            className="context-menu"
+            style={{
+              position: 'fixed',
+              top: blankContextMenuPosition.y,
+              left: blankContextMenuPosition.x,
+              zIndex: 1050,
+              maxHeight: 'calc(100vh - 20px)',
+              overflowY: 'auto',
+              boxShadow: '0 3px 10px rgba(0, 0, 0, 0.2)',
+              border: '1px solid rgba(24, 144, 255, 0.2)',
+              borderRadius: '4px',
+              background: 'white'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Menu>
+              <Menu.Item key="new-folder" onClick={() => {
+                setIsNewFolderModalVisible(true);
+                hideAllContextMenus();
+              }}>
+                新建文件夹
+              </Menu.Item>
+              <Menu.Item key="new-file" onClick={() => {
+                setIsNewFileModalVisible(true);
+                hideAllContextMenus();
+              }}>
+                新建文件
+              </Menu.Item>
+              <Menu.Item key="upload" onClick={() => {
+                setIsUploadModalVisible(true);
+                hideAllContextMenus();
+              }}>
+                上传文件
+              </Menu.Item>
+              {clipboard && (
+                <Menu.Item key="paste" onClick={() => {
+                  pasteFromClipboard();
+                  hideAllContextMenus();
+                }}>
+                  粘贴
+                </Menu.Item>
+              )}
+              {selectedFiles.length > 0 && (
+                <>
+                  <Menu.Item key="delete-selected" danger onClick={() => {
+                    deleteSelectedItems();
+                    hideAllContextMenus();
+                  }}>
+                    删除选中项
+                  </Menu.Item>
+                  <Menu.Item key="permissions-selected" onClick={() => {
+                    setIsPermissionsModalVisible(true);
+                    hideAllContextMenus();
+                  }}>
+                    修改权限
+                  </Menu.Item>
+                </>
+              )}
+              <Menu.Item key="compress" onClick={() => {
+                if (selectedFiles.length > 0) {
+                  // 默认压缩文件名
+                  const defaultName = selectedFiles.length === 1 
+                    ? `${selectedFiles[0].name}.zip` 
+                    : `archive_${new Date().getTime()}.zip`;
+                  setCompressName(defaultName);
+                  setIsCompressModalVisible(true);
+                } else {
+                  message.warning('请选择要压缩的文件或文件夹');
+                }
+                hideAllContextMenus();
+              }}>
+                压缩选中文件
+              </Menu.Item>
+              {selectedFiles.length === 1 && selectedFiles[0].type === 'file' && (() => {
+                // 判断文件类型是否为可解压类型
+                const fileExt = selectedFiles[0].name.toLowerCase();
+                const supportedExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.bz2', '.tar.bz2', '.xz', '.tar.xz', '.zst', '.tar.zst', '.rar', '.7z', '.jar', '.apk'];
+                const isArchive = supportedExts.some(ext => fileExt.endsWith(ext));
+                
+                if (isArchive) {
+                  return (
+                    <Menu.Item key="extract-selected" onClick={() => {
+                      setSelectedFile(selectedFiles[0]);
+                      setExtractPath(currentPath);
+                      setIsExtractModalVisible(true);
+                      hideAllContextMenus();
+                    }}>
+                      解压选中文件
+                    </Menu.Item>
+                  );
+                }
+                return null;
+              })()}
+              <Menu.Item key="refresh" onClick={() => {
+                loadDirectory(currentPath);
+                hideAllContextMenus();
+              }}>
+                刷新
+              </Menu.Item>
+            </Menu>
+          </div>,
+          document.body
+        )}
+
+        {/* 隐藏的下载链接 */}
+        <a
+          ref={downloadLinkRef}
+          style={{ display: 'none' }}
+        />
+
+        {/* 文件编辑对话框 */}
+        <Modal
+          title={`编辑文件: ${selectedFile?.name}`}
+          open={isEditModalVisible}
+          onCancel={() => setIsEditModalVisible(false)}
+          onOk={handleSaveClick}
+          width={1000}
+          okText="保存"
+          cancelText="取消"
+          bodyStyle={{ 
+            maxHeight: '80vh',
+            overflow: 'hidden',
+            padding: '12px'
+          }}
+        >
+          <div style={{ height: 'calc(80vh - 130px)' }}>
+            <Editor
+              height="100%"
+              defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
+              value={fileContent}
+              onChange={(value) => setFileContent(value || '')}
+              onMount={handleEditorDidMount}
+              theme="vs-dark"
+              options={{
+                fontSize: 14,
+                minimap: { enabled: true },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                lineNumbers: 'on',
+                folding: true,
+                foldingHighlight: true,
+                foldingStrategy: 'auto',
+                showFoldingControls: 'always',
+                matchBrackets: 'always',
+                autoClosingBrackets: 'always',
+                autoClosingQuotes: 'always',
+                formatOnPaste: true,
+                formatOnType: true,
+                wordWrap: 'on',
+                wrappingIndent: 'same'
+              }}
+            />
+            {syntaxErrors.length > 0 && (
+              <div style={{ 
+                backgroundColor: '#FFF2F0', 
+                border: '1px solid #FFCCC7', 
+                padding: '8px 12px', 
+                marginTop: '10px', 
+                borderRadius: '4px',
+                color: '#CF1322',
+                maxHeight: '120px',
+                overflowY: 'auto'
+              }}>
+                <div style={{ marginBottom: '5px', fontWeight: 'bold' }}>
+                  检测到 {syntaxErrors.length} 个语法错误:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                  {syntaxErrors.slice(0, 5).map((error, index) => (
+                    <li key={index}>
+                      第 {error.startLineNumber} 行: {error.message}
+                    </li>
+                  ))}
+                  {syntaxErrors.length > 5 && (
+                    <li>... 还有 {syntaxErrors.length - 5} 个错误</li>
+                  )}
+                </ul>
+              </div>
+            )}
           </div>
-        </div>
-      </Modal>
+        </Modal>
 
-      {/* 重命名对话框 */}
-      <Modal
-        title={`重命名${selectedFile?.type === 'file' ? '文件' : '文件夹'}`}
-        open={isRenameModalVisible}
-        onCancel={() => setIsRenameModalVisible(false)}
-        onOk={renameItem}
-        okText="确定"
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="新名称">
-            <Input 
-              value={newFileName} 
-              onChange={(e) => setNewFileName(e.target.value)} 
-              autoFocus 
+        {/* 图片预览对话框 */}
+        <Modal
+          title={`预览图片: ${selectedFile?.name}`}
+          open={isPreviewModalVisible}
+          onCancel={() => setIsPreviewModalVisible(false)}
+          footer={null}
+          width={800}
+          centered
+          bodyStyle={{ textAlign: 'center', padding: '20px' }}
+        >
+          <div className="image-preview-container">
+            <Image
+              src={previewImageUrl}
+              alt={selectedFile?.name || '图片预览'}
+              style={{ maxWidth: '100%' }}
+              preview={false}
             />
-          </Form.Item>
-        </Form>
-      </Modal>
+            <div className="image-preview-actions" style={{ marginTop: '16px' }}>
+              <Button 
+                type="primary" 
+                onClick={() => selectedFile && downloadFile(selectedFile)}
+                icon={<DownloadOutlined />}
+                style={{ marginRight: '8px' }}
+              >
+                下载图片
+              </Button>
+              <Button 
+                onClick={() => window.open(previewImageUrl, '_blank')}
+                icon={<EyeOutlined />}
+              >
+                在新窗口打开
+              </Button>
+            </div>
+          </div>
+        </Modal>
 
-      {/* 新建文件夹对话框 */}
-      <Modal
-        title="新建文件夹"
-        open={isNewFolderModalVisible}
-        onCancel={() => {
-          setIsNewFolderModalVisible(false);
-          setNewItemName('');
-        }}
-        onOk={createNewFolder}
-        okText="创建"
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="文件夹名称">
-            <Input 
-              value={newItemName} 
-              onChange={(e) => setNewItemName(e.target.value)} 
-              autoFocus 
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
+        {/* 重命名对话框 */}
+        <Modal
+          title={`重命名${selectedFile?.type === 'file' ? '文件' : '文件夹'}`}
+          open={isRenameModalVisible}
+          onCancel={() => setIsRenameModalVisible(false)}
+          onOk={renameItem}
+          okText="确定"
+          cancelText="取消"
+        >
+          <Form layout="vertical">
+            <Form.Item label="新名称">
+              <Input 
+                value={newFileName} 
+                onChange={(e) => setNewFileName(e.target.value)} 
+                autoFocus 
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
 
-      {/* 新建文件对话框 */}
-      <Modal
-        title="新建文件"
-        open={isNewFileModalVisible}
-        onCancel={() => {
-          setIsNewFileModalVisible(false);
-          setNewItemName('');
-        }}
-        onOk={createNewFile}
-        okText="创建"
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="文件名称">
-            <Input 
-              value={newItemName} 
-              onChange={(e) => setNewItemName(e.target.value)} 
-              autoFocus 
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
+        {/* 新建文件夹对话框 */}
+        <Modal
+          title="新建文件夹"
+          open={isNewFolderModalVisible}
+          onCancel={() => {
+            setIsNewFolderModalVisible(false);
+            setNewItemName('');
+          }}
+          onOk={createNewFolder}
+          okText="创建"
+          cancelText="取消"
+        >
+          <Form layout="vertical">
+            <Form.Item label="文件夹名称">
+              <Input 
+                value={newItemName} 
+                onChange={(e) => setNewItemName(e.target.value)} 
+                autoFocus 
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
 
-      {/* 上传文件对话框 */}
-      <Modal
-        title="上传文件"
-        open={isUploadModalVisible}
-        onCancel={() => setIsUploadModalVisible(false)}
-        footer={null}
-        width={600}
-      >
-        <Dragger
-          name="file"
-          multiple={true}
-          action={`/api/upload?path=${encodeURIComponent(currentPath)}${localStorage.getItem('auth_token') ? `&token=${localStorage.getItem('auth_token')}` : ''}`}
-          headers={getHeaders()}
-          onChange={info => {
-            const { status } = info.file;
-            if (status === 'done') {
-              message.success(`${info.file.name} 上传成功`);
-              loadDirectory(currentPath); // 刷新当前目录
-            } else if (status === 'error') {
-              message.error(`${info.file.name} 上传失败`);
+        {/* 新建文件对话框 */}
+        <Modal
+          title="新建文件"
+          open={isNewFileModalVisible}
+          onCancel={() => {
+            setIsNewFileModalVisible(false);
+            setNewItemName('');
+          }}
+          onOk={createNewFile}
+          okText="创建"
+          cancelText="取消"
+        >
+          <Form layout="vertical">
+            <Form.Item label="文件名称">
+              <Input 
+                value={newItemName} 
+                onChange={(e) => setNewItemName(e.target.value)} 
+                autoFocus 
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
+
+        {/* 上传文件对话框 */}
+        <Modal
+          title="上传文件"
+          open={isUploadModalVisible}
+          onCancel={() => setIsUploadModalVisible(false)}
+          footer={null}
+          width={600}
+        >
+          <Dragger
+            name="file"
+            multiple={true}
+            action={`/api/upload?path=${encodeURIComponent(currentPath)}${localStorage.getItem('auth_token') ? `&token=${localStorage.getItem('auth_token')}` : ''}`}
+            headers={getHeaders()}
+            onChange={info => {
+              const { status } = info.file;
+              if (status === 'done') {
+                message.success(`${info.file.name} 上传成功`);
+                loadDirectory(currentPath); // 刷新当前目录
+              } else if (status === 'error') {
+                message.error(`${info.file.name} 上传失败`);
+              }
+            }}
+            showUploadList={{ showRemoveIcon: true }}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+            <p className="ant-upload-hint">
+              支持单个或批量上传。当前上传目录: {currentPath}
+            </p>
+          </Dragger>
+        </Modal>
+
+        {/* 压缩文件对话框 */}
+        <Modal
+          title="压缩文件"
+          open={isCompressModalVisible}
+          onCancel={() => {
+            if (!isCompressing) {
+              setIsCompressModalVisible(false);
+              setCompressName('');
+              setCompressFormat('zip');
+              setCompressionLevel(6);
             }
           }}
-          showUploadList={{ showRemoveIcon: true }}
+          onOk={compressFiles}
+          okText={isCompressing ? "压缩中..." : "压缩"}
+          okButtonProps={{ loading: isCompressing, disabled: isCompressing }}
+          cancelButtonProps={{ disabled: isCompressing }}
+          closable={!isCompressing}
+          maskClosable={!isCompressing}
+          cancelText="取消"
         >
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined />
-          </p>
-          <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-          <p className="ant-upload-hint">
-            支持单个或批量上传。当前上传目录: {currentPath}
-          </p>
-        </Dragger>
-      </Modal>
-
-      {/* 压缩文件对话框 */}
-      <Modal
-        title="压缩文件"
-        open={isCompressModalVisible}
-        onCancel={() => {
-          if (!isCompressing) {
-            setIsCompressModalVisible(false);
-            setCompressName('');
-            setCompressFormat('zip');
-            setCompressionLevel(6);
-          }
-        }}
-        onOk={compressFiles}
-        okText={isCompressing ? "压缩中..." : "压缩"}
-        okButtonProps={{ loading: isCompressing, disabled: isCompressing }}
-        cancelButtonProps={{ disabled: isCompressing }}
-        closable={!isCompressing}
-        maskClosable={!isCompressing}
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="压缩文件名称">
-            <Input 
-              value={compressName} 
-              onChange={(e) => setCompressName(e.target.value)} 
-              autoFocus 
-              disabled={isCompressing}
-              placeholder="输入压缩文件名称（文件扩展名将根据格式自动添加）"
-            />
-          </Form.Item>
-          <Form.Item label="压缩格式">
-            <Select
-              value={compressFormat}
-              onChange={(value) => setCompressFormat(value)}
-              style={{ width: '100%' }}
-              disabled={isCompressing}
-            >
-              <Select.Option value="zip">ZIP (兼容性最好)</Select.Option>
-              <Select.Option value="tar">TAR (无压缩)</Select.Option>
-              <Select.Option value="tgz">TAR.GZ (Linux常用)</Select.Option>
-              <Select.Option value="tbz2">TAR.BZ2 (压缩率高)</Select.Option>
-              <Select.Option value="txz">TAR.XZ (最高压缩率)</Select.Option>
-              <Select.Option value="tzst">TAR.ZST (高压缩率+高速)</Select.Option>
-            </Select>
-          </Form.Item>
-          {(compressFormat === 'zip' || compressFormat === 'tgz' || compressFormat === 'tbz2' || compressFormat === 'txz' || compressFormat === 'tzst') && (
-            <Form.Item label="压缩级别">
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <Slider
-                  min={1}
-                  max={9}
-                  value={compressionLevel}
-                  onChange={(value) => setCompressionLevel(value)}
-                  style={{ flex: 1, marginRight: 16 }}
-                  disabled={isCompressing}
-                  marks={{
-                    1: '快速',
-                    5: '均衡',
-                    9: '最小'
-                  }}
-                />
-                <InputNumber
-                  min={1}
-                  max={9}
-                  value={compressionLevel}
-                  onChange={(value) => setCompressionLevel(value as number)}
-                  disabled={isCompressing}
-                />
+          <Form layout="vertical">
+            <Form.Item label="压缩文件名称">
+              <Input 
+                value={compressName} 
+                onChange={(e) => setCompressName(e.target.value)} 
+                autoFocus 
+                disabled={isCompressing}
+                placeholder="输入压缩文件名称（文件扩展名将根据格式自动添加）"
+              />
+            </Form.Item>
+            <Form.Item label="压缩格式">
+              <Select
+                value={compressFormat}
+                onChange={(value) => setCompressFormat(value)}
+                style={{ width: '100%' }}
+                disabled={isCompressing}
+              >
+                <Select.Option value="zip">ZIP (兼容性最好)</Select.Option>
+                <Select.Option value="tar">TAR (无压缩)</Select.Option>
+                <Select.Option value="tgz">TAR.GZ (Linux常用)</Select.Option>
+                <Select.Option value="tbz2">TAR.BZ2 (压缩率高)</Select.Option>
+                <Select.Option value="txz">TAR.XZ (最高压缩率)</Select.Option>
+                <Select.Option value="tzst">TAR.ZST (高压缩率+高速)</Select.Option>
+              </Select>
+            </Form.Item>
+            {(compressFormat === 'zip' || compressFormat === 'tgz' || compressFormat === 'tbz2' || compressFormat === 'txz' || compressFormat === 'tzst') && (
+              <Form.Item label="压缩级别">
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <Slider
+                    min={1}
+                    max={9}
+                    value={compressionLevel}
+                    onChange={(value) => setCompressionLevel(value)}
+                    style={{ flex: 1, marginRight: 16 }}
+                    disabled={isCompressing}
+                    marks={{
+                      1: '快速',
+                      5: '均衡',
+                      9: '最小'
+                    }}
+                  />
+                  <InputNumber
+                    min={1}
+                    max={9}
+                    value={compressionLevel}
+                    onChange={(value) => setCompressionLevel(value as number)}
+                    disabled={isCompressing}
+                  />
+                </div>
+                <div style={{ color: '#888', fontSize: '12px', marginTop: '4px' }}>
+                  级别越高，压缩率越高，但速度越慢 (1-最快, 9-最高压缩率)
+                </div>
+              </Form.Item>
+            )}
+            <div style={{ marginBottom: '10px' }}>
+              将压缩以下 {selectedFiles.length} 个文件/文件夹:
+            </div>
+            <div style={{ maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9', padding: '8px', borderRadius: '2px' }}>
+              {selectedFiles.map((file, index) => (
+                <div key={index} style={{ marginBottom: '4px' }}>
+                  {file.type === 'directory' ? <FolderOutlined style={{ marginRight: '8px', color: '#1890ff' }} /> : <FileOutlined style={{ marginRight: '8px' }} />}
+                  {file.name}
+                </div>
+              ))}
+            </div>
+            {isCompressing && (
+              <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                <Spin />
+                <div style={{ marginTop: '8px', color: '#1890ff' }}>正在压缩文件，请稍候...</div>
               </div>
-              <div style={{ color: '#888', fontSize: '12px', marginTop: '4px' }}>
-                级别越高，压缩率越高，但速度越慢 (1-最快, 9-最高压缩率)
+            )}
+          </Form>
+        </Modal>
+
+        {/* 解压文件对话框 */}
+        <Modal
+          title={`解压文件: ${selectedFile?.name}`}
+          open={isExtractModalVisible}
+          onCancel={() => {
+            if (!isExtracting) {
+              setIsExtractModalVisible(false);
+              setExtractPath('');
+            }
+          }}
+          onOk={extractFile}
+          okText={isExtracting ? "解压中..." : "解压"}
+          okButtonProps={{ loading: isExtracting, disabled: isExtracting }}
+          cancelButtonProps={{ disabled: isExtracting }}
+          closable={!isExtracting}
+          maskClosable={!isExtracting}
+          cancelText="取消"
+        >
+          <Form layout="vertical">
+            <Form.Item label="解压到目录">
+              <Input 
+                value={extractPath} 
+                onChange={(e) => setExtractPath(e.target.value)} 
+                placeholder="留空表示解压到当前目录"
+                disabled={isExtracting}
+              />
+            </Form.Item>
+            <div style={{ color: '#888', fontSize: '12px' }}>
+              支持的压缩格式: ZIP, TAR, GZ, TGZ, BZ2, XZ, ZST, TAR.ZST, RAR, 7Z, JAR, APK
+            </div>
+            {isExtracting && (
+              <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                <Spin />
+                <div style={{ marginTop: '8px', color: '#1890ff' }}>正在解压文件，请稍候...</div>
+              </div>
+            )}
+          </Form>
+        </Modal>
+
+        {/* 修改权限对话框 */}
+        <Modal
+          title="修改文件权限"
+          open={isPermissionsModalVisible}
+          onCancel={() => {
+            if (!isChangingPermissions) {
+              setIsPermissionsModalVisible(false);
+              setIsRecursive(false);
+            }
+          }}
+          onOk={changePermissions}
+          okText={isChangingPermissions ? "修改中..." : "修改"}
+          okButtonProps={{ loading: isChangingPermissions, disabled: isChangingPermissions }}
+          cancelButtonProps={{ disabled: isChangingPermissions }}
+          closable={!isChangingPermissions}
+          maskClosable={!isChangingPermissions}
+          cancelText="取消"
+        >
+          <Form layout="vertical">
+            <Form.Item label="权限">
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={permissions.owner.read}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, read: e.target.checked } }))}
+                >
+                  读取
+                </Checkbox>
+                <Checkbox
+                  checked={permissions.owner.write}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, write: e.target.checked } }))}
+                >
+                  写入
+                </Checkbox>
+                <Checkbox
+                  checked={permissions.owner.execute}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, execute: e.target.checked } }))}
+                >
+                  执行
+                </Checkbox>
               </div>
             </Form.Item>
-          )}
-          <div style={{ marginBottom: '10px' }}>
-            将压缩以下 {selectedFiles.length} 个文件/文件夹:
-          </div>
-          <div style={{ maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9', padding: '8px', borderRadius: '2px' }}>
-            {selectedFiles.map((file, index) => (
-              <div key={index} style={{ marginBottom: '4px' }}>
-                {file.type === 'directory' ? <FolderOutlined style={{ marginRight: '8px', color: '#1890ff' }} /> : <FileOutlined style={{ marginRight: '8px' }} />}
-                {file.name}
+            <Form.Item label="组权限">
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={permissions.group.read}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, read: e.target.checked } }))}
+                >
+                  读取
+                </Checkbox>
+                <Checkbox
+                  checked={permissions.group.write}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, write: e.target.checked } }))}
+                >
+                  写入
+                </Checkbox>
+                <Checkbox
+                  checked={permissions.group.execute}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, execute: e.target.checked } }))}
+                >
+                  执行
+                </Checkbox>
               </div>
-            ))}
-          </div>
-          {isCompressing && (
-            <div style={{ marginTop: '16px', textAlign: 'center' }}>
-              <Spin />
-              <div style={{ marginTop: '8px', color: '#1890ff' }}>正在压缩文件，请稍候...</div>
-            </div>
-          )}
-        </Form>
-      </Modal>
-
-      {/* 解压文件对话框 */}
-      <Modal
-        title={`解压文件: ${selectedFile?.name}`}
-        open={isExtractModalVisible}
-        onCancel={() => {
-          if (!isExtracting) {
-            setIsExtractModalVisible(false);
-            setExtractPath('');
-          }
-        }}
-        onOk={extractFile}
-        okText={isExtracting ? "解压中..." : "解压"}
-        okButtonProps={{ loading: isExtracting, disabled: isExtracting }}
-        cancelButtonProps={{ disabled: isExtracting }}
-        closable={!isExtracting}
-        maskClosable={!isExtracting}
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="解压到目录">
-            <Input 
-              value={extractPath} 
-              onChange={(e) => setExtractPath(e.target.value)} 
-              placeholder="留空表示解压到当前目录"
-              disabled={isExtracting}
-            />
-          </Form.Item>
-          <div style={{ color: '#888', fontSize: '12px' }}>
-            支持的压缩格式: ZIP, TAR, GZ, TGZ, BZ2, XZ, ZST, TAR.ZST, RAR, 7Z, JAR, APK
-          </div>
-          {isExtracting && (
-            <div style={{ marginTop: '16px', textAlign: 'center' }}>
-              <Spin />
-              <div style={{ marginTop: '8px', color: '#1890ff' }}>正在解压文件，请稍候...</div>
-            </div>
-          )}
-        </Form>
-      </Modal>
-
-      {/* 修改权限对话框 */}
-      <Modal
-        title="修改文件权限"
-        open={isPermissionsModalVisible}
-        onCancel={() => {
-          if (!isChangingPermissions) {
-            setIsPermissionsModalVisible(false);
-            setIsRecursive(false);
-          }
-        }}
-        onOk={changePermissions}
-        okText={isChangingPermissions ? "修改中..." : "修改"}
-        okButtonProps={{ loading: isChangingPermissions, disabled: isChangingPermissions }}
-        cancelButtonProps={{ disabled: isChangingPermissions }}
-        closable={!isChangingPermissions}
-        maskClosable={!isChangingPermissions}
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="权限">
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Checkbox
-                checked={permissions.owner.read}
-                onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, read: e.target.checked } }))}
-              >
-                读取
-              </Checkbox>
-              <Checkbox
-                checked={permissions.owner.write}
-                onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, write: e.target.checked } }))}
-              >
-                写入
-              </Checkbox>
-              <Checkbox
-                checked={permissions.owner.execute}
-                onChange={(e) => setPermissions(prev => ({ ...prev, owner: { ...prev.owner, execute: e.target.checked } }))}
-              >
-                执行
-              </Checkbox>
-            </div>
-          </Form.Item>
-          <Form.Item label="组权限">
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Checkbox
-                checked={permissions.group.read}
-                onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, read: e.target.checked } }))}
-              >
-                读取
-              </Checkbox>
-              <Checkbox
-                checked={permissions.group.write}
-                onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, write: e.target.checked } }))}
-              >
-                写入
-              </Checkbox>
-              <Checkbox
-                checked={permissions.group.execute}
-                onChange={(e) => setPermissions(prev => ({ ...prev, group: { ...prev.group, execute: e.target.checked } }))}
-              >
-                执行
-              </Checkbox>
-            </div>
-          </Form.Item>
-          <Form.Item label="其他权限">
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Checkbox
-                checked={permissions.others.read}
-                onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, read: e.target.checked } }))}
-              >
-                读取
-              </Checkbox>
-              <Checkbox
-                checked={permissions.others.write}
-                onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, write: e.target.checked } }))}
-              >
-                写入
-              </Checkbox>
-              <Checkbox
-                checked={permissions.others.execute}
-                onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, execute: e.target.checked } }))}
-              >
-                执行
-              </Checkbox>
-            </div>
-          </Form.Item>
-          <Form.Item label="递归修改">
-            <Checkbox
-              checked={isRecursive}
-              onChange={(e) => setIsRecursive(e.target.checked)}
-            >
-              递归修改子目录和文件
-            </Checkbox>
-          </Form.Item>
-          <div style={{ marginBottom: '10px' }}>
-            将修改以下 {selectedFiles.length} 个文件/文件夹:
-          </div>
-          <div style={{ maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9', padding: '8px', borderRadius: '2px' }}>
-            {selectedFiles.map((file, index) => (
-              <div key={index} style={{ marginBottom: '4px' }}>
-                {file.type === 'directory' ? <FolderOutlined style={{ marginRight: '8px', color: '#1890ff' }} /> : <FileOutlined style={{ marginRight: '8px' }} />}
-                {file.name}
+            </Form.Item>
+            <Form.Item label="其他权限">
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Checkbox
+                  checked={permissions.others.read}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, read: e.target.checked } }))}
+                >
+                  读取
+                </Checkbox>
+                <Checkbox
+                  checked={permissions.others.write}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, write: e.target.checked } }))}
+                >
+                  写入
+                </Checkbox>
+                <Checkbox
+                  checked={permissions.others.execute}
+                  onChange={(e) => setPermissions(prev => ({ ...prev, others: { ...prev.others, execute: e.target.checked } }))}
+                >
+                  执行
+                </Checkbox>
               </div>
-            ))}
-          </div>
-          {isChangingPermissions && (
-            <div style={{ marginTop: '16px', textAlign: 'center' }}>
-              <Spin />
-              <div style={{ marginTop: '8px', color: '#1890ff' }}>正在修改权限，请稍候...</div>
+            </Form.Item>
+            <Form.Item label="递归修改">
+              <Checkbox
+                checked={isRecursive}
+                onChange={(e) => setIsRecursive(e.target.checked)}
+              >
+                递归修改子目录和文件
+              </Checkbox>
+            </Form.Item>
+            <div style={{ marginBottom: '10px' }}>
+              将修改以下 {selectedFiles.length} 个文件/文件夹:
             </div>
-          )}
-        </Form>
-      </Modal>
-
-      <style jsx>{`
-        .file-manager {
-          width: 100%;
-          padding: 8px;
-        }
-        .file-manager-toolbar {
-          margin-bottom: 16px;
-        }
-        .file-manager-content {
-          background-color: white;
-          border-radius: 4px;
-        }
-        .directory-name {
-          color: #1890ff;
-          cursor: pointer;
-        }
-        .file-name {
-          cursor: pointer;
-        }
-        .loading-container {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 200px;
-        }
-        .image-preview-container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-        }
-        .image-preview-actions {
-          margin-top: 16px;
-          display: flex;
-          justify-content: center;
-        }
-        .context-menu {
-          background-color: white;
-          border-radius: 2px;
-          box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16);
-          min-width: 160px;
-          max-width: 280px;
-        }
-        .selected-row {
-          background-color: #e6f7ff !important;
-        }
-        .selected-row:hover > td {
-          background-color: #bae7ff !important;
-        }
-      `}</style>
-    </div>
+            <div style={{ maxHeight: '150px', overflow: 'auto', border: '1px solid #d9d9d9', padding: '8px', borderRadius: '2px' }}>
+              {selectedFiles.map((file, index) => (
+                <div key={index} style={{ marginBottom: '4px' }}>
+                  {file.type === 'directory' ? <FolderOutlined style={{ marginRight: '8px', color: '#1890ff' }} /> : <FileOutlined style={{ marginRight: '8px' }} />}
+                  {file.name}
+                </div>
+              ))}
+            </div>
+            {isChangingPermissions && (
+              <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                <Spin />
+                <div style={{ marginTop: '8px', color: '#1890ff' }}>正在修改权限，请稍候...</div>
+              </div>
+            )}
+          </Form>
+        </Modal>
+      </div>
+      
+      {/* 添加帮助弹窗 */}
+      <FileManagerHelpModal visible={helpModalVisible} onClose={handleCloseHelpModal} />
+    </>
   );
 };
 

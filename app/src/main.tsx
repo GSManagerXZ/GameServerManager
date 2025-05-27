@@ -7,6 +7,7 @@ import Register from './components/Register.tsx'
 import NotFound from './components/NotFound.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
+import BetaNotice from './components/BetaNotice.tsx'
 import './index.css'
 
 // 创建根元素
@@ -16,6 +17,8 @@ if (rootElement) {
     <React.StrictMode>
       <BrowserRouter>
         <AuthProvider>
+          {/* 内测须知弹窗在所有页面显示 */}
+          <BetaNotice />
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={

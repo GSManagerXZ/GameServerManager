@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, Tabs, Form, Input, Button, Table, Space, Modal, Typography, message, Popconfirm, Divider, InputNumber, Select, Switch } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, MinusCircleOutlined, GlobalOutlined } from '@ant-design/icons';
 import axios from 'axios';
+import FrpDocModal from './FrpDocModal';
+import Cookies from 'js-cookie';
 
 const { TabPane } = Tabs;
 const { Title, Paragraph, Text } = Typography;
@@ -54,6 +56,15 @@ const FrpManager: React.FC = () => {
   const [mefrpWebsiteVisible, setMefrpWebsiteVisible] = useState<boolean>(false);
   const [sakuraWebsiteVisible, setSakuraWebsiteVisible] = useState<boolean>(false);
   const [autoRestartFrps, setAutoRestartFrps] = useState<string[]>([]);
+  const [docModalVisible, setDocModalVisible] = useState<boolean>(false);
+
+  // 检查是否需要显示文档弹窗
+  useEffect(() => {
+    const frpDocViewed = Cookies.get('frp_doc_viewed');
+    if (!frpDocViewed) {
+      setDocModalVisible(true);
+    }
+  }, []);
 
   // 加载FRP配置
   const loadFrpConfigs = async () => {
@@ -525,6 +536,11 @@ const FrpManager: React.FC = () => {
     },
   ];
 
+  // 关闭文档弹窗
+  const handleCloseDocModal = () => {
+    setDocModalVisible(false);
+  };
+
   return (
     <div className="frp-manager">
       <Title level={2}>内网穿透</Title>
@@ -904,6 +920,9 @@ const FrpManager: React.FC = () => {
           referrerPolicy="no-referrer-when-downgrade"
         />
       </Modal>
+
+      {/* 添加文档弹窗 */}
+      <FrpDocModal visible={docModalVisible} onClose={handleCloseDocModal} />
     </div>
   );
 };

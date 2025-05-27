@@ -10,11 +10,15 @@ import ContainerInfo from './components/ContainerInfo';
 import FileManager from './components/FileManager';
 import Register from './components/Register'; // 导入注册组件
 import FrpManager from './components/FrpManager'; // 导入内网穿透组件
+import FrpDocModal from './components/FrpDocModal'; // 导入内网穿透文档弹窗组件
+import FileManagerHelpModal from './components/FileManagerHelpModal'; // 导入文件管理帮助弹窗组件
+import About from './pages/About'; // 导入关于项目页面
 import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
 import { GameInfo } from './types';
 import { useAuth } from './context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from './hooks/useIsMobile'; // 导入移动设备检测钩子
+import Cookies from 'js-cookie'; // 导入js-cookie库
 
 const { Header, Content, Footer, Sider } = Layout;
 const { Title, Paragraph } = Typography;
@@ -231,6 +235,95 @@ const checkServerStatus = async (gameId: string) => {
   const [inputHistoryIndex, setInputHistoryIndex] = useState<number>(0);
   // 新增：保存EventSource引用
   const serverEventSourceRef = useRef<EventSource | null>(null);
+  // 新增：背景图片开关
+  const [enableRandomBackground, setEnableRandomBackground] = useState<boolean>(() => {
+    // 从localStorage读取用户偏好设置，默认开启
+    const savedPreference = localStorage.getItem('enableRandomBackground');
+    return savedPreference === null ? true : savedPreference === 'true';
+  });
+  
+  // 新增：是否启用不活动透明效果
+  const [enableInactiveEffect, setEnableInactiveEffect] = useState<boolean>(() => {
+    // 从localStorage读取用户偏好设置，默认开启
+    const savedPreference = localStorage.getItem('enableInactiveEffect');
+    return savedPreference === null ? true : savedPreference === 'true';
+  });
+  
+  // 保存不活动效果设置到localStorage
+  useEffect(() => {
+    localStorage.setItem('enableInactiveEffect', enableInactiveEffect.toString());
+  }, [enableInactiveEffect]);
+  
+  // 新增：用户活动状态和定时器
+  const [isUserActive, setIsUserActive] = useState<boolean>(true);
+  const userActivityTimerRef = useRef<number | null>(null);
+  
+  // 处理用户活动
+  const handleUserActivity = useCallback(() => {
+    // 如果未启用不活跃效果，则不设置定时器
+    if (!enableInactiveEffect || !enableRandomBackground) {
+      setIsUserActive(true);
+      return;
+    }
+    
+    setIsUserActive(true);
+    
+    // 重置定时器
+    if (userActivityTimerRef.current) {
+      window.clearTimeout(userActivityTimerRef.current);
+    }
+    
+    // 设置新的定时器，20秒后将用户状态设为不活跃
+    userActivityTimerRef.current = window.setTimeout(() => {
+      setIsUserActive(false);
+    }, 20000); // 20秒
+  }, [enableInactiveEffect, enableRandomBackground]);
+  
+  // 当启用/禁用不活跃效果或随机背景时，重置用户活跃状态
+  useEffect(() => {
+    // 如果禁用了不活跃效果或随机背景，则强制设置为活跃状态
+    if (!enableInactiveEffect || !enableRandomBackground) {
+      setIsUserActive(true);
+      if (userActivityTimerRef.current) {
+        window.clearTimeout(userActivityTimerRef.current);
+        userActivityTimerRef.current = null;
+      }
+    } else {
+      // 重新启动活动检测
+      handleUserActivity();
+    }
+  }, [enableInactiveEffect, enableRandomBackground, handleUserActivity]);
+  
+  // 设置用户活动监听器
+  useEffect(() => {
+    // 初始设置定时器
+    handleUserActivity();
+    
+    // 添加鼠标移动和点击事件监听器
+    window.addEventListener('mousemove', handleUserActivity);
+    window.addEventListener('click', handleUserActivity);
+    window.addEventListener('keydown', handleUserActivity);
+    window.addEventListener('scroll', handleUserActivity);
+    window.addEventListener('touchstart', handleUserActivity);
+    
+    // 组件卸载时清除事件监听器和定时器
+    return () => {
+      window.removeEventListener('mousemove', handleUserActivity);
+      window.removeEventListener('click', handleUserActivity);
+      window.removeEventListener('keydown', handleUserActivity);
+      window.removeEventListener('scroll', handleUserActivity);
+      window.removeEventListener('touchstart', handleUserActivity);
+      
+      if (userActivityTimerRef.current) {
+        window.clearTimeout(userActivityTimerRef.current);
+      }
+    };
+  }, [handleUserActivity]);
+  
+  // 保存背景图片设置到localStorage
+  useEffect(() => {
+    localStorage.setItem('enableRandomBackground', enableRandomBackground.toString());
+  }, [enableRandomBackground]);
   
   // 监听serverModalVisible变化，当模态框关闭时关闭EventSource连接
   useEffect(() => {
@@ -1512,6 +1605,38 @@ const checkServerStatus = async (gameId: string) => {
     }
   }, [currentNav, refreshServerStatus]);
 
+  const [frpDocModalVisible, setFrpDocModalVisible] = useState<boolean>(false);
+  const [fileManagerHelpModalVisible, setFileManagerHelpModalVisible] = useState<boolean>(false);
+  
+  // 检查是否需要显示内网穿透文档弹窗（仅在首次访问时）
+  useEffect(() => {
+    const frpDocViewed = Cookies.get('frp_doc_viewed');
+    const currentPath = window.location.pathname;
+    // 只有当用户访问内网穿透页面且没有查看过文档时才显示
+    if (!frpDocViewed && currentPath.includes('/frp')) {
+      setFrpDocModalVisible(true);
+    }
+  }, []);
+  
+  // 检查是否需要显示文件管理帮助弹窗（仅在首次访问时）
+  useEffect(() => {
+    const fileManagerHelpViewed = Cookies.get('file_manager_help_viewed');
+    // 当切换到文件管理页面且没有查看过帮助时才显示
+    if (!fileManagerHelpViewed && currentNav === 'files') {
+      setFileManagerHelpModalVisible(true);
+    }
+  }, [currentNav]);
+  
+  // 关闭内网穿透文档弹窗
+  const handleCloseFrpDocModal = () => {
+    setFrpDocModalVisible(false);
+  };
+  
+  // 关闭文件管理帮助弹窗
+  const handleCloseFileManagerHelpModal = () => {
+    setFileManagerHelpModalVisible(false);
+  };
+
   // 如果正在加载认证状态，显示加载中
   if (loading) {
     return (
@@ -1587,7 +1712,10 @@ const checkServerStatus = async (gameId: string) => {
 
   // 主应用界面
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout 
+      className={`site-layout ${enableRandomBackground ? 'with-random-bg' : 'without-random-bg'} ${!isUserActive && enableInactiveEffect && enableRandomBackground ? 'user-inactive' : ''}`} 
+      style={{ minHeight: '100vh' }}
+    >
       {isMobile ? (
         // 移动端侧边栏使用抽屉组件
         <>
@@ -1602,6 +1730,28 @@ const checkServerStatus = async (gameId: string) => {
               GameServerManager
             </div>
             <div className="user-info">
+              <Tooltip title={enableRandomBackground ? "关闭随机背景" : "开启随机背景"}>
+                <Switch 
+                  checkedChildren="背景" 
+                  unCheckedChildren="背景" 
+                  checked={enableRandomBackground}
+                  onChange={(checked) => setEnableRandomBackground(checked)}
+                  size="small"
+                  style={{marginRight: 8}}
+                />
+              </Tooltip>
+              {enableRandomBackground && (
+                <Tooltip title={enableInactiveEffect ? "关闭20秒后自动透明效果" : "开启20秒后自动透明效果"}>
+                  <Switch 
+                    checkedChildren="透明" 
+                    unCheckedChildren="透明" 
+                    checked={enableInactiveEffect}
+                    onChange={(checked) => setEnableInactiveEffect(checked)}
+                    size="small"
+                    style={{marginRight: 8}}
+                  />
+                </Tooltip>
+              )}
               <span><UserOutlined /> {username}</span>
               <Button 
                 type="link" 
@@ -1719,6 +1869,11 @@ const checkServerStatus = async (gameId: string) => {
               key: 'files',
               icon: <FolderOutlined />,
               label: '文件管理'
+            },
+            {
+              key: 'about',
+              icon: <InfoCircleOutlined />,
+              label: '关于项目'
             }
           ]}
         />
@@ -1726,7 +1881,7 @@ const checkServerStatus = async (gameId: string) => {
       )}
       
       <Layout 
-        className={`site-layout content-with-fixed-sider ${isMobile ? '' : (collapsed ? 'sider-collapsed' : 'sider-expanded')}`}
+        className={`site-layout content-with-fixed-sider ${isMobile ? '' : (collapsed ? 'sider-collapsed' : 'sider-expanded')} ${enableRandomBackground ? 'with-random-bg' : 'without-random-bg'} ${!isUserActive && enableInactiveEffect && enableRandomBackground ? 'user-inactive' : ''}`}
       >
         {!isMobile && (
         <Header className="site-header">
@@ -1734,6 +1889,28 @@ const checkServerStatus = async (gameId: string) => {
             GameServerManager
           </div>
           <div className="user-info">
+            <Tooltip title={enableRandomBackground ? "关闭随机背景" : "开启随机背景"}>
+              <Switch 
+                checkedChildren="背景" 
+                unCheckedChildren="背景" 
+                checked={enableRandomBackground}
+                onChange={(checked) => setEnableRandomBackground(checked)}
+                size="small"
+                style={{marginRight: 8}}
+              />
+            </Tooltip>
+            {enableRandomBackground && (
+              <Tooltip title={enableInactiveEffect ? "关闭20秒后自动透明效果" : "开启20秒后自动透明效果"}>
+                <Switch 
+                  checkedChildren="透明" 
+                  unCheckedChildren="透明" 
+                  checked={enableInactiveEffect}
+                  onChange={(checked) => setEnableInactiveEffect(checked)}
+                  size="small"
+                  style={{marginRight: 8}}
+                />
+              </Tooltip>
+            )}
             <span><UserOutlined /> {username}</span>
             <Button 
               type="link" 
@@ -2337,6 +2514,12 @@ const checkServerStatus = async (gameId: string) => {
               <FrpManager />
             </div>
           )}
+          
+          {currentNav === 'about' && (
+            <div className="about-page">
+              <About />
+            </div>
+          )}
         </Content>
         <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱</Footer>
       </Layout>
@@ -2588,6 +2771,12 @@ const checkServerStatus = async (gameId: string) => {
       >
         <FileManager initialPath={fileManagerPath} />
       </Modal>
+      
+      {/* 添加内网穿透文档弹窗 */}
+      <FrpDocModal visible={frpDocModalVisible} onClose={handleCloseFrpDocModal} />
+      
+      {/* 添加文件管理帮助弹窗 */}
+      <FileManagerHelpModal visible={fileManagerHelpModalVisible} onClose={handleCloseFileManagerHelpModal} />
     </Layout>
   );
 };
