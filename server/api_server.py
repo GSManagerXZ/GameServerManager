@@ -632,6 +632,26 @@ def get_games():
     """获取所有可安装的游戏列表"""
     try:
         logger.debug("获取游戏列表")
+        
+        # 检查赞助者身份
+        config = load_config()
+        sponsor_key = config.get('sponsor_key')
+        cloud_error = None
+        
+        # 如果有赞助者密钥，尝试从云端获取游戏列表
+        if sponsor_key:
+            try:
+                # 设置5秒超时
+                cloud_games = fetch_cloud_games(sponsor_key)
+                if cloud_games:
+                    logger.debug(f"从云端获取到 {len(cloud_games)} 个游戏")
+                    return jsonify({'status': 'success', 'games': cloud_games, 'source': 'cloud'})
+            except Exception as cloud_err:
+                logger.error(f"从云端获取游戏列表失败: {str(cloud_err)}")
+                # 记录错误信息，但继续使用本地列表
+                cloud_error = str(cloud_err)
+        
+        # 使用本地游戏列表
         games = load_games_config()
         game_list = []
         
@@ -647,11 +667,62 @@ def get_games():
                 'url': game_info.get('url', '')
             })
         
-        logger.debug(f"找到 {len(game_list)} 个游戏")
-        return jsonify({'status': 'success', 'games': game_list})
+        logger.debug(f"从本地找到 {len(game_list)} 个游戏")
+        response_data = {
+            'status': 'success', 
+            'games': game_list, 
+            'source': 'local'
+        }
+        
+        # 如果有云端错误，添加到响应中
+        if cloud_error:
+            response_data['cloud_error'] = cloud_error
+            
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"获取游戏列表失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def fetch_cloud_games(sponsor_key):
+    """从云端获取游戏列表"""
+    try:
+        logger.debug("正在从云端获取游戏列表...")
+        
+        # 创建一个带有超时的会话
+        session = requests.Session()
+        response = session.get('http://82.156.35.55:5001/games', 
+                              headers={'key': sponsor_key}, 
+                              timeout=5)
+        
+        if response.status_code == 200:
+            cloud_data = response.json()
+            game_list = []
+            
+            # 处理返回的云端游戏数据
+            for game_id, game_info in cloud_data.items():
+                game_list.append({
+                    'id': game_id,
+                    'name': game_info.get('game_nameCN', game_id),
+                    'appid': game_info.get('appid'),
+                    'anonymous': game_info.get('anonymous', True),
+                    'has_script': game_info.get('script', False),
+                    'tip': game_info.get('tip', ''),
+                    'image': game_info.get('image', ''),
+                    'url': game_info.get('url', ''),
+                    'script_name': game_info.get('script_name', '')  # 保存脚本内容
+                })
+            
+            return game_list
+        elif response.status_code == 403:
+            # 403错误意味着凭证验证不通过
+            logger.error("赞助者凭证验证不通过，状态码403")
+            raise Exception("403：赞助者凭证验证不通过")
+        else:
+            logger.error(f"云端服务器返回错误: {response.status_code}")
+            return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"请求云端服务器失败: {str(e)}")
+        raise
 
 @app.route('/api/install', methods=['POST'])
 def install_game():
@@ -665,11 +736,37 @@ def install_game():
             logger.error("缺少游戏ID")
             return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
         logger.info(f"请求安装游戏: {game_id}")
-        # 检查游戏是否存在
-        games = load_games_config()
-        if game_id not in games:
-            logger.error(f"游戏不存在: {game_id}")
-            return jsonify({'status': 'error', 'message': f'游戏 {game_id} 不存在'}), 404
+        
+        # 获取游戏信息 - 首先尝试从云端获取
+        config = load_config()
+        sponsor_key = config.get('sponsor_key')
+        game_info = None
+        script_name = None
+        
+        # 如果有赞助者凭证，尝试从云端获取游戏信息
+        if sponsor_key:
+            try:
+                cloud_games = fetch_cloud_games(sponsor_key)
+                if cloud_games:
+                    # 查找指定游戏
+                    for game in cloud_games:
+                        if game['id'] == game_id:
+                            game_info = game
+                            script_name = game.get('script_name')
+                            logger.info(f"从云端获取到游戏 {game_id} 的信息")
+                            break
+            except Exception as cloud_err:
+                logger.error(f"从云端获取游戏 {game_id} 信息失败: {str(cloud_err)}")
+        
+        # 如果没有从云端获取到，则从本地配置获取
+        if not game_info:
+            games = load_games_config()
+            if game_id not in games:
+                logger.error(f"游戏不存在: {game_id}")
+                return jsonify({'status': 'error', 'message': f'游戏 {game_id} 不存在'}), 404
+            game_info = games[game_id]
+            script_name = game_info.get('script_name')
+        
         # 如果已经有正在运行的安装进程，则返回
         if game_id in active_installations and active_installations[game_id].get('process') and active_installations[game_id]['process'].poll() is None:
             logger.debug(f"游戏 {game_id} 已经在安装中")
@@ -677,6 +774,7 @@ def install_game():
                 'status': 'success', 
                 'message': f'游戏 {game_id} 已经在安装中'
             })
+            
         # 清理任何旧的安装数据
         if game_id in active_installations:
             logger.info(f"清理游戏 {game_id} 的旧安装数据")
@@ -686,6 +784,7 @@ def install_game():
                     old_process.terminate()
                 except:
                     pass
+                    
         # 重置输出队列
         if game_id in output_queues:
             try:
@@ -695,6 +794,25 @@ def install_game():
                 output_queues[game_id] = queue.Queue()
         else:
             output_queues[game_id] = queue.Queue()
+            
+        # 如果是从云端获取的游戏信息，需要将脚本内容保存到本地临时文件
+        if script_name and game_info.get('has_script', False) and game_info.get('script', False):
+            try:
+                # 确保游戏目录存在
+                game_dir = os.path.join(GAMES_DIR, game_id)
+                os.makedirs(game_dir, exist_ok=True)
+                
+                # 保存脚本到临时文件
+                script_path = os.path.join(game_dir, "cloud_script.sh")
+                with open(script_path, 'w', encoding='utf-8') as f:
+                    f.write(script_name)
+                    
+                # 设置可执行权限
+                os.chmod(script_path, 0o755)
+                logger.info(f"已保存云端脚本到 {script_path}")
+            except Exception as script_err:
+                logger.error(f"保存云端脚本失败: {str(script_err)}")
+                
         # 构建安装命令 (确保以steam用户运行)
         cmd = f"su - steam -c 'python3 {INSTALLER_SCRIPT} {game_id}"
         if account:
@@ -703,6 +821,7 @@ def install_game():
             cmd += f" --password {shlex.quote(password)}"
         cmd += " 2>&1'"
         logger.debug(f"准备执行命令 (将使用PTY): {cmd}")
+        
         # 初始化安装状态跟踪
         active_installations[game_id] = {
             'process': None,
@@ -4548,6 +4667,79 @@ def monitor_frp_processes():
 # 启动FRP监控线程
 frp_monitor_thread = threading.Thread(target=monitor_frp_processes, daemon=True)
 frp_monitor_thread.start()
+
+@app.route('/api/settings/sponsor-key', methods=['POST'])
+def save_sponsor_key():
+    """保存赞助者凭证到配置文件"""
+    try:
+        data = request.json
+        sponsor_key = data.get('sponsorKey')
+        
+        if not sponsor_key:
+            return jsonify({'status': 'error', 'message': '赞助者凭证不能为空'}), 400
+            
+        # 加载现有配置
+        config_path = "/home/steam/games/config.json"
+        existing_config = {}
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_config = json.load(f)
+            except Exception as e:
+                logger.error(f"读取配置文件失败: {str(e)}")
+                
+        # 确保目录存在
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        
+        # 添加或更新赞助者凭证
+        existing_config['sponsor_key'] = sponsor_key
+        
+        # 保存配置
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(existing_config, f, indent=4)
+            
+        logger.info("赞助者凭证已保存")
+        return jsonify({'status': 'success', 'message': '赞助者凭证已保存'})
+        
+    except Exception as e:
+        logger.error(f"保存赞助者凭证时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'保存赞助者凭证失败: {str(e)}'}), 500
+
+@app.route('/api/settings/sponsor-key', methods=['GET'])
+def get_sponsor_key():
+    """获取当前赞助者凭证"""
+    try:
+        # 加载配置文件
+        config_path = "/home/steam/games/config.json"
+        
+        if not os.path.exists(config_path):
+            return jsonify({'status': 'success', 'sponsor_key': None})
+            
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                sponsor_key = config.get('sponsor_key')
+                
+                # 为了安全起见，只返回是否存在凭证，不返回完整凭证
+                if sponsor_key:
+                    # 只返回前四个字符和最后四个字符，中间用星号代替
+                    masked_key = sponsor_key[:4] + '*' * (len(sponsor_key) - 8) + sponsor_key[-4:] if len(sponsor_key) > 8 else sponsor_key
+                    return jsonify({
+                        'status': 'success', 
+                        'has_sponsor_key': True,
+                        'masked_sponsor_key': masked_key
+                    })
+                else:
+                    return jsonify({'status': 'success', 'has_sponsor_key': False})
+                    
+        except Exception as e:
+            logger.error(f"读取配置文件失败: {str(e)}")
+            return jsonify({'status': 'error', 'message': f'读取配置文件失败: {str(e)}'}), 500
+            
+    except Exception as e:
+        logger.error(f"获取赞助者凭证时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'获取赞助者凭证失败: {str(e)}'}), 500
 
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")

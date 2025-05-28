@@ -993,9 +993,15 @@ body {
   transform: translateY(-2px);
 }
 
-.login-container .ant-input {
-  background-color: transparent;
-  border: none !important; /* 确保Input本身没有额外的边框 */
+/* 确保Input本身没有额外的边框、轮廓或阴影 */
+.login-container .ant-input-affix-wrapper .ant-input,
+.login-container .ant-input-affix-wrapper .ant-input-lg {
+  background-color: transparent !important;
+  border-style: none !important;
+  border-width: 0px !important;
+  outline-style: none !important;
+  outline-width: 0px !important;
+  box-shadow: none !important;
 }
 
 .loading-container {
@@ -1421,8 +1427,8 @@ body {
   font-weight: 500;
 }
 
-.ant-input,
-.ant-input-affix-wrapper,
+.ant-input:not(.ant-input-borderless),
+.ant-input-affix-wrapper:not(:has(>.ant-input-borderless)),
 .ant-input-number,
 .ant-select-selector,
 .ant-radio-button-wrapper {
@@ -2158,4 +2164,73 @@ body {
     margin-right: 0;
     margin-bottom: 16px;
   }
+}
+
+/* 确保赞助者凭证页面Input本身没有额外的边框、轮廓或阴影 */
+.sponsor-container .ant-input-affix-wrapper .ant-input,
+.sponsor-container .ant-input-affix-wrapper .ant-input-lg {
+  background-color: transparent !important;
+  border-style: none !important;
+  border-width: 0px !important;
+  outline-style: none !important;
+  outline-width: 0px !important;
+  box-shadow: none !important;
+}
+
+/* 移除赞助者凭证页面中获得焦点输入框或其包裹元素的 box-shadow */
+.sponsor-container .ant-input:focus,
+.sponsor-container .ant-input-affix-wrapper.ant-input-affix-wrapper-focused {
+  box-shadow: none !important;
+}
+
+/* 确保赞助者凭证页面的 Form.Item 包裹元素没有额外的边框或阴影 */
+.sponsor-container .ant-form-item {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 针对赞助者凭证输入框 (如果其父容器是 .about-card) 的样式修复 */
+
+/* 移除 .about-card 内聚焦的输入框包裹元素的 box-shadow */
+.about-card .ant-input-affix-wrapper.ant-input-password.ant-input-affix-wrapper-focused,
+.about-card .ant-input-affix-wrapper.ant-input-affix-wrapper-focused { /* 通用 affix-wrapper 以防万一 */
+  box-shadow: none !important;
+}
+
+/* 移除 .about-card 内直接聚焦的输入框的 box-shadow */
+.about-card .ant-input:focus {
+  box-shadow: none !important;
+}
+
+/* 确保 .about-card 内的输入框本身没有额外的边框、轮廓或阴影 */
+.about-card .ant-input-affix-wrapper .ant-input {
+  background-color: transparent !important;
+  border-style: none !important;
+  border-width: 0px !important;
+  outline-style: none !important;
+  outline-width: 0px !important;
+  box-shadow: none !important;
+}
+
+/* 清理 .about-card 内的 Form.Item 可能存在的边框或阴影 */
+.about-card .ant-form-item {
+  border: none !important;
+  box-shadow: none !important;
+  margin-bottom: 16px; /* 保持与其他form item一致的间距 */
+}
+
+/* 专门针对赞助者凭证输入框 (input#sponsorKey) 的样式修复 */
+input#sponsorKey.ant-input {
+  border-width: 0 !important;  /* 强制移除输入框本身的边框 */
+  box-shadow: none !important; /* 强制移除输入框本身的任何阴影，包括聚焦时的阴影 */
+  background-color: transparent !important; /* 通常内部输入框应该是透明的，让包裹层背景生效 */
+}
+
+/* 通用修复：移除 ant-input-affix-wrapper 内层 ant-input 的边框、轮廓和阴影 */
+.ant-input-affix-wrapper > .ant-input,
+.ant-input-affix-wrapper > .ant-input-lg {
+  background-color: transparent !important; /* 确保背景透明，由包裹层控制 */
+  border-width: 0 !important;             /* 移除内层输入框的边框 */
+  outline: none !important;                /* 移除内层输入框的轮廓线 */
+  box-shadow: none !important;             /* 移除内层输入框可能存在的阴影（包括焦点阴影） */
 }

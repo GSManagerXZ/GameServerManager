@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch } from 'antd';
-import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
@@ -13,6 +13,7 @@ import FrpManager from './components/FrpManager'; // 导入内网穿透组件
 import FrpDocModal from './components/FrpDocModal'; // 导入内网穿透文档弹窗组件
 import FileManagerHelpModal from './components/FileManagerHelpModal'; // 导入文件管理帮助弹窗组件
 import About from './pages/About'; // 导入关于项目页面
+import Settings from './pages/Settings'; // 导入设置页面
 import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
 import { GameInfo } from './types';
 import { useAuth } from './context/AuthContext';
@@ -405,11 +406,29 @@ const checkServerStatus = async (gameId: string) => {
     const loadAll = async () => {
       setGameLoading(true);
       try {
-        const [gameList, installedResp] = await Promise.all([
-          fetchGames(),
+        const [gameResp, installedResp] = await Promise.all([
+          axios.get('/api/games'),
           axios.get('/api/installed_games')
         ]);
-        setGames(gameList);
+        
+        // 检查游戏列表来源
+        if (gameResp.data.status === 'success') {
+          setGames(gameResp.data.games || []);
+          
+          // 添加游戏来源提示
+          if (gameResp.data.source === 'cloud') {
+            message.success('已以赞助者身份从云端获取游戏列表');
+          } 
+          // 如果有云端错误但仍然使用了本地游戏列表
+          else if (gameResp.data.cloud_error) {
+            if (gameResp.data.cloud_error.includes('403')) {
+              message.error('赞助者凭证验证不通过，已切换至本地游戏列表');
+            } else {
+              message.warn(`云端连接失败：${gameResp.data.cloud_error}，已使用本地游戏列表`);
+            }
+          }
+        }
+        
         if (installedResp.data.status === 'success') {
           setInstalledGames(installedResp.data.installed || []);
           setExternalGames(installedResp.data.external || []);  // 设置外部游戏
@@ -417,16 +436,19 @@ const checkServerStatus = async (gameId: string) => {
         
         // 初始化每个游戏的installOutputs
         const initialOutputs: {[key: string]: InstallOutput} = {};
-        gameList.forEach(game => {
-          initialOutputs[game.id] = {
-            output: [],
-            complete: false,
-            installing: false
-          };
-        });
+        if (gameResp.data.games) {
+          gameResp.data.games.forEach((game: GameInfo) => {
+            initialOutputs[game.id] = {
+              output: [],
+              complete: false,
+              installing: false
+            };
+          });
+        }
         setInstallOutputs(initialOutputs);
         
       } catch (error) {
+        // 直接处理错误
         handleError(error);
       } finally {
         setGameLoading(false);
@@ -1514,11 +1536,22 @@ const checkServerStatus = async (gameId: string) => {
       const loadGames = async () => {
         setGameLoading(true);
         try {
-          const [gameList, installedResp] = await Promise.all([
-            fetchGames(),
+          const [gameResp, installedResp] = await Promise.all([
+            axios.get('/api/games'),
             axios.get('/api/installed_games')
           ]);
-          setGames(gameList);
+          
+          // 检查游戏列表来源
+          if (gameResp.data.status === 'success') {
+            setGames(gameResp.data.games || []);
+            
+            // 删除重复的消息提示，因为在前面的useEffect中已经有了
+            // 但仍然需要处理cloud_error
+            if (gameResp.data.source === 'local' && gameResp.data.cloud_error) {
+              // 不显示消息，因为在前面的useEffect中已经有消息提示了
+            }
+          }
+          
           if (installedResp.data.status === 'success') {
             setInstalledGames(installedResp.data.installed || []);
             setExternalGames(installedResp.data.external || []);  // 设置外部游戏
@@ -1526,16 +1559,19 @@ const checkServerStatus = async (gameId: string) => {
           
           // 初始化每个游戏的installOutputs
           const initialOutputs: {[key: string]: InstallOutput} = {};
-          gameList.forEach(game => {
-            initialOutputs[game.id] = {
-              output: [],
-              complete: false,
-              installing: false
-            };
-          });
+          if (gameResp.data.games) {
+            gameResp.data.games.forEach((game: GameInfo) => {
+              initialOutputs[game.id] = {
+                output: [],
+                complete: false,
+                installing: false
+              };
+            });
+          }
           setInstallOutputs(initialOutputs);
           
         } catch (error) {
+          // 简化错误处理，避免重复消息
           message.error('加载游戏列表失败，请刷新页面重试');
         } finally {
           setGameLoading(false);
@@ -1814,6 +1850,16 @@ const checkServerStatus = async (gameId: string) => {
                   key: 'files',
                   icon: <FolderOutlined />,
                   label: '文件管理'
+                },
+                {
+                  key: 'about',
+                  icon: <InfoCircleOutlined />,
+                  label: '关于项目'
+                },
+                {
+                  key: 'settings',
+                  icon: <SettingOutlined />,
+                  label: '设置'
                 }
               ]}
             />
@@ -1874,6 +1920,11 @@ const checkServerStatus = async (gameId: string) => {
               key: 'about',
               icon: <InfoCircleOutlined />,
               label: '关于项目'
+            },
+            {
+              key: 'settings',
+              icon: <SettingOutlined />,
+              label: '设置'
             }
           ]}
         />
@@ -2518,6 +2569,12 @@ const checkServerStatus = async (gameId: string) => {
           {currentNav === 'about' && (
             <div className="about-page">
               <About />
+            </div>
+          )}
+          
+          {currentNav === 'settings' && (
+            <div className="settings-page">
+              <Settings />
             </div>
           )}
         </Content>

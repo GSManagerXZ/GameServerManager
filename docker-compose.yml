@@ -4,7 +4,7 @@ services:
   server:
     build: .
     container_name: xiaozhugame_server
-    #image: xiaozhu674/gameserver:latest  # 替换为你的镜像名称
+    image: gameservermanager:latest  # 替换为你的镜像名称
     user: root                         # 使用root用户运行容器
     ports:
       # 默认开放的常用Steam游戏服务器端口
@@ -19,20 +19,10 @@ services:
     environment:
       - TZ=Asia/Shanghai              # 设置时区
       - USE_GUNICORN=true             # 强制使用Gunicorn
-      - GUNICORN_WORKERS=1            # 后端线程数量，最多设置2个 设置过多会存在进程打架造成的显示问题
+      - GUNICORN_WORKERS=1            # Gunicorn工作进程数
       - GUNICORN_TIMEOUT=120          # Gunicorn超时设置
       #- GAME_TO_RUN=Palworld         # 可选：直接启动指定游戏，无需进入菜单
       #- GAME_ARGS="-port=8211 -players=32"  # 可选：游戏启动参数
     command: /home/steam/start_web.sh  # 启动Web界面
     stdin_open: true                  # 保持STDIN打开
     tty: true                         # 分配TTY
-    
-    # 如果需要，取消注释下面的行来限制资源
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: '4.0'
-    #       memory: 8G
-    #     reservations:
-    #       cpus: '2.0'
-    #       memory: 4G 
