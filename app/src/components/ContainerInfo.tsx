@@ -8,10 +8,14 @@ const { Title, Paragraph } = Typography;
 
 interface SystemInfo {
   cpu_usage: number;
+  cpu_model?: string;
+  cpu_cores?: number;
+  cpu_logical_cores?: number;
   memory: {
     total: number;
     used: number;
     percent: number;
+    frequency?: string;
   };
   disk: {
     total: number;
@@ -427,7 +431,7 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
 
       <Row gutter={isMobile ? 8 : 16} className="resource-cards">
         <Col xs={24} sm={24} md={8}>
-          <Card title={<><HddOutlined /> CPU使用率</>} loading={loading} style={{marginBottom: isMobile ? 8 : 0}} size={isMobile ? "small" : "default"}>
+          <Card title={<><HddOutlined /> CPU使用率</>} loading={loading} style={{marginBottom: isMobile ? 8 : 0, borderRadius: '8px'}} size={isMobile ? "small" : "default"}>
             <Progress 
               type="dashboard" 
               percent={Math.round(systemInfo?.cpu_usage || 0)} 
@@ -436,10 +440,16 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
               width={isMobile ? 80 : 120}
             />
             <Statistic title="使用率" value={`${Math.round(systemInfo?.cpu_usage || 0)}%`} />
+            {systemInfo?.cpu_model && (
+              <div style={{ marginTop: 8 }}>
+                <div><strong>CPU型号:</strong> {systemInfo.cpu_model}</div>
+                <div><strong>核心数:</strong> {systemInfo.cpu_cores || 0} 物理核心 / {systemInfo.cpu_logical_cores || 0} 逻辑核心</div>
+              </div>
+            )}
           </Card>
         </Col>
         <Col xs={24} sm={24} md={8}>
-          <Card title={<><HddOutlined /> 内存使用</>} loading={loading} style={{marginBottom: isMobile ? 8 : 0}} size={isMobile ? "small" : "default"}>
+          <Card title={<><HddOutlined /> 内存使用</>} loading={loading} style={{marginBottom: isMobile ? 8 : 0, borderRadius: '8px'}} size={isMobile ? "small" : "default"}>
             <Progress 
               type="dashboard" 
               percent={Math.round(systemInfo?.memory.percent || 0)} 
@@ -451,10 +461,15 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
               title="使用/总量" 
               value={systemInfo ? formatGBPair(systemInfo.memory.used, systemInfo.memory.total) : '-'} 
             />
+            {systemInfo?.memory.frequency && (
+              <div style={{ marginTop: 8 }}>
+                <div><strong>内存频率:</strong> {systemInfo.memory.frequency}</div>
+              </div>
+            )}
           </Card>
         </Col>
         <Col xs={24} sm={24} md={8}>
-          <Card title={<><HddOutlined /> 磁盘使用</>} loading={loading} style={{marginBottom: isMobile ? 8 : 0}} size={isMobile ? "small" : "default"}>
+          <Card title={<><HddOutlined /> 磁盘使用</>} loading={loading} style={{marginBottom: isMobile ? 8 : 0, borderRadius: '8px'}} size={isMobile ? "small" : "default"}>
             <Progress 
               type="dashboard" 
               percent={Math.round(systemInfo?.disk.percent || 0)}
@@ -478,7 +493,7 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
           <Card 
             title={<><GlobalOutlined /> 网络状态</>} 
             loading={loading}
-            style={{marginBottom: isMobile ? 8 : 16}}
+            style={{marginBottom: isMobile ? 8 : 16, borderRadius: '8px'}}
             size={isMobile ? "small" : "default"}
           >
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -562,7 +577,7 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
                 
                 {/* IPv4地址行 */}
                 <tr>
-                  <td style={{ padding: '12px 0', fontWeight: 'bold' }}>IPv4地址</td>
+                  <td style={{ padding: '12px 0', fontWeight: 'bold' }}>IPv4公网地址</td>
                   <td style={{ padding: '12px 0' }}>
                     {systemInfo?.network?.public_ip?.ipv4 || '未获取到'}
                   </td>
@@ -652,7 +667,7 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
                 
                 {/* IPv6地址行 */}
                 <tr>
-                  <td style={{ padding: '12px 0', fontWeight: 'bold' }}>IPv6地址</td>
+                  <td style={{ padding: '12px 0', fontWeight: 'bold' }}>IPv6公网地址</td>
                   <td style={{ padding: '12px 0' }}>
                     {systemInfo?.network?.public_ip?.ipv6 || '未获取到'}
                   </td>
@@ -671,7 +686,7 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
             title={<><AppstoreOutlined /> 已安装游戏 ({installedGames.length})</>} 
             extra={<Tag color="blue">{formatSize(installedGames.reduce((acc, game) => acc + (game.size_mb || 0), 0))}</Tag>}
             loading={loading}
-            style={{marginBottom: isMobile ? 8 : 0}}
+            style={{marginBottom: isMobile ? 8 : 0, borderRadius: '8px'}}
             size={isMobile ? "small" : "default"}
           >
             <Table 
@@ -689,7 +704,7 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
           <Card 
             title={<><RocketOutlined /> 正在运行的服务器 ({runningGames.length})</>}
             loading={loading}
-            style={{marginBottom: isMobile ? 8 : 0}}
+            style={{marginBottom: isMobile ? 8 : 0, borderRadius: '8px'}}
             size={isMobile ? "small" : "default"}
           >
             <Table 

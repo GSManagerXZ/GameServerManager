@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch } from 'antd';
+import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List } from 'antd';
 import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
@@ -11,7 +11,6 @@ import FileManager from './components/FileManager';
 import Register from './components/Register'; // 导入注册组件
 import FrpManager from './components/FrpManager'; // 导入内网穿透组件
 import FrpDocModal from './components/FrpDocModal'; // 导入内网穿透文档弹窗组件
-import FileManagerHelpModal from './components/FileManagerHelpModal'; // 导入文件管理帮助弹窗组件
 import About from './pages/About'; // 导入关于项目页面
 import Settings from './pages/Settings'; // 导入设置页面
 import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
@@ -38,13 +37,27 @@ interface InstallOutput {
 }
 
 // 新增API函数
-const startServer = async (gameId: string, callback?: (line: any) => void, onComplete?: () => void, onError?: (error: any) => void, includeHistory: boolean = true, restart: boolean = false) => {
+const startServer = async (gameId: string, callback?: (line: any) => void, onComplete?: () => void, onError?: (error: any) => void, includeHistory: boolean = true, restart: boolean = false, scriptName?: string) => {
   try {
     // console.log(`正在启动服务器 ${gameId}...`);
     
     // 发送启动服务器请求
-    const response = await axios.post('/api/server/start', { game_id: gameId });
+    const response = await axios.post('/api/server/start', { 
+      game_id: gameId,
+      script_name: scriptName,
+      reconnect: restart  // 传递重连标识，帮助服务端决定是否使用上次的脚本
+    });
     // console.log('启动服务器响应:', response.data);
+    
+    // 如果服务器返回多个脚本选择，返回脚本列表让调用者处理
+    if (response.data.status === 'multiple_scripts') {
+      return { 
+        multipleScripts: true, 
+        scripts: response.data.scripts,
+        message: response.data.message,
+        reconnect: response.data.reconnect || restart
+      };
+    }
     
     if (response.data.status !== 'success') {
       const errorMsg = response.data.message || '启动失败';
@@ -185,12 +198,30 @@ const stopServer = async (gameId: string, force: boolean = false) => {
 
 const sendServerInput = async (gameId: string, value: string) => {
   try {
+    // 先检查服务器状态
+    const statusCheck = await checkServerStatus(gameId);
+    if (statusCheck.server_status !== 'running') {
+      return {
+        status: 'error',
+        message: '服务器未运行，无法发送命令',
+        server_status: 'stopped'
+      };
+    }
+    
+    // 发送命令
     const response = await axios.post('/api/server/send_input', {
       game_id: gameId,
       value
     });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
+    if (error.response && error.response.status === 400) {
+      return {
+        status: 'error',
+        message: '服务器未运行或已停止，请重新启动服务器',
+        server_status: 'stopped'
+      };
+    }
     throw error;
   }
 };
@@ -371,6 +402,21 @@ const checkServerStatus = async (gameId: string) => {
       
       // console.log(`发送服务器命令: gameId=${gameId}, input=${input}`);
       
+      // 先检查服务器是否在运行
+      try {
+        const statusResponse = await checkServerStatus(gameId);
+        if (statusResponse.server_status !== 'running') {
+          message.error('服务器未运行，请先启动服务器');
+          // 从运行中的服务器列表中移除
+          setRunningServers(prev => prev.filter(id => id !== gameId));
+          return;
+        }
+      } catch (statusError) {
+        console.error(`检查服务器状态失败: ${statusError}`);
+        message.error('无法确认服务器状态，请刷新页面后重试');
+        return;
+      }
+      
       // 保存到输入历史
       setInputHistory(prev => [...prev, input]);
       setInputHistoryIndex(-1);
@@ -394,9 +440,26 @@ const checkServerStatus = async (gameId: string) => {
         console.error(`发送命令失败: ${response.message}`);
         message.error(`发送命令失败: ${response.message}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(`发送命令异常: ${error}`);
-      handleError(error);
+      
+      // 处理400错误，表示服务器未运行
+      if (error.response && error.response.status === 400) {
+        message.error('服务器未运行或已停止，请重新启动服务器');
+        // 从运行中的服务器列表中移除
+        setRunningServers(prev => prev.filter(id => id !== gameId));
+        
+        // 添加错误信息到终端输出
+        setServerOutputs(prev => {
+          const oldOutput = prev[gameId] || [];
+          return {
+            ...prev,
+            [gameId]: [...oldOutput, "错误: 服务器未运行或已停止，请重新启动服务器"]
+          };
+        });
+      } else {
+        handleError(error);
+      }
     }
   };
 
@@ -824,7 +887,7 @@ const checkServerStatus = async (gameId: string) => {
   };
 
   // 服务器相关函数
-  const handleStartServer = async (gameId: string, reconnect: boolean = false) => {
+  const handleStartServer = async (gameId: string, reconnect: boolean = false, scriptName?: string) => {
     try {
       // 设置当前选中的服务器游戏
       const game = games.find(g => g.id === gameId) || 
@@ -835,6 +898,105 @@ const checkServerStatus = async (gameId: string) => {
       
       setSelectedServerGame(game);
       setServerModalVisible(true);
+      
+      // 先检查服务器是否已经在运行
+      try {
+        const statusResponse = await checkServerStatus(gameId);
+        
+        // 如果是重连模式，但服务器未运行，显示提示并要求用户完全重启
+        if (reconnect && statusResponse.server_status !== 'running') {
+          console.log(`重连模式，但服务器 ${gameId} 未运行，需要重新启动`);
+          message.warning('服务器已经停止运行，需要重新启动服务器');
+          
+          setServerOutputs(prev => ({
+            ...prev,
+            [gameId]: [...(prev[gameId] || []), "警告：服务器已经停止运行，请点击【启动】按钮重新启动服务器"]
+          }));
+          
+          // 从运行中的服务器列表移除
+          setRunningServers(prev => prev.filter(id => id !== gameId));
+          return;
+        }
+        
+        if (statusResponse.server_status === 'running') {
+          console.log(`服务器 ${gameId} 已经在运行，直接打开控制台`);
+          
+          // 如果是重新连接，不清空之前的输出
+          if (!reconnect) {
+            // 清空之前的输出
+            setServerOutputs(prev => ({
+              ...prev,
+              [gameId]: ["服务器已经在运行，正在连接到控制台..."]
+            }));
+          } else {
+            // 添加一条分隔线
+            setServerOutputs(prev => {
+              const oldOutput = prev[gameId] || [];
+              return {
+                ...prev,
+                [gameId]: [...oldOutput, "--- 重新连接到服务器 ---"]
+              };
+            });
+          }
+          
+          // 确保服务器在运行中列表中
+          setRunningServers(prev => {
+            if (!prev.includes(gameId)) {
+              return [...prev, gameId];
+            }
+            return prev;
+          });
+          
+          // 启动服务器流但不实际启动服务器
+          const result = await startServer(
+            gameId,
+            (line) => {
+              if (typeof line === 'string') {
+                setServerOutputs(prev => {
+                  const oldOutput = prev[gameId] || [];
+                  return {
+                    ...prev,
+                    [gameId]: [...oldOutput, line]
+                  };
+                });
+              } else if (typeof line === 'object' && line !== null) {
+                const outputLine = JSON.stringify(line);
+                setServerOutputs(prev => {
+                  const oldOutput = prev[gameId] || [];
+                  return {
+                    ...prev,
+                    [gameId]: [...oldOutput, `[对象] ${outputLine}`]
+                  };
+                });
+              }
+            },
+            () => {
+              message.success(`${game.name} 服务器已停止`);
+              refreshServerStatus();
+              serverEventSourceRef.current = null;
+            },
+            (error) => {
+              console.error(`服务器输出错误: ${error.message}`);
+              handleError(error);
+              refreshServerStatus();
+              serverEventSourceRef.current = null;
+            },
+            true,
+            reconnect,
+            scriptName
+          );
+          
+          // 保存EventSource引用
+          if (result && !('multipleScripts' in result)) {
+            serverEventSourceRef.current = result;
+          }
+          
+          return;
+        }
+      } catch (error) {
+        console.error(`检查服务器状态失败: ${error}`);
+        // 继续尝试启动服务器
+      }
       
       // 如果是重新连接，不清空之前的输出
       if (!reconnect) {
@@ -857,7 +1019,7 @@ const checkServerStatus = async (gameId: string) => {
       }
       
       // 启动服务器并获取输出流
-      const eventSource = await startServer(
+      const result = await startServer(
         gameId,
         (line) => {
           // console.log(`接收到服务器输出行: ${typeof line === 'string' ? (line.substring(0, 50) + (line.length > 50 ? '...' : '')) : JSON.stringify(line)}`);
@@ -908,33 +1070,74 @@ const checkServerStatus = async (gameId: string) => {
           serverEventSourceRef.current = null;
         },
         true,  // 始终包含历史输出
-        reconnect  // 传递reconnect参数作为restart参数
+        reconnect,  // 传递reconnect参数作为restart参数
+        scriptName  // 传递脚本名称
       );
       
-      // 保存EventSource引用
-      serverEventSourceRef.current = eventSource;
-      
-      // 服务器启动后立即刷新状态列表
-      if (!reconnect) {
-        // console.log(`服务器启动成功: gameId=${gameId}`);
-        message.success(`${game.name} 服务器启动成功`);
-      } else {
-        // console.log(`重新连接到服务器: gameId=${gameId}`);
-        message.success(`已重新连接到 ${game.name} 服务器`);
+      // 处理多个脚本的情况
+      if (result && 'multipleScripts' in result && result.multipleScripts && result.scripts) {
+        // 弹出选择框让用户选择要执行的脚本
+        Modal.confirm({
+          title: '选择启动脚本',
+          content: (
+            <div>
+              <p>{result.message || '请选择要执行的脚本：'}</p>
+              <List
+                bordered
+                dataSource={result.scripts}
+                renderItem={script => (
+                  <List.Item 
+                    className="server-script-item"
+                    onClick={() => {
+                      Modal.destroyAll();
+                      // 用户选择后启动对应脚本
+                      handleStartServer(
+                        gameId, 
+                        'reconnect' in result ? result.reconnect : reconnect, 
+                        script
+                      );
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <Typography.Text strong>{script}</Typography.Text>
+                  </List.Item>
+                )}
+              />
+            </div>
+          ),
+          okText: '取消',
+          cancelText: null,
+          okCancel: false,
+        });
+        return;
       }
       
-      // 添加到运行中服务器列表
-      setRunningServers(prev => {
-        if (!prev.includes(gameId)) {
-          return [...prev, gameId];
+      // 保存EventSource引用
+      if (result && !('multipleScripts' in result)) {
+        serverEventSourceRef.current = result;
+        
+        // 服务器启动后立即刷新状态列表
+        if (!reconnect) {
+          // console.log(`服务器启动成功: gameId=${gameId}`);
+          message.success(`${game.name} 服务器启动成功`);
+        } else {
+          // console.log(`重新连接到服务器: gameId=${gameId}`);
+          message.success(`已重新连接到 ${game.name} 服务器`);
         }
-        return prev;
-      });
-      
-      // 延迟再次刷新以确保状态更新
-      setTimeout(() => {
-        refreshServerStatus();
-      }, 2000);
+        
+        // 添加到运行中服务器列表
+        setRunningServers(prev => {
+          if (!prev.includes(gameId)) {
+            return [...prev, gameId];
+          }
+          return prev;
+        });
+        
+        // 延迟再次刷新以确保状态更新
+        setTimeout(() => {
+          refreshServerStatus();
+        }, 2000);
+      }
       
     } catch (error) {
       console.error(`启动服务器失败: ${error}`);
@@ -1115,7 +1318,7 @@ const checkServerStatus = async (gameId: string) => {
                 <Tag color="blue">工具</Tag>
               </div>
             }
-            size={isMobile ? "small" : "default"}
+            style={{ borderRadius: '8px', overflow: 'hidden' }}
           >
             <p>Steam游戏服务器命令行工具</p>
             <p>位置: /home/steam/steamcmd</p>
@@ -1146,6 +1349,7 @@ const checkServerStatus = async (gameId: string) => {
                 </div>
               }
               size={isMobile ? "small" : "default"}
+              style={{ borderRadius: '8px', overflow: 'hidden' }}
             >
               <p>位置: /home/steam/games/{game.id}</p>
               {runningServers.includes(game.id) ? (
@@ -1245,6 +1449,7 @@ const checkServerStatus = async (gameId: string) => {
                   <Tag color="orange">外来</Tag>
                 </div>
               }
+              style={{ borderRadius: '8px', overflow: 'hidden' }}
             >
               <p>位置: /home/steam/games/{game.id}</p>
               <div style={{marginTop: 12}}>
@@ -1642,7 +1847,6 @@ const checkServerStatus = async (gameId: string) => {
   }, [currentNav, refreshServerStatus]);
 
   const [frpDocModalVisible, setFrpDocModalVisible] = useState<boolean>(false);
-  const [fileManagerHelpModalVisible, setFileManagerHelpModalVisible] = useState<boolean>(false);
   
   // 检查是否需要显示内网穿透文档弹窗（仅在首次访问时）
   useEffect(() => {
@@ -1654,23 +1858,9 @@ const checkServerStatus = async (gameId: string) => {
     }
   }, []);
   
-  // 检查是否需要显示文件管理帮助弹窗（仅在首次访问时）
-  useEffect(() => {
-    const fileManagerHelpViewed = Cookies.get('file_manager_help_viewed');
-    // 当切换到文件管理页面且没有查看过帮助时才显示
-    if (!fileManagerHelpViewed && currentNav === 'files') {
-      setFileManagerHelpModalVisible(true);
-    }
-  }, [currentNav]);
-  
   // 关闭内网穿透文档弹窗
   const handleCloseFrpDocModal = () => {
     setFrpDocModalVisible(false);
-  };
-  
-  // 关闭文件管理帮助弹窗
-  const handleCloseFileManagerHelpModal = () => {
-    setFileManagerHelpModalVisible(false);
   };
 
   // 如果正在加载认证状态，显示加载中
@@ -2157,6 +2347,7 @@ const checkServerStatus = async (gameId: string) => {
                               <Tag color="blue">工具</Tag>
                             </div>
                           }
+                          style={{ borderRadius: '8px', overflow: 'hidden' }}
                         >
                           <p>Steam游戏服务器命令行工具</p>
                           <p>位置: /home/steam/steamcmd</p>
@@ -2211,6 +2402,7 @@ const checkServerStatus = async (gameId: string) => {
                                   <Tag color="default">未运行</Tag>
                                 )
                               }
+                              style={{ borderRadius: '8px', overflow: 'hidden' }}
                             >
                               <p>服务端状态: {runningServers.includes(game.id) ? '运行中' : '已停止'}</p>
                               <div style={{marginTop: 12}}>
@@ -2313,6 +2505,7 @@ const checkServerStatus = async (gameId: string) => {
                                 <Tag color="orange">外来</Tag>
                               </div>
                             }
+                            style={{ borderRadius: '8px', overflow: 'hidden' }}
                           >
                             <p>位置: /home/steam/games/{game.id}</p>
                             <div style={{marginTop: 12}}>
@@ -2431,6 +2624,7 @@ const checkServerStatus = async (gameId: string) => {
                       <Card
                         title={game.name}
                         extra={<Tag color="green">运行中</Tag>}
+                        style={{ borderRadius: '8px', overflow: 'hidden' }}
                         actions={[
                           <Button
                             key="console"
@@ -2493,6 +2687,7 @@ const checkServerStatus = async (gameId: string) => {
                           </div>
                         }
                         extra={<Tag color="green">运行中</Tag>}
+                        style={{ borderRadius: '8px', overflow: 'hidden' }}
                         actions={[
                           <Button
                             key="console"
@@ -2578,7 +2773,7 @@ const checkServerStatus = async (gameId: string) => {
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期5.28</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
@@ -2612,6 +2807,58 @@ const checkServerStatus = async (gameId: string) => {
           setServerModalVisible(false);
           // 关闭控制台时刷新服务器状态
           refreshServerStatus();
+          
+          // 关闭EventSource连接
+          if (serverEventSourceRef.current) {
+            serverEventSourceRef.current.close();
+            serverEventSourceRef.current = null;
+          }
+        }}
+        afterOpenChange={(visible) => {
+          // 当模态框打开时，检查服务器状态
+          if (visible && selectedServerGame) {
+            checkServerStatus(selectedServerGame.id)
+              .then(statusResponse => {
+                if (statusResponse.server_status !== 'running') {
+                  message.warning('服务器未运行，请先启动服务器');
+                  // 可以在这里添加一条信息到终端输出
+                  setServerOutputs(prev => {
+                    const oldOutput = prev[selectedServerGame.id] || [];
+                    return {
+                      ...prev,
+                      [selectedServerGame.id]: [...oldOutput, "警告：服务器未运行，请先启动服务器"]
+                    };
+                  });
+                  
+                  // 从运行中的服务器列表中移除
+                  setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
+                  
+                  // 如果有EventSource连接，关闭它
+                  if (serverEventSourceRef.current) {
+                    serverEventSourceRef.current.close();
+                    serverEventSourceRef.current = null;
+                  }
+                } else {
+                  // 服务器正在运行，添加一条信息到终端输出
+                  setServerOutputs(prev => {
+                    const oldOutput = prev[selectedServerGame.id] || [];
+                    return {
+                      ...prev,
+                      [selectedServerGame.id]: [...oldOutput, "终端已连接，服务器正在运行中..."]
+                    };
+                  });
+                }
+              })
+              .catch(error => {
+                console.error('检查服务器状态失败:', error);
+                message.error('无法确认服务器状态');
+                
+                // 发生错误时也从运行中的服务器列表中移除
+                if (selectedServerGame) {
+                  setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
+                }
+              });
+          }
         }}
         footer={
           <div className="server-console-buttons">
@@ -2701,10 +2948,41 @@ const checkServerStatus = async (gameId: string) => {
               enterButton="发送"
               value={serverInput}
               onChange={(e) => setServerInput(e.target.value)}
-              onSearch={value => {
+              onSearch={async value => {
                 if (value.trim()) {
-                  handleSendServerInput(selectedServerGame?.id, value);
-                  setServerInput('');
+                  // 在发送命令前先检查服务器状态
+                  try {
+                    const statusResponse = await checkServerStatus(selectedServerGame?.id);
+                    if (statusResponse.server_status !== 'running') {
+                      message.error('服务器未运行，无法发送命令');
+                      // 添加警告信息到终端
+                      setServerOutputs(prev => {
+                        const oldOutput = prev[selectedServerGame?.id] || [];
+                        return {
+                          ...prev,
+                          [selectedServerGame?.id]: [...oldOutput, "错误: 服务器未运行，请先启动服务器"]
+                        };
+                      });
+                      
+                      // 从运行中的服务器列表中移除
+                      if (selectedServerGame?.id) {
+                        setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
+                      }
+                      return;
+                    }
+                    
+                    // 服务器在运行，发送命令
+                    handleSendServerInput(selectedServerGame?.id, value);
+                    setServerInput('');
+                  } catch (error) {
+                    console.error('检查服务器状态失败:', error);
+                    message.error('无法确认服务器状态，请刷新页面后重试');
+                    
+                    // 发生错误时也从运行中的服务器列表中移除
+                    if (selectedServerGame?.id) {
+                      setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
+                    }
+                  }
                 }
               }}
               onKeyDown={(e) => {
@@ -2831,9 +3109,6 @@ const checkServerStatus = async (gameId: string) => {
       
       {/* 添加内网穿透文档弹窗 */}
       <FrpDocModal visible={frpDocModalVisible} onClose={handleCloseFrpDocModal} />
-      
-      {/* 添加文件管理帮助弹窗 */}
-      <FileManagerHelpModal visible={fileManagerHelpModalVisible} onClose={handleCloseFileManagerHelpModal} />
     </Layout>
   );
 };

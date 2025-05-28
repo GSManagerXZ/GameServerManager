@@ -1211,12 +1211,14 @@ def start_game_server():
     try:
         data = request.json
         game_id = data.get('game_id')
+        script_name = data.get('script_name')  # 用于指定要执行的脚本
+        reconnect = data.get('reconnect', False)  # 新增参数，标识是否为重连
         
         if not game_id:
             logger.error("缺少游戏ID")
             return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
             
-        logger.info(f"请求启动游戏服务器: {game_id}")
+        logger.info(f"请求启动游戏服务器: {game_id}" + (f", 指定脚本: {script_name}" if script_name else "") + (", 重连模式" if reconnect else ""))
         
         # 检查游戏是否存在于配置中
         games = load_games_config()
@@ -1231,13 +1233,79 @@ def start_game_server():
         if not os.path.exists(game_dir) or not os.path.isdir(game_dir):
             logger.error(f"游戏 {game_id} 未安装")
             return jsonify({'status': 'error', 'message': f'游戏 {game_id} 未安装'}), 400
-            
-        # 检查启动脚本
-        start_script = os.path.join(game_dir, "start.sh")
-        if not os.path.exists(start_script):
-            logger.error(f"游戏 {game_id} 缺少启动脚本: start.sh")
-            return jsonify({'status': 'error', 'message': f'游戏 {game_id} 缺少启动脚本，请确保游戏目录中有start.sh文件'}), 400
-            
+        
+        # 查找所有可执行的sh脚本
+        available_scripts = []
+        for file in os.listdir(game_dir):
+            file_path = os.path.join(game_dir, file)
+            if file.endswith('.sh') and os.path.isfile(file_path) and os.access(file_path, os.X_OK):
+                available_scripts.append(file)
+        
+        # 如果没有可执行脚本，返回错误
+        if not available_scripts:
+            logger.error(f"游戏 {game_id} 目录下没有可执行的sh脚本")
+            return jsonify({'status': 'error', 'message': f'游戏 {game_id} 目录下没有可执行的sh脚本，请确保有至少一个.sh文件并具有执行权限'}), 400
+        
+        # 尝试获取上次使用的脚本名称
+        last_script_path = os.path.join(game_dir, '.last_script')
+        last_script = None
+        if os.path.exists(last_script_path):
+            try:
+                with open(last_script_path, 'r') as f:
+                    last_script = f.read().strip()
+                    if last_script and last_script in available_scripts:
+                        logger.info(f"找到上次使用的脚本: {last_script}")
+                    else:
+                        last_script = None
+            except Exception as e:
+                logger.warning(f"读取上次使用的脚本失败: {str(e)}")
+                last_script = None
+        
+        # 确定要执行的脚本
+        selected_script = None
+        
+        # 如果指定了脚本名称，优先使用
+        if script_name and script_name in available_scripts:
+            selected_script = script_name
+            logger.info(f"使用指定的脚本: {selected_script}")
+        # 否则，如果是重连模式且有上次使用的脚本，使用上次的脚本
+        elif reconnect and last_script:
+            selected_script = last_script
+            logger.info(f"重连模式，使用上次的脚本: {selected_script}")
+        # 如果只有一个脚本，直接使用
+        elif len(available_scripts) == 1:
+            selected_script = available_scripts[0]
+            logger.info(f"只有一个脚本，直接使用: {selected_script}")
+        # 否则，如果有上次使用的脚本，使用上次的脚本
+        elif last_script:
+            selected_script = last_script
+            logger.info(f"使用上次的脚本: {selected_script}")
+        # 如果有多个脚本但没有确定使用哪个，返回可选脚本列表
+        elif len(available_scripts) > 1:
+            logger.info(f"游戏 {game_id} 有多个可执行脚本: {available_scripts}，需要用户选择")
+            return jsonify({
+                'status': 'multiple_scripts',
+                'message': f'游戏 {game_id} 有多个可执行脚本，请选择一个',
+                'scripts': available_scripts,
+                'reconnect': reconnect
+            })
+        
+        # 如果没有确定脚本（理论上不会到这里）
+        if not selected_script:
+            logger.error(f"无法确定要执行的脚本")
+            return jsonify({'status': 'error', 'message': f'无法确定要执行的脚本'}), 400
+        
+        # 保存选择的脚本名称，供下次使用
+        try:
+            with open(last_script_path, 'w') as f:
+                f.write(selected_script)
+            logger.info(f"已保存脚本选择: {selected_script}")
+        except Exception as e:
+            logger.warning(f"保存脚本选择失败: {str(e)}")
+        
+        # 确定要执行的脚本路径
+        start_script = os.path.join(game_dir, selected_script)
+        
         # 确保启动脚本有执行权限
         if not os.access(start_script, os.X_OK):
             logger.info(f"添加启动脚本执行权限: {start_script}")
@@ -1249,49 +1317,97 @@ def start_game_server():
         # 检查是否有正在运行的服务器进程
         process_id = f"server_{game_id}"
         
-        # 首先检查PTY管理器中是否存在该进程ID
-        if pty_manager.get_process(process_id):
-            logger.info(f"PTY管理器中存在进程ID {process_id}，但可能是残留的记录")
-            # 移除PTY管理器中的进程记录，而不是直接返回错误
-            pty_manager.remove_process(process_id)
-            logger.info(f"已从PTY管理器中移除可能残留的进程记录: {process_id}")
+        existing_pty_proc = pty_manager.get_process(process_id)
+        server_running_in_rs = False
+        rs_process_obj = None
+
+        if game_id in running_servers:
+            server_data_rs = running_servers[game_id]
+            rs_process_obj = server_data_rs.get('process') # This is the subprocess.Popen object
+            rs_pty_process_obj = server_data_rs.get('pty_process') # This is the PTYProcess object from pty_manager
+
+            if rs_process_obj and rs_process_obj.poll() is None:
+                server_running_in_rs = True
+            
+            # Consistency check: if running_servers has a pty_process, it should match existing_pty_proc
+            if existing_pty_proc and rs_pty_process_obj and existing_pty_proc is not rs_pty_process_obj:
+                logger.warning(f"Inconsistency: PTYManager has process {process_id}, running_servers has a DIFFERENT pty_process object for {game_id}. Will prioritize PTYManager's if it's running, or clean up.")
+                # This scenario might require more specific handling if existing_pty_proc is also running.
+                # For now, if existing_pty_proc is running, we might assume it's the more current one.
+
+        if existing_pty_proc:
+            logger.info(f"PTY管理器中已存在进程ID {process_id}的记录。")
+            if existing_pty_proc.is_running():
+                logger.info(f"PTY进程 {process_id} 报告正在运行。")
+                # Now check if this matches what running_servers thinks
+                if server_running_in_rs and rs_process_obj == existing_pty_proc.process and running_servers[game_id].get('pty_process') == existing_pty_proc:
+                    logger.info(f"游戏服务器 {game_id} (PTY: {process_id}, Subprocess PID: {rs_process_obj.pid}) 确认已在运行中，且状态一致。")
+                    return jsonify({
+                        'status': 'success',
+                        'message': f'游戏服务器 {game_id} 已经在运行中',
+                        'already_running': True
+                    })
+                else:
+                    # PTY manager has a running process, but running_servers either doesn't know,
+                    # or has conflicting info, or its PTYProcess object is different.
+                    # This is a problematic state. Safest is to stop the PTY process and restart.
+                    logger.warning(f"状态不一致: PTY进程 {process_id} 在运行，但与running_servers记录不符或对象不同。将尝试终止并清理。")
+                    pty_manager.terminate_process(process_id, force=True)
+                    pty_manager.remove_process(process_id)
+                    if game_id in running_servers:
+                        del running_servers[game_id]
+                    # Fall through to normal startup logic
+            else:
+                logger.info(f"PTY进程 {process_id} 存在但未运行。将移除此无效PTY记录。")
+                pty_manager.remove_process(process_id)
+                # Also clean from running_servers if it's there and refers to this dead PTY
+                if game_id in running_servers and running_servers[game_id].get('pty_process') == existing_pty_proc:
+                    logger.info(f"同时从running_servers中清理与此无效PTY进程相关的记录: {game_id}")
+                    del running_servers[game_id]
+                # Fall through to normal startup logic
         
-        # 然后检查running_servers字典中是否存在该游戏ID
+        # If PTY manager didn't have it, or it was cleaned up, check running_servers independently
         if game_id in running_servers:
             server_data = running_servers[game_id]
-            process = server_data.get('process')
-            
-            # 检查进程是否仍在运行
+            process = server_data.get('process') # Subprocess.Popen object
+            # rs_pty_obj = server_data.get('pty_process') # PTYProcess object
+
             if process and process.poll() is None:
-                logger.info(f"游戏服务器 {game_id} 已经在运行中")
-                return jsonify({
-                    'status': 'success', 
-                    'message': f'游戏服务器 {game_id} 已经在运行中',
-                    'already_running': True
-                })
-            else:
-                # 进程已结束，但字典中仍有记录，清理旧数据
-                logger.info(f"清理游戏服务器 {game_id} 的旧运行数据")
-                
-                # 尝试终止任何可能仍在运行的进程
+                # Process is running according to running_servers, but PTY manager either didn't know or its record was bad.
+                # This is also an inconsistent state. The process is running外国 PTY manager control.
+                logger.warning(f"状态不一致: running_servers中游戏 {game_id} (PID: {process.pid})在运行, 但PTY管理器无有效/活动记录.")
+                logger.warning("这可能是一个失去PTY控制的进程。建议停止此进程并重新启动服务。")
+                # For now, to prevent duplicate starts, we can still return 'already_running',
+                # but commands to it will fail due to no PTY. User needs to stop/start via UI.
+                # OR, we could try to kill it and restart cleanly.
+                # Let's choose to kill it for better consistency.
+                logger.info(f"尝试终止在running_servers中但无有效PTY的进程 PID: {process.pid}")
                 try:
-                    if process and process.poll() is None:
-                        process.terminate()
-                        time.sleep(0.5)
-                        if process.poll() is None:
-                            process.kill()
-                except Exception as e:
-                    logger.warning(f"终止旧进程时出错: {str(e)}")
+                    parent = psutil.Process(process.pid)
+                    children = parent.children(recursive=True)
+                    for child in children:
+                        try: child.kill() 
+                        except: pass
+                    parent.kill()
+                    logger.info(f"已终止进程 PID: {process.pid} 及其子进程。")
+                except Exception as e_kill:
+                    logger.error(f"终止进程 PID {process.pid} 失败: {e_kill}")
                 
-                # 从字典中移除
+                del running_servers[game_id] # Clean up the stale entry
+                # Fall through to normal startup logic to start fresh
+            elif process and process.poll() is not None:
+                # Process in running_servers is dead
+                logger.info(f"清理游戏服务器 {game_id} 的旧已停止运行数据 (来自running_servers)。")
                 del running_servers[game_id]
-        
+            # If no process in running_servers entry, or entry doesn't exist, that's fine, continue to start.
+
         # 检查系统中是否有同名进程在运行
         try:
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 try:
                     cmdline = proc.cmdline()
-                    if len(cmdline) > 1 and game_id in ' '.join(cmdline) and './start.sh' in ' '.join(cmdline):
+                    script_name_to_check = os.path.basename(start_script)
+                    if len(cmdline) > 1 and game_id in ' '.join(cmdline) and f'./{script_name_to_check}' in ' '.join(cmdline):
                         logger.warning(f"发现系统中可能有相关进程正在运行: PID={proc.pid}, CMD={' '.join(cmdline)}")
                         # 尝试终止这个进程
                         try:
@@ -1326,7 +1442,8 @@ def start_game_server():
             logger.warning(f"读取启动脚本失败: {str(e)}")
             
         # 构建启动命令，确保以steam用户运行
-        cmd = f"su - steam -c 'cd {game_dir} && ./start.sh'"
+        script_name_to_run = os.path.basename(start_script)
+        cmd = f"su - steam -c 'cd {game_dir} && ./{script_name_to_run}'"
         logger.debug(f"准备执行命令 (将使用PTY): {cmd}")
         
         # 初始化服务器状态跟踪
@@ -1339,7 +1456,8 @@ def start_game_server():
             'cmd': cmd,
             'master_fd': None,
             'game_dir': game_dir,
-            'external': is_external_game  # 添加外部游戏标记
+            'external': is_external_game,  # 添加外部游戏标记
+            'script_name': script_name_to_run  # 记录使用的脚本名称
         }
         
         # 在单独的线程中启动服务器
@@ -1350,12 +1468,13 @@ def start_game_server():
         )
         server_thread.start()
         
-        logger.info(f"游戏服务器 {game_id} 启动线程已启动")
+        logger.info(f"游戏服务器 {game_id} 启动线程已启动，使用脚本: {script_name_to_run}")
         time.sleep(0.5)
         server_output_queues[game_id].put("服务器启动中...")
         
         # 添加一些额外的调试信息
         server_output_queues[game_id].put(f"游戏目录: {game_dir}")
+        server_output_queues[game_id].put(f"启动脚本: {script_name_to_run}")
         server_output_queues[game_id].put(f"启动命令: {cmd}")
         
         # 添加到输出历史
@@ -1363,11 +1482,13 @@ def start_game_server():
             running_servers[game_id]['output'] = []
         running_servers[game_id]['output'].append("服务器启动中...")
         running_servers[game_id]['output'].append(f"游戏目录: {game_dir}")
+        running_servers[game_id]['output'].append(f"启动脚本: {script_name_to_run}")
         running_servers[game_id]['output'].append(f"启动命令: {cmd}")
         
         return jsonify({
             'status': 'success', 
-            'message': f'游戏服务器 {game_id} 启动已开始'
+            'message': f'游戏服务器 {game_id} 启动已开始',
+            'script_name': script_name_to_run
         })
         
     except Exception as e:
@@ -1748,10 +1869,48 @@ def server_send_input():
         process_id = f"server_{game_id}"
         
         # 检查进程是否存在
-        if not pty_manager.get_process(process_id):
-            logger.error(f"PTY进程不存在: {process_id}")
-            return jsonify({'status': 'error', 'message': '服务器进程不存在'}), 400
+        pty_proc = pty_manager.get_process(process_id)
+        if not pty_proc:
+            logger.error(f"PTY进程不存在: {process_id}。这可能意味着服务器在API重启后仍在运行，或者PTY记录已丢失。将清理无效记录。")
+            if game_id in running_servers:
+                del running_servers[game_id]
+                logger.info(f"已从running_servers中移除无效的游戏服务器记录: {game_id}")
+            if game_id in server_output_queues:
+                # 清理队列中的内容
+                try:
+                    while not server_output_queues[game_id].empty():
+                        server_output_queues[game_id].get_nowait()
+                except Exception as e_q:
+                    logger.warning(f"清理server_output_queues[{game_id}]时出错: {e_q}")
+                del server_output_queues[game_id]
+                logger.info(f"已从server_output_queues中移除无效的游戏服务器队列: {game_id}")
+            return jsonify({
+                'status': 'error',
+                'message': '服务器PTY进程不存在或已与管理器断开连接。请尝试重新启动该服务器。'
+            }), 400
             
+        # 再次确认 pty_proc 是否真的在运行 (以防 get_process 返回了一个已停止的实例)
+        if not pty_proc.is_running():
+            logger.error(f"PTY进程 {process_id} 存在但未运行。清理记录。")
+            if game_id in running_servers:
+                del running_servers[game_id]
+                logger.info(f"已从running_servers中移除未运行的游戏服务器记录: {game_id}")
+            if game_id in server_output_queues:
+                try:
+                    while not server_output_queues[game_id].empty():
+                        server_output_queues[game_id].get_nowait()
+                except Exception as e_q:
+                    logger.warning(f"清理server_output_queues[{game_id}]时出错: {e_q}")
+                del server_output_queues[game_id]
+                logger.info(f"已从server_output_queues中移除未运行的游戏服务器队列: {game_id}")
+            # 从PTY管理器也移除
+            pty_manager.remove_process(process_id)
+            logger.info(f"已从pty_manager中移除未运行的进程记录: {process_id}")
+            return jsonify({
+                'status': 'error',
+                'message': '服务器PTY进程已停止。请尝试重新启动该服务器。'
+            }), 400
+
         # 发送输入
         if pty_manager.send_input(process_id, value):
             logger.info(f"输入发送成功: game_id={game_id}")
@@ -2124,7 +2283,7 @@ def server_stream():
                         
                         # 如果队列为空且进程仍在运行，等待片刻再继续
                         if not process_ended:
-                            logger.info(f"队列为空，等待输出: game_id={game_id}, 已处理 {output_count} 行")
+                            logger.debug(f"队列为空，等待输出: game_id={game_id}, 已处理 {output_count} 行")
                             time.sleep(1)
             except GeneratorExit:
                 logger.info(f"客户端断开连接: game_id={game_id}, 已处理 {output_count} 行输出")
@@ -2151,13 +2310,75 @@ def server_stream():
 def get_container_info():
     """获取容器信息，包括系统资源占用、已安装游戏和正在运行的游戏"""
     try:
+        # 获取CPU型号信息
+        cpu_model = "未知"
+        try:
+            if sys.platform == "linux" or sys.platform == "linux2":
+                # Linux系统，从/proc/cpuinfo读取
+                with open('/proc/cpuinfo', 'r') as f:
+                    for line in f:
+                        if line.startswith('model name'):
+                            cpu_model = line.split(':', 1)[1].strip()
+                            break
+            elif sys.platform == "darwin":
+                # macOS系统
+                cpu_model = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.brand_string']).decode().strip()
+            elif sys.platform == "win32":
+                # Windows系统
+                import platform
+                cpu_model = platform.processor()
+        except Exception as e:
+            logger.error(f"获取CPU型号时出错: {str(e)}")
+            cpu_model = "获取失败"
+
+        # 获取内存频率信息
+        memory_freq = "未知"
+        try:
+            if sys.platform == "linux" or sys.platform == "linux2":
+                # Linux系统，尝试从dmidecode获取
+                try:
+                    memory_info = subprocess.check_output(['dmidecode', '-t', 'memory'], stderr=subprocess.STDOUT).decode()
+                    for line in memory_info.split('\n'):
+                        if "Speed" in line and "MHz" in line and not "Unknown" in line:
+                            memory_freq = line.split(':', 1)[1].strip()
+                            break
+                except:
+                    # 尝试从/proc/meminfo获取，但通常不包含频率信息
+                    memory_freq = "无法获取"
+            elif sys.platform == "darwin":
+                # macOS系统
+                try:
+                    memory_info = subprocess.check_output(['system_profiler', 'SPMemoryDataType']).decode()
+                    for line in memory_info.split('\n'):
+                        if "Speed" in line:
+                            memory_freq = line.split(':', 1)[1].strip()
+                            break
+                except:
+                    memory_freq = "无法获取"
+            elif sys.platform == "win32":
+                # Windows系统，尝试使用wmic
+                try:
+                    memory_info = subprocess.check_output(['wmic', 'memorychip', 'get', 'speed']).decode()
+                    lines = memory_info.strip().split('\n')
+                    if len(lines) > 1:
+                        memory_freq = lines[1].strip() + " MHz"
+                except:
+                    memory_freq = "无法获取"
+        except Exception as e:
+            logger.error(f"获取内存频率时出错: {str(e)}")
+            memory_freq = "获取失败"
+
         # 获取系统信息
         system_info = {
             'cpu_usage': psutil.cpu_percent(),
+            'cpu_model': cpu_model,
+            'cpu_cores': psutil.cpu_count(logical=False),  # 物理核心数
+            'cpu_logical_cores': psutil.cpu_count(logical=True),  # 逻辑核心数
             'memory': {
                 'total': psutil.virtual_memory().total / (1024 * 1024 * 1024),  # GB
                 'used': psutil.virtual_memory().used / (1024 * 1024 * 1024),    # GB
-                'percent': psutil.virtual_memory().percent
+                'percent': psutil.virtual_memory().percent,
+                'frequency': memory_freq  # 添加内存频率信息
             },
             'disk': {
                 'total': 0,
@@ -3709,7 +3930,7 @@ def get_custom_frp_config():
                         config['serverPort'] = int(parts[1].strip())
                     except ValueError:
                         pass
-            elif line.startswith('token'):
+            elif line.startswith('token') or line.startswith('auth.token'):
                 parts = line.split('=', 1)
                 if len(parts) == 2:
                     config['token'] = parts[1].strip().strip('"\'')
@@ -3761,7 +3982,7 @@ def save_custom_frp_config():
         config_content += f'serverPort = {server_port}\n'
         
         if token:
-            config_content += f'token = "{token}"\n'
+            config_content += f'auth.token = "{token}"\n'
         
         # 添加代理配置
         for proxy in proxies:
@@ -4434,8 +4655,43 @@ def restart_server(game_id, cwd):
         # 等待一小段时间再重启
         time.sleep(3)
         
+        # 获取上次使用的脚本名称
+        script_name = "start.sh"  # 默认脚本名
+        
+        # 首先检查运行中的服务器记录
+        if game_id in running_servers and 'script_name' in running_servers[game_id]:
+            script_name = running_servers[game_id]['script_name']
+            logger.info(f"从运行记录中获取脚本名: {script_name}")
+        else:
+            # 尝试从.last_script文件读取
+            last_script_path = os.path.join(cwd, '.last_script')
+            if os.path.exists(last_script_path):
+                try:
+                    with open(last_script_path, 'r') as f:
+                        saved_script = f.read().strip()
+                        if saved_script and os.path.exists(os.path.join(cwd, saved_script)):
+                            script_name = saved_script
+                            logger.info(f"从.last_script文件读取脚本名: {script_name}")
+                except Exception as e:
+                    logger.warning(f"读取.last_script文件失败: {str(e)}")
+        
+        # 检查脚本是否存在
+        script_path = os.path.join(cwd, script_name)
+        if not os.path.exists(script_path):
+            logger.warning(f"脚本 {script_name} 不存在，尝试使用默认的start.sh")
+            script_name = "start.sh"
+            script_path = os.path.join(cwd, script_name)
+            if not os.path.exists(script_path):
+                logger.error(f"默认脚本 start.sh 也不存在，无法重启服务器")
+                return False
+        
+        # 确保脚本有执行权限
+        if not os.access(script_path, os.X_OK):
+            logger.info(f"添加脚本执行权限: {script_path}")
+            os.chmod(script_path, 0o755)
+        
         # 构建启动命令
-        cmd = f"su - steam -c 'cd {cwd} && ./start.sh'"
+        cmd = f"su - steam -c 'cd {cwd} && ./{script_name}'"
         
         # 初始化服务器状态跟踪
         running_servers[game_id] = {
@@ -4447,7 +4703,8 @@ def restart_server(game_id, cwd):
             'cmd': cmd,
             'master_fd': None,
             'game_dir': cwd,
-            'external': running_servers[game_id].get('external', False) if game_id in running_servers else False
+            'external': running_servers[game_id].get('external', False) if game_id in running_servers else False,
+            'script_name': script_name
         }
         
         # 在单独的线程中启动服务器
@@ -4458,27 +4715,21 @@ def restart_server(game_id, cwd):
         )
         server_thread.start()
         
-        logger.info(f"游戏服务器 {game_id} 重启线程已启动")
+        logger.info(f"游戏服务器 {game_id} 重启线程已启动，使用脚本: {script_name}")
         
         # 添加到输出队列
         if game_id in server_output_queues:
             server_output_queues[game_id].put("服务器自动重启中...")
             server_output_queues[game_id].put(f"游戏目录: {cwd}")
+            server_output_queues[game_id].put(f"启动脚本: {script_name}")
             server_output_queues[game_id].put(f"启动命令: {cmd}")
-        
-        # 添加到输出历史
-        if game_id in running_servers:
-            if 'output' not in running_servers[game_id]:
-                running_servers[game_id]['output'] = []
-            running_servers[game_id]['output'].append("服务器自动重启中...")
-            running_servers[game_id]['output'].append(f"游戏目录: {cwd}")
-            running_servers[game_id]['output'].append(f"启动命令: {cmd}")
-    
+            
+        # 记录日志
+        logger.info(f"游戏服务器 {game_id} 重启流程已完成")
+        return True
     except Exception as e:
         logger.error(f"重启游戏服务器 {game_id} 失败: {str(e)}")
-        if game_id in running_servers:
-            running_servers[game_id]['error'] = str(e)
-            running_servers[game_id]['running'] = False
+        return False
 
 # 获取FRP自启动列表
 @app.route('/api/frp/auto_restart', methods=['GET'])
@@ -4740,6 +4991,48 @@ def get_sponsor_key():
     except Exception as e:
         logger.error(f"获取赞助者凭证时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'获取赞助者凭证失败: {str(e)}'}), 500
+
+@app.route('/api/server/list_scripts', methods=['GET'])
+def list_server_scripts():
+    """获取服务器目录下所有可执行的sh脚本"""
+    try:
+        game_id = request.args.get('game_id')
+        
+        if not game_id:
+            logger.error("缺少游戏ID")
+            return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
+            
+        logger.info(f"请求获取游戏 {game_id} 的可执行脚本列表")
+        
+        # 检查游戏是否已安装
+        game_dir = os.path.join(GAMES_DIR, game_id)
+        if not os.path.exists(game_dir) or not os.path.isdir(game_dir):
+            logger.error(f"游戏 {game_id} 未安装")
+            return jsonify({'status': 'error', 'message': f'游戏 {game_id} 未安装'}), 400
+        
+        # 查找所有.sh文件
+        scripts = []
+        for file in os.listdir(game_dir):
+            file_path = os.path.join(game_dir, file)
+            if file.endswith('.sh') and os.path.isfile(file_path) and os.access(file_path, os.X_OK):
+                # 检查文件是否有执行权限
+                scripts.append({
+                    'name': file,
+                    'path': file_path,
+                    'size': os.path.getsize(file_path),
+                    'mtime': os.path.getmtime(file_path)
+                })
+        
+        logger.info(f"找到 {len(scripts)} 个可执行脚本: {[script['name'] for script in scripts]}")
+        
+        return jsonify({
+            'status': 'success',
+            'scripts': scripts
+        })
+        
+    except Exception as e:
+        logger.error(f"获取可执行脚本列表失败: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")

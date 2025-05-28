@@ -56,6 +56,7 @@ class PTYProcess:
         # 其他状态
         self.final_message = None
         self.sent_complete = False
+        self.steam_guard_handled = False
     
     def start(self):
         """启动PTY进程"""
@@ -394,9 +395,11 @@ class PTYProcess:
                                 self.output_queue.put(line)
                                 
                                 # 检测验证码/令牌提示
-                                if any(key in line for key in ["Steam Guard", "令牌", "验证码", "code", "Code"]):
+                                if any(key in line for key in ["Steam Guard", "令牌", "验证码", "code", "Code"]) and not self.steam_guard_handled:
+                                    # 标记已处理过Steam Guard验证码
+                                    self.steam_guard_handled = True
                                     # 推送prompt消息
-                                    self.output_queue.put({'prompt': '请输入Steam令牌/验证码'})
+                                    self.output_queue.put({'prompt': '请输入Steam令牌/验证码，如果您的Steam开启了令牌验证，可以点击取消'})
                                     # 等待前端输入
                                     logger.info(f"等待前端输入验证码: {self.process_id}")
                                     self.input_event.clear()

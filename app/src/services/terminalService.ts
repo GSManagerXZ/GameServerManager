@@ -45,10 +45,29 @@ const terminalHandlers: Record<TerminalType, TerminalInputHandler> = {
   server: {
     send: async (gameId: string, value: string) => {
       try {
+        // 先检查服务器状态
+        try {
+          const statusCheck = await axios.get(`/api/server/status?game_id=${gameId}`);
+          if (statusCheck.data.server_status !== 'running') {
+            message.error('服务器未运行，无法发送命令');
+            return false;
+          }
+        } catch (statusError) {
+          console.error('检查服务器状态失败:', statusError);
+          message.error('无法确认服务器状态，请刷新页面后重试');
+          return false;
+        }
+        
+        // 发送命令
         const response = await axios.post('/api/server/send_input', { game_id: gameId, value });
         return response.data.status === 'success';
-      } catch (error) {
-        message.error('发送输入失败');
+      } catch (error: any) {
+        if (error.response && error.response.status === 400) {
+          message.error('服务器未运行或已停止，请重新启动服务器');
+        } else {
+          message.error('发送输入失败: ' + (error.message || '未知错误'));
+        }
+        console.error('发送服务器命令失败:', error);
         return false;
       }
     },

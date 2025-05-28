@@ -1224,6 +1224,7 @@ body {
   border: none !important;
   background-color: rgba(255, 255, 255, 0.8) !important;
   backdrop-filter: blur(10px);
+  overflow: hidden; /* 确保子元素不会超出圆角边界 */
 }
 
 .ant-card:hover {
@@ -1231,6 +1232,23 @@ body {
   box-shadow: 0 6px 16px rgba(22,119,255,0.15);
   backdrop-filter: blur(15px);
   background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* 确保卡片头部和底部都有圆角 */
+.ant-card-head {
+  border-radius: 8px 8px 0 0 !important;
+  overflow: hidden;
+}
+
+.ant-card-body {
+  border-radius: 0 0 8px 8px !important;
+  overflow: hidden;
+}
+
+/* 修复卡片底部操作区域的圆角 */
+.ant-card-actions {
+  border-radius: 0 0 8px 8px !important;
+  overflow: hidden;
 }
 
 /* 游戏卡片样式 */
@@ -2233,4 +2251,15 @@ input#sponsorKey.ant-input {
   border-width: 0 !important;             /* 移除内层输入框的边框 */
   outline: none !important;                /* 移除内层输入框的轮廓线 */
   box-shadow: none !important;             /* 移除内层输入框可能存在的阴影（包括焦点阴影） */
+}
+
+/* 服务器脚本选择项的样式 */
+.server-script-item {
+  transition: all 0.3s;
+}
+
+.server-script-item:hover {
+  background-color: #f0f7ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }

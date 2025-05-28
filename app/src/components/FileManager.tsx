@@ -107,6 +107,45 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   // 添加一个状态来跟踪编辑器中的语法错误
   const [syntaxErrors, setSyntaxErrors] = useState<monaco.editor.IMarker[]>([]);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  // 添加状态来跟踪文件是否被修改
+  const [isFileModified, setIsFileModified] = useState<boolean>(false);
+  const [originalContent, setOriginalContent] = useState<string>('');
+  
+  // 检查文件是否有未保存的变更并处理关闭编辑器的逻辑
+  const handleEditorClose = useCallback(() => {
+    if (isFileModified) {
+      Modal.confirm({
+        title: '文件未保存',
+        content: '当前文件已发生变更，但您还没有保存。确定要关闭编辑器吗？',
+        okText: '不保存并关闭',
+        cancelText: '取消',
+        onOk: () => {
+          setIsEditModalVisible(false);
+          setIsFileModified(false);
+        },
+        onCancel: () => {} // 不做任何操作，用户可以继续编辑
+      });
+    } else {
+      setIsEditModalVisible(false);
+    }
+  }, [isFileModified]);
+  
+  // 添加窗口关闭事件监听
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isEditModalVisible && isFileModified) {
+        // 现代浏览器不允许自定义消息，但这会触发浏览器的默认确认对话框
+        e.preventDefault();
+        e.returnValue = ''; // Chrome需要设置returnValue
+        return ''; // 返回空字符串会显示浏览器默认的确认消息
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isEditModalVisible, isFileModified]);
   
   // 实际保存文件的函数
   const saveFileContent = useCallback(async () => {
@@ -146,14 +185,18 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
         content: `当前代码存在 ${syntaxErrors.length} 个语法错误，是否仍要保存？`,
         okText: '继续保存',
         cancelText: '返回编辑',
-        onOk: () => saveFileContent(),
+        onOk: () => {
+          saveFileContent();
+          setIsFileModified(false); // 保存后重置修改状态
+        },
         onCancel: () => {} // 不做任何操作，用户可以继续编辑
       });
       return;
     }
     
     // 如果没有语法错误，直接保存
-    saveFileContent();
+    await saveFileContent();
+    setIsFileModified(false); // 保存后重置修改状态
   }, [selectedFile, syntaxErrors, saveFileContent]);
 
   // 处理点击保存按钮的事件
@@ -524,8 +567,11 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       });
       
       if (response.data.status === 'success') {
-        setFileContent(response.data.content || '');
+        const content = response.data.content || '';
+        setFileContent(content);
+        setOriginalContent(content); // 保存原始内容以便后续比较
         setSelectedFile(file);
+        setIsFileModified(false); // 重置修改状态
         setIsEditModalVisible(true);
       } else {
         message.error(response.data.message || '无法读取文件内容');
@@ -1241,6 +1287,18 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
       saveFileRef.current();
       return null; // 防止事件继续传播
     });
+    
+    // 添加ESC键支持，检查文件是否有未保存的变更
+    editor.addCommand(monacoInstance.KeyCode.Escape, () => {
+      handleEditorClose();
+      return null; // 防止事件继续传播
+    });
+    
+    // 监听编辑器内容变化
+    editor.onDidChangeModelContent(() => {
+      const currentContent = editor.getValue();
+      setIsFileModified(currentContent !== originalContent);
+    });
   };
 
   // 工具栏切换函数
@@ -1786,9 +1844,9 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
 
         {/* 文件编辑对话框 */}
         <Modal
-          title={`编辑文件: ${selectedFile?.name}`}
+          title={`编辑文件: ${selectedFile?.name}${isFileModified ? ' *' : ''}`}
           open={isEditModalVisible}
-          onCancel={() => setIsEditModalVisible(false)}
+          onCancel={handleEditorClose}
           onOk={handleSaveClick}
           width={1000}
           okText="保存"
@@ -1800,6 +1858,25 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
           }}
         >
           <div style={{ height: 'calc(80vh - 130px)' }}>
+            {/* 添加文件修改状态指示器 */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '8px',
+              padding: '0 4px'
+            }}>
+              <div>
+                {selectedFile?.path}
+              </div>
+              <div>
+                {isFileModified ? (
+                  <Text type="warning">已修改 - 未保存</Text>
+                ) : (
+                  <Text type="success">已保存</Text>
+                )}
+              </div>
+            </div>
             <Editor
               height="100%"
               defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
