@@ -1,9 +1,9 @@
-version: '3'
+name: gameservermanager
 
 services:
   server:
     build: .
-    container_name: xiaozhugame_server
+    container_name: xiaozhugame_server # 替换为你需要创建的容器名称
     image: gameservermanager:latest  # 替换为你的镜像名称
     user: root                         # 使用root用户运行容器
     ports:
