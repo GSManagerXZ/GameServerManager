@@ -40,9 +40,7 @@ jobs:
           context: .  # 构建上下文路径
           push: true  # 构建后自动推送
           tags: |
-            xiaozhu674/gameserver:1.0
-            xiaozhu674/gameserver:latest
-            ghcr.io/${{ github.repository_owner }}/gameserver:1.0
-            ghcr.io/${{ github.repository_owner }}/gameserver:latest
+            xiaozhu674/gameserver:2.0
+            ghcr.io/${{ github.repository_owner }}/gameserver:2.0
           cache-from: type=gha  # 使用GitHub缓存
           cache-to: type=gha,mode=max  # 写入GitHub缓存
