@@ -133,6 +133,19 @@ const Terminal: React.FC<TerminalProps> = memo(({ output, loading, complete, gam
           terminalRef.current.appendChild(errorDiv);
         }
       }
+      
+      // 检查是否有错误详情
+      if (typeof lastOutput === 'object' && lastOutput.error_details) {
+        if (terminalRef.current) {
+          const errorDetailsDiv = document.createElement('div');
+          errorDetailsDiv.className = 'terminal-error-details';
+          errorDetailsDiv.style.color = '#ff4d4f';
+          errorDetailsDiv.style.whiteSpace = 'pre-wrap';
+          errorDetailsDiv.style.fontWeight = 'bold';
+          errorDetailsDiv.textContent = lastOutput.error_details;
+          terminalRef.current.appendChild(errorDetailsDiv);
+        }
+      }
     }
   }, [complete, output]);
   
@@ -186,6 +199,13 @@ const Terminal: React.FC<TerminalProps> = memo(({ output, loading, complete, gam
           }
           if (typeof line === 'object' && line.line) {
             return <div key={index}>{parseColoredText(line.line)}</div>;
+          }
+          if (typeof line === 'object' && line.complete && line.status === 'error') {
+            return (
+              <div key={index} style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+                {line.message}
+              </div>
+            );
           }
           return <div key={index}>{parseColoredText(line as string)}</div>;
         })}

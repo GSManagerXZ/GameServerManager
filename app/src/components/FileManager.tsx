@@ -50,9 +50,14 @@ interface ContextMenuPosition {
 
 interface FileManagerProps {
   initialPath?: string;
+  isVisible?: boolean; // New prop
 }
 
-const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }) => {
+const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', isVisible = true }) => {
+  // 创建一个唯一的实例ID，用于识别当前组件实例
+  const instanceId = useRef<string>(Math.random().toString(36).substring(2, 15));
+  const isMountedRef = useRef<boolean>(false); // Initialize to false, set to true in mount effect
+  
   const [currentPath, setCurrentPath] = useState<string>(initialPath || '/home/steam');
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -111,6 +116,32 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   const [isFileModified, setIsFileModified] = useState<boolean>(false);
   const [originalContent, setOriginalContent] = useState<string>('');
   
+  // Refs to hold the latest values of frequently changing states for use in callbacks
+  const selectedFilesRef = useRef(selectedFiles);
+  const clipboardRef = useRef(clipboard);
+  const currentPathRef = useRef(currentPath);
+  const selectedFileRef = useRef(selectedFile);
+  const fileContentRef = useRef(fileContent);
+  const syntaxErrorsRef = useRef(syntaxErrors);
+
+  // Ref to track the latest isVisible prop value, for debugging in shortcuts
+  const isVisibleRef_debug = useRef(isVisible);
+
+  // Effect to keep refs updated with the latest state values
+  useEffect(() => { selectedFilesRef.current = selectedFiles; }, [selectedFiles]);
+  useEffect(() => { clipboardRef.current = clipboard; }, [clipboard]);
+  useEffect(() => { currentPathRef.current = currentPath; }, [currentPath]);
+  useEffect(() => { selectedFileRef.current = selectedFile; }, [selectedFile]);
+  useEffect(() => { fileContentRef.current = fileContent; }, [fileContent]);
+  useEffect(() => { syntaxErrorsRef.current = syntaxErrors; }, [syntaxErrors]);
+  
+  useEffect(() => { 
+    isVisibleRef_debug.current = isVisible;
+    // const myId = instanceId.current; // For debugging specific instance visibility changes
+    // const currentTimestamp = () => new Date().toLocaleTimeString();
+    // console.log(`${currentTimestamp()} FM ${myId}: isVisible prop changed to: ${isVisible}`);
+  }, [isVisible]);
+
   // 检查文件是否有未保存的变更并处理关闭编辑器的逻辑
   const handleEditorClose = useCallback(() => {
     if (isFileModified) {
@@ -133,6 +164,16 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   // 添加窗口关闭事件监听
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // 检查当前活跃的文件管理器实例是否是这个实例
+      if ((window as any).activeFileManagerId !== instanceId.current) {
+        return; // 如果不是当前实例，不处理事件
+      }
+      
+      // 检查组件是否已卸载
+      if (!isMountedRef.current) {
+        return; // 如果组件已卸载，不处理事件
+      }
+      
       if (isEditModalVisible && isFileModified) {
         // 现代浏览器不允许自定义消息，但这会触发浏览器的默认确认对话框
         e.preventDefault();
@@ -148,21 +189,20 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
   }, [isEditModalVisible, isFileModified]);
   
   // 实际保存文件的函数
-  const saveFileContent = useCallback(async () => {
-    if (!selectedFile) return;
+  const saveFileContentInternal = useCallback(async () => {
+    if (!selectedFileRef.current) return;
     
-    setLoading(true);
+    setLoading(true); // setLoading is a stable dispatcher
     try {
       const response = await axios.post(`/api/save_file`, {
-        path: selectedFile.path,
-        content: fileContent
+        path: selectedFileRef.current.path,
+        content: fileContentRef.current
       });
       
       if (response.data.status === 'success') {
         message.success('文件已保存');
-        // 不再自动关闭编辑器模态框
         if (loadDirectoryRef.current) {
-          loadDirectoryRef.current(currentPath); // 刷新目录
+          loadDirectoryRef.current(currentPathRef.current); // Refresh directory using current path from ref
         }
       } else {
         message.error(response.data.message || '保存文件失败');
@@ -172,44 +212,47 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     } finally {
       setLoading(false);
     }
-  }, [selectedFile, fileContent, currentPath]);
+  // Removed direct state dependencies: selectedFile, fileContent, currentPath. 
+  // Relies on their refs. loadDirectoryRef is a ref to a function, stable.
+  // setLoading, message are stable.
+  }, []); 
 
   // 保存文件内容
-  const saveFile = useCallback(async () => {
-    if (!selectedFile) return;
+  const saveFileInternal = useCallback(async () => {
+    if (!selectedFileRef.current) return;
     
-    // 如果存在语法错误，显示确认对话框
-    if (syntaxErrors.length > 0) {
+    if (syntaxErrorsRef.current.length > 0) {
       Modal.confirm({
         title: '警告',
-        content: `当前代码存在 ${syntaxErrors.length} 个语法错误，是否仍要保存？`,
+        content: `当前代码存在 ${syntaxErrorsRef.current.length} 个语法错误，是否仍要保存？`,
         okText: '继续保存',
         cancelText: '返回编辑',
         onOk: () => {
-          saveFileContent();
-          setIsFileModified(false); // 保存后重置修改状态
+          saveFileContentInternal();
+          setIsFileModified(false); // setIsFileModified is stable dispatcher
         },
-        onCancel: () => {} // 不做任何操作，用户可以继续编辑
+        onCancel: () => {}
       });
       return;
     }
     
-    // 如果没有语法错误，直接保存
-    await saveFileContent();
-    setIsFileModified(false); // 保存后重置修改状态
-  }, [selectedFile, syntaxErrors, saveFileContent]);
+    await saveFileContentInternal();
+    setIsFileModified(false);
+  // Removed direct state dependencies: selectedFile, syntaxErrors.
+  // Depends on saveFileContentInternal (now stable due to its own ref usage) and setIsFileModified (stable).
+  }, [saveFileContentInternal]);
 
   // 处理点击保存按钮的事件
   const handleSaveClick = useCallback(async () => {
-    await saveFile();
+    await saveFileInternal();
     // 不关闭编辑器模态框
     return false; // 返回false阻止Modal自动关闭
-  }, [saveFile]);
+  }, [saveFileInternal]);
 
-  const saveFileRef = useRef(saveFile);
+  const saveFileRef = useRef(saveFileInternal);
   useEffect(() => {
-    saveFileRef.current = saveFile;
-  }, [saveFile]);
+    saveFileRef.current = saveFileInternal;
+  }, [saveFileInternal]);
 
   // 创建包含认证信息的请求头
   const getHeaders = () => {
@@ -282,86 +325,157 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     setBlankContextMenuPosition(prev => ({ ...prev, visible: false }));
   };
 
+  // Effect for isMountedRef (Effect 1)
+  useEffect(() => {
+    isMountedRef.current = true;
+    const myId = instanceId.current;
+    // const currentTimestamp = () => new Date().toLocaleTimeString();
+    // console.log(`${currentTimestamp()} FM ${myId}: Component TRULY MOUNTED (isMountedRef effect). instanceId: ${myId}`);
+
+    return () => {
+      isMountedRef.current = false; // This is the primary purpose
+      // const timestamp = currentTimestamp();
+      // console.log(`${timestamp} FM ${myId}: Component TRULY UNMOUNTED (isMountedRef effect cleanup). instanceId: ${myId}.`);
+      
+      // Final safeguard for activeFileManagerId on true unmount
+      if ((window as any).activeFileManagerId === myId) {
+        (window as any).activeFileManagerId = null;
+        // console.log(`${timestamp} FM ${myId}: Deactivated on TRUE UNMOUNT. New activeId: null`);
+      } else {
+        // console.log(`${timestamp} FM ${myId}: Not deactivating on TRUE UNMOUNT as activeId (${(window as any).activeFileManagerId}) is not ${myId}.`);
+      }
+      // DO NOT remove keydown listener here. That's for the other effect which is responsible for its own listener.
+    };
+  }, []); // Corrected: ONLY runs on mount and unmount
+
+  // Memoized keyboard shortcut handler
+  const memoizedHandleKeyboardShortcuts = useCallback((e: KeyboardEvent) => {
+    // const currentTimestamp = () => new Date().toLocaleTimeString();
+    if (!isMountedRef.current) {
+      // console.warn(`${currentTimestamp()} FM ${instanceId.current}: handleKeyboardShortcuts called on UNMOUNTED component. Listener cleanup issue?`);
+      return;
+    }
+
+    // Debug: Check if this instance is supposed to be visible when handling a shortcut
+    if (!isVisibleRef_debug.current) {
+      // console.warn(`${currentTimestamp()} FM ${instanceId.current}: handleKeyboardShortcuts EXECUTING but isVisibleRef_debug is FALSE. This should not happen if cleanup is correct. Key: ${e.key}`);
+      return; // If not visible (according to the ref that tracks the prop), do nothing.
+    }
+
+    if ((window as any).activeFileManagerId !== instanceId.current) {
+      // console.log(`${currentTimestamp()} FM ${instanceId.current}: handleKeyboardShortcuts SKIPPING. ActiveId is ${(window as any).activeFileManagerId}, MY id is ${instanceId.current}. Key: ${e.key}`);
+      return;
+    }
+    
+    // console.log(`${currentTimestamp()} FM ${instanceId.current}: handleKeyboardShortcuts EXECUTING. ActiveId is ${instanceId.current}. isVisibleRef_debug: ${isVisibleRef_debug.current}. Key: ${e.key}, Ctrl: ${e.ctrlKey}`);
+
+    if (isEditModalVisible || isRenameModalVisible || isPreviewModalVisible || 
+        isNewFolderModalVisible || isNewFileModalVisible || isUploadModalVisible) {
+      if (isEditModalVisible && e.ctrlKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveFile(); // Calls the stable saveFile which now uses saveFileInternal
+        return;
+      }
+      return;
+    }
+
+    if (e.ctrlKey) {
+      switch (e.key.toLowerCase()) {
+        case 'c':
+          e.preventDefault();
+          if (selectedFilesRef.current.length > 0 && copyToClipboardRef.current) {
+            copyToClipboardRef.current(selectedFilesRef.current[0]);
+          }
+          break;
+        case 'x':
+          e.preventDefault();
+          if (selectedFilesRef.current.length > 0 && cutToClipboardRef.current) {
+            cutToClipboardRef.current(selectedFilesRef.current[0]);
+          }
+          break;
+        case 'v':
+          e.preventDefault();
+          if (clipboardRef.current && pasteFromClipboardRef.current) {
+            pasteFromClipboardRef.current(); // Assumes pasteFromClipboardRef uses clipboardRef.current or its own mechanism
+          } else {
+            message.info('剪贴板为空');
+          }
+          break;
+        case 's': 
+          if (isEditModalVisible) { 
+           e.preventDefault();
+           saveFile(); // Calls the stable saveFile
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }, [
+    isEditModalVisible, isRenameModalVisible, isPreviewModalVisible,
+    isNewFolderModalVisible, isNewFileModalVisible, isUploadModalVisible,
+    saveFileInternal, // Correctly depend on saveFileInternal
+  ]);
+
+  // Keyboard shortcut and activeFileManagerId management (Effect 2)
+  useEffect(() => {
+    const myId = instanceId.current;
+    // const currentTimestamp = () => new Date().toLocaleTimeString();
+
+    // Log entry into this effect and current isVisible state
+    // console.log(`${currentTimestamp()} FM ${myId}: EFFECT 2 RUNNING. isVisible: ${isVisible}, isMounted: ${isMountedRef.current}`);
+
+    if (isVisible && isMountedRef.current) {
+      // console.log(`${currentTimestamp()} FM ${myId}: EFFECT 2 - Setting ACTIVE. isVisible: ${isVisible}. Setting activeId to ${myId}. Adding listener. Prev activeId: ${(window as any).activeFileManagerId}`);
+      (window as any).activeFileManagerId = myId;
+      document.addEventListener('keydown', memoizedHandleKeyboardShortcuts);
+
+      return () => {
+        // const timestamp = currentTimestamp();
+        // isVisible in this cleanup function's scope will be the value it had when the effect last ran (i.e., true)
+        // We are more interested in the *current* isMountedRef.current when cleanup is called.
+        // console.log(`${timestamp} FM ${myId}: EFFECT 2 CLEANUP triggered. InstanceId ${myId}. Current isMounted: ${isMountedRef.current}. About to remove listener. ActiveId was: ${(window as any).activeFileManagerId}`);
+        document.removeEventListener('keydown', memoizedHandleKeyboardShortcuts);
+        if ((window as any).activeFileManagerId === myId) {
+          (window as any).activeFileManagerId = null;
+          // console.log(`${timestamp} FM ${myId}: Deactivated in EFFECT 2 cleanup. New activeId: null`);
+        }
+      };
+    } else {
+      // const timestamp = currentTimestamp();
+      // This block runs if isVisible is false OR component is not mounted when effect runs.
+      // console.log(`${timestamp} FM ${myId}: EFFECT 2 - Condition NOT MET (isVisible: ${isVisible}, isMounted: ${isMountedRef.current}). Ensuring DEACTIVATED. Current activeId: ${(window as any).activeFileManagerId}. Removing listener for ${myId}.`);
+      document.removeEventListener('keydown', memoizedHandleKeyboardShortcuts); // Ensure listener is removed if conditions aren't met
+      if ((window as any).activeFileManagerId === myId) {
+        (window as any).activeFileManagerId = null;
+        // console.log(`${timestamp} FM ${myId}: Deactivated in EFFECT 2 (due to !isVisible or !isMounted). New activeId: null`);
+      }
+    }
+  }, [isVisible, memoizedHandleKeyboardShortcuts, instanceId]); // instanceId should be stable, memoizedHandleKeyboardShortcuts is now stable
+
   // 在组件加载时添加点击事件监听器，用于隐藏右键菜单
   useEffect(() => {
     const handleClick = () => {
+      // 检查当前活跃的文件管理器实例是否是这个实例
+      if ((window as any).activeFileManagerId !== instanceId.current) {
+        return; // 如果不是当前实例，不处理事件
+      }
+      
+      // 检查组件是否已卸载
+      if (!isMountedRef.current) {
+        return; // 如果组件已卸载，不处理事件
+      }
+      
       hideAllContextMenus();
     };
 
     document.addEventListener('click', handleClick);
+    
+    // 组件卸载时移除事件监听器
     return () => {
       document.removeEventListener('click', handleClick);
     };
-  }, []);
-
-  // 添加键盘事件监听器
-  useEffect(() => {
-    // 在 useEffect 内部定义处理函数，避免循环依赖
-    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
-      // 如果有模态框打开，不处理快捷键
-      if (isEditModalVisible || isRenameModalVisible || isPreviewModalVisible || 
-          isNewFolderModalVisible || isNewFileModalVisible || isUploadModalVisible) {
-        // 如果编辑器模态框打开，处理Ctrl+S快捷键
-        if (isEditModalVisible && e.ctrlKey && e.key.toLowerCase() === 's') {
-          e.preventDefault();
-          saveFile();
-          return;
-        }
-        return;
-      }
-
-      // 只有当按下Ctrl键时才处理
-      if (e.ctrlKey) {
-        switch (e.key.toLowerCase()) {
-          case 'c': // Ctrl+C: 复制
-            e.preventDefault();
-            if (selectedFiles.length > 0 && copyToClipboardRef.current) {
-              // 目前只支持复制单个文件，所以只复制第一个选中的文件
-              copyToClipboardRef.current(selectedFiles[0]);
-            }
-            break;
-          case 'x': // Ctrl+X: 剪切
-            e.preventDefault();
-            if (selectedFiles.length > 0 && cutToClipboardRef.current) {
-              // 目前只支持剪切单个文件，所以只剪切第一个选中的文件
-              cutToClipboardRef.current(selectedFiles[0]);
-            }
-            break;
-          case 'v': // Ctrl+V: 粘贴
-            e.preventDefault();
-            if (clipboard && pasteFromClipboardRef.current) {
-              pasteFromClipboardRef.current();
-            } else {
-              message.info('剪贴板为空');
-            }
-            break;
-          case 's': // Ctrl+S: 保存（如果编辑器模态框已打开）
-            if (isEditModalVisible) {
-              e.preventDefault();
-              saveFile();
-            }
-            break;
-          default:
-            break;
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyboardShortcuts);
-    return () => {
-      document.removeEventListener('keydown', handleKeyboardShortcuts);
-    };
-  }, [
-    selectedFiles, 
-    clipboard, 
-    isEditModalVisible, 
-    isRenameModalVisible, 
-    isPreviewModalVisible, 
-    isNewFolderModalVisible, 
-    isNewFileModalVisible, 
-    isUploadModalVisible,
-    saveFile  // 添加saveFile到依赖数组
-  ]);
+  }, [hideAllContextMenus]); // hideAllContextMenus is stable or memoized correctly
 
   // 检查文件是否为图片
   const isImageFile = (filename: string): boolean => {
@@ -1356,6 +1470,13 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
     setHelpModalVisible(true);
   };
 
+  // Now that memoizedHandleKeyboardShortcuts is defined, we can alias saveFileInternal to saveFile
+  // and set up the saveFileRef for the editor.
+  const saveFile = saveFileInternal;
+  useEffect(() => {
+    saveFileRef.current = saveFileInternal;
+  }, [saveFileInternal]); // Ensure saveFileRef is updated if saveFileInternal ever changes (it shouldn't much now)
+
   return (
     <>
       <div 
@@ -1407,6 +1528,14 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam' }
                   disabled={selectedFiles.length === 0}
                 >
                   压缩
+                </Button>
+                <Button 
+                  icon={<DeleteOutlined />} 
+                  onClick={deleteSelectedItems}
+                  disabled={selectedFiles.length === 0}
+                  danger
+                >
+                  删除
                 </Button>
                 <Button 
                   icon={<ReloadOutlined />} 

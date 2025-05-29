@@ -84,57 +84,91 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
   const fetchContainerInfo = async () => {
     setLoading(true);
     try {
-      const [containerInfoResp, installedGamesResp, networkInfoResp] = await Promise.all([
-        axios.get('/api/container_info'),
-        axios.get('/api/installed_games'),
-        axios.get('/api/network_info')
-      ]);
+      // 添加超时处理
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
       
-      if (containerInfoResp.data.status === 'success') {
-        const sysInfo = containerInfoResp.data.system_info;
+      try {
+        const [containerInfoResp, installedGamesResp, networkInfoResp] = await Promise.all([
+          axios.get('/api/container_info', { 
+            signal: controller.signal,
+            timeout: 10000 // 设置axios超时
+          }),
+          axios.get('/api/installed_games', { 
+            signal: controller.signal,
+            timeout: 10000 
+          }),
+          axios.get('/api/network_info', { 
+            signal: controller.signal,
+            timeout: 10000 
+          })
+        ]);
         
-        // 添加网络信息
-        if (networkInfoResp.data.status === 'success') {
-          sysInfo.network = {
-            interfaces: networkInfoResp.data.network_interfaces,
-            public_ip: networkInfoResp.data.public_ip,
-            io_stats: networkInfoResp.data.io_stats
-          };
+        // 清除超时定时器
+        clearTimeout(timeoutId);
+        
+        if (containerInfoResp.data.status === 'success') {
+          const sysInfo = containerInfoResp.data.system_info;
           
-          // 更新网络统计数据
-          let totalSent = 0;
-          let totalRecv = 0;
+          // 添加网络信息
+          if (networkInfoResp.data.status === 'success') {
+            sysInfo.network = {
+              interfaces: networkInfoResp.data.network_interfaces,
+              public_ip: networkInfoResp.data.public_ip,
+              io_stats: networkInfoResp.data.io_stats
+            };
+            
+            // 更新网络统计数据
+            let totalSent = 0;
+            let totalRecv = 0;
+            
+            Object.values(networkInfoResp.data.io_stats || {}).forEach((stats: any) => {
+              totalSent += stats.bytes_sent || 0;
+              totalRecv += stats.bytes_recv || 0;
+            });
+            
+            // 保留最多10个数据点
+            setNetworkStats(prev => ({
+              sent: [...prev.sent.slice(-9), totalSent],
+              recv: [...prev.recv.slice(-9), totalRecv]
+            }));
+          }
           
-          Object.values(networkInfoResp.data.io_stats || {}).forEach((stats: any) => {
-            totalSent += stats.bytes_sent || 0;
-            totalRecv += stats.bytes_recv || 0;
-          });
+          setSystemInfo(sysInfo);
+          setRunningGames(containerInfoResp.data.running_games || []);
           
-          // 保留最多10个数据点
-          setNetworkStats(prev => ({
-            sent: [...prev.sent.slice(-9), totalSent],
-            recv: [...prev.recv.slice(-9), totalRecv]
-          }));
+          // 处理已安装游戏列表
+          let allInstalledGames = containerInfoResp.data.installed_games || [];
+          
+          // 加入外部游戏
+          if (installedGamesResp.data.status === 'success' && installedGamesResp.data.external) {
+            const externalGames = installedGamesResp.data.external.map((game: any) => ({
+              ...game,
+              size_mb: containerInfoResp.data.system_info?.games_space?.[game.id] || 0
+            }));
+            
+            // 合并正常游戏和外部游戏
+            allInstalledGames = [...allInstalledGames, ...externalGames];
+          }
+          
+          setInstalledGames(allInstalledGames);
         }
+      } catch (error: any) {
+        // 清除超时定时器
+        clearTimeout(timeoutId);
         
-        setSystemInfo(sysInfo);
-        setRunningGames(containerInfoResp.data.running_games || []);
+        // 处理请求错误
+        console.error("获取容器信息失败:", error);
         
-        // 处理已安装游戏列表
-        let allInstalledGames = containerInfoResp.data.installed_games || [];
-        
-        // 加入外部游戏
-        if (installedGamesResp.data.status === 'success' && installedGamesResp.data.external) {
-          const externalGames = installedGamesResp.data.external.map((game: any) => ({
-            ...game,
-            size_mb: containerInfoResp.data.system_info?.games_space?.[game.id] || 0
-          }));
-          
-          // 合并正常游戏和外部游戏
-          allInstalledGames = [...allInstalledGames, ...externalGames];
+        // 如果是超时错误，显示适当的提示
+        if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+          console.warn("容器信息请求超时，使用缓存数据");
+          // 保持使用现有数据，不更新状态
+        } else {
+          // 其他错误，可以考虑设置一些默认值
+          // 但不要完全重置状态，保留之前的数据
+          console.warn("容器信息请求失败，使用缓存数据");
         }
-        
-        setInstalledGames(allInstalledGames);
       }
     } finally {
       setLoading(false);
@@ -143,10 +177,10 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
 
   useEffect(() => {
     fetchContainerInfo();
-    // 设置定时刷新（每30秒）
-    const interval = setInterval(fetchContainerInfo, 30000);
+    // 设置定时刷新（每30秒）但如果有运行中的服务器，增加间隔时间避免频繁请求
+    const interval = setInterval(fetchContainerInfo, runningGames.length > 0 ? 60000 : 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [runningGames.length]);
 
   // 格式化时间显示
   const formatUptime = (seconds: number): string => {

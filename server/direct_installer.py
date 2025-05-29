@@ -158,23 +158,48 @@ def create_simple_startup_script(install_dir, app_id):
     script_path = os.path.join(install_dir, "start.sh")
     try:
         script_content = f"""#!/bin/bash
+exec > >(tee -a /tmp/start_sh_{app_id}.log) 2>&1
+set -x
+
+echo "--- start.sh for app_{app_id} ---"
+echo "Timestamp: $(date)"
+echo "Current directory: $(pwd)"
+echo "Script arguments: \$1=\'$1\' \$2=\'$2\'"
 cd "$(dirname "$0")"
+echo "Changed directory to: $(pwd)"
 echo "正在启动AppID: {app_id}的服务器..."
-# 尝试查找服务器可执行文件
+
+echo "Listing files in current directory:"
+ls -la
+
 if [ -f "./srcds_run" ]; then
-    ./srcds_run -console -game $1 +ip 0.0.0.0 +port 27015 +map $2
+    echo "Found ./srcds_run"
+    ./srcds_run -console -game "$1" +ip 0.0.0.0 +port 27015 +map "$2"
+    exit_code=$?
+    echo "./srcds_run exited with code: $exit_code"
+    exit $exit_code
 elif [ -f "./srcds_linux" ]; then
-    ./srcds_linux -console -game $1 +ip 0.0.0.0 +port 27015 +map $2
+    echo "Found ./srcds_linux"
+    ./srcds_linux -console -game "$1" +ip 0.0.0.0 +port 27015 +map "$2"
+    exit_code=$?
+    echo "./srcds_linux exited with code: $exit_code"
+    exit $exit_code
 else
-    # 尝试查找其他可能的服务器可执行文件
-    SERVER_EXE=$(find . -name "*server*" -type f -executable | head -1)
+    echo "srcds_run and srcds_linux not found. Searching for other executables..."
+    SERVER_EXE=$(find . -maxdepth 1 -name "*server*" -type f -executable | head -1)
+    echo "Find command result: '$SERVER_EXE'"
     if [ ! -z "$SERVER_EXE" ]; then
         echo "找到可能的服务器可执行文件: $SERVER_EXE"
-        $SERVER_EXE
+        "$SERVER_EXE"
+        exit_code=$?
+        echo "$SERVER_EXE exited with code: $exit_code"
+        exit $exit_code
     else
         echo "未找到服务器可执行文件，请手动配置启动命令"
+        exit 1
     fi
 fi
+echo "--- end of start.sh ---"
 """
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script_content)

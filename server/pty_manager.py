@@ -461,11 +461,27 @@ class PTYProcess:
                 
                 # 发送完成消息
                 status = 'success' if return_code == 0 else 'error'
-                message = f'进程 {self.process_id} ' + ('成功完成' if return_code == 0 else f'失败，返回码: {return_code}')
+                
+                # 如果进程执行失败，添加最近的输出作为错误信息
+                if return_code != 0:
+                    # 收集最后的错误输出
+                    last_outputs = self.output[-10:] if len(self.output) > 10 else self.output
+                    error_output = "\n".join(last_outputs)
+                    error_message = f"进程执行失败，返回码: {return_code}\n\n错误输出:\n{error_output}"
+                    message = f'进程 {self.process_id} 失败，返回码: {return_code}，错误输出已记录'
+                    logger.error(f"进程执行失败，返回码: {return_code}，错误输出: {error_output}")
+                    self.error = error_message
+                else:
+                    message = f'进程 {self.process_id} 成功完成'
+                
                 self.final_message = message
                 
                 # 向队列添加完成消息
-                self.output_queue.put({'complete': True, 'status': status, 'message': message})
+                if status == 'error':
+                    # 针对错误情况，包含详细错误输出
+                    self.output_queue.put({'complete': True, 'status': status, 'message': message, 'error_details': self.error})
+                else:
+                    self.output_queue.put({'complete': True, 'status': status, 'message': message})
                 
         except Exception as e:
             logger.error(f"读取PTY输出线程出错: {str(e)}")
