@@ -2,7 +2,8 @@
 GameServerManager 简称GSManager 让游戏服务器的部署、管理和维护变得简单高效。基于Docker技术，支持多款热门游戏，一键部署，轻松管理。\
 项目最大亮点是环境全部在Docker中运行，拥有环境兼容性最高的Docker镜像，能运行几乎所有支持Linux游戏服务端；并且任何人不受限制的使用面板上的所有功能，人人平等。
 
-### [>>快速使用]()
+### [>>快速使用/文档站]()
+### [>>官方网站](http://blogpage.xiaozhuhouses.asia/html5/index.html)
 
 # WEBUI介绍
 ## 简洁舒服的控制面板
