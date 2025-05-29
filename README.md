@@ -5,6 +5,8 @@ GameServerManager 简称GSManager 让游戏服务器的部署、管理和维护�
 ### [>>快速使用/文档站]()
 ### [>>官方网站](http://blogpage.xiaozhuhouses.asia/html5/index.html)
 
+> 项目目前处于公测阶段，不代表最终成果，可能会遇到任何BUG以及安全性问题，建议在非生产环境中使用，若有任何问题请加QQ群1040201322
+
 # WEBUI介绍
 ## 简洁舒服的控制面板
 ![image](https://github.com/user-attachments/assets/c12b8b88-8658-4bb5-b8ed-e269c86b2c44)
