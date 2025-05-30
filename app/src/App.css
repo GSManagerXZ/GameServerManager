@@ -141,10 +141,61 @@ body {
 
 .resource-cards .ant-card {
   text-align: center;
+  height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.resource-cards .ant-card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  padding: 16px;
+  margin-top: 21px;
 }
 
 .resource-cards .ant-progress {
   margin-bottom: 16px;
+}
+
+.resource-cards .ant-statistic {
+  margin-bottom: 14px;
+}
+
+.resource-cards .ant-statistic-title {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.resource-cards .ant-statistic-content {
+  font-size: 16px;
+}
+
+.resource-cards .ant-card-body > div:last-child {
+  margin-top: auto;
+  width: 100%;
+  text-align: left;
+}
+
+.resource-cards .ant-card-body > div:last-child div {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.resource-cards .ant-card-body > div:last-child strong {
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.resource-cards .ant-progress-inner {
+  width: 120px !important;
+  height: 120px !important;
+  font-size: 24px !important;
 }
 
 .games-tables .ant-card {
@@ -185,7 +236,7 @@ body {
 }
 
 .server-management {
-  margin-top: 24px;
+  padding: 16px 0;
 }
 
 .server-controls {
@@ -330,6 +381,30 @@ body {
     margin-bottom: 16px;
   }
   
+  /* 移动端资源卡片调整 */
+  .resource-cards .ant-card {
+    height: 370px;
+  }
+  
+  .resource-cards .ant-card .ant-card-body {
+    margin-top: 15px;
+    padding: 12px;
+  }
+  
+  .resource-cards .ant-progress-inner {
+    width: 100px !important;
+    height: 100px !important;
+    font-size: 20px !important;
+  }
+  
+  .resource-cards .ant-statistic-title {
+    font-size: 13px;
+  }
+  
+  .resource-cards .ant-statistic-content {
+    font-size: 15px;
+  }
+  
   .games-tables .ant-col {
     width: 100%;
     margin-bottom: 16px;
@@ -341,6 +416,29 @@ body {
   
   .server-management .ant-col {
     width: 100%;
+  }
+  
+  /* 移动端卡片高度调整 */
+  .server-management .ant-col .ant-card {
+    height: 200px;
+  }
+  
+  .server-management .ant-col .ant-card .ant-card-head {
+    min-height: 40px;
+  }
+  
+  .server-management .ant-col .ant-card .ant-card-head-title {
+    padding: 8px 0;
+    font-size: 15px;
+  }
+  
+  .server-management .ant-col .ant-card .ant-card-body {
+    padding: 8px 12px;
+  }
+  
+  .server-management .ant-col .ant-card .ant-card-body p {
+    font-size: 12px;
+    margin-bottom: 4px;
   }
   
   .running-servers .ant-col {
@@ -519,6 +617,50 @@ body {
     padding: 0 6px;
     height: 24px;
     font-size: 12px;
+  }
+  
+  /* 小屏幕手机上卡片的高度和样式 */
+  .server-management .ant-col .ant-card {
+    height: 190px;
+  }
+  
+  .server-management .ant-col .ant-card .ant-card-head-title {
+    font-size: 14px;
+  }
+  
+  .server-management .ant-col .ant-card .ant-card-body button {
+    font-size: 11px;
+    height: 26px;
+    padding: 0 6px;
+  }
+  
+  /* 小屏幕手机上资源卡片的高度和样式 */
+  .resource-cards .ant-card {
+    height: 350px;
+  }
+  
+  .resource-cards .ant-card .ant-card-body {
+    margin-top: 10px;
+    padding: 10px;
+  }
+  
+  .resource-cards .ant-progress {
+    margin-bottom: 12px;
+  }
+  
+  .resource-cards .ant-statistic {
+    margin-bottom: 10px;
+  }
+  
+  .resource-cards .ant-progress-inner {
+    width: 90px !important;
+    height: 90px !important;
+    font-size: 18px !important;
+  }
+  
+  .resource-cards .ant-card-body > div:last-child div {
+    margin-bottom: 3px;
+    font-size: 11px;
   }
 }
 
@@ -2262,4 +2404,413 @@ input#sponsorKey.ant-input {
   background-color: #f0f7ff;
   transform: translateY(-1px);
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* 服务端管理页面的卡片统一宽高 */
+.server-management .ant-row {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.server-management .ant-col .ant-card {
+  height: 220px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+  margin-bottom: 16px;
+}
+
+.server-management .ant-col .ant-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.server-management .ant-col .ant-card .ant-card-head {
+  flex-shrink: 0;
+  min-height: 45px;
+  padding: 0 16px;
+}
+
+.server-management .ant-col .ant-card .ant-card-head-title {
+  padding: 10px 0;
+  font-size: 16px;
+}
+
+.server-management .ant-col .ant-card .ant-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px 16px;
+}
+
+/* 服务端卡片内容样式优化 */
+.server-management .ant-col .ant-card .ant-card-body p {
+  margin-bottom: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* 确保服务端状态标签样式统一 */
+.server-management .ant-col .ant-card .ant-tag {
+  margin-right: 0;
+}
+
+/* 服务端卡片按钮区域样式统一 */
+.server-management .ant-col .ant-card .ant-card-body button {
+  margin-bottom: 4px;
+  font-size: 12px;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.server-management .ant-col .ant-card .ant-card-body div[style*="display: flex; justify-content: center"] {
+  width: 100%;
+  margin-top: auto;
+}
+
+.server-management .ant-col .ant-card .ant-card-body div[style*="display: flex; justify-content: center"] button {
+  flex-grow: 1;
+  max-width: 45%;
+}
+
+/* 确保按钮组位于底部 */
+.server-management .ant-col .ant-card .ant-card-body > div:last-child,
+.server-management .ant-col .ant-card .ant-card-body > div:nth-last-child(2) {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.06);
+}
+
+/* 操作按钮区域的样式 */
+.server-management .ant-col .ant-card .ant-card-body div:nth-last-child(2):not([style*="display: flex; justify-content: center"]) {
+  margin-bottom: 0;
+}
+
+/* 为按钮区域增加统一间距 */
+.server-management .ant-col .ant-card .ant-card-body button + button {
+  margin-left: 6px;
+}
+
+/* 统一按钮区域位置 */
+.server-management .ant-col .ant-card .ant-card-body > div:last-child button,
+.server-management .ant-col .ant-card .ant-card-body > div:nth-last-child(2) button {
+  margin-bottom: 0;
+}
+
+/* 卡片内容区域样式 */
+.server-management .ant-col .ant-card .ant-card-body > div:first-child {
+  margin-bottom: 5px;
+}
+
+/* 调整危险操作按钮（如卸载）的内边距，使其不那么宽 */
+.server-management .ant-col .ant-card .ant-card-body .ant-btn-dangerous.ant-btn-sm {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* 调整自启动开关的样式 */
+.server-management .ant-col .ant-card .ant-card-body .ant-switch.ant-switch-small {
+  margin-left: 4px;
+  margin-top: 1px;
+  height: 16px;
+}
+
+.server-management .ant-col .ant-card .ant-card-body .ant-switch.ant-switch-small .ant-switch-handle {
+  height: 12px;
+  width: 12px;
+  top: 2px;
+}
+
+/* 开服指南页面样式 */
+.server-guide-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.server-guide-container .ant-typography {
+  margin-bottom: 24px;
+}
+
+.server-guide-container .site-card {
+  height: 100%;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.server-guide-container .site-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.server-guide-container .site-card-title {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.server-guide-container .site-card-title .anticon {
+  font-size: 20px;
+  color: #1890ff;
+  margin-right: 12px;
+}
+
+.server-guide-container .site-card-title h4 {
+  margin: 0;
+  color: #333;
+  font-weight: 600;
+}
+
+.server-guide-container .ant-typography.ant-typography-ellipsis {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.server-guide-container .ant-btn {
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+/* 移动端样式适配 */
+@media (max-width: 768px) {
+  .server-guide-container .site-card {
+    margin-bottom: 16px;
+  }
+  
+  .server-guide-container .site-card-title .anticon {
+    font-size: 18px;
+  }
+  
+  .server-guide-container .site-card-title h4 {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .server-guide-container {
+    padding: 12px;
+  }
+  
+  .server-guide-container .ant-typography {
+    margin-bottom: 16px;
+  }
+  
+  .server-guide-container .site-card-title .anticon {
+    font-size: 16px;
+    margin-right: 8px;
+  }
+  
+  .server-guide-container .site-card-title h4 {
+    font-size: 14px;
+  }
+  
+  .server-guide-container .ant-typography.ant-typography-ellipsis {
+    font-size: 12px;
+  }
+}
+
+/* 开服指南页面样式 */
+.server-guide-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.server-guide-container .ant-typography {
+  margin-bottom: 24px;
+}
+
+.server-guide-container .site-card {
+  height: 100%;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.server-guide-container .site-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.server-guide-container .site-card-title {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.server-guide-container .site-card-icon {
+  font-size: 22px;
+  color: #1890ff;
+  margin-right: 12px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: #e6f7ff;
+  transition: all 0.3s ease;
+}
+
+.server-guide-container .icon-animated {
+  transform: scale(1.1);
+  background-color: #1890ff;
+  color: #ffffff;
+}
+
+.server-guide-container .site-card-title h4 {
+  margin: 0;
+  color: #333;
+  font-weight: 600;
+}
+
+.server-guide-container .site-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.server-guide-container .site-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 10px;
+  background-color: #f0f7ff;
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.server-guide-container .site-tag-selected {
+  background-color: #1890ff;
+  color: #ffffff;
+}
+
+.server-guide-container .ant-typography.ant-typography-ellipsis {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.server-guide-container .ant-btn {
+  margin-top: 8px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.server-guide-container .btn-animated {
+  background-color: #096dd9;
+  border-color: #096dd9;
+  transform: scale(1.03);
+}
+
+/* 筛选标签容器样式 */
+.filter-tags-container {
+  margin-bottom: 16px;
+  padding: 16px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.filter-tags-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.filter-title {
+  font-weight: 500;
+  font-size: 15px;
+  color: #333;
+}
+
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.empty-sites {
+  text-align: center;
+  padding: 40px 0;
+  color: #999;
+  font-size: 16px;
+}
+
+/* 移动端样式适配 */
+@media (max-width: 768px) {
+  .server-guide-container .site-card {
+    margin-bottom: 16px;
+  }
+  
+  .server-guide-container .site-card-icon {
+    font-size: 18px;
+    width: 36px;
+    height: 36px;
+  }
+  
+  .server-guide-container .site-card-title h4 {
+    font-size: 16px;
+  }
+  
+  .filter-tags-container {
+    padding: 12px;
+  }
+  
+  .filter-title {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .server-guide-container {
+    padding: 12px;
+  }
+  
+  .server-guide-container .ant-typography {
+    margin-bottom: 16px;
+  }
+  
+  .server-guide-container .site-card-icon {
+    font-size: 16px;
+    width: 32px;
+    height: 32px;
+    margin-right: 8px;
+  }
+  
+  .server-guide-container .site-card-title h4 {
+    font-size: 14px;
+  }
+  
+  .server-guide-container .site-tag {
+    padding: 1px 6px;
+    font-size: 10px;
+  }
+  
+  .server-guide-container .ant-typography.ant-typography-ellipsis {
+    font-size: 12px;
+  }
+  
+  .filter-tags-container {
+    padding: 8px;
+  }
+  
+  .filter-tags-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .filter-tags-header button {
+    margin-left: 0;
+    margin-top: 8px;
+  }
 }

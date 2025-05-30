@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List } from 'antd';
-import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined, ToolOutlined, BookOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
@@ -13,6 +13,8 @@ import FrpManager from './components/FrpManager'; // 导入内网穿透组件
 import FrpDocModal from './components/FrpDocModal'; // 导入内网穿透文档弹窗组件
 import About from './pages/About'; // 导入关于项目页面
 import Settings from './pages/Settings'; // 导入设置页面
+import Environment from './pages/Environment'; // 导入环境安装页面
+import ServerGuide from './pages/ServerGuide'; // 导入开服指南页面
 import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
 import { GameInfo } from './types';
 import { useAuth } from './context/AuthContext';
@@ -2233,6 +2235,11 @@ const checkServerStatus = async (gameId: string) => {
                   label: '游戏管理'
                 },
                 {
+                  key: 'environment',
+                  icon: <ToolOutlined />,
+                  label: '环境安装'
+                },
+                {
                   key: 'servers',
                   icon: <PlayCircleOutlined />,
                   label: '服务端管理'
@@ -2251,6 +2258,11 @@ const checkServerStatus = async (gameId: string) => {
                   key: 'about',
                   icon: <InfoCircleOutlined />,
                   label: '关于项目'
+                },
+                {
+                  key: 'server-guide',
+                  icon: <BookOutlined />,
+                  label: '开服指南'
                 },
                 {
                   key: 'settings',
@@ -2298,6 +2310,11 @@ const checkServerStatus = async (gameId: string) => {
               label: '游戏管理'
             },
             {
+              key: 'environment',
+              icon: <ToolOutlined />,
+              label: '环境安装'
+            },
+            {
               key: 'servers',
               icon: <PlayCircleOutlined />,
               label: '服务端管理'
@@ -2316,6 +2333,11 @@ const checkServerStatus = async (gameId: string) => {
               key: 'about',
               icon: <InfoCircleOutlined />,
               label: '关于项目'
+            },
+            {
+              key: 'server-guide',
+              icon: <BookOutlined />,
+              label: '开服指南'
             },
             {
               key: 'settings',
@@ -3022,13 +3044,24 @@ const checkServerStatus = async (gameId: string) => {
             </div>
           )}
           
+          {currentNav === 'server-guide' && (
+            <div className="server-guide-page">
+              <ServerGuide />
+            </div>
+          )}
+          
           {currentNav === 'settings' && (
             <div className="settings-page">
               <Settings />
             </div>
           )}
+          {currentNav === 'environment' && (
+            <div className="environment-page">
+              <Environment />
+            </div>
+          )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期5.29</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期5.30</Footer>
       </Layout>
 
       {/* 安装终端Modal */}

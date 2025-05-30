@@ -5416,6 +5416,399 @@ def monitor_frp_processes():
 frp_monitor_thread = threading.Thread(target=monitor_frp_processes, daemon=True)
 frp_monitor_thread.start()
 
+# 环境安装相关配置
+ENVIRONMENT_DIR = "/home/steam/environment"
+JAVA_DIR = os.path.join(ENVIRONMENT_DIR, "java")
+JAVA_JDK8_DIR = os.path.join(JAVA_DIR, "jdk8")
+JAVA_JDK12_DIR = os.path.join(JAVA_DIR, "jdk12")
+JAVA_JDK17_DIR = os.path.join(JAVA_DIR, "jdk17")
+JAVA_JDK21_DIR = os.path.join(JAVA_DIR, "jdk21")
+JAVA_JDK24_DIR = os.path.join(JAVA_DIR, "jdk24")
+
+# JDK下载URL
+JAVA_JDK8_URL = "https://download.java.net/openjdk/jdk8u44/ri/openjdk-8u44-linux-x64.tar.gz"
+JAVA_JDK12_URL = "https://download.java.net/openjdk/jdk12/ri/openjdk-12+32_linux-x64_bin.tar.gz"
+JAVA_JDK17_URL = "https://download.java.net/openjdk/jdk17.0.0.1/ri/openjdk-17.0.0.1+2_linux-x64_bin.tar.gz"
+JAVA_JDK21_URL = "https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_linux-x64_bin.tar.gz"
+JAVA_JDK24_URL = "https://download.java.net/openjdk/jdk24/ri/openjdk-24+36_linux-x64_bin.tar.gz"
+
+# JDK版本映射
+JAVA_VERSIONS = {
+    "jdk8": {
+        "dir": JAVA_JDK8_DIR,
+        "url": JAVA_JDK8_URL,
+        "display_name": "JDK 8"
+    },
+    "jdk12": {
+        "dir": JAVA_JDK12_DIR,
+        "url": JAVA_JDK12_URL,
+        "display_name": "JDK 12"
+    },
+    "jdk17": {
+        "dir": JAVA_JDK17_DIR,
+        "url": JAVA_JDK17_URL,
+        "display_name": "JDK 17"
+    },
+    "jdk21": {
+        "dir": JAVA_JDK21_DIR,
+        "url": JAVA_JDK21_URL,
+        "display_name": "JDK 21"
+    },
+    "jdk24": {
+        "dir": JAVA_JDK24_DIR,
+        "url": JAVA_JDK24_URL,
+        "display_name": "JDK 24"
+    }
+}
+
+# 确保环境目录存在
+os.makedirs(ENVIRONMENT_DIR, exist_ok=True)
+os.makedirs(JAVA_DIR, exist_ok=True)
+
+# 环境安装进度跟踪
+environment_install_progress = {}
+
+# 检查Java是否已安装
+def check_java_installation(version="jdk8"):
+    """检查Java是否已安装"""
+    if version not in JAVA_VERSIONS:
+        return False, ""
+    
+    java_dir = JAVA_VERSIONS[version]["dir"]
+    
+    if not os.path.exists(java_dir):
+        return False, ""
+    
+    # 检查java可执行文件是否存在
+    java_executable = os.path.join(java_dir, "bin/java")
+    if not os.path.exists(java_executable):
+        return False, ""
+    
+    try:
+        # 尝试执行java -version命令
+        result = subprocess.run([java_executable, "-version"], 
+                                capture_output=True, 
+                                text=True, 
+                                check=True)
+        version_output = result.stderr  # java -version输出到stderr
+        # 提取版本信息
+        version_match = re.search(r'version "([^"]+)"', version_output)
+        if version_match:
+            return True, version_match.group(1)
+        return True, "Unknown"
+    except Exception as e:
+        logger.error(f"检查Java版本时出错: {str(e)}")
+        return True, "Unknown"  # 文件存在但无法获取版本
+
+# 安装Java的函数
+def install_java(version="jdk8"):
+    """安装指定版本的Java"""
+    if version not in JAVA_VERSIONS:
+        return False, f"不支持的Java版本: {version}，支持的版本有: {', '.join(JAVA_VERSIONS.keys())}"
+    
+    # 初始化进度
+    environment_install_progress[version] = {
+        "progress": 0,
+        "status": "downloading",
+        "completed": False,
+        "error": None
+    }
+    
+    # 在新线程中执行安装
+    thread = threading.Thread(target=_install_java_thread, args=(version,))
+    thread.daemon = True
+    thread.start()
+    
+    return True, f"{JAVA_VERSIONS[version]['display_name']}安装已启动"
+
+def _install_java_thread(version="jdk8"):
+    """在后台线程中安装Java"""
+    try:
+        if version not in JAVA_VERSIONS:
+            raise ValueError(f"不支持的Java版本: {version}")
+        
+        java_dir = JAVA_VERSIONS[version]["dir"]
+        java_url = JAVA_VERSIONS[version]["url"]
+        
+        # 下载JDK
+        environment_install_progress[version]["status"] = "downloading"
+        environment_install_progress[version]["progress"] = 5
+        
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp()
+        temp_file = os.path.join(temp_dir, f"{version}.tar.gz")
+        
+        # 下载文件
+        logger.info(f"开始下载{JAVA_VERSIONS[version]['display_name']}: {java_url}")
+        response = requests.get(java_url, stream=True)
+        response.raise_for_status()
+        
+        # 获取文件大小
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        
+        # 写入文件
+        with open(temp_file, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    # 更新下载进度
+                    if total_size > 0:
+                        progress = int(20 * downloaded / total_size) + 5  # 5-25%
+                        environment_install_progress[version]["progress"] = min(progress, 25)
+        
+        # 解压文件
+        environment_install_progress[version]["status"] = "extracting"
+        environment_install_progress[version]["progress"] = 30
+        
+        # 确保目标目录存在并为空
+        if os.path.exists(java_dir):
+            shutil.rmtree(java_dir)
+        os.makedirs(java_dir, exist_ok=True)
+        
+        # 解压tar.gz文件
+        logger.info(f"解压{JAVA_VERSIONS[version]['display_name']}到: {java_dir}")
+        with tarfile.open(temp_file, "r:gz") as tar:
+            # 获取根目录名称
+            root_dir = tar.getnames()[0].split('/')[0]
+            
+            # 解压所有文件
+            for i, member in enumerate(tar.getmembers()):
+                tar.extract(member, temp_dir)
+                # 更新解压进度
+                progress = int(40 * i / len(tar.getmembers())) + 30  # 30-70%
+                environment_install_progress[version]["progress"] = min(progress, 70)
+        
+        # 移动文件到目标目录
+        environment_install_progress[version]["status"] = "installing"
+        environment_install_progress[version]["progress"] = 75
+        
+        # 源目录是解压后的根目录
+        extracted_files = os.listdir(temp_dir)
+        
+        # 找到解压后的目录
+        source_dir = None
+        for item in extracted_files:
+            if os.path.isdir(os.path.join(temp_dir, item)) and item != "__MACOSX":
+                source_dir = os.path.join(temp_dir, item)
+                break
+        
+        if not source_dir:
+            raise Exception("无法找到解压后的Java目录")
+        
+        # 复制所有文件到目标目录
+        for item in os.listdir(source_dir):
+            s = os.path.join(source_dir, item)
+            d = os.path.join(java_dir, item)
+            if os.path.isdir(s):
+                shutil.copytree(s, d)
+            else:
+                shutil.copy2(s, d)
+        
+        # 设置执行权限
+        environment_install_progress[version]["status"] = "setting_permissions"
+        environment_install_progress[version]["progress"] = 85
+        
+        # 设置bin目录中所有文件的执行权限
+        bin_dir = os.path.join(java_dir, "bin")
+        for file in os.listdir(bin_dir):
+            file_path = os.path.join(bin_dir, file)
+            st = os.stat(file_path)
+            os.chmod(file_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        
+        # 验证安装
+        environment_install_progress[version]["status"] = "verifying"
+        environment_install_progress[version]["progress"] = 90
+        
+        # 检查java是否可执行
+        java_executable = os.path.join(java_dir, "bin/java")
+        result = subprocess.run([java_executable, "-version"], 
+                               capture_output=True, 
+                               text=True)
+        
+        if result.returncode == 0:
+            # 获取版本信息
+            version_output = result.stderr  # java -version输出到stderr
+            version_match = re.search(r'version "([^"]+)"', version_output)
+            java_version = version_match.group(1) if version_match else "Unknown"
+            
+            # 安装完成
+            environment_install_progress[version]["status"] = "completed"
+            environment_install_progress[version]["progress"] = 100
+            environment_install_progress[version]["completed"] = True
+            environment_install_progress[version]["version"] = java_version
+            environment_install_progress[version]["path"] = java_executable
+            environment_install_progress[version]["usage_hint"] = f"使用方式: {java_executable} -version"
+            logger.info(f"{JAVA_VERSIONS[version]['display_name']}安装成功，版本: {java_version}")
+        else:
+            raise Exception("Java安装后无法执行")
+        
+        # 清理临时文件
+        shutil.rmtree(temp_dir)
+        
+    except Exception as e:
+        logger.error(f"安装Java时出错: {str(e)}")
+        environment_install_progress[version]["status"] = "error"
+        environment_install_progress[version]["error"] = str(e)
+        environment_install_progress[version]["completed"] = True
+
+# Java环境API路由
+@app.route('/api/environment/java/status', methods=['GET'])
+@auth_required
+def get_java_status():
+    """获取Java安装状态"""
+    try:
+        version = request.args.get('version', 'jdk8')
+        installed, java_version = check_java_installation(version)
+        
+        # 获取安装进度
+        progress_info = environment_install_progress.get(version, {
+            "progress": 0,
+            "status": "not_started",
+            "completed": False
+        })
+        
+        # 如果已安装但进度信息不完整，补充信息
+        if installed and not progress_info.get("completed"):
+            java_dir = JAVA_VERSIONS[version]["dir"]
+            java_executable = os.path.join(java_dir, "bin/java")
+            progress_info = {
+                "progress": 100,
+                "status": "completed",
+                "completed": True,
+                "version": java_version,
+                "path": java_executable,
+                "usage_hint": f"使用方式: {java_executable} -version"
+            }
+        
+        return jsonify({
+            "status": "success",
+            "installed": installed,
+            "version": java_version if installed else None,
+            "progress": progress_info
+        })
+    except Exception as e:
+        logger.error(f"获取Java状态时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/environment/java/install', methods=['POST'])
+@auth_required
+def install_java_route():
+    """安装Java"""
+    try:
+        data = request.get_json()
+        version = data.get('version', 'jdk8')
+        
+        # 检查是否已安装
+        installed, _ = check_java_installation(version)
+        if installed:
+            return jsonify({
+                "status": "success",
+                "message": f"{JAVA_VERSIONS[version]['display_name']}已安装"
+            })
+        
+        # 开始安装
+        success, message = install_java(version)
+        if success:
+            return jsonify({
+                "status": "success",
+                "message": message
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": message
+            }), 400
+    except Exception as e:
+        logger.error(f"安装Java时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/environment/java/versions', methods=['GET'])
+@auth_required
+def get_java_versions():
+    """获取可用的Java版本"""
+    try:
+        versions = []
+        for version_id, info in JAVA_VERSIONS.items():
+            installed, java_version = check_java_installation(version_id)
+            versions.append({
+                "id": version_id,
+                "name": info["display_name"],
+                "installed": installed,
+                "version": java_version if installed else None
+            })
+        
+        return jsonify({
+            "status": "success",
+            "versions": versions
+        })
+    except Exception as e:
+        logger.error(f"获取Java版本列表时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# 卸载Java的函数
+def uninstall_java(version="jdk8"):
+    """卸载指定版本的Java"""
+    if version not in JAVA_VERSIONS:
+        return False, f"不支持的Java版本: {version}，支持的版本有: {', '.join(JAVA_VERSIONS.keys())}"
+    
+    java_dir = JAVA_VERSIONS[version]["dir"]
+    
+    # 检查是否已安装
+    installed, _ = check_java_installation(version)
+    if not installed:
+        return False, f"{JAVA_VERSIONS[version]['display_name']}未安装"
+    
+    try:
+        # 删除Java安装目录
+        if os.path.exists(java_dir):
+            shutil.rmtree(java_dir)
+            logger.info(f"{JAVA_VERSIONS[version]['display_name']}卸载成功")
+            return True, f"{JAVA_VERSIONS[version]['display_name']}卸载成功"
+        else:
+            return False, f"{JAVA_VERSIONS[version]['display_name']}安装目录不存在"
+    except Exception as e:
+        logger.error(f"卸载Java时出错: {str(e)}")
+        return False, f"卸载Java时出错: {str(e)}"
+
+@app.route('/api/environment/java/uninstall', methods=['POST'])
+@auth_required
+def uninstall_java_route():
+    """卸载Java"""
+    try:
+        data = request.get_json()
+        version = data.get('version', 'jdk8')
+        
+        # 卸载Java
+        success, message = uninstall_java(version)
+        
+        if success:
+            return jsonify({
+                "status": "success",
+                "message": message
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": message
+            }), 400
+    except Exception as e:
+        logger.error(f"卸载Java时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")
     logger.warning("======================================================")

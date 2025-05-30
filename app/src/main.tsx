@@ -8,6 +8,7 @@ import NotFound from './components/NotFound.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
 import BetaNotice from './components/BetaNotice.tsx'
+import './monaco-config.ts'
 import './index.css'
 
 // 创建根元素

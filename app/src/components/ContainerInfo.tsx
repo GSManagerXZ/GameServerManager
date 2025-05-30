@@ -515,6 +515,9 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
               title="使用/总量" 
               value={systemInfo ? formatGBPair(systemInfo.disk.used, systemInfo.disk.total) : '-'} 
             />
+            <div style={{ marginTop: 8 }}>
+              <div>&nbsp;</div>
+            </div>
           </Card>
         </Col>
       </Row>

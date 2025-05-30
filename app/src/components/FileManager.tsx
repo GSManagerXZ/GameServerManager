@@ -23,6 +23,8 @@ import * as monaco from 'monaco-editor';
 import ReactDOM from 'react-dom';
 import FileManagerHelpModal from './FileManagerHelpModal';
 import Cookies from 'js-cookie';
+// 导入我们自定义的monaco配置
+import '../monaco-config';
 
 const { TextArea } = Input;
 const { Text } = Typography;
