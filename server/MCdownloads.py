@@ -9,8 +9,13 @@ DOWNLOAD_BASE_URL = "https://download.fastmirror.net/download"
 OUTPUT_DIR = "downloads"
 
 # 确保下载目录存在
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
+def ensure_output_dir():
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+
+# 只在直接运行时创建目录
+if __name__ == "__main__":
+    ensure_output_dir()
 
 def get_server_list():
     """获取支持的服务端列表"""
