@@ -40,6 +40,8 @@ import requests
 
 # 导入PTY管理器
 from pty_manager import pty_manager
+# 导入MC下载功能
+from MCdownloads import get_server_list, get_server_info, get_builds, get_core_info, download_file
 
 # 输出管理函数
 def add_server_output(game_id, message, max_lines=500):
@@ -6284,6 +6286,211 @@ def stop_backup_scheduler():
     global backup_scheduler_running
     backup_scheduler_running = False
     logger.info("备份调度器已停止")
+
+# Minecraft部署相关API
+@app.route('/api/minecraft/servers', methods=['GET'])
+@auth_required
+def get_minecraft_servers():
+    """获取支持的Minecraft服务端列表"""
+    try:
+        servers = get_server_list()
+        return jsonify({
+            'status': 'success',
+            'data': servers
+        })
+    except Exception as e:
+        logger.error(f"获取Minecraft服务端列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取服务端列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/minecraft/server/<server_name>', methods=['GET'])
+@auth_required
+def get_minecraft_server_info(server_name):
+    """获取指定Minecraft服务端信息"""
+    try:
+        server_info = get_server_info(server_name)
+        if not server_info:
+            return jsonify({
+                'status': 'error',
+                'message': f'未找到服务端 {server_name} 的信息'
+            }), 404
+        
+        return jsonify({
+            'status': 'success',
+            'data': server_info
+        })
+    except Exception as e:
+        logger.error(f"获取Minecraft服务端信息失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取服务端信息失败: {str(e)}'
+        }), 500
+
+@app.route('/api/minecraft/builds/<server_name>/<mc_version>', methods=['GET'])
+@auth_required
+def get_minecraft_builds(server_name, mc_version):
+    """获取指定服务端和MC版本的构建列表"""
+    try:
+        builds_data = get_builds(server_name, mc_version)
+        if not builds_data:
+            return jsonify({
+                'status': 'error',
+                'message': f'未找到 {server_name} {mc_version} 的构建版本'
+            }), 404
+        
+        return jsonify({
+            'status': 'success',
+            'data': builds_data
+        })
+    except Exception as e:
+        logger.error(f"获取Minecraft构建列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取构建列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/minecraft/installed-jdks', methods=['GET'])
+@auth_required
+def get_installed_jdks():
+    """获取已安装的JDK列表"""
+    try:
+        installed_jdks = []
+        for version_id, info in JAVA_VERSIONS.items():
+            installed, java_version = check_java_installation(version_id)
+            if installed:
+                java_executable = os.path.join(info["dir"], "bin/java")
+                installed_jdks.append({
+                    'id': version_id,
+                    'name': info["display_name"],
+                    'version': java_version,
+                    'path': java_executable
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'jdks': installed_jdks
+        })
+        
+    except Exception as e:
+        logger.error(f"获取已安装JDK列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取JDK列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/minecraft/deploy', methods=['POST'])
+@auth_required
+def deploy_minecraft_server():
+    """部署Minecraft服务器"""
+    try:
+        data = request.get_json()
+        server_name = data.get('server_name')
+        mc_version = data.get('mc_version')
+        core_version = data.get('core_version')
+        custom_name = data.get('custom_name', server_name)
+        selected_jdk = data.get('selected_jdk')  # 新增JDK选择参数
+        
+        if not all([server_name, mc_version, core_version]):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要参数: server_name, mc_version, core_version'
+            }), 400
+        
+        # 确定Java可执行文件路径
+        java_executable = 'java'  # 默认使用系统Java
+        if selected_jdk:
+            if selected_jdk in JAVA_VERSIONS:
+                installed, _ = check_java_installation(selected_jdk)
+                if installed:
+                    java_executable = os.path.join(JAVA_VERSIONS[selected_jdk]["dir"], "bin/java")
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'选择的JDK {selected_jdk} 未安装'
+                    }), 400
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'不支持的JDK版本: {selected_jdk}'
+                }), 400
+        
+        # 创建游戏目录
+        game_dir = os.path.join('/home/steam/games', custom_name)
+        os.makedirs(game_dir, exist_ok=True)
+        
+        # 获取核心信息
+        core_info = get_core_info(server_name, mc_version, core_version)
+        if not core_info:
+            return jsonify({
+                'status': 'error',
+                'message': '获取核心信息失败'
+            }), 500
+        
+        filename = core_info.get('filename', f'{server_name}-{mc_version}-{core_version}.jar')
+        
+        # 下载文件到指定目录
+        import requests
+        download_url = f"https://download.fastmirror.net/download/{server_name}/{mc_version}/{core_version}"
+        
+        logger.info(f"开始下载Minecraft服务端: {filename}")
+        response = requests.get(download_url, stream=True)
+        response.raise_for_status()
+        
+        file_path = os.path.join(game_dir, filename)
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        
+        with open(file_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+        
+        # 创建启动脚本，使用选择的JDK
+        start_script_content = f"""#!/bin/bash
+cd "$(dirname "$0")"
+{java_executable} -Xmx2G -Xms1G -jar {filename} nogui
+"""
+        
+        start_script_path = os.path.join(game_dir, 'start.sh')
+        with open(start_script_path, 'w') as f:
+            f.write(start_script_content)
+        
+        # 设置执行权限
+        os.chmod(start_script_path, 0o755)
+        
+        # 创建eula.txt文件
+        eula_path = os.path.join(game_dir, 'eula.txt')
+        with open(eula_path, 'w') as f:
+            f.write('eula=true\n')
+        
+        # 设置目录权限
+        subprocess.run(['chown', '-R', 'steam:steam', game_dir], check=False)
+        
+        logger.info(f"Minecraft服务端部署完成: {game_dir}，使用JDK: {java_executable}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Minecraft服务端部署成功',
+            'data': {
+                'game_dir': game_dir,
+                'filename': filename,
+                'server_name': server_name,
+                'mc_version': mc_version,
+                'core_version': core_version,
+                'java_executable': java_executable,
+                'selected_jdk': selected_jdk
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"部署Minecraft服务端失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'部署失败: {str(e)}'
+        }), 500
 
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")
