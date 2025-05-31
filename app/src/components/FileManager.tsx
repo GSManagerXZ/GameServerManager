@@ -117,6 +117,19 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
   // 添加状态来跟踪文件是否被修改
   const [isFileModified, setIsFileModified] = useState<boolean>(false);
   const [originalContent, setOriginalContent] = useState<string>('');
+  const originalContentRef = useRef<string>('');
+  // 文件编码相关状态
+  const [fileEncoding, setFileEncoding] = useState<string>('utf-8');
+  const [availableEncodings] = useState<{value: string, label: string}[]>([
+    { value: 'utf-8', label: 'UTF-8' },
+    { value: 'gbk', label: 'GBK' },
+    { value: 'gb2312', label: 'GB2312' },
+    { value: 'big5', label: 'Big5' },
+    { value: 'ascii', label: 'ASCII' },
+    { value: 'latin1', label: 'Latin1' },
+    { value: 'utf-16', label: 'UTF-16' },
+    { value: 'utf-32', label: 'UTF-32' }
+  ]);
   
   // Refs to hold the latest values of frequently changing states for use in callbacks
   const selectedFilesRef = useRef(selectedFiles);
@@ -135,6 +148,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
   useEffect(() => { currentPathRef.current = currentPath; }, [currentPath]);
   useEffect(() => { selectedFileRef.current = selectedFile; }, [selectedFile]);
   useEffect(() => { fileContentRef.current = fileContent; }, [fileContent]);
+  useEffect(() => { originalContentRef.current = originalContent; }, [originalContent]);
   useEffect(() => { syntaxErrorsRef.current = syntaxErrors; }, [syntaxErrors]);
   
   useEffect(() => { 
@@ -198,11 +212,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     try {
       const response = await axios.post(`/api/save_file`, {
         path: selectedFileRef.current.path,
-        content: fileContentRef.current
+        content: fileContentRef.current,
+        encoding: fileEncoding // 添加编码参数
       });
       
       if (response.data.status === 'success') {
-        message.success('文件已保存');
+        message.success(`文件已保存 (${fileEncoding.toUpperCase()})`);
         if (loadDirectoryRef.current) {
           loadDirectoryRef.current(currentPathRef.current); // Refresh directory using current path from ref
         }
@@ -214,10 +229,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     } finally {
       setLoading(false);
     }
-  // Removed direct state dependencies: selectedFile, fileContent, currentPath. 
-  // Relies on their refs. loadDirectoryRef is a ref to a function, stable.
-  // setLoading, message are stable.
-  }, []); 
+  // Added fileEncoding dependency
+  }, [fileEncoding]); 
 
   // 保存文件内容
   const saveFileInternal = useCallback(async () => {
@@ -667,7 +680,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
   }, []);
 
   // 打开文件进行编辑
-  const openFileForEdit = async (file: FileInfo) => {
+  const openFileForEdit = async (file: FileInfo, encoding: string = 'utf-8') => {
     if (file.type !== 'file') return;
     
     // 如果是图片文件，打开预览而不是编辑
@@ -679,7 +692,10 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     setLoading(true);
     try {
       const response = await axios.get(`/api/file_content`, {
-        params: { path: file.path }
+        params: { 
+          path: file.path,
+          encoding: encoding
+        }
       });
       
       if (response.data.status === 'success') {
@@ -687,8 +703,39 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
         setFileContent(content);
         setOriginalContent(content); // 保存原始内容以便后续比较
         setSelectedFile(file);
+        setFileEncoding(encoding); // 设置当前编码
         setIsFileModified(false); // 重置修改状态
         setIsEditModalVisible(true);
+      } else {
+        message.error(response.data.message || '无法读取文件内容');
+      }
+    } catch (error: any) {
+      message.error(`读取文件失败: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 重新加载文件内容（使用不同编码）
+  const reloadFileWithEncoding = async (encoding: string) => {
+    if (!selectedFile) return;
+    
+    setLoading(true);
+    try {
+      const response = await axios.get(`/api/file_content`, {
+        params: { 
+          path: selectedFile.path,
+          encoding: encoding
+        }
+      });
+      
+      if (response.data.status === 'success') {
+        const content = response.data.content || '';
+        setFileContent(content);
+        setOriginalContent(content);
+        setFileEncoding(encoding);
+        setIsFileModified(false);
+        message.success(`已使用 ${encoding.toUpperCase()} 编码重新加载文件`);
       } else {
         message.error(response.data.message || '无法读取文件内容');
       }
@@ -1413,7 +1460,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     // 监听编辑器内容变化
     editor.onDidChangeModelContent(() => {
       const currentContent = editor.getValue();
-      setIsFileModified(currentContent !== originalContent);
+      setFileContent(currentContent);
+      setIsFileModified(currentContent !== originalContentRef.current);
     });
   };
 
@@ -1989,7 +2037,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
           }}
         >
           <div style={{ height: 'calc(80vh - 130px)' }}>
-            {/* 添加文件修改状态指示器 */}
+            {/* 添加文件修改状态指示器和编码选择器 */}
             <div style={{ 
               display: 'flex', 
               justifyContent: 'space-between', 
@@ -1997,22 +2045,56 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               marginBottom: '8px',
               padding: '0 4px'
             }}>
-              <div>
+              <div style={{ flex: 1 }}>
                 {selectedFile?.path}
               </div>
-              <div>
-                {isFileModified ? (
-                  <Text type="warning">已修改 - 未保存</Text>
-                ) : (
-                  <Text type="success">已保存</Text>
-                )}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Text>编码:</Text>
+                  <Select
+                    value={fileEncoding}
+                    onChange={(value) => {
+                      if (isFileModified) {
+                        Modal.confirm({
+                          title: '切换编码',
+                          content: '当前文件已修改但未保存，切换编码将丢失未保存的更改。是否继续？',
+                          okText: '继续',
+                          cancelText: '取消',
+                          onOk: () => {
+                            reloadFileWithEncoding(value);
+                          }
+                        });
+                      } else {
+                        reloadFileWithEncoding(value);
+                      }
+                    }}
+                    style={{ width: 100 }}
+                    size="small"
+                  >
+                    {availableEncodings.map(encoding => (
+                      <Select.Option key={encoding.value} value={encoding.value}>
+                        {encoding.label}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  {isFileModified ? (
+                    <Text type="warning">已修改 - 未保存</Text>
+                  ) : (
+                    <Text type="success">已保存</Text>
+                  )}
+                </div>
               </div>
             </div>
             <Editor
               height="100%"
               defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
               value={fileContent}
-              onChange={(value) => setFileContent(value || '')}
               onMount={handleEditorDidMount}
               theme="vs-dark"
               options={{
@@ -2452,4 +2534,4 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
   );
 };
 
-export default FileManager; 
+export default FileManager;

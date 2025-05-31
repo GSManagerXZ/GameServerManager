@@ -202,7 +202,7 @@ body {
   height: 100%;
 }
 
-/* 游戏管理页面样式 */
+/* 游戏部署页面样式 */
 .game-cards {
   padding: 16px;
   background: rgba(255, 255, 255, 0.6);
@@ -268,6 +268,40 @@ body {
   border-radius: 4px;
 }
 
+/* 终端头部工具栏 */
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #1a1a1a;
+  border-bottom: 1px solid #333;
+  border-radius: 4px 4px 0 0;
+}
+
+.terminal-info {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #999;
+}
+
+.terminal-actions {
+  display: flex;
+  align-items: center;
+}
+
+.terminal-actions .ant-btn {
+  height: 24px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+}
+
+.terminal-actions .ant-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
 .terminal {
   flex: 1;
   padding: 12px;
@@ -301,6 +335,59 @@ body {
 .terminal-input-container {
   padding: 8px;
   border-top: 1px solid #333;
+}
+
+/* 历史输出模态框样式 */
+.terminal-history-modal {
+  height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-history-content {
+  flex: 1;
+  overflow-y: auto;
+  background-color: #000;
+  color: #fff;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px;
+}
+
+.terminal-history-line {
+  display: flex;
+  margin-bottom: 2px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.line-number {
+  display: inline-block;
+  width: 50px;
+  color: #666;
+  text-align: right;
+  margin-right: 12px;
+  font-size: 11px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.terminal-history-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-history-content::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.terminal-history-content::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+.terminal-history-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 /* 响应式样式 */
@@ -1203,7 +1290,7 @@ body {
 .server-console {
   display: flex;
   flex-direction: column;
-  height: 500px;
+  height: 550px;
   background: rgba(0, 0, 0, 0.05);
   border-radius: 10px;
   padding: 10px;
@@ -1227,6 +1314,9 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 .terminal-line {

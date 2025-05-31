@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, memo, useState } from 'react';
 import { Spin, Modal, Input, Button } from 'antd';
-import { StopOutlined } from '@ant-design/icons';
+import { StopOutlined, HistoryOutlined } from '@ant-design/icons';
 
 interface TerminalProps {
   output: (string | { prompt?: string; line?: string })[];
@@ -100,6 +100,8 @@ const Terminal: React.FC<TerminalProps> = memo(({ output, loading, complete, gam
   const [promptMsg, setPromptMsg] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [terminateConfirmVisible, setTerminateConfirmVisible] = useState(false);
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
   
   // 确保有终端滚动到最新输出
   useEffect(() => {
@@ -190,10 +192,65 @@ const Terminal: React.FC<TerminalProps> = memo(({ output, loading, complete, gam
     setTerminateConfirmVisible(false);
   };
 
+  // 获取要显示的输出内容
+  const getDisplayOutput = () => {
+    if (showFullHistory || output.length <= 20) {
+      return output;
+    }
+    return output.slice(-20); // 只显示最后20行
+  };
+
+  const displayOutput = getDisplayOutput();
+  const hasMoreHistory = output.length > 20 && !showFullHistory;
+
   return (
     <div className="terminal-container">
+      {/* 终端头部工具栏 */}
+      <div className="terminal-header">
+        <div className="terminal-info">
+          <span>输出日志 ({output.length} 行)</span>
+          {hasMoreHistory && (
+            <span style={{ color: '#faad14', marginLeft: '8px' }}>
+              (显示最后 20 行)
+            </span>
+          )}
+        </div>
+        <div className="terminal-actions">
+          {output.length > 20 && (
+            <Button
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryModalVisible(true)}
+              style={{ marginRight: '8px' }}
+            >
+              查看历史输出
+            </Button>
+          )}
+          {hasMoreHistory && (
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setShowFullHistory(true)}
+              style={{ color: '#1890ff' }}
+            >
+              显示全部
+            </Button>
+          )}
+          {showFullHistory && output.length > 20 && (
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setShowFullHistory(false)}
+              style={{ color: '#1890ff' }}
+            >
+              显示最新20行
+            </Button>
+          )}
+        </div>
+      </div>
+      
       <div className="terminal" ref={terminalRef}>
-        {output.map((line, index) => {
+        {displayOutput.map((line, index) => {
           if (typeof line === 'object' && line.prompt) {
             return <div key={index} style={{ color: '#ff4d4f' }}>{line.prompt}</div>;
           }
@@ -283,8 +340,60 @@ const Terminal: React.FC<TerminalProps> = memo(({ output, loading, complete, gam
         <p>确定要终止当前游戏的安装过程吗？</p>
         <p>终止安装可能会导致游戏文件不完整，需要重新安装。</p>
       </Modal>
+      
+      {/* 历史输出查看对话框 */}
+      <Modal
+        title={`历史输出日志 (共 ${output.length} 行)`}
+        open={historyModalVisible}
+        onCancel={() => setHistoryModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setHistoryModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+        width={1000}
+        style={{ top: 20 }}
+        bodyStyle={{ padding: 0 }}
+      >
+        <div className="terminal-history-modal">
+          <div className="terminal-history-content">
+            {output.map((line, index) => {
+              if (typeof line === 'object' && line.prompt) {
+                return (
+                  <div key={index} className="terminal-history-line" style={{ color: '#ff4d4f' }}>
+                    <span className="line-number">{index + 1}</span>
+                    {line.prompt}
+                  </div>
+                );
+              }
+              if (typeof line === 'object' && line.line) {
+                return (
+                  <div key={index} className="terminal-history-line">
+                    <span className="line-number">{index + 1}</span>
+                    {parseColoredText(line.line)}
+                  </div>
+                );
+              }
+              if (typeof line === 'object' && line.complete && line.status === 'error') {
+                return (
+                  <div key={index} className="terminal-history-line" style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+                    <span className="line-number">{index + 1}</span>
+                    {line.message}
+                  </div>
+                );
+              }
+              return (
+                <div key={index} className="terminal-history-line">
+                  <span className="line-number">{index + 1}</span>
+                  {parseColoredText(line as string)}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 });
 
-export default Terminal; 
+export default Terminal;

@@ -140,11 +140,6 @@ export const TerminalRenderer: React.FC<{
 
   return (
     <div className={className} style={style}>
-      {terminal.title && (
-        <div className="terminal-title">
-          {terminal.title}
-        </div>
-      )}
       <Terminal
         output={terminal.output}
         loading={terminal.loading}
@@ -158,4 +153,4 @@ export const TerminalRenderer: React.FC<{
   );
 };
 
-export default TerminalManagerProvider; 
+export default TerminalManagerProvider;

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List } from 'antd';
-import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined, ToolOutlined, BookOutlined } from '@ant-design/icons';
+import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List, Select } from 'antd';
+import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined, ToolOutlined, BookOutlined, RocketOutlined, HistoryOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
 import './App.css';
 import Terminal from './components/Terminal';
+import SimpleServerTerminal from './components/SimpleServerTerminal';
 import ContainerInfo from './components/ContainerInfo';
 import FileManager from './components/FileManager';
 import Register from './components/Register'; // 导入注册组件
@@ -152,15 +153,15 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
             callback(data.line);
           } else {
             callback(data.line);
+            
+            // 只有非历史输出才滚动到底部
+            setTimeout(() => {
+              const terminalEndRef = document.querySelector('.terminal-end-ref');
+              if (terminalEndRef && terminalEndRef.parentElement) {
+                terminalEndRef.parentElement.scrollTop = terminalEndRef.parentElement.scrollHeight;
+              }
+            }, 10);
           }
-          
-          // 确保滚动到底部
-          setTimeout(() => {
-            const terminalEndRef = document.querySelector('.terminal-end-ref');
-            if (terminalEndRef) {
-              terminalEndRef.scrollIntoView({ behavior: 'smooth' });
-            }
-          }, 10);
         }
       } catch (err) {
         console.error('解析服务器输出失败:', err, event.data);
@@ -232,16 +233,6 @@ const stopServer = async (gameId: string, force: boolean = false) => {
 
 const sendServerInput = async (gameId: string, value: string) => {
   try {
-    // 先检查服务器状态
-    const statusCheck = await checkServerStatus(gameId);
-    if (statusCheck.server_status !== 'running') {
-      return {
-        status: 'error',
-        message: '服务器未运行，无法发送命令',
-        server_status: 'stopped'
-      };
-    }
-    
     // 发送命令
     const response = await axios.post('/api/server/send_input', {
       game_id: gameId,
@@ -252,11 +243,16 @@ const sendServerInput = async (gameId: string, value: string) => {
     if (error.response && error.response.status === 400) {
       return {
         status: 'error',
-        message: '服务器未运行或已停止，请重新启动服务器',
+        message: error.response.data.message || '服务器未运行或已停止，请重新启动服务器',
         server_status: 'stopped'
       };
     }
-    throw error;
+    // 对于其他类型的错误 (例如网络错误)，直接抛出或返回一个包含错误信息的标准对象
+     return {
+        status: 'error',
+        message: error.message || '发送命令时发生未知网络或服务器错误',
+        server_status: 'unknown' 
+     };
   }
 };
 
@@ -283,6 +279,7 @@ const checkServerStatus = async (gameId: string) => {
   const [accountModalVisible, setAccountModalVisible] = useState(false);
   const [accountForm] = Form.useForm();
   const [pendingInstallGame, setPendingInstallGame] = useState<GameInfo | null>(null);
+  const [accountModalLoading, setAccountModalLoading] = useState<boolean>(false);
   // 新增游戏详情对话框状态
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [detailGame, setDetailGame] = useState<GameInfo | null>(null);
@@ -314,6 +311,12 @@ const checkServerStatus = async (gameId: string) => {
     const savedPreference = localStorage.getItem('enableInactiveEffect');
     return savedPreference === null ? true : savedPreference === 'true';
   });
+  
+  // 备份相关状态
+  const [backupTasks, setBackupTasks] = useState<any[]>([]);
+  const [backupModalVisible, setBackupModalVisible] = useState(false);
+  const [editingBackupTask, setEditingBackupTask] = useState<any>(null);
+  const [backupForm] = Form.useForm();
   
   // 保存不活动效果设置到localStorage
   useEffect(() => {
@@ -441,43 +444,42 @@ const checkServerStatus = async (gameId: string) => {
   // 在适当位置添加 terminalEndRef
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
-  // 输出更新后自动滚动到底部
+  // 输出更新后自动滚动到底部（仅在新输出时滚动，不在历史输出加载时滚动）
+  const lastOutputCountRef = useRef<number>(0);
   useEffect(() => {
-    if (terminalEndRef.current && serverModalVisible) {
-      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (terminalEndRef.current && serverModalVisible && selectedServerGame) {
+      const currentOutputCount = (serverOutputs[selectedServerGame.id] || []).length;
+      // 只有当输出数量增加时才滚动（新输出），而不是在Modal打开时滚动
+      if (currentOutputCount > lastOutputCountRef.current) {
+        const outputContainer = terminalEndRef.current.parentElement;
+        if (outputContainer) {
+          outputContainer.scrollTop = outputContainer.scrollHeight;
+        }
+      }
+      lastOutputCountRef.current = currentOutputCount;
     }
   }, [serverOutputs, selectedServerGame, serverModalVisible]);
+  
+  // Modal打开时确保显示底部（CSS已处理，无需滚动）
+  useEffect(() => {
+    if (serverModalVisible && terminalEndRef.current && selectedServerGame) {
+      // CSS flex布局已自动显示底部，无需额外滚动
+      // 只在有新内容时才需要确保可见性
+      const outputContainer = terminalEndRef.current.parentElement;
+      if (outputContainer) {
+        outputContainer.scrollTop = outputContainer.scrollHeight;
+      }
+    }
+  }, [serverModalVisible, selectedServerGame]);
 
   // 添加 handleSendServerInput 函数
   const handleSendServerInput = async (gameId: string, input: string) => {
     try {
       if (!gameId || !input.trim()) return;
       
-      // console.log(`发送服务器命令: gameId=${gameId}, input=${input}`);
-      
-      // 先检查服务器是否在运行
-      try {
-        const statusResponse = await checkServerStatus(gameId);
-        if (statusResponse.server_status !== 'running') {
-          message.error('服务器未运行，请先启动服务器');
-          // 从运行中的服务器列表中移除
-          setRunningServers(prev => prev.filter(id => id !== gameId));
-          return;
-        }
-      } catch (statusError) {
-        console.error(`检查服务器状态失败: ${statusError}`);
-        message.error('无法确认服务器状态，请刷新页面后重试');
-        return;
-      }
-      
-      // 保存到输入历史
-      setInputHistory(prev => [...prev, input]);
-      setInputHistoryIndex(-1);
-      
       // 添加到输出，以便用户可以看到自己的输入
       setServerOutputs(prev => {
         const oldOutput = prev[gameId] || [];
-        // console.log(`添加命令到输出: gameId=${gameId}, 当前输出行数=${oldOutput.length}`);
         return {
           ...prev,
           [gameId]: [...oldOutput, `> ${input}`]
@@ -485,13 +487,15 @@ const checkServerStatus = async (gameId: string) => {
       });
       
       // 发送输入到服务器
-      // console.log(`调用API发送命令: gameId=${gameId}`);
       const response = await sendServerInput(gameId, input);
-      // console.log(`发送命令响应:`, response);
       
       if (response.status !== 'success') {
         console.error(`发送命令失败: ${response.message}`);
         message.error(`发送命令失败: ${response.message}`);
+        // 如果发送失败是因为服务器停止了，这里可以更新状态
+        if (response.server_status === 'stopped') {
+           setRunningServers(prev => prev.filter(id => id !== gameId));
+        }
       }
     } catch (error: any) {
       console.error(`发送命令异常: ${error}`);
@@ -932,8 +936,8 @@ const checkServerStatus = async (gameId: string) => {
                 // 确保滚动到底部
                 setTimeout(() => {
                   const terminalEndRef = document.querySelector('.terminal-end-ref');
-                  if (terminalEndRef) {
-                    terminalEndRef.scrollIntoView({ behavior: 'smooth' });
+                  if (terminalEndRef && terminalEndRef.parentElement) {
+                    terminalEndRef.parentElement.scrollTop = terminalEndRef.parentElement.scrollHeight;
                   }
                 }, 10);
               }
@@ -1888,6 +1892,131 @@ const checkServerStatus = async (gameId: string) => {
     message.success('注册成功，欢迎使用游戏容器！');
   };
 
+  // 备份相关处理函数
+  const refreshBackupTasks = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/backup/tasks');
+      if (response.data.status === 'success') {
+        setBackupTasks(response.data.tasks || []);
+      }
+    } catch (error) {
+      console.error('获取备份任务失败:', error);
+      message.error('获取备份任务失败');
+    }
+  }, []);
+
+  const handleToggleBackupTask = async (taskId: string) => {
+    try {
+      const response = await axios.post(`/api/backup/tasks/${taskId}/toggle`);
+      if (response.data.status === 'success') {
+        const task = response.data.task;
+        const statusText = task.enabled ? '启用' : '禁用';
+        message.success(`备份任务已${statusText}`);
+        refreshBackupTasks();
+      }
+    } catch (error) {
+      console.error('切换备份任务状态失败:', error);
+      message.error('操作失败');
+    }
+  };
+
+  const handleRunBackupNow = async (taskId: string) => {
+    try {
+      const response = await axios.post(`/api/backup/tasks/${taskId}/run`);
+      if (response.data.status === 'success') {
+        message.success('备份任务已启动');
+      }
+    } catch (error) {
+      console.error('启动备份任务失败:', error);
+      message.error('启动备份任务失败');
+    }
+  };
+
+  const handleEditBackupTask = (task: any) => {
+    setEditingBackupTask(task);
+    
+    // 从后端的interval值推导出intervalValue和intervalUnit
+    let intervalValue = task.intervalValue || task.interval;
+    let intervalUnit = task.intervalUnit || 'hours';
+    
+    // 如果没有保存的单位信息，根据interval值推导
+    if (!task.intervalValue && !task.intervalUnit) {
+      const hours = task.interval;
+      if (hours < 1) {
+        // 小于1小时，转换为分钟
+        intervalValue = Math.round(hours * 60);
+        intervalUnit = 'minutes';
+      } else if (hours >= 24 && hours % 24 === 0) {
+        // 整数天，转换为天数
+        intervalValue = hours / 24;
+        intervalUnit = 'days';
+      } else {
+        // 保持小时
+        intervalValue = hours;
+        intervalUnit = 'hours';
+      }
+    }
+    
+    backupForm.setFieldsValue({
+      name: task.name,
+      directory: task.directory,
+      intervalValue: intervalValue,
+      intervalUnit: intervalUnit,
+      keepCount: task.keepCount
+    });
+    setBackupModalVisible(true);
+  };
+
+  const handleDeleteBackupTask = async (taskId: string) => {
+    try {
+      const response = await axios.delete(`/api/backup/tasks/${taskId}`);
+      if (response.data.status === 'success') {
+        message.success('备份任务已删除');
+        refreshBackupTasks();
+      }
+    } catch (error) {
+      console.error('删除备份任务失败:', error);
+      message.error('删除备份任务失败');
+    }
+  };
+
+  const handleBackupFormSubmit = async (values: any) => {
+    try {
+      const url = editingBackupTask 
+        ? `/api/backup/tasks/${editingBackupTask.id}` 
+        : '/api/backup/tasks';
+      const method = editingBackupTask ? 'put' : 'post';
+      
+      // 转换时间单位为小时
+      let intervalInHours = values.intervalValue;
+      if (values.intervalUnit === 'minutes') {
+        intervalInHours = values.intervalValue / 60;
+      } else if (values.intervalUnit === 'days') {
+        intervalInHours = values.intervalValue * 24;
+      }
+      
+      // 构建发送给后端的数据
+      const submitData = {
+        ...values,
+        interval: intervalInHours,
+        intervalValue: values.intervalValue,
+        intervalUnit: values.intervalUnit
+      };
+      
+      const response = await axios[method](url, submitData);
+      if (response.data.status === 'success') {
+        message.success(editingBackupTask ? '备份任务已更新' : '备份任务已创建');
+        setBackupModalVisible(false);
+        setEditingBackupTask(null);
+        backupForm.resetFields();
+        refreshBackupTasks();
+      }
+    } catch (error) {
+      console.error('保存备份任务失败:', error);
+      message.error('保存备份任务失败');
+    }
+  };
+
   // 初始化
   useEffect(() => {
     // 如果已登录，加载游戏列表
@@ -2231,8 +2360,8 @@ const checkServerStatus = async (gameId: string) => {
                 },
                 {
                   key: 'games',
-                  icon: <AppstoreOutlined />,
-                  label: '游戏管理'
+                  icon: <RocketOutlined />,
+                  label: '游戏部署'
                 },
                 {
                   key: 'environment',
@@ -2306,8 +2435,8 @@ const checkServerStatus = async (gameId: string) => {
             },
             {
               key: 'games',
-              icon: <AppstoreOutlined />,
-              label: '游戏管理'
+              icon: <RocketOutlined />,
+              label: '游戏部署'
             },
             {
               key: 'environment',
@@ -2553,6 +2682,28 @@ const checkServerStatus = async (gameId: string) => {
                           </Button>
                         </Form.Item>
                       </Form>
+                    </Card>
+                  </div>
+                </TabPane>
+                <TabPane tab="Minecraft部署" key="minecraft-deploy">
+                  <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 0' }}>
+                    <Card title="Minecraft服务器部署">
+                      <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                        <Title level={3}>Minecraft部署功能</Title>
+                        <Paragraph>
+                          此功能正在开发中，敬请期待...
+                        </Paragraph>
+                        <Paragraph type="secondary">
+                          未来将支持：
+                        </Paragraph>
+                        <ul style={{ textAlign: 'left', display: 'inline-block' }}>
+                          <li>原版Minecraft服务器部署</li>
+                          <li>Forge模组服务器部署</li>
+                          <li>Fabric模组服务器部署</li>
+                          <li>Paper/Spigot插件服务器部署</li>
+                          <li>自定义配置和插件管理</li>
+                        </ul>
+                      </div>
                     </Card>
                   </div>
                 </TabPane>
@@ -3016,6 +3167,89 @@ const checkServerStatus = async (gameId: string) => {
                     )}
                   </Row>
                 </TabPane>
+                <TabPane tab="定时备份" key="backup">
+                  <div className="backup-management">
+                    <div className="backup-controls">
+                      <Button onClick={refreshBackupTasks} icon={<ReloadOutlined />} style={{marginRight: 8}}>刷新任务</Button>
+                      <Button type="primary" onClick={() => setBackupModalVisible(true)}>添加备份任务</Button>
+                    </div>
+                    <Row gutter={[16, 16]}>
+                      {backupTasks.map(task => (
+                        <Col key={task.id} xs={24} sm={12} md={8} lg={6}>
+                          <Card
+                            title={task.name}
+                            extra={
+                              <Tag color={task.enabled ? "green" : "default"}>
+                                {task.enabled ? "启用" : "禁用"}
+                              </Tag>
+                            }
+                            style={{ borderRadius: '8px', overflow: 'hidden' }}
+                          >
+                            <div style={{marginBottom: 12}}>
+                              <p>目录: {task.directory}</p>
+                              <p>间隔: {(() => {
+                                if (task.intervalValue && task.intervalUnit) {
+                                  const unitMap = {
+                                    'minutes': '分钟',
+                                    'hours': '小时', 
+                                    'days': '天'
+                                  };
+                                  return `${task.intervalValue}${unitMap[task.intervalUnit] || '小时'}`;
+                                } else {
+                                  // 兼容旧数据
+                                  const hours = task.interval;
+                                  if (hours < 1) {
+                                    return `${Math.round(hours * 60)}分钟`;
+                                  } else if (hours >= 24 && hours % 24 === 0) {
+                                    return `${hours / 24}天`;
+                                  } else {
+                                    return `${hours}小时`;
+                                  }
+                                }
+                              })()}</p>
+                              <p>保留: {task.keepCount}份</p>
+                              <p>下次备份: {task.nextBackup || '未设置'}</p>
+                            </div>
+                            <div style={{display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px'}}>
+                              <Button 
+                                size="small"
+                                onClick={() => handleToggleBackupTask(task.id)}
+                              >
+                                {task.enabled ? '禁用' : '启用'}
+                              </Button>
+                              <Button 
+                                size="small"
+                                onClick={() => handleRunBackupNow(task.id)}
+                              >
+                                立即备份
+                              </Button>
+                              <Button 
+                                size="small"
+                                onClick={() => handleEditBackupTask(task)}
+                              >
+                                编辑
+                              </Button>
+                              <Button 
+                                danger
+                                size="small"
+                                onClick={() => handleDeleteBackupTask(task.id)}
+                              >
+                                删除
+                              </Button>
+                            </div>
+                          </Card>
+                        </Col>
+                      ))}
+                      {backupTasks.length === 0 && (
+                        <Col span={24}>
+                          <div className="empty-backup-tasks">
+                            <p>暂无备份任务，点击"添加备份任务"创建新任务</p>
+                          </div>
+                        </Col>
+                      )}
+                    </Row>
+                  </div>
+                </TabPane>
               </Tabs>
             </div>
           )}
@@ -3061,7 +3295,7 @@ const checkServerStatus = async (gameId: string) => {
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期5.30</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期5.31</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
@@ -3193,107 +3427,95 @@ const checkServerStatus = async (gameId: string) => {
             </Button>
           </div>
         }
-        width={isMobile ? "95%" : 800}
+        width={isMobile ? "95%" : 1200}
       >
         <div className="server-console">
-          <div className="terminal-container">
-            <div className="terminal-output">
-              {(serverOutputs[selectedServerGame?.id] || [])
-                .filter(line => !line.includes('等待服务器输出...'))
-                .map((line, index) => {
-                // 处理不同类型的输出行
-                let lineClass = "terminal-line";
-                let lineContent = line;
-                
-                // 检查是否为特殊类型的输出
-                if (typeof line === 'string') {
-                  if (line.includes('===')) {
-                    lineClass += " section-header";
-                  } else if (line.includes('[文件]') || line.includes('[文件输出]')) {
-                    lineClass += " file-output";
-                  } else if (line.includes('[心跳检查]')) {
-                    lineClass += " heartbeat-output";
-                  } else if (line.startsWith('>')) {
-                    lineClass += " command-input";
+          <SimpleServerTerminal
+            outputs={(serverOutputs[selectedServerGame?.id] || []).filter(line => !line.includes('等待服务器输出...'))}
+            onSendCommand={async (command) => {
+              console.log('[App.tsx] onSendCommand triggered. Command:', command, 'Selected Game ID:', selectedServerGame?.id); // 新增日志1
+
+              if (selectedServerGame?.id) {
+                try {
+                  console.log('[App.tsx] Checking server status for game ID:', selectedServerGame.id); // 新增日志2
+                  const statusResponse = await checkServerStatus(selectedServerGame.id);
+                  console.log('[App.tsx] Server status response:', statusResponse); // 新增日志3
+
+                  if (statusResponse.server_status !== 'running') {
+                    message.error('服务器未运行，无法发送命令');
+                    console.log('[App.tsx] Server not running or status check failed. Status:', statusResponse.server_status); // 新增日志4
+                    return;
                   }
+
+                  console.log('[App.tsx] Server is running. Calling handleSendServerInput for game ID:', selectedServerGame.id); // 新增日志5
+                  handleSendServerInput(selectedServerGame.id, command);
+                  
+                  // 添加到历史记录
+                  setInputHistory(prev => {
+                    const newHistory = [...prev, command];
+                    return newHistory.slice(-50); // 保留最近50条
+                  });
+                  setInputHistoryIndex(-1);
+                } catch (error) {
+                  console.error('[App.tsx] Error in onSendCommand during status check or sending:', error); // 修改日志6
+                  message.error('无法确认服务器状态或发送命令时出错，请刷新页面后重试');
+                  
+                  // 发生错误时也从运行中的服务器列表中移除
+                  if (selectedServerGame?.id) {
+                    setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
+                  }
+                  return;
                 }
-                
-                return (
-                  <div 
-                    key={index} 
-                    className={lineClass}
-                  >
-                    {lineContent}
-                  </div>
-                );
-              })}
-              <div ref={terminalEndRef} className="terminal-end-ref" />
-            </div>
-          </div>
-          <div className="terminal-input">
-            <Input.Search
-              placeholder="输入命令..."
-              enterButton="发送"
-              value={serverInput}
-              onChange={(e) => setServerInput(e.target.value)}
-              onSearch={async value => {
-                if (value.trim()) {
-                  // 在发送命令前先检查服务器状态
-                  try {
-                    const statusResponse = await checkServerStatus(selectedServerGame?.id);
-                    if (statusResponse.server_status !== 'running') {
-                      message.error('服务器未运行，无法发送命令');
-                      // 添加警告信息到终端
-                      setServerOutputs(prev => {
-                        const oldOutput = prev[selectedServerGame?.id] || [];
-                        return {
-                          ...prev,
-                          [selectedServerGame?.id]: [...oldOutput, "错误: 服务器未运行，请先启动服务器"]
-                        };
-                      });
-                      
-                      // 从运行中的服务器列表中移除
-                      if (selectedServerGame?.id) {
-                        setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
-                      }
-                      return;
-                    }
-                    
-                    // 服务器在运行，发送命令
-                    handleSendServerInput(selectedServerGame?.id, value);
-                    setServerInput('');
-                  } catch (error) {
-                    console.error('检查服务器状态失败:', error);
-                    message.error('无法确认服务器状态，请刷新页面后重试');
-                    
-                    // 发生错误时也从运行中的服务器列表中移除
-                    if (selectedServerGame?.id) {
-                      setRunningServers(prev => prev.filter(id => id !== selectedServerGame.id));
-                    }
-                  }
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowUp') {
-                  // 实现历史命令功能
-                  if (inputHistory.length > 0 && inputHistoryIndex < inputHistory.length - 1) {
-                    setInputHistoryIndex(prev => prev + 1);
-                    setServerInput(inputHistory[inputHistory.length - 1 - inputHistoryIndex - 1]);
-                  }
-                } else if (e.key === 'ArrowDown') {
-                  if (inputHistoryIndex > 0) {
-                    setInputHistoryIndex(prev => prev - 1);
-                    setServerInput(inputHistory[inputHistory.length - 1 - inputHistoryIndex + 1]);
-                  } else {
-                    setInputHistoryIndex(-1);
-                    setServerInput('');
-                  }
-                }
-              }}
-            />
-          </div>
+              } else {
+                console.log('[App.tsx] onSendCommand: selectedServerGame or selectedServerGame.id is null/undefined.'); // 新增日志7
+              }
+            }}
+            onClear={() => {
+              if (selectedServerGame?.id) {
+                setServerOutputs(prev => ({
+                  ...prev,
+                  [selectedServerGame.id]: []
+                }));
+              }
+            }}
+            onReconnect={() => {
+              if (selectedServerGame?.id) {
+                handleStartServer(selectedServerGame.id, true);
+              }
+            }}
+            style={{ height: '600px' }}
+          />
         </div>
       </Modal>
+
+      {/* 账号输入Modal */}
+      <Modal
+        title="输入Steam账号"
+        open={accountModalVisible}
+        onOk={onAccountModalOk}
+        onCancel={() => {
+          setAccountModalVisible(false);
+          setPendingInstallGame(null);
+        }}
+        confirmLoading={accountModalLoading}
+      >
+        <Form form={accountForm}>
+          <Form.Item
+            name="username"
+            label="Steam用户名"
+            rules={[{ required: true, message: '请输入Steam用户名!' }]}
+          >
+            <Input placeholder="请输入Steam用户名" />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="Steam密码"
+            rules={[{ required: true, message: '请输入Steam密码!' }]}
+          >
+            <Input.Password placeholder="请输入Steam密码" />
+           </Form.Item>
+         </Form>
+       </Modal>
 
       {/* 账号输入Modal */}
       <Modal
@@ -3376,6 +3598,122 @@ const checkServerStatus = async (gameId: string) => {
         )}
       </Modal>
       
+      {/* 备份任务Modal */}
+      <Modal
+        title={editingBackupTask ? '编辑备份任务' : '添加备份任务'}
+        open={backupModalVisible}
+        onCancel={() => {
+          setBackupModalVisible(false);
+          setEditingBackupTask(null);
+          backupForm.resetFields();
+        }}
+        footer={null}
+        width={isMobile ? "95%" : 600}
+      >
+        <Form
+          form={backupForm}
+          layout="vertical"
+          onFinish={handleBackupFormSubmit}
+          style={{ marginTop: 20 }}
+        >
+          <Form.Item
+            name="name"
+            label="任务名称"
+            rules={[{ required: true, message: '请输入任务名称' }]}
+          >
+            <Input placeholder="例如：我的世界服务器备份" />
+          </Form.Item>
+          
+          <Form.Item
+            name="directory"
+            label="备份目录"
+            rules={[{ required: true, message: '请输入要备份的目录路径' }]}
+          >
+            <Input placeholder="例如：/home/steam/games/minecraft" />
+          </Form.Item>
+          
+          <Form.Item label="备份间隔">
+            <Input.Group compact>
+              <Form.Item
+                name="intervalValue"
+                style={{ width: '70%', marginBottom: 0 }}
+                rules={[
+                  { required: true, message: '请输入备份间隔' },
+                  { 
+                    validator: (_, value) => {
+                      const num = Number(value);
+                      if (!value || isNaN(num) || num < 1) {
+                        return Promise.reject(new Error('间隔时间至少为1'));
+                      }
+                      return Promise.resolve();
+                    }
+                  }
+                ]}
+              >
+                <Input type="number" placeholder="例如：6" />
+              </Form.Item>
+              <Form.Item
+                name="intervalUnit"
+                style={{ width: '30%', marginBottom: 0 }}
+                initialValue="hours"
+              >
+                <Select>
+                  <Select.Option value="minutes">分钟</Select.Option>
+                  <Select.Option value="hours">小时</Select.Option>
+                  <Select.Option value="days">天</Select.Option>
+                </Select>
+              </Form.Item>
+            </Input.Group>
+          </Form.Item>
+          
+          <Form.Item
+            name="keepCount"
+            label="保留份数"
+            rules={[
+              { required: true, message: '请输入保留份数' },
+              { 
+                validator: (_, value) => {
+                  const num = Number(value);
+                  if (!value || isNaN(num) || num < 1) {
+                    return Promise.reject(new Error('至少保留1份备份'));
+                  }
+                  return Promise.resolve();
+                }
+              }
+            ]}
+          >
+            <Input type="number" placeholder="例如：7" addonAfter="份" />
+          </Form.Item>
+          
+          <div style={{ textAlign: 'center', marginTop: 24 }}>
+            <Button 
+              type="default" 
+              style={{ marginRight: 8 }}
+              onClick={() => {
+                setBackupModalVisible(false);
+                setEditingBackupTask(null);
+                backupForm.resetFields();
+              }}
+            >
+              取消
+            </Button>
+            <Button type="primary" htmlType="submit">
+              {editingBackupTask ? '更新任务' : '创建任务'}
+            </Button>
+          </div>
+        </Form>
+        
+        <div style={{ marginTop: 20, padding: 16, backgroundColor: '#f6f8fa', borderRadius: 6 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+            <strong>说明：</strong><br/>
+            • 路径全部为容器路径，也就是文件管理中的路径<br/>
+            • 备份文件将保存到 /home/steam/backup/任务名称/ 目录<br/>
+            • 使用tar格式进行归档压缩<br/>
+            • 自动删除超出保留份数的旧备份文件
+          </p>
+        </div>
+      </Modal>
+      
       {/* 文件管理器Modal - THIS IS THE NESTED WINDOW */}
       <Modal
         title={`游戏文件管理 - ${fileManagerPath.split('/').pop() || ''}`} // Dynamic title based on path
@@ -3415,4 +3753,4 @@ const checkServerStatus = async (gameId: string) => {
   );
 };
 
-export default App; 
+export default App;

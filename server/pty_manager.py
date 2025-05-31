@@ -391,6 +391,11 @@ class PTYProcess:
                                 # 添加到内存中的输出历史
                                 self.output.append(line)
                                 
+                                # 限制输出行数，最多保留500行
+                                if len(self.output) > 500:
+                                    # 移除最旧的输出，保持在500行以内
+                                    self.output = self.output[-500:]
+                                
                                 # 添加到队列以供实时传输
                                 self.output_queue.put(line)
                                 
@@ -441,6 +446,12 @@ class PTYProcess:
                             
                             output_log.write(buffer + "\n")
                             self.output.append(buffer)
+                            
+                            # 限制输出行数，最多保留500行
+                            if len(self.output) > 500:
+                                # 移除最旧的输出，保持在500行以内
+                                self.output = self.output[-500:]
+                            
                             self.output_queue.put(buffer)
                         break
                         
@@ -613,4 +624,4 @@ class PTYManager:
 
 
 # 创建全局PTY管理器实例
-pty_manager = PTYManager() 
+pty_manager = PTYManager()

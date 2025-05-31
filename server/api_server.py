@@ -41,6 +41,22 @@ import requests
 # 导入PTY管理器
 from pty_manager import pty_manager
 
+# 输出管理函数
+def add_server_output(game_id, message, max_lines=500):
+    """添加服务器输出并限制行数"""
+    if game_id not in running_servers:
+        return
+    
+    if 'output' not in running_servers[game_id]:
+        running_servers[game_id]['output'] = []
+    
+    running_servers[game_id]['output'].append(message)
+    
+    # 限制输出行数，最多保留指定行数
+    if len(running_servers[game_id]['output']) > max_lines:
+        # 移除最旧的输出，保持在指定行数以内
+        running_servers[game_id]['output'] = running_servers[game_id]['output'][-max_lines:]
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -90,6 +106,17 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用缓存，确保始终获取
 
 # 允许跨域请求
 CORS(app, resources={r"/*": {"origins": "*"}})  # 允许所有来源的跨域请求
+
+# 在应用启动时加载备份配置（延迟加载，避免循环导入）
+# 使用全局变量标记是否已初始化
+_backup_config_loaded = False
+
+def ensure_backup_config_loaded():
+    global _backup_config_loaded
+    if not _backup_config_loaded:
+        load_backup_config()
+        start_backup_scheduler()
+        _backup_config_loaded = True
 
 # 导入JWT配置
 from config import JWT_SECRET, JWT_EXPIRATION
@@ -327,9 +354,7 @@ def run_game_server(game_id, cmd, cwd):
                     # 先添加一些初始输出，确保有内容显示
                     server_output_queues[game_id].put(f"正在启动 {game_id} 服务器...")
                     
-                    if 'output' not in running_servers[game_id]:
-                        running_servers[game_id]['output'] = []
-                    running_servers[game_id]['output'].append(f"正在启动 {game_id} 服务器...")
+                    add_server_output(game_id, f"正在启动 {game_id} 服务器...")
                     
                     # 添加脚本路径信息
                     script_path = os.path.join(cwd, "start.sh")
@@ -338,7 +363,7 @@ def run_game_server(game_id, cmd, cwd):
                             with open(script_path, 'r') as f:
                                 script_content = f.read()
                                 server_output_queues[game_id].put(f"启动脚本内容: \n{script_content}")
-                                running_servers[game_id]['output'].append(f"启动脚本内容: \n{script_content}")
+                                add_server_output(game_id, f"启动脚本内容: \n{script_content}")
                         except Exception as e:
                             logger.error(f"读取启动脚本失败: {str(e)}")
                     
@@ -349,7 +374,7 @@ def run_game_server(game_id, cmd, cwd):
                     # 添加一个测试输出
                     test_message = "输出转发线程已启动，开始监听服务器输出..."
                     server_output_queues[game_id].put(test_message)
-                    running_servers[game_id]['output'].append(test_message)
+                    add_server_output(game_id, test_message)
                     
                     # 持续监听队列
                     while True:
@@ -372,7 +397,7 @@ def run_game_server(game_id, cmd, cwd):
                                         end_msg = f"游戏服务器 {game_id} 已正常退出: {message}"
                                         logger.info(end_msg)
                                         server_output_queues[game_id].put(end_msg)
-                                        running_servers[game_id]['output'].append(end_msg)
+                                        add_server_output(game_id, end_msg)
                                     
                                     # 进程出错
                                     elif status == 'error':
@@ -385,7 +410,7 @@ def run_game_server(game_id, cmd, cwd):
                                             
                                         logger.error(error_msg)
                                         server_output_queues[game_id].put(error_msg)
-                                        running_servers[game_id]['output'].append(error_msg)
+                                        add_server_output(game_id, error_msg)
                                         running_servers[game_id]['error'] = error_msg
                                     
                                     # 进程被终止
@@ -393,7 +418,7 @@ def run_game_server(game_id, cmd, cwd):
                                         stop_msg = f"游戏服务器 {game_id} 已被停止: {message}"
                                         logger.info(stop_msg)
                                         server_output_queues[game_id].put(stop_msg)
-                                        running_servers[game_id]['output'].append(stop_msg)
+                                        add_server_output(game_id, stop_msg)
                                     
                                     # 通知前端进程已结束
                                     complete_message = {
@@ -413,14 +438,14 @@ def run_game_server(game_id, cmd, cwd):
                                 elif isinstance(item, dict) and item.get('prompt'):
                                     # 这里处理Steam Guard等需要用户输入的情况
                                     server_output_queues[game_id].put(item)  # 直接转发，前端会处理
-                                    running_servers[game_id]['output'].append(f"请求输入: {item.get('prompt')}")
+                                    add_server_output(game_id, f"请求输入: {item.get('prompt')}")
                                     continue
                                     
                                 # 处理常规输出
                                 else:
                                     server_output_queues[game_id].put(item)
                                     if isinstance(item, str):
-                                        running_servers[game_id]['output'].append(item)
+                                        add_server_output(game_id, item)
                                         output_count += 1
                                         
                                         # 定期记录输出状态
@@ -456,7 +481,7 @@ def run_game_server(game_id, cmd, cwd):
                             logger.error(f"处理输出时出错: {str(e)}")
                             error_msg = f"处理输出时出错: {str(e)}"
                             server_output_queues[game_id].put(error_msg)
-                            running_servers[game_id]['output'].append(error_msg)
+                            add_server_output(game_id, error_msg)
                 
                 except Exception as e:
                     logger.error(f"输出转发线程异常: {str(e)}")
@@ -468,7 +493,7 @@ def run_game_server(game_id, cmd, cwd):
                 
                 # 如果游戏ID还在running_servers中，添加到输出历史
                 if game_id in running_servers:
-                    running_servers[game_id]['output'].append(end_msg)
+                    add_server_output(game_id, end_msg)
                     # 标记服务器已停止
                     running_servers[game_id]['running'] = False
                     
@@ -477,7 +502,7 @@ def run_game_server(game_id, cmd, cwd):
                         stop_msg = f"游戏服务器 {game_id} 已自动停止运行"
                         logger.info(stop_msg)
                         server_output_queues[game_id].put(stop_msg)
-                        running_servers[game_id]['output'].append(stop_msg)
+                        add_server_output(game_id, stop_msg)
                         
                         # 从运行中的服务器字典中移除该游戏服务器
                         logger.info(f"从运行中的服务器列表中移除游戏服务器: {game_id}")
@@ -623,8 +648,8 @@ def run_game_server(game_id, cmd, cwd):
                 
             # 确保保存到输出历史记录
             if game_id in running_servers and 'output' in running_servers[game_id]:
-                running_servers[game_id]['output'].append(error_msg)
-                running_servers[game_id]['output'].append("请检查启动脚本内容，确保配置文件完整，并验证执行权限")
+                add_server_output(game_id, error_msg)
+                add_server_output(game_id, "请检查启动脚本内容，确保配置文件完整，并验证执行权限")
 
 # 添加一个新函数来确保目录权限正确
 def ensure_steam_permissions(directory):
@@ -1561,10 +1586,10 @@ def start_game_server():
         if game_id in running_servers:
             if 'output' not in running_servers[game_id]:
                 running_servers[game_id]['output'] = []
-            running_servers[game_id]['output'].append("服务器启动中...")
-            running_servers[game_id]['output'].append(f"游戏目录: {game_dir}")
-            running_servers[game_id]['output'].append(f"启动脚本: {script_name_to_run}")
-            running_servers[game_id]['output'].append(f"启动命令: {cmd}")
+            add_server_output(game_id, "服务器启动中...")
+            add_server_output(game_id, f"游戏目录: {game_dir}")
+            add_server_output(game_id, f"启动脚本: {script_name_to_run}")
+            add_server_output(game_id, f"启动命令: {cmd}")
         else:
             logger.warning(f"游戏服务器 {game_id} 在尝试记录初始启动信息到running_servers时已不存在。可能已快速失败。")
         
@@ -2034,7 +2059,7 @@ def server_send_input():
                 if game_id in running_servers:
                     if 'output' not in running_servers[game_id]:
                         running_servers[game_id]['output'] = []
-                    running_servers[game_id]['output'].append(echo_message)
+                    add_server_output(game_id, echo_message)
                 
             return jsonify({'status': 'success', 'message': '输入已发送'})
         else:
@@ -2949,6 +2974,7 @@ def get_file_content():
     """获取文件内容"""
     try:
         path = request.args.get('path')
+        encoding = request.args.get('encoding', 'utf-8')  # 默认使用UTF-8编码
         
         # 安全检查
         if not path or '..' in path or not path.startswith('/'):
@@ -2965,11 +2991,27 @@ def get_file_content():
         if os.path.getsize(path) > 10 * 1024 * 1024:  # 10MB限制
             return jsonify({'status': 'error', 'message': '文件过大，无法读取'})
             
-        # 读取文件内容
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
-            content = f.read()
+        # 验证编码格式
+        supported_encodings = ['utf-8', 'gbk', 'gb2312', 'big5', 'ascii', 'latin1', 'utf-16', 'utf-32']
+        if encoding not in supported_encodings:
+            encoding = 'utf-8'  # 如果编码不支持，回退到UTF-8
             
-        return jsonify({'status': 'success', 'content': content})
+        # 读取文件内容
+        try:
+            with open(path, 'r', encoding=encoding, errors='replace') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # 如果指定编码失败，尝试使用UTF-8
+            logger.warning(f"使用编码 {encoding} 读取文件失败，尝试使用 UTF-8")
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            encoding = 'utf-8'  # 更新实际使用的编码
+            
+        return jsonify({
+            'status': 'success', 
+            'content': content,
+            'encoding': encoding  # 返回实际使用的编码
+        })
         
     except Exception as e:
         logger.error(f"读取文件内容时出错: {str(e)}")
@@ -2982,10 +3024,16 @@ def save_file_content():
         data = request.json
         path = data.get('path')
         content = data.get('content', '')
+        encoding = data.get('encoding', 'utf-8')  # 默认使用UTF-8编码
         
         # 安全检查
         if not path or '..' in path or not path.startswith('/'):
             return jsonify({'status': 'error', 'message': '无效的文件路径'})
+            
+        # 验证编码格式
+        supported_encodings = ['utf-8', 'gbk', 'gb2312', 'big5', 'ascii', 'latin1', 'utf-16', 'utf-32']
+        if encoding not in supported_encodings:
+            encoding = 'utf-8'  # 如果编码不支持，回退到UTF-8
             
         # 确保目录存在
         dir_path = os.path.dirname(path)
@@ -2993,10 +3041,20 @@ def save_file_content():
             os.makedirs(dir_path)
             
         # 写入文件
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        try:
+            with open(path, 'w', encoding=encoding) as f:
+                f.write(content)
+        except UnicodeEncodeError:
+            # 如果指定编码失败，尝试使用UTF-8
+            logger.warning(f"使用编码 {encoding} 保存文件失败，尝试使用 UTF-8")
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            encoding = 'utf-8'  # 更新实际使用的编码
             
-        return jsonify({'status': 'success'})
+        return jsonify({
+            'status': 'success',
+            'encoding': encoding  # 返回实际使用的编码
+        })
         
     except Exception as e:
         logger.error(f"保存文件内容时出错: {str(e)}")
@@ -4787,9 +4845,9 @@ def start_steamcmd():
         # 添加到输出历史
         if 'output' not in running_servers[game_id]:
             running_servers[game_id]['output'] = []
-        running_servers[game_id]['output'].append("SteamCMD启动中...")
-        running_servers[game_id]['output'].append(f"SteamCMD目录: {steamcmd_dir}")
-        running_servers[game_id]['output'].append(f"启动命令: {cmd}")
+        add_server_output(game_id, "SteamCMD启动中...")
+        add_server_output(game_id, f"SteamCMD目录: {steamcmd_dir}")
+        add_server_output(game_id, f"启动命令: {cmd}")
         
         return jsonify({
             'status': 'success', 
@@ -5809,6 +5867,424 @@ def uninstall_java_route():
             "message": str(e)
         }), 500
 
+# 备份任务管理
+backup_tasks = {}
+backup_task_counter = 0
+BACKUP_CONFIG_FILE = '/home/steam/games/config.json'
+backup_scheduler_running = False
+
+def load_backup_config():
+    """从配置文件加载备份任务"""
+    global backup_tasks, backup_task_counter
+    try:
+        if os.path.exists(BACKUP_CONFIG_FILE):
+            with open(BACKUP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                backup_tasks = config.get('backup_tasks', {})
+                backup_task_counter = config.get('backup_task_counter', 0)
+                logger.info(f"已加载 {len(backup_tasks)} 个备份任务")
+        else:
+            # 确保配置文件目录存在
+            os.makedirs(os.path.dirname(BACKUP_CONFIG_FILE), exist_ok=True)
+            save_backup_config()
+    except Exception as e:
+        logger.error(f"加载备份配置失败: {str(e)}")
+        backup_tasks = {}
+        backup_task_counter = 0
+
+def save_backup_config():
+    """保存备份任务到配置文件"""
+    try:
+        # 读取现有配置文件
+        existing_config = {}
+        if os.path.exists(BACKUP_CONFIG_FILE):
+            try:
+                with open(BACKUP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    existing_config = json.load(f)
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning(f"读取现有配置文件失败，将创建新配置: {str(e)}")
+                existing_config = {}
+        
+        # 更新备份相关配置
+        existing_config['backup_tasks'] = backup_tasks
+        existing_config['backup_task_counter'] = backup_task_counter
+        
+        # 保存更新后的配置
+        with open(BACKUP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(existing_config, f, ensure_ascii=False, indent=2)
+        logger.info("备份配置已保存")
+    except Exception as e:
+        logger.error(f"保存备份配置失败: {str(e)}")
+
+@app.route('/api/backup/tasks', methods=['GET'])
+@auth_required
+def get_backup_tasks():
+    """获取所有备份任务"""
+    try:
+        ensure_backup_config_loaded()
+        return jsonify({
+            "status": "success",
+            "tasks": list(backup_tasks.values())
+        })
+    except Exception as e:
+        logger.error(f"获取备份任务时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/backup/tasks', methods=['POST'])
+@auth_required
+def create_backup_task():
+    """创建备份任务"""
+    try:
+        global backup_task_counter
+        data = request.get_json()
+        
+        # 验证必需字段
+        required_fields = ['name', 'directory', 'interval', 'keepCount']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    "status": "error",
+                    "message": f"缺少必需字段: {field}"
+                }), 400
+        
+        # 验证目录是否存在
+        if not os.path.exists(data['directory']):
+            return jsonify({
+                "status": "error",
+                "message": "指定的备份目录不存在"
+            }), 400
+        
+        backup_task_counter += 1
+        task_id = str(backup_task_counter)
+        
+        # 计算下次备份时间
+        import datetime
+        interval_hours = float(data['interval'])
+        next_backup = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
+        
+        task = {
+            "id": task_id,
+            "name": data['name'],
+            "directory": data['directory'],
+            "interval": interval_hours,
+            "intervalValue": data.get('intervalValue'),
+            "intervalUnit": data.get('intervalUnit'),
+            "keepCount": int(data['keepCount']),
+            "enabled": True,
+            "nextBackup": next_backup.strftime('%Y-%m-%d %H:%M:%S'),
+            "lastBackup": None,
+            "status": "等待中"
+        }
+        
+        backup_tasks[task_id] = task
+        save_backup_config()
+        
+        logger.info(f"创建备份任务: {data['name']}")
+        return jsonify({
+            "status": "success",
+            "task": task
+        })
+    except Exception as e:
+        logger.error(f"创建备份任务时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/backup/tasks/<task_id>', methods=['PUT'])
+@auth_required
+def update_backup_task(task_id):
+    """更新备份任务"""
+    try:
+        if task_id not in backup_tasks:
+            return jsonify({
+                "status": "error",
+                "message": "备份任务不存在"
+            }), 404
+        
+        data = request.get_json()
+        task = backup_tasks[task_id]
+        
+        # 更新任务信息
+        if 'name' in data:
+            task['name'] = data['name']
+        if 'directory' in data:
+            if not os.path.exists(data['directory']):
+                return jsonify({
+                    "status": "error",
+                    "message": "指定的备份目录不存在"
+                }), 400
+            task['directory'] = data['directory']
+        if 'interval' in data:
+            task['interval'] = float(data['interval'])
+            # 重新计算下次备份时间
+            import datetime
+            next_backup = datetime.datetime.now() + datetime.timedelta(hours=task['interval'])
+            task['nextBackup'] = next_backup.strftime('%Y-%m-%d %H:%M:%S')
+        if 'intervalValue' in data:
+            task['intervalValue'] = data['intervalValue']
+        if 'intervalUnit' in data:
+            task['intervalUnit'] = data['intervalUnit']
+        if 'keepCount' in data:
+            task['keepCount'] = int(data['keepCount'])
+        
+        save_backup_config()
+        logger.info(f"更新备份任务: {task['name']}")
+        return jsonify({
+            "status": "success",
+            "task": task
+        })
+    except Exception as e:
+        logger.error(f"更新备份任务时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/backup/tasks/<task_id>', methods=['DELETE'])
+@auth_required
+def delete_backup_task(task_id):
+    """删除备份任务"""
+    try:
+        if task_id not in backup_tasks:
+            return jsonify({
+                "status": "error",
+                "message": "备份任务不存在"
+            }), 404
+        
+        task_name = backup_tasks[task_id]['name']
+        del backup_tasks[task_id]
+        save_backup_config()
+        
+        logger.info(f"删除备份任务: {task_name}")
+        return jsonify({
+            "status": "success",
+            "message": "备份任务已删除"
+        })
+    except Exception as e:
+        logger.error(f"删除备份任务时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/backup/tasks/<task_id>/toggle', methods=['POST'])
+@auth_required
+def toggle_backup_task(task_id):
+    """启用/禁用备份任务"""
+    try:
+        if task_id not in backup_tasks:
+            return jsonify({
+                "status": "error",
+                "message": "备份任务不存在"
+            }), 404
+        
+        task = backup_tasks[task_id]
+        task['enabled'] = not task['enabled']
+        save_backup_config()
+        
+        status = "启用" if task['enabled'] else "禁用"
+        logger.info(f"{status}备份任务: {task['name']}")
+        
+        return jsonify({
+            "status": "success",
+            "task": task
+        })
+    except Exception as e:
+        logger.error(f"切换备份任务状态时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/backup/tasks/<task_id>/run', methods=['POST'])
+@auth_required
+def run_backup_now(task_id):
+    """立即执行备份"""
+    try:
+        if task_id not in backup_tasks:
+            return jsonify({
+                "status": "error",
+                "message": "备份任务不存在"
+            }), 404
+        
+        task = backup_tasks[task_id]
+        
+        # 创建备份目录
+        backup_base_dir = "/home/steam/backup"
+        task_backup_dir = os.path.join(backup_base_dir, task['name'])
+        os.makedirs(task_backup_dir, exist_ok=True)
+        
+        # 生成备份文件名
+        import datetime
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"{task['name']}_{timestamp}.tar"
+        backup_filepath = os.path.join(task_backup_dir, backup_filename)
+        
+        # 执行tar备份命令
+        tar_cmd = [
+            'tar', '-cf', backup_filepath,
+            '-C', os.path.dirname(task['directory']),
+            os.path.basename(task['directory'])
+        ]
+        
+        result = subprocess.run(tar_cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            # 备份成功，更新任务状态
+            task['lastBackup'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            task['status'] = '备份成功'
+            
+            # 清理旧备份文件
+            cleanup_old_backups(task_backup_dir, task['keepCount'])
+            
+            # 计算下次备份时间
+            next_backup = datetime.datetime.now() + datetime.timedelta(hours=task['interval'])
+            task['nextBackup'] = next_backup.strftime('%Y-%m-%d %H:%M:%S')
+            
+            logger.info(f"备份任务执行成功: {task['name']}")
+            return jsonify({
+                "status": "success",
+                "message": "备份执行成功",
+                "task": task
+            })
+        else:
+            task['status'] = '备份失败'
+            logger.error(f"备份任务执行失败: {task['name']}, 错误: {result.stderr}")
+            return jsonify({
+                "status": "error",
+                "message": f"备份执行失败: {result.stderr}"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"执行备份任务时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+def cleanup_old_backups(backup_dir, keep_count):
+    """清理旧的备份文件，只保留指定数量的最新备份"""
+    try:
+        if not os.path.exists(backup_dir):
+            return
+        
+        # 获取所有tar文件
+        backup_files = []
+        for file in os.listdir(backup_dir):
+            if file.endswith('.tar'):
+                filepath = os.path.join(backup_dir, file)
+                backup_files.append((filepath, os.path.getmtime(filepath)))
+        
+        # 按修改时间排序，最新的在前
+        backup_files.sort(key=lambda x: x[1], reverse=True)
+        
+        # 删除超出保留数量的文件
+        if len(backup_files) > keep_count:
+            for filepath, _ in backup_files[keep_count:]:
+                os.remove(filepath)
+                logger.info(f"删除旧备份文件: {filepath}")
+                
+    except Exception as e:
+        logger.error(f"清理旧备份文件时出错: {str(e)}")
+
+def backup_scheduler():
+    """备份任务调度器，定期检查并执行到期的备份任务"""
+    global backup_scheduler_running
+    backup_scheduler_running = True
+    
+    while backup_scheduler_running:
+        try:
+            current_time = datetime.datetime.now()
+            
+            for task_id, task in backup_tasks.items():
+                if not task.get('enabled', False):
+                    continue
+                    
+                next_backup_str = task.get('nextBackup')
+                if not next_backup_str:
+                    continue
+                    
+                try:
+                    next_backup_time = datetime.datetime.strptime(next_backup_str, '%Y-%m-%d %H:%M:%S')
+                    
+                    # 检查是否到了备份时间
+                    if current_time >= next_backup_time:
+                        logger.info(f"开始执行定时备份任务: {task['name']}")
+                        execute_backup_task(task_id, task)
+                        
+                except ValueError as e:
+                    logger.error(f"解析备份时间失败: {next_backup_str}, 错误: {str(e)}")
+                    
+        except Exception as e:
+            logger.error(f"备份调度器运行出错: {str(e)}")
+            
+        # 每分钟检查一次
+        time.sleep(60)
+        
+def execute_backup_task(task_id, task):
+    """执行备份任务的核心逻辑"""
+    try:
+        # 创建备份目录
+        backup_base_dir = "/home/steam/backup"
+        task_backup_dir = os.path.join(backup_base_dir, task['name'])
+        os.makedirs(task_backup_dir, exist_ok=True)
+        
+        # 生成备份文件名
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"{task['name']}_{timestamp}.tar"
+        backup_filepath = os.path.join(task_backup_dir, backup_filename)
+        
+        # 执行tar备份命令
+        tar_cmd = [
+            'tar', '-cf', backup_filepath,
+            '-C', os.path.dirname(task['directory']),
+            os.path.basename(task['directory'])
+        ]
+        
+        result = subprocess.run(tar_cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            # 备份成功，更新任务状态
+            task['lastBackup'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            task['status'] = '备份成功'
+            
+            # 清理旧备份文件
+            cleanup_old_backups(task_backup_dir, task['keepCount'])
+            
+            # 计算下次备份时间
+            next_backup = datetime.datetime.now() + datetime.timedelta(hours=task['interval'])
+            task['nextBackup'] = next_backup.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 保存配置
+            save_backup_config()
+            
+            logger.info(f"定时备份任务执行成功: {task['name']}")
+        else:
+            task['status'] = '备份失败'
+            logger.error(f"定时备份任务执行失败: {task['name']}, 错误: {result.stderr}")
+            
+    except Exception as e:
+        task['status'] = '备份失败'
+        logger.error(f"执行定时备份任务时出错: {task['name']}, 错误: {str(e)}")
+
+def start_backup_scheduler():
+    """启动备份调度器"""
+    global backup_scheduler_running
+    if not backup_scheduler_running:
+        scheduler_thread = threading.Thread(target=backup_scheduler, daemon=True)
+        scheduler_thread.start()
+        logger.info("备份调度器已启动")
+
+def stop_backup_scheduler():
+    """停止备份调度器"""
+    global backup_scheduler_running
+    backup_scheduler_running = False
+    logger.info("备份调度器已停止")
+
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")
     logger.warning("======================================================")
@@ -5835,6 +6311,10 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"创建游戏目录失败: {str(e)}")
     
+    # 加载备份配置
+    load_backup_config()
+    start_backup_scheduler()
+    
     # 直接运行时使用Flask内置服务器，而不是通过Gunicorn导入时
     logger.warning("使用Flask开发服务器启动 - 不推荐用于生产环境")
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True) 
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
