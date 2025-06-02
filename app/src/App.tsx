@@ -26,6 +26,7 @@ import Cookies from 'js-cookie'; // 导入js-cookie库
 const { Header, Content, Footer, Sider } = Layout;
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
+const { Option } = Select;
 
 // 定义一个类型化的错误处理函数
 const handleError = (err: any): void => {
@@ -265,7 +266,328 @@ const checkServerStatus = async (gameId: string) => {
   }
 };
 
-  const App: React.FC = () => {
+// Minecraft部署组件
+const MinecraftDeploy: React.FC = () => {
+  const [mcServers, setMcServers] = useState<any[]>([]);
+  const [selectedServer, setSelectedServer] = useState<string>('');
+  const [mcVersions, setMcVersions] = useState<string[]>([]);
+  const [selectedMcVersion, setSelectedMcVersion] = useState<string>('');
+  const [builds, setBuilds] = useState<any[]>([]);
+  const [selectedBuild, setSelectedBuild] = useState<string>('');
+  const [customName, setCustomName] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [deploying, setDeploying] = useState<boolean>(false);
+  const [installedJdks, setInstalledJdks] = useState<any[]>([]);
+  const [selectedJdk, setSelectedJdk] = useState<string>('');
+
+  // 获取MC服务端列表
+  const fetchMcServers = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get('/api/minecraft/servers');
+      if (response.data.status === 'success') {
+        setMcServers(response.data.data || []);
+      } else {
+        message.error(response.data.message || '获取服务端列表失败');
+      }
+    } catch (error: any) {
+      message.error('获取服务端列表失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 获取服务端信息
+  const fetchServerInfo = async (serverName: string) => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`/api/minecraft/server/${serverName}`);
+      if (response.data.status === 'success') {
+        const serverInfo = response.data.data;
+        setMcVersions(serverInfo.mc_versions || []);
+        setSelectedMcVersion('');
+        setBuilds([]);
+        setSelectedBuild('');
+      } else {
+        message.error(response.data.message || '获取服务端信息失败');
+      }
+    } catch (error: any) {
+      message.error('获取服务端信息失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 获取构建列表
+  const fetchBuilds = async (serverName: string, mcVersion: string) => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`/api/minecraft/builds/${serverName}/${mcVersion}`);
+      if (response.data.status === 'success') {
+        const buildsData = response.data.data;
+        setBuilds(buildsData.builds || []);
+        setSelectedBuild('');
+      } else {
+        message.error(response.data.message || '获取构建列表失败');
+      }
+    } catch (error: any) {
+      message.error('获取构建列表失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 获取已安装的JDK列表
+  const fetchInstalledJdks = async () => {
+    try {
+      const response = await axios.get('/api/minecraft/installed-jdks');
+      if (response.data.status === 'success') {
+        setInstalledJdks(response.data.jdks || []);
+      } else {
+        message.error(response.data.message || '获取JDK列表失败');
+      }
+    } catch (error: any) {
+      message.error('获取JDK列表失败: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  // 部署服务器
+  const deployServer = async () => {
+    if (!selectedServer || !selectedMcVersion || !selectedBuild) {
+      message.error('请完成所有选择');
+      return;
+    }
+
+    if (!customName.trim()) {
+      message.error('请输入服务器名称');
+      return;
+    }
+
+    try {
+      setDeploying(true);
+      const response = await axios.post('/api/minecraft/deploy', {
+        server_name: selectedServer,
+        mc_version: selectedMcVersion,
+        core_version: selectedBuild,
+        custom_name: customName.trim(),
+        selected_jdk: selectedJdk
+      });
+
+      if (response.data.status === 'success') {
+        message.success('Minecraft服务器部署成功!');
+        Modal.success({
+          title: '部署成功',
+          content: (
+            <div>
+              <p>服务器已成功部署到: {response.data.data.game_dir}</p>
+              <p>服务端文件: {response.data.data.filename}</p>
+              <p>您可以在"服务端管理"页面启动服务器</p>
+            </div>
+          )
+        });
+        // 重置表单
+        setSelectedServer('');
+        setSelectedMcVersion('');
+        setSelectedBuild('');
+        setCustomName('');
+        setMcVersions([]);
+        setBuilds([]);
+      } else {
+        message.error(response.data.message || '部署失败');
+      }
+    } catch (error: any) {
+      message.error('部署失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  // 处理服务端选择
+  const handleServerChange = (value: string) => {
+    setSelectedServer(value);
+    setCustomName(value); // 默认使用服务端名称
+    fetchServerInfo(value);
+  };
+
+  // 处理MC版本选择
+  const handleMcVersionChange = (value: string) => {
+    setSelectedMcVersion(value);
+    if (selectedServer) {
+      fetchBuilds(selectedServer, value);
+    }
+  };
+
+  // 组件挂载时获取服务端列表和JDK列表
+  React.useEffect(() => {
+    fetchMcServers();
+    fetchInstalledJdks();
+  }, []);
+
+  return (
+    <div>
+      <Row gutter={[16, 16]}>
+        <Col span={24}>
+          <Title level={4}>选择服务端类型</Title>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="请选择Minecraft服务端类型"
+            value={selectedServer}
+            onChange={handleServerChange}
+            loading={loading}
+          >
+            {mcServers.map(server => (
+              <Option key={server.name} value={server.name}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{server.name}</span>
+                  <div>
+                    <Tag color={server.tag === 'official' ? 'blue' : 'green'}>{server.tag}</Tag>
+                    {server.recommend && <Tag color="gold">推荐</Tag>}
+                  </div>
+                </div>
+              </Option>
+            ))}
+          </Select>
+        </Col>
+
+        {selectedServer && (
+          <Col span={24}>
+            <Title level={4}>选择Minecraft版本</Title>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="请选择Minecraft版本"
+              value={selectedMcVersion}
+              onChange={handleMcVersionChange}
+              loading={loading}
+            >
+              {mcVersions.map(version => (
+                <Option key={version} value={version}>
+                  {version}
+                </Option>
+              ))}
+            </Select>
+          </Col>
+        )}
+
+        {selectedMcVersion && (
+          <Col span={24}>
+            <Title level={4}>选择构建版本</Title>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="请选择构建版本"
+              value={selectedBuild}
+              onChange={setSelectedBuild}
+              loading={loading}
+            >
+              {builds.map(build => (
+                <Option key={build.core_version} value={build.core_version}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{build.core_version}</span>
+                    <span style={{ color: '#666', fontSize: '12px' }}>
+                      {new Date(build.update_time).toLocaleDateString()}
+                    </span>
+                  </div>
+                </Option>
+              ))}
+            </Select>
+          </Col>
+        )}
+
+        {selectedBuild && (
+          <Col span={24}>
+            <Title level={4}>服务器名称</Title>
+            <Input
+              placeholder="请输入服务器名称（将作为目录名）"
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+            />
+            <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+              服务器将部署到: /home/games/{customName || '服务器名称'}
+            </div>
+          </Col>
+        )}
+
+        {customName && (
+          <Col span={24}>
+            <Title level={4}>Java环境选择</Title>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="请选择Java版本（可选，留空使用系统默认Java）"
+              value={selectedJdk}
+              onChange={setSelectedJdk}
+              allowClear
+            >
+              {installedJdks.map(jdk => (
+                <Option key={jdk.id} value={jdk.id}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{jdk.name}</span>
+                    <span style={{ color: '#666', fontSize: '12px' }}>{jdk.version}</span>
+                  </div>
+                </Option>
+              ))}
+            </Select>
+            <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+              {installedJdks.length === 0 ? (
+                <span>未检测到已安装的JDK，将使用系统默认Java。您可以在"环境安装"-"Java环境"中安装JDK。</span>
+              ) : (
+                <span>选择特定的JDK版本，或留空使用系统默认Java</span>
+              )}
+            </div>
+          </Col>
+        )}
+
+        {selectedServer && selectedMcVersion && selectedBuild && customName && (
+          <Col span={24}>
+            <Card style={{ backgroundColor: '#f6f8fa', border: '1px solid #d1d9e0' }}>
+              <Title level={5}>部署信息确认</Title>
+              <Row gutter={[16, 8]}>
+                <Col span={12}>
+                  <strong>服务端类型:</strong> {selectedServer}
+                </Col>
+                <Col span={12}>
+                  <strong>MC版本:</strong> {selectedMcVersion}
+                </Col>
+                <Col span={12}>
+                  <strong>构建版本:</strong> {selectedBuild}
+                </Col>
+                <Col span={12}>
+                  <strong>服务器名称:</strong> {customName}
+                </Col>
+                <Col span={12}>
+                  <strong>Java环境:</strong> {selectedJdk ? installedJdks.find(jdk => jdk.id === selectedJdk)?.name || selectedJdk : '系统默认Java'}
+                </Col>
+              </Row>
+              <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={deployServer}
+                  loading={deploying}
+                  icon={<RocketOutlined />}
+                >
+                  {deploying ? '部署中...' : '开始部署'}
+                </Button>
+              </div>
+            </Card>
+          </Col>
+        )}
+      </Row>
+
+      {mcServers.length === 0 && !loading && (
+        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+          <Title level={4}>暂无可用的服务端</Title>
+          <Paragraph type="secondary">
+            请检查网络连接或稍后重试
+          </Paragraph>
+          <Button onClick={fetchMcServers} icon={<ReloadOutlined />}>
+            重新加载
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const App: React.FC = () => {
   const { login, logout, username, isAuthenticated, loading, isFirstUse, setAuthenticated } = useAuth();
   const [games, setGames] = useState<GameInfo[]>([]);
   const [gameLoading, setGameLoading] = useState<boolean>(true);
@@ -2686,24 +3008,9 @@ const checkServerStatus = async (gameId: string) => {
                   </div>
                 </TabPane>
                 <TabPane tab="Minecraft部署" key="minecraft-deploy">
-                  <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px 0' }}>
-                    <Card title="Minecraft服务器部署">
-                      <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                        <Title level={3}>Minecraft部署功能</Title>
-                        <Paragraph>
-                          此功能正在开发中，敬请期待...
-                        </Paragraph>
-                        <Paragraph type="secondary">
-                          未来将支持：
-                        </Paragraph>
-                        <ul style={{ textAlign: 'left', display: 'inline-block' }}>
-                          <li>原版Minecraft服务器部署</li>
-                          <li>Forge模组服务器部署</li>
-                          <li>Fabric模组服务器部署</li>
-                          <li>Paper/Spigot插件服务器部署</li>
-                          <li>自定义配置和插件管理</li>
-                        </ul>
-                      </div>
+                  <div style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 0' }}>
+                    <Card title="Minecraft服务器快速部署">
+                      <MinecraftDeploy />
                     </Card>
                   </div>
                 </TabPane>
