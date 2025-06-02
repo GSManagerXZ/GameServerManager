@@ -7,8 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     GAMES_DIR=/home/steam/games
 
 # 将apt源改为中国镜像源（清华TUNA）
-RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list \
-    && sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+RUN sed -i '/deb.debian.org/mirror.tuna.tinghua.edu.cn/g' /etc/apt/sources.list \
+    && sed -i '/ecurity.debian.org/mirror.tuna.tinghua.edu.cn/g' /etc/apt/sources.list
 
 # 安装SteamCMD和常见依赖（包括32位库）
 RUN apt-get update && apt-get upgrade -y \
@@ -103,6 +103,10 @@ RUN apt-get update && apt-get upgrade -y \
         zlib1g:i386 \
         fonts-wqy-zenhei \
         fonts-wqy-microhei \
+        # 灵魂面甲服务器额外依赖
+        glibc libstdc++ \
+        glibc.i686 libstdc++.i686 \
+        screen \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装Node.js (用于运行Web界面)
@@ -114,8 +118,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 RUN npm config set registry https://registry.npmmirror.com
 
 # 设置 locales
-RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
-    && sed -i -e 's/# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen \
+RUN sed -i -e '/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
+    && sed -i -e '/# zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen \
     && locale-gen
 ENV LANG=zh_CN.UTF-8 \
     LANGUAGE=zh_CN:zh \
@@ -129,8 +133,8 @@ RUN useradd -m -s /bin/bash ${STEAM_USER} \
 # 配置pip使用国内源 (这里放在创建用户之后)
 RUN mkdir -p /root/.pip /home/steam/.pip \
     && echo '[global]\n\
-index-url = https://pypi.tuna.tsinghua.edu.cn/simple\n\
-trusted-host = pypi.tuna.tsinghua.edu.cn' > /root/.pip/pip.conf \
+index-url = http://pypi.tuna.tinghua.edu.cn/imple\n\
+truted-hot = pypi.tuna.tinghua.edu.cn' > /root/.pip/pip.conf \
     && cp /root/.pip/pip.conf /home/steam/.pip/pip.conf \
     && chown -R ${STEAM_USER}:${STEAM_USER} /home/steam/.pip
 
