@@ -11,8 +11,9 @@ fi
 echo "前端已构建，dist目录存在"
 
 # 从环境变量读取配置，如果没有则使用默认值
-WORKERS=${GUNICORN_WORKERS:-4}
+WORKERS=${GUNICORN_WORKERS:-1}
 TIMEOUT=${GUNICORN_TIMEOUT:-120}
+PORT=${GUNICORN_PORT:-5000}
 USE_GUNICORN=${USE_GUNICORN:-true}
 
 # 检查是否安装了Gunicorn
@@ -32,12 +33,12 @@ fi
 
 # 启动API服务器(使用Gunicorn)
 echo "使用Gunicorn启动API服务器..."
-echo "工作进程数: $WORKERS, 超时时间: $TIMEOUT 秒"
+echo "工作进程数: $WORKERS, 超时时间: $TIMEOUT 秒, 监听端口: $PORT"
 cd /home/steam/server
 
 # Gunicorn配置参数:
 # -w $WORKERS: 使用环境变量指定的工作进程数
-# -b 0.0.0.0:5000: 绑定到所有网络接口的5000端口
+# -b 0.0.0.0:$PORT: 绑定到所有网络接口的指定端口
 # --timeout $TIMEOUT: 设置超时时间
 # --preload: 预加载应用程序代码，减少每个工作进程的启动时间
 # --max-requests 1000: 每个工作进程处理1000个请求后自动重启，防止内存泄漏
@@ -49,7 +50,7 @@ cd /home/steam/server
 # --error-logfile -: 错误日志输出到标准输出
 
 exec gunicorn -w $WORKERS \
-  -b 0.0.0.0:5000 \
+  -b 0.0.0.0:$PORT \
   --timeout $TIMEOUT \
   --preload \
   --max-requests 1000 \
@@ -59,4 +60,4 @@ exec gunicorn -w $WORKERS \
   --log-level info \
   --access-logfile - \
   --error-logfile - \
-  api_server:app 
+  api_server:app

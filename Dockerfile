@@ -42,6 +42,8 @@ RUN apt-get update && apt-get upgrade -y \
         libc6-dev \
         libasound2 \
         libpulse0 \
+        pulseaudio \
+        libpulse-dev \
         libnss3 \
         libgconf-2-4 \
         libcap2 \
@@ -103,6 +105,8 @@ RUN apt-get update && apt-get upgrade -y \
         zlib1g:i386 \
         fonts-wqy-zenhei \
         fonts-wqy-microhei \
+        libc6 \
+        libc6:i386 \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装Node.js (用于运行Web界面)
@@ -214,10 +218,12 @@ COPY --chown=steam:steam ./frp/LoCyanFrp /home/steam/FRP/LoCyanFrp
 COPY --chown=steam:steam ./frp/frpc /home/steam/FRP/frpc
 COPY --chown=steam:steam ./frp/mefrp /home/steam/FRP/mefrp
 COPY --chown=steam:steam ./frp/Sakura /home/steam/FRP/Sakura
+COPY --chown=steam:steam ./frp/npc /home/steam/FRP/npc
 RUN chmod +x /home/steam/FRP/LoCyanFrp/frpc
 RUN chmod +x /home/steam/FRP/frpc/frpc
 RUN chmod +x /home/steam/FRP/mefrp/frpc
 RUN chmod +x /home/steam/FRP/Sakura/frpc
+RUN chmod +x /home/steam/FRP/npc/frpc
 
 # 最后一步：复制前端代码并构建
 COPY --chown=steam:steam ./app /home/steam/app
@@ -232,4 +238,4 @@ RUN chmod +x /home/steam/server/start_web.sh
 
 # 设置工作目录和启动命令
 WORKDIR /home/steam
-CMD ["/home/steam/start_web.sh"] 
+CMD ["/home/steam/start_web.sh"]

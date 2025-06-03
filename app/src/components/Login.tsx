@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Card, message, Typography } from 'antd';
+import { Form, Input, Button, Card, message, Typography, Modal } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -19,6 +19,7 @@ const Login: React.FC = () => {
   const [loginSuccess, setLoginSuccess] = useState(false);
   const [loginError, setLoginError] = useState(false);
   const [hasFocus, setHasFocus] = useState(false);
+  const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
   const navigate = useNavigate();
 
   // 组件加载时检查是否首次使用
@@ -120,6 +121,16 @@ const Login: React.FC = () => {
     }, 100);
   };
 
+  // 处理忘记密码点击
+  const handleForgotPassword = () => {
+    setForgotPasswordVisible(true);
+  };
+
+  // 关闭忘记密码弹窗
+  const handleForgotPasswordClose = () => {
+    setForgotPasswordVisible(false);
+  };
+
   return (
     <div className={`login-container ${loginSuccess ? 'login-success' : ''}`}>
       <Card 
@@ -169,15 +180,38 @@ const Login: React.FC = () => {
             </Button>
           </Form.Item>
           
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', display: 'flex', justifyContent: 'space-between' }}>
+            <Text type="secondary">
+              <a onClick={handleForgotPassword} style={{ cursor: 'pointer' }}>
+                忘记密码?
+              </a>
+            </Text>
             <Text type="secondary">
               首次使用? <Link to="/register">注册账户</Link>
             </Text>
           </div>
         </Form>
       </Card>
+      
+      <Modal
+        title="忘记密码"
+        open={forgotPasswordVisible}
+        onCancel={handleForgotPasswordClose}
+        footer={[
+          <Button key="ok" type="primary" onClick={handleForgotPasswordClose}>
+            我知道了
+          </Button>
+        ]}
+        width={500}
+      >
+        <div style={{ padding: '16px 0' }}>
+          <Text>
+            请手动前往删除/home/steam/games映射的宿主路径下的config.json文件后刷新网页即可
+          </Text>
+        </div>
+      </Modal>
     </div>
   );
 };
 
-export default Login; 
+export default Login;

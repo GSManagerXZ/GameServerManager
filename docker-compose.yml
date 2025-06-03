@@ -4,25 +4,27 @@ services:
   server:
     build: .
     container_name: xiaozhugame_server # 替换为你需要创建的容器名称
-    image: gameservermanager:latest  # 替换为你的镜像名称
+    #image: gameservermanager:latest  # 替换为你的镜像名称(本地导入)
+    image: xiaozhu674/gameservermanager:2.0.1 # 替换为你的镜像名称(云端拉取)
     user: root                         # 使用root用户运行容器
     ports:
       # 默认开放的常用Steam游戏服务器端口
       - "27015-27020:27015-27020/tcp"  # Steam 匹配和RCON
       - "27015-27020:27015-27020/udp"  # 游戏流量 
       # Web界面端口
-      - "5000:5000/tcp"                    # API和前端界面
+      - "5000:5000/tcp"                    # 前端界面
     volumes:
-      - ./game_data:/home/steam/games  # 游戏数据
+      - ./game_data:/home/steam/games  # 游戏数据，请将权限设置为777
       - ./game_file:/home/steam/.config # 通用游戏存档路径1。请务必将此宿主目录权限设置为777
       - ./game_file:/home/steam/.local  # 通用游戏存档路径2。请务必将此宿主目录权限设置为777
+      # - ./game_environment:/home/steam/environment  # 【可选】容器额外运行库安装路径 请将权限设置为777
+      # - ./game_frpc/frpc/frpc.toml:/home/steam/FRP/frpc/frpc.toml # 【可选】容器内网穿透frpc配置文件
+      # - ./game_backup:/home/steam/backup # 【可选】定时备份路径
     environment:
       - TZ=Asia/Shanghai              # 设置时区
       - USE_GUNICORN=true             # 强制使用Gunicorn
-      - GUNICORN_WORKERS=1            # Gunicorn工作进程数
       - GUNICORN_TIMEOUT=120          # Gunicorn超时设置
-      #- GAME_TO_RUN=Palworld         # 可选：直接启动指定游戏，无需进入菜单
-      #- GAME_ARGS="-port=8211 -players=32"  # 可选：游戏启动参数
+      - GUNICORN_PORT=5000            # Gunicorn监听端口
     command: /home/steam/start_web.sh  # 启动Web界面
     stdin_open: true                  # 保持STDIN打开
     tty: true                         # 分配TTY

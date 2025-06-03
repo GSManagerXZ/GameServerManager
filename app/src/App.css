@@ -2469,6 +2469,59 @@ body {
   margin-bottom: 16px; /* 保持与其他form item一致的间距 */
 }
 
+/* 金牌赞助商样式 */
+.gold-sponsor-container {
+  padding: 24px;
+  background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%);
+  border-radius: 12px;
+  margin: 16px 0;
+}
+
+.gold-sponsors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.sponsor-card {
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.2);
+}
+
+.sponsor-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.3);
+}
+
+.sponsor-card-content {
+  padding: 8px;
+}
+
+.sponsor-name {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.no-sponsors {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .gold-sponsors-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .gold-sponsor-container {
+    padding: 16px;
+    margin: 8px 0;
+  }
+}
+
 /* 专门针对赞助者凭证输入框 (input#sponsorKey) 的样式修复 */
 input#sponsorKey.ant-input {
   border-width: 0 !important;  /* 强制移除输入框本身的边框 */

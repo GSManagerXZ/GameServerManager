@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List, Select } from 'antd';
+import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List, Select, Checkbox } from 'antd';
 import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined, ToolOutlined, BookOutlined, RocketOutlined, HistoryOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
@@ -16,7 +16,7 @@ import About from './pages/About'; // 导入关于项目页面
 import Settings from './pages/Settings'; // 导入设置页面
 import Environment from './pages/Environment'; // 导入环境安装页面
 import ServerGuide from './pages/ServerGuide'; // 导入开服指南页面
-import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder } from './api';
+import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder, checkVersionUpdate } from './api';
 import { GameInfo } from './types';
 import { useAuth } from './context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -2284,7 +2284,9 @@ const App: React.FC = () => {
       directory: task.directory,
       intervalValue: intervalValue,
       intervalUnit: intervalUnit,
-      keepCount: task.keepCount
+      keepCount: task.keepCount,
+      linkedServerId: task.linkedServerId,
+      autoControl: task.autoControl
     });
     setBackupModalVisible(true);
   };
@@ -2383,7 +2385,7 @@ const App: React.FC = () => {
           
         } catch (error) {
           // 简化错误处理，避免重复消息
-          message.error('加载游戏列表失败，请刷新页面重试');
+          message.error('加载游戏列表失败，请刷新或重新登录');
         } finally {
           setGameLoading(false);
         }
@@ -2506,6 +2508,45 @@ const App: React.FC = () => {
   }, [refreshServerStatus, lastRefreshTimeRef]);
 
   const [frpDocModalVisible, setFrpDocModalVisible] = useState<boolean>(false);
+  
+  // 版本检查相关状态
+  const [versionUpdateModalVisible, setVersionUpdateModalVisible] = useState<boolean>(false);
+  const [latestVersionInfo, setLatestVersionInfo] = useState<{version: string, description: any} | null>(null);
+  const currentVersion = '2.0.3'; // 当前版本号
+  
+  // 版本检查功能
+  const checkForUpdates = async () => {
+    try {
+      const response = await checkVersionUpdate();
+      
+      // 如果返回skip状态，说明没有赞助者密钥，静默跳过
+      if (response && response.status === 'skip') {
+        console.log('跳过版本检查:', response.message);
+        return;
+      }
+      
+      // 如果有版本信息且版本不同，显示更新弹窗
+      if (response && response.version && response.version !== currentVersion) {
+        setLatestVersionInfo(response);
+        setVersionUpdateModalVisible(true);
+      }
+    } catch (error) {
+      // 静默处理版本检查错误，不影响用户体验
+      console.warn('版本检查失败:', error);
+    }
+  };
+  
+  // 在用户登录后检查版本更新
+  useEffect(() => {
+    if (isAuthenticated) {
+      // 延迟3秒后检查版本，避免影响应用启动速度
+      const timer = setTimeout(() => {
+        checkForUpdates();
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated]);
   
   // 检查是否需要显示内网穿透文档弹窗（仅在首次访问时）
   useEffect(() => {
@@ -3516,6 +3557,11 @@ const App: React.FC = () => {
                               })()}</p>
                               <p>保留: {task.keepCount}份</p>
                               <p>下次备份: {task.nextBackup || '未设置'}</p>
+                              {task.linkedServerId && (
+                                <p>关联服务端: {task.linkedServerId} 
+                                  {task.autoControl && <Tag color="blue" size="small">自动控制</Tag>}
+                                </p>
+                              )}
                             </div>
                             <div style={{display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px'}}>
                               <Button 
@@ -3602,7 +3648,7 @@ const App: React.FC = () => {
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期5.31</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.3</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
@@ -3992,6 +4038,33 @@ const App: React.FC = () => {
             <Input type="number" placeholder="例如：7" addonAfter="份" />
           </Form.Item>
           
+          <Form.Item
+            name="linkedServerId"
+            label="关联服务端"
+            tooltip="选择要关联的服务端，可实现自动控制备份任务"
+          >
+            <Select placeholder="请选择服务端（可选）" allowClear>
+              {installedGames.map(game => (
+                <Select.Option key={game.id || game} value={game.id || game}>
+                  {game.name || game}
+                </Select.Option>
+              ))}
+              {externalGames.map(game => (
+                <Select.Option key={game.id} value={game.id}>
+                  {game.name} (外部)
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          
+          <Form.Item
+            name="autoControl"
+            valuePropName="checked"
+            tooltip="启用后，当关联的服务端启动时自动启用备份任务，服务端停止时自动停用备份任务"
+          >
+            <Checkbox>自动控制（根据服务端状态）</Checkbox>
+          </Form.Item>
+          
           <div style={{ textAlign: 'center', marginTop: 24 }}>
             <Button 
               type="default" 
@@ -4056,6 +4129,91 @@ const App: React.FC = () => {
       
       {/* 添加内网穿透文档弹窗 */}
       <FrpDocModal visible={frpDocModalVisible} onClose={handleCloseFrpDocModal} />
+      
+      {/* 版本更新提示弹窗 */}
+      <Modal
+        title="🎉 发现新版本"
+        open={versionUpdateModalVisible}
+        onCancel={() => setVersionUpdateModalVisible(false)}
+        footer={[
+          <Button key="later" onClick={() => setVersionUpdateModalVisible(false)}>
+            稍后提醒
+          </Button>,
+          <Button key="copy" onClick={() => {
+            const dockerCommand = `docker pull xiaozhu674/gameservermanager:${latestVersionInfo?.version || 'latest'}`;
+            
+            // 检查是否支持现代剪贴板API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(dockerCommand).then(() => {
+                message.success('Docker镜像地址已复制到剪贴板');
+              }).catch(() => {
+                message.error('复制失败，请手动复制');
+              });
+            } else {
+              // 降级方案：使用传统的document.execCommand
+              try {
+                const textArea = document.createElement('textarea');
+                textArea.value = dockerCommand;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                if (successful) {
+                  message.success('Docker镜像地址已复制到剪贴板');
+                } else {
+                  message.error('复制失败，请手动复制：' + dockerCommand);
+                }
+              } catch (err) {
+                message.error('复制失败，请手动复制：' + dockerCommand);
+              }
+            }
+          }}>
+            复制镜像地址
+          </Button>,
+          <Button key="download" type="primary" onClick={() => {
+            window.open('https://pan.baidu.com/s/1NyinYIwX1xeL4jWafIuOgw?pwd=v75z', '_blank');
+          }}>
+            前往下载离线镜像
+          </Button>
+        ]}
+        width={500}
+      >
+        <div style={{ padding: '16px 0' }}>
+          <p style={{ fontSize: '16px', marginBottom: '16px' }}>
+            <strong>当前版本：</strong>{currentVersion}
+          </p>
+          <p style={{ fontSize: '16px', marginBottom: '16px' }}>
+            <strong>最新版本：</strong>{latestVersionInfo?.version}
+          </p>
+          {latestVersionInfo?.description && (
+            <div>
+              <p style={{ fontSize: '16px', marginBottom: '8px' }}>
+                <strong>更新内容：</strong>
+              </p>
+              <div style={{ 
+                background: '#f5f5f5', 
+                padding: '12px', 
+                borderRadius: '6px',
+                fontSize: '14px',
+                lineHeight: '1.6'
+              }}>
+                {typeof latestVersionInfo.description === 'object' ? 
+                  Object.entries(latestVersionInfo.description).map(([type, content], index) => (
+                    <div key={index} style={{ marginBottom: index < Object.entries(latestVersionInfo.description).length - 1 ? '8px' : '0' }}>
+                      <strong style={{ color: '#1890ff' }}>{type}：</strong>{content}
+                    </div>
+                  )) :
+                  latestVersionInfo.description
+                }
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </Layout>
   );
 };

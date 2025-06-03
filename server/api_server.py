@@ -84,6 +84,9 @@ MEFRP_BINARY = os.path.join(MEFRP_DIR, "frpc")
 # Sakura内网穿透
 SAKURA_DIR = os.path.join(FRP_DIR, "Sakura")
 SAKURA_BINARY = os.path.join(SAKURA_DIR, "frpc")
+# NPC内网穿透
+NPC_DIR = os.path.join(FRP_DIR, "npc")
+NPC_BINARY = os.path.join(NPC_DIR, "frpc")
 
 # 确保FRP相关目录存在
 os.makedirs(FRP_DIR, exist_ok=True)
@@ -93,6 +96,7 @@ os.makedirs(CUSTOM_FRP_DIR, exist_ok=True)
 os.makedirs(os.path.join(FRP_DIR, "logs"), exist_ok=True)
 os.makedirs(MEFRP_DIR, exist_ok=True)
 os.makedirs(SAKURA_DIR, exist_ok=True)
+os.makedirs(NPC_DIR, exist_ok=True)
 
 # FRP进程字典
 running_frp_processes = {}  # id: {'process': process, 'log_file': log_file_path}
@@ -119,6 +123,13 @@ def ensure_backup_config_loaded():
         load_backup_config()
         start_backup_scheduler()
         _backup_config_loaded = True
+
+def ensure_auto_start_initialized():
+    """确保自启动功能已初始化（用于Gunicorn启动）"""
+    try:
+        auto_start_servers()
+    except Exception as e:
+        logger.error(f"初始化自启动功能时出错: {str(e)}")
 
 # 导入JWT配置
 from config import JWT_SECRET, JWT_EXPIRATION
@@ -168,9 +179,447 @@ def is_public_route(path):
     ]
     return path in public_routes
 
+# 代理配置应用函数
+def apply_proxy_config(proxy_config):
+    """应用系统级别的代理配置"""
+    try:
+        if proxy_config.get('enabled', False):
+            host = proxy_config.get('host', '')
+            port = proxy_config.get('port', 8080)
+            username = proxy_config.get('username', '')
+            password = proxy_config.get('password', '')
+            proxy_type = proxy_config.get('type', 'http')
+            no_proxy = proxy_config.get('no_proxy', '')
+            
+            # 构建代理URL
+            if username and password:
+                proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+            else:
+                proxy_url = f"{proxy_type}://{host}:{port}"
+            
+            # 1. 设置环境变量（应用程序级别）
+            os.environ['HTTP_PROXY'] = proxy_url
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['http_proxy'] = proxy_url
+            os.environ['https_proxy'] = proxy_url
+            os.environ['ALL_PROXY'] = proxy_url
+            os.environ['all_proxy'] = proxy_url
+            
+            if no_proxy:
+                os.environ['NO_PROXY'] = no_proxy
+                os.environ['no_proxy'] = no_proxy
+            
+            # 2. 配置系统级别代理
+            _configure_system_proxy(proxy_config)
+            
+            # 3. 配置APT代理（如果是Debian/Ubuntu系统）
+            _configure_apt_proxy(proxy_config)
+            
+            # 4. 写入全局环境配置文件
+            _write_global_proxy_config(proxy_config)
+            
+            logger.info(f"已应用系统级别代理配置: {proxy_type}://{host}:{port}")
+        else:
+            # 清除所有代理配置
+            _clear_all_proxy_config()
+            logger.info("已清除所有代理配置")
+            
+    except Exception as e:
+        logger.error(f"应用代理配置时出错: {str(e)}")
+
+def _configure_system_proxy(proxy_config):
+    """配置系统级别代理"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        
+        # 构建代理URL
+        if username and password:
+            proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"{proxy_type}://{host}:{port}"
+        
+        # 配置系统代理（通过gsettings，适用于GNOME桌面环境）
+        # 检查是否有桌面环境
+        if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+            try:
+                if proxy_type.lower() in ['http', 'https']:
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'host', host], check=False, stderr=subprocess.DEVNULL)
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'port', str(port)], check=False, stderr=subprocess.DEVNULL)
+                    if username and password:
+                        subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'authentication-user', username], check=False, stderr=subprocess.DEVNULL)
+                        subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'authentication-password', password], check=False, stderr=subprocess.DEVNULL)
+                        subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'use-authentication', 'true'], check=False, stderr=subprocess.DEVNULL)
+                    
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', 'manual'], check=False, stderr=subprocess.DEVNULL)
+                elif proxy_type.lower() == 'socks5':
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.socks', 'host', host], check=False, stderr=subprocess.DEVNULL)
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.socks', 'port', str(port)], check=False, stderr=subprocess.DEVNULL)
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', 'manual'], check=False, stderr=subprocess.DEVNULL)
+                logger.info("已配置GNOME系统代理")
+            except Exception as e:
+                logger.warning(f"配置GNOME系统代理失败: {str(e)}")
+        else:
+            logger.info("无桌面环境，跳过GNOME系统代理配置")
+        
+        # 配置iptables透明代理（需要root权限）
+        try:
+            if proxy_type.lower() == 'socks5':
+                _configure_transparent_proxy(host, port)
+        except Exception as e:
+            logger.warning(f"配置透明代理失败: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"配置系统代理时出错: {str(e)}")
+
+def _configure_transparent_proxy(proxy_host, proxy_port):
+    """配置透明代理（使用iptables和redsocks）"""
+    try:
+        # 检查是否有redsocks
+        redsocks_config = f"""
+base {{
+    log_debug = off;
+    log_info = on;
+    log = "file:/tmp/redsocks.log";
+    daemon = on;
+    redirector = iptables;
+}}
+
+redsocks {{
+    local_ip = 127.0.0.1;
+    local_port = 12345;
+    ip = {proxy_host};
+    port = {proxy_port};
+    type = socks5;
+}}
+"""
+        
+        # 写入redsocks配置
+        with open('/tmp/redsocks.conf', 'w') as f:
+            f.write(redsocks_config)
+        
+        # 启动redsocks（如果存在）
+        try:
+            subprocess.run(['pkill', 'redsocks'], check=False)
+            subprocess.run(['redsocks', '-c', '/tmp/redsocks.conf'], check=False)
+        except FileNotFoundError:
+            logger.warning("redsocks未安装，跳过透明代理配置")
+            return
+        
+        # 配置iptables规则
+        iptables_rules = [
+            # 创建新链
+            ['iptables', '-t', 'nat', '-N', 'REDSOCKS'],
+            # 忽略本地和代理服务器的流量
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '127.0.0.0/8', '-j', 'RETURN'],
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', proxy_host, '-j', 'RETURN'],
+            # 忽略局域网流量
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '10.0.0.0/8', '-j', 'RETURN'],
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '172.16.0.0/12', '-j', 'RETURN'],
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '192.168.0.0/16', '-j', 'RETURN'],
+            # 重定向其他流量到redsocks
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-p', 'tcp', '-j', 'REDIRECT', '--to-ports', '12345'],
+            # 应用规则到OUTPUT链
+            ['iptables', '-t', 'nat', '-A', 'OUTPUT', '-p', 'tcp', '-j', 'REDSOCKS']
+        ]
+        
+        for rule in iptables_rules:
+            try:
+                subprocess.run(rule, check=False)
+            except Exception as e:
+                logger.warning(f"执行iptables规则失败: {' '.join(rule)}, 错误: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"配置透明代理时出错: {str(e)}")
+
+def _configure_apt_proxy(proxy_config):
+    """配置APT代理"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        
+        if proxy_type.lower() in ['http', 'https']:
+            # 构建代理URL
+            if username and password:
+                proxy_url = f"http://{username}:{password}@{host}:{port}"
+            else:
+                proxy_url = f"http://{host}:{port}"
+            
+            apt_proxy_config = f"""
+Acquire::http::Proxy "{proxy_url}";
+Acquire::https::Proxy "{proxy_url}";
+"""
+            
+            # 写入APT代理配置
+            os.makedirs('/etc/apt/apt.conf.d', exist_ok=True)
+            with open('/etc/apt/apt.conf.d/95proxy', 'w') as f:
+                f.write(apt_proxy_config)
+            
+            logger.info("已配置APT代理")
+            
+    except Exception as e:
+        logger.warning(f"配置APT代理失败: {str(e)}")
+
+def _configure_git_proxy(proxy_config):
+    """配置Git代理"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        
+        # 构建代理URL
+        if username and password:
+            proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"{proxy_type}://{host}:{port}"
+        
+        # 配置Git全局代理
+        if proxy_type.lower() in ['http', 'https']:
+            subprocess.run(['git', 'config', '--global', 'http.proxy', proxy_url], check=False)
+            subprocess.run(['git', 'config', '--global', 'https.proxy', proxy_url], check=False)
+        elif proxy_type.lower() == 'socks5':
+            subprocess.run(['git', 'config', '--global', 'http.proxy', proxy_url], check=False)
+            subprocess.run(['git', 'config', '--global', 'https.proxy', proxy_url], check=False)
+        
+        logger.info("已配置Git代理")
+        
+    except Exception as e:
+        logger.warning(f"配置Git代理失败: {str(e)}")
+
+def _write_global_proxy_config(proxy_config):
+    """写入全局环境配置文件"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        no_proxy = proxy_config.get('no_proxy', '')
+        
+        # 构建代理URL
+        if username and password:
+            proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"{proxy_type}://{host}:{port}"
+        
+        # 写入/etc/environment
+        env_config = f"""
+# Proxy Configuration
+export HTTP_PROXY="{proxy_url}"
+export HTTPS_PROXY="{proxy_url}"
+export http_proxy="{proxy_url}"
+export https_proxy="{proxy_url}"
+export ALL_PROXY="{proxy_url}"
+export all_proxy="{proxy_url}"
+"""
+        
+        if no_proxy:
+            env_config += f"""
+export NO_PROXY="{no_proxy}"
+export no_proxy="{no_proxy}"
+"""
+        
+        # 写入到/etc/environment（需要root权限）
+        try:
+            with open('/etc/environment', 'a') as f:
+                f.write(env_config)
+        except PermissionError:
+            # 如果没有权限，写入到用户目录
+            home_dir = os.path.expanduser('~')
+            with open(os.path.join(home_dir, '.proxy_env'), 'w') as f:
+                f.write(env_config)
+            
+            # 添加到.bashrc
+            bashrc_path = os.path.join(home_dir, '.bashrc')
+            if os.path.exists(bashrc_path):
+                with open(bashrc_path, 'a') as f:
+                    f.write(f"\n# Load proxy configuration\nsource ~/.proxy_env\n")
+        
+        logger.info("已写入全局代理配置")
+        
+    except Exception as e:
+        logger.warning(f"写入全局代理配置失败: {str(e)}")
+
+def _clear_all_proxy_config():
+    """清除所有代理配置"""
+    try:
+        # 1. 清除环境变量
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                     'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy', 'FTP_PROXY', 'ftp_proxy']
+        for var in proxy_vars:
+            if var in os.environ:
+                del os.environ[var]
+        
+        # 2. 清除系统代理设置（GNOME）
+        if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+            try:
+                subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', 'none'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.http', 'host'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.http', 'port'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.socks', 'host'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.socks', 'port'], 
+                             check=False, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        
+        # 3. 清除APT代理
+        try:
+            if os.path.exists('/etc/apt/apt.conf.d/95proxy'):
+                os.remove('/etc/apt/apt.conf.d/95proxy')
+        except Exception:
+            pass
+        
+        # 4. 清除Git代理
+        try:
+            subprocess.run(['git', 'config', '--global', '--unset', 'http.proxy'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            subprocess.run(['git', 'config', '--global', '--unset', 'https.proxy'], 
+                         check=False, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        
+        # 5. 清除透明代理和iptables规则
+        try:
+            # 停止redsocks服务
+            subprocess.run(['pkill', '-f', 'redsocks'], check=False, stderr=subprocess.DEVNULL)
+            
+            # 清除iptables规则
+            subprocess.run(['iptables', '-t', 'nat', '-F', 'REDSOCKS'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            subprocess.run(['iptables', '-t', 'nat', '-D', 'OUTPUT', '-p', 'tcp', '-j', 'REDSOCKS'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            subprocess.run(['iptables', '-t', 'nat', '-X', 'REDSOCKS'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            
+            # 删除redsocks配置文件
+            if os.path.exists('/tmp/redsocks.conf'):
+                os.remove('/tmp/redsocks.conf')
+        except Exception:
+            pass
+        
+        # 6. 清除环境配置文件
+        try:
+            home_dir = os.path.expanduser('~')
+            proxy_env_file = os.path.join(home_dir, '.proxy_env')
+            if os.path.exists(proxy_env_file):
+                os.remove(proxy_env_file)
+            
+            # 清除/etc/environment中的代理配置
+            if os.path.exists('/etc/environment'):
+                with open('/etc/environment', 'r') as f:
+                    lines = f.readlines()
+                
+                # 过滤掉代理相关的行
+                filtered_lines = []
+                for line in lines:
+                    if not any(proxy_var in line.upper() for proxy_var in 
+                             ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'FTP_PROXY']):
+                        filtered_lines.append(line)
+                
+                with open('/etc/environment', 'w') as f:
+                    f.writelines(filtered_lines)
+        except Exception:
+            pass
+        
+        # 7. 清除shell配置文件中的代理设置
+        try:
+            home_dir = os.path.expanduser('~')
+            shell_files = ['.bashrc', '.zshrc', '.profile', '.bash_profile']
+            
+            for shell_file in shell_files:
+                file_path = os.path.join(home_dir, shell_file)
+                if os.path.exists(file_path):
+                    with open(file_path, 'r') as f:
+                        content = f.read()
+                    
+                    # 移除代理相关的行
+                    lines = content.split('\n')
+                    filtered_lines = []
+                    skip_next = False
+                    
+                    for line in lines:
+                        if skip_next and line.strip() == '':
+                            skip_next = False
+                            continue
+                        
+                        if ('proxy' in line.lower() and ('export' in line or 'source' in line)) or \
+                           any(proxy_var in line.upper() for proxy_var in 
+                               ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'FTP_PROXY']) or \
+                           '.proxy_env' in line:
+                            skip_next = True
+                            continue
+                        
+                        filtered_lines.append(line)
+                        skip_next = False
+                    
+                    with open(file_path, 'w') as f:
+                        f.write('\n'.join(filtered_lines))
+        except Exception:
+            pass
+        
+        # 8. 重新加载shell环境（尝试）
+        try:
+            subprocess.run(['bash', '-c', 'source ~/.bashrc'], check=False, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        
+        # 9. 清除Docker代理配置（如果存在）
+        try:
+            docker_config_dir = os.path.expanduser('~/.docker')
+            docker_config_file = os.path.join(docker_config_dir, 'config.json')
+            if os.path.exists(docker_config_file):
+                import json
+                with open(docker_config_file, 'r') as f:
+                    config = json.load(f)
+                
+                # 移除代理配置
+                if 'proxies' in config:
+                    del config['proxies']
+                
+                with open(docker_config_file, 'w') as f:
+                    json.dump(config, f, indent=2)
+        except Exception:
+            pass
+        
+        logger.info("已清除所有代理配置，包括环境变量、系统设置、配置文件等")
+        
+    except Exception as e:
+        logger.error(f"清除代理配置时出错: {str(e)}")
+
 # 在每个请求前检查认证
+# 初始化代理配置（用于Gunicorn启动）
+def init_proxy_config():
+    """初始化代理配置"""
+    try:
+        from config import load_config
+        config = load_config()
+        proxy_config = config.get('proxy')
+        if proxy_config:
+            apply_proxy_config(proxy_config)
+            logger.info("已加载代理配置")
+    except Exception as e:
+        logger.error(f"加载代理配置失败: {str(e)}")
+
+# 在Gunicorn启动时初始化代理配置
+init_proxy_config()
+
 @app.before_request
 def check_auth():
+    # 确保自启动功能已初始化（用于Gunicorn启动）
+    ensure_auto_start_initialized()
+    
     # 记录请求路径，帮助调试
     logger.debug(f"收到请求: {request.method} {request.path}, 参数: {request.args}, 头部: {request.headers}")
     
@@ -736,15 +1185,14 @@ def get_games():
         logger.debug("获取游戏列表")
         
         # 检查赞助者身份
-        config = load_config()
-        sponsor_key = config.get('sponsor_key')
+        validator = get_sponsor_validator()
         cloud_error = None
         
         # 如果有赞助者密钥，尝试从云端获取游戏列表
-        if sponsor_key:
+        if validator.has_sponsor_key():
             try:
                 # 设置5秒超时
-                cloud_games = fetch_cloud_games(sponsor_key)
+                cloud_games = validator.fetch_cloud_games()
                 if cloud_games:
                     logger.debug(f"从云端获取到 {len(cloud_games)} 个游戏")
                     return jsonify({'status': 'success', 'games': cloud_games, 'source': 'cloud'})
@@ -785,45 +1233,16 @@ def get_games():
         logger.error(f"获取游戏列表失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# 导入赞助者验证模块
+from sponsor_validator import get_sponsor_validator
+
 def fetch_cloud_games(sponsor_key):
     """从云端获取游戏列表"""
     try:
-        logger.debug("正在从云端获取游戏列表...")
-        
-        # 创建一个带有超时的会话
-        session = requests.Session()
-        response = session.get('http://82.156.35.55:5001/games', 
-                              headers={'key': sponsor_key}, 
-                              timeout=5)
-        
-        if response.status_code == 200:
-            cloud_data = response.json()
-            game_list = []
-            
-            # 处理返回的云端游戏数据
-            for game_id, game_info in cloud_data.items():
-                game_list.append({
-                    'id': game_id,
-                    'name': game_info.get('game_nameCN', game_id),
-                    'appid': game_info.get('appid'),
-                    'anonymous': game_info.get('anonymous', True),
-                    'has_script': game_info.get('script', False),
-                    'tip': game_info.get('tip', ''),
-                    'image': game_info.get('image', ''),
-                    'url': game_info.get('url', ''),
-                    'script_name': game_info.get('script_name', '')  # 保存脚本内容
-                })
-            
-            return game_list
-        elif response.status_code == 403:
-            # 403错误意味着凭证验证不通过
-            logger.error("赞助者凭证验证不通过，状态码403")
-            raise Exception("403：赞助者凭证验证不通过")
-        else:
-            logger.error(f"云端服务器返回错误: {response.status_code}")
-            return None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"请求云端服务器失败: {str(e)}")
+        validator = get_sponsor_validator()
+        return validator.fetch_cloud_games(sponsor_key)
+    except Exception as e:
+        logger.error(f"获取云端游戏列表失败: {str(e)}")
         raise
 
 @app.route('/api/install', methods=['POST'])
@@ -840,15 +1259,14 @@ def install_game():
         logger.info(f"请求安装游戏: {game_id}")
         
         # 获取游戏信息 - 首先尝试从云端获取
-        config = load_config()
-        sponsor_key = config.get('sponsor_key')
+        validator = get_sponsor_validator()
         game_info = None
         script_name = None
         
         # 如果有赞助者凭证，尝试从云端获取游戏信息
-        if sponsor_key:
+        if validator.has_sponsor_key():
             try:
-                cloud_games = fetch_cloud_games(sponsor_key)
+                cloud_games = validator.fetch_cloud_games()
                 if cloud_games:
                     # 查找指定游戏
                     for game in cloud_games:
@@ -2527,6 +2945,7 @@ def get_container_info():
                 'status': 'success',
                 'system_info': {
                     'cpu_usage': 0,
+                    'cpu_per_core': [],
                     'cpu_model': '获取超时',
                     'cpu_cores': 0,
                     'cpu_logical_cores': 0,
@@ -2590,6 +3009,7 @@ def get_container_info():
                 'status': 'success',
                 'system_info': {
                     'cpu_usage': 0,
+                    'cpu_per_core': [],
                     'cpu_model': cpu_model,
                     'cpu_cores': 0,
                     'cpu_logical_cores': 0,
@@ -2603,6 +3023,7 @@ def get_container_info():
         # 获取系统信息
         system_info = {
             'cpu_usage': psutil.cpu_percent(interval=None),  # 使用非阻塞方式获取CPU使用率
+            'cpu_per_core': psutil.cpu_percent(interval=None, percpu=True),  # 每个核心的使用率
             'cpu_model': cpu_model,
             'cpu_cores': psutil.cpu_count(logical=False),  # 物理核心数
             'cpu_logical_cores': psutil.cpu_count(logical=True),  # 逻辑核心数
@@ -2656,7 +3077,7 @@ def get_container_info():
             
             # 如果有服务器正在运行，跳过详细的空间计算，使用估算值或缓存
             if has_running_servers:
-                logger.info("检测到有服务器正在运行，跳过详细的游戏空间计算")
+                logger.debug("检测到有服务器正在运行，跳过详细的游戏空间计算")
                 
                 # 尝试从缓存加载游戏空间数据
                 try:
@@ -2706,7 +3127,7 @@ def get_container_info():
                             for dirpath, dirnames, filenames in os.walk(game_path):
                                 # 检查是否超过每个游戏的时间限制
                                 if time.time() - game_start_time > time_per_game:
-                                    logger.warning(f"计算游戏 {game_id} 空间占用超时")
+                                    logger.debug(f"计算游戏 {game_id} 空间占用超时")
                                     size = -1  # 使用-1表示计算超时
                                     break
                                     
@@ -4065,6 +4486,9 @@ def start_frp():
         elif target_config['type'] == 'sakura':
             frp_binary = SAKURA_BINARY
             frp_dir = SAKURA_DIR
+        elif target_config['type'] == 'npc':
+            frp_binary = NPC_BINARY
+            frp_dir = NPC_DIR
         
         # 确保FRP可执行
         if not os.path.exists(frp_binary):
@@ -4968,9 +5392,217 @@ def get_network_info():
             'public_ip': public_ip,
             'io_stats': io_stats
         })
+        
     except Exception as e:
         logger.error(f"获取网络信息失败: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/system_processes', methods=['GET'])
+@auth_required
+def get_system_processes():
+    """获取当前运行的所有进程信息"""
+    try:
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent', 'create_time', 'cmdline']):
+            try:
+                proc_info = proc.info
+                # 过滤掉一些系统进程和权限不足的进程
+                if proc_info['name'] and proc_info['pid'] > 1:
+                    # 获取命令行参数，限制长度
+                    cmdline = ' '.join(proc_info['cmdline'] or [])[:100]
+                    if len(cmdline) > 100:
+                        cmdline += '...'
+                    
+                    processes.append({
+                        'pid': proc_info['pid'],
+                        'name': proc_info['name'],
+                        'username': proc_info['username'] or 'unknown',
+                        'cpu_percent': round(proc_info['cpu_percent'] or 0, 2),
+                        'memory_percent': round(proc_info['memory_percent'] or 0, 2),
+                        'create_time': proc_info['create_time'],
+                        'cmdline': cmdline
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        # 按CPU使用率排序
+        processes.sort(key=lambda x: x['cpu_percent'], reverse=True)
+        
+        return jsonify({
+            'status': 'success',
+            'processes': processes
+        })
+        
+    except Exception as e:
+        logger.error(f"获取进程信息失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/system_ports', methods=['GET'])
+@auth_required
+def get_system_ports():
+    """获取当前活跃的端口和对应的进程信息"""
+    try:
+        ports = []
+        port_set = set()  # 用于去重
+        
+        # 获取所有网络连接（包括IPv4和IPv6）
+        try:
+            connections = psutil.net_connections(kind='inet')
+        except psutil.AccessDenied:
+            # 如果权限不足，尝试只获取当前进程的连接
+            connections = psutil.net_connections(kind='inet', perproc=False)
+        
+        for conn in connections:
+            try:
+                port_info = None
+                
+                # 处理监听端口（服务器端口）
+                if conn.status == psutil.CONN_LISTEN and conn.laddr:
+                    port_key = (conn.laddr.port, conn.laddr.ip, 'LISTEN')
+                    if port_key not in port_set:
+                        port_set.add(port_key)
+                        port_info = {
+                            'port': conn.laddr.port,
+                            'address': conn.laddr.ip,
+                            'family': 'IPv4' if conn.family == socket.AF_INET else 'IPv6',
+                            'type': 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                            'status': 'LISTEN',
+                            'pid': conn.pid,
+                            'process_name': None,
+                            'process_cmdline': None
+                        }
+                
+                # 处理已建立的连接（显示本地端口）
+                elif conn.status == psutil.CONN_ESTABLISHED and conn.laddr:
+                    port_key = (conn.laddr.port, conn.laddr.ip, 'ESTABLISHED')
+                    if port_key not in port_set:
+                        port_set.add(port_key)
+                        remote_info = f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "Unknown"
+                        port_info = {
+                            'port': conn.laddr.port,
+                            'address': conn.laddr.ip,
+                            'family': 'IPv4' if conn.family == socket.AF_INET else 'IPv6',
+                            'type': 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                            'status': f'ESTABLISHED -> {remote_info}',
+                            'pid': conn.pid,
+                            'process_name': None,
+                            'process_cmdline': None
+                        }
+                
+                # 处理UDP连接（通常没有状态）
+                elif conn.type == socket.SOCK_DGRAM and conn.laddr:
+                    port_key = (conn.laddr.port, conn.laddr.ip, 'UDP')
+                    if port_key not in port_set:
+                        port_set.add(port_key)
+                        port_info = {
+                            'port': conn.laddr.port,
+                            'address': conn.laddr.ip,
+                            'family': 'IPv4' if conn.family == socket.AF_INET else 'IPv6',
+                            'type': 'UDP',
+                            'status': 'ACTIVE',
+                            'pid': conn.pid,
+                            'process_name': None,
+                            'process_cmdline': None
+                        }
+                
+                # 获取进程信息
+                if port_info and conn.pid:
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        port_info['process_name'] = proc.name()
+                        cmdline = ' '.join(proc.cmdline()[:3])  # 只取前3个参数
+                        if len(cmdline) > 80:
+                            cmdline = cmdline[:80] + '...'
+                        port_info['process_cmdline'] = cmdline
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        port_info['process_name'] = 'Unknown'
+                        port_info['process_cmdline'] = 'Access Denied'
+                
+                if port_info:
+                    ports.append(port_info)
+                    
+            except Exception:
+                continue
+        
+        # 按端口号排序
+        ports.sort(key=lambda x: x['port'])
+        
+        return jsonify({
+            'status': 'success',
+            'ports': ports
+        })
+        
+    except Exception as e:
+        logger.error(f"获取端口信息失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/kill_process', methods=['POST'])
+@auth_required
+def kill_process():
+    """结束指定的进程"""
+    try:
+        data = request.get_json()
+        if not data or 'pid' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少进程ID参数'
+            }), 400
+        
+        pid = data['pid']
+        force = data.get('force', False)
+        
+        try:
+            proc = psutil.Process(pid)
+            proc_name = proc.name()
+            
+            # 安全检查：不允许杀死重要的系统进程
+            critical_processes = ['systemd', 'kernel', 'init', 'kthreadd', 'ssh', 'sshd']
+            if proc_name.lower() in critical_processes:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'不允许结束关键系统进程: {proc_name}'
+                }), 403
+            
+            if force:
+                proc.kill()  # SIGKILL
+                action = '强制结束'
+            else:
+                proc.terminate()  # SIGTERM
+                action = '正常结束'
+            
+            logger.info(f"{action}进程: PID={pid}, Name={proc_name}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'已{action}进程 {proc_name} (PID: {pid})'
+            })
+            
+        except psutil.NoSuchProcess:
+            return jsonify({
+                'status': 'error',
+                'message': '进程不存在或已结束'
+            }), 404
+        except psutil.AccessDenied:
+            return jsonify({
+                'status': 'error',
+                'message': '权限不足，无法结束该进程'
+            }), 403
+            
+    except Exception as e:
+        logger.error(f"结束进程失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 # 添加公网IP缓存相关变量
 cached_public_ip = None
@@ -4987,29 +5619,12 @@ def save_sponsor_key():
         if not sponsor_key:
             return jsonify({'status': 'error', 'message': '赞助者凭证不能为空'}), 400
             
-        # 加载现有配置
-        config_path = "/home/steam/games/config.json"
-        existing_config = {}
-        
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    existing_config = json.load(f)
-            except Exception as e:
-                logger.error(f"读取配置文件失败: {str(e)}")
-                
-        # 确保目录存在
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        
-        # 添加或更新赞助者凭证
-        existing_config['sponsor_key'] = sponsor_key
-        
-        # 保存配置
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(existing_config, f, indent=4)
-            
-        logger.info("赞助者凭证已保存")
-        return jsonify({'status': 'success', 'message': '赞助者凭证已保存'})
+        # 使用赞助者验证模块保存密钥
+        validator = get_sponsor_validator()
+        if validator.save_sponsor_key(sponsor_key):
+            return jsonify({'status': 'success', 'message': '赞助者凭证已保存'})
+        else:
+            return jsonify({'status': 'error', 'message': '保存赞助者凭证失败'}), 500
         
     except Exception as e:
         logger.error(f"保存赞助者凭证时出错: {str(e)}")
@@ -5019,36 +5634,227 @@ def save_sponsor_key():
 def get_sponsor_key():
     """获取当前赞助者凭证"""
     try:
-        # 加载配置文件
-        config_path = "/home/steam/games/config.json"
+        # 使用赞助者验证模块获取密钥信息
+        validator = get_sponsor_validator()
         
-        if not os.path.exists(config_path):
-            return jsonify({'status': 'success', 'sponsor_key': None})
-            
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                sponsor_key = config.get('sponsor_key')
-                
-                # 为了安全起见，只返回是否存在凭证，不返回完整凭证
-                if sponsor_key:
-                    # 只返回前四个字符和最后四个字符，中间用星号代替
-                    masked_key = sponsor_key[:4] + '*' * (len(sponsor_key) - 8) + sponsor_key[-4:] if len(sponsor_key) > 8 else sponsor_key
-                    return jsonify({
-                        'status': 'success', 
-                        'has_sponsor_key': True,
-                        'masked_sponsor_key': masked_key
-                    })
-                else:
-                    return jsonify({'status': 'success', 'has_sponsor_key': False})
-                    
-        except Exception as e:
-            logger.error(f"读取配置文件失败: {str(e)}")
-            return jsonify({'status': 'error', 'message': f'读取配置文件失败: {str(e)}'}), 500
+        if validator.has_sponsor_key():
+            masked_key = validator.get_masked_sponsor_key()
+            return jsonify({
+                'status': 'success', 
+                'has_sponsor_key': True,
+                'masked_sponsor_key': masked_key
+            })
+        else:
+            return jsonify({'status': 'success', 'has_sponsor_key': False})
             
     except Exception as e:
         logger.error(f"获取赞助者凭证时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'获取赞助者凭证失败: {str(e)}'}), 500
+
+@app.route('/api/sponsor', methods=['GET'])
+def get_gold_sponsors():
+    """获取金牌赞助商信息（代理请求解决CORS问题）"""
+    try:
+        # 代理请求到外部API
+        response = requests.get('http://82.156.35.55:5001/sponsor', timeout=10)
+        
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            logger.error(f"获取金牌赞助商数据失败，状态码: {response.status_code}")
+            return jsonify({'status': 'error', 'message': '获取金牌赞助商数据失败'}), response.status_code
+            
+    except requests.exceptions.Timeout:
+        logger.error("获取金牌赞助商数据超时")
+        return jsonify({'status': 'error', 'message': '请求超时，请稍后重试'}), 408
+    except requests.exceptions.ConnectionError:
+        logger.error("无法连接到金牌赞助商服务器")
+        return jsonify({'status': 'error', 'message': '无法连接到服务器'}), 503
+    except Exception as e:
+        logger.error(f"获取金牌赞助商数据时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'获取数据失败: {str(e)}'}), 500
+
+@app.route('/api/settings/proxy', methods=['POST'])
+@auth_required
+def save_proxy_config():
+    """保存代理配置"""
+    try:
+        data = request.json
+        
+        # 验证必要字段
+        if data.get('enabled', False):
+            if not data.get('host'):
+                return jsonify({'status': 'error', 'message': '代理服务器地址不能为空'}), 400
+            if not data.get('port'):
+                return jsonify({'status': 'error', 'message': '端口号不能为空'}), 400
+        
+        # 加载现有配置
+        from config import load_config, save_config
+        config = load_config()
+        
+        # 更新代理配置
+        config['proxy'] = {
+            'enabled': data.get('enabled', False),
+            'type': data.get('type', 'http'),
+            'host': data.get('host', ''),
+            'port': data.get('port', 8080),
+            'username': data.get('username', ''),
+            'password': data.get('password', ''),
+            'no_proxy': data.get('no_proxy', '')
+        }
+        
+        # 保存配置
+        if save_config(config):
+            # 应用代理配置到环境变量
+            apply_proxy_config(config['proxy'])
+            return jsonify({'status': 'success', 'message': '代理配置保存成功'})
+        else:
+            return jsonify({'status': 'error', 'message': '保存代理配置失败'}), 500
+            
+    except Exception as e:
+        logger.error(f"保存代理配置时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'保存代理配置失败: {str(e)}'}), 500
+
+@app.route('/api/settings/proxy', methods=['GET'])
+@auth_required
+def get_proxy_config():
+    """获取代理配置"""
+    try:
+        from config import load_config
+        config = load_config()
+        
+        # 获取代理配置，如果不存在则返回默认配置
+        proxy_config = config.get('proxy', {
+            'enabled': False,
+            'type': 'http',
+            'host': '',
+            'port': 8080,
+            'username': '',
+            'password': '',
+            'no_proxy': ''
+        })
+        
+        return jsonify({
+            'status': 'success',
+            'config': proxy_config
+        })
+        
+    except Exception as e:
+        logger.error(f"获取代理配置时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'获取代理配置失败: {str(e)}'}), 500
+
+@app.route('/api/settings/test-network', methods=['POST'])
+@auth_required
+def test_network_connectivity():
+    """测试网络连通性（谷歌连接测试）"""
+    try:
+        import time
+        import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        
+        # 获取超时设置
+        data = request.get_json() or {}
+        timeout = data.get('timeout', 10)
+        
+        # 创建会话并配置重试策略
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=1,
+            backoff_factor=0.1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # 测试目标列表（按优先级排序）
+        test_targets = [
+            {'url': 'https://www.google.com', 'name': 'Google'},
+            {'url': 'https://www.googleapis.com', 'name': 'Google APIs'},
+            {'url': 'https://dns.google', 'name': 'Google DNS'},
+        ]
+        
+        start_time = time.time()
+        
+        for target in test_targets:
+            try:
+                response = session.get(
+                    target['url'],
+                    timeout=timeout/1000,  # 转换为秒
+                    allow_redirects=True,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                )
+                
+                end_time = time.time()
+                latency_ms = int((end_time - start_time) * 1000)
+                
+                if response.status_code == 200:
+                    return jsonify({
+                        'status': 'success',
+                        'message': f'成功连接到 {target["name"]}',
+                        'latency': latency_ms,
+                        'target': target['name'],
+                        'url': target['url']
+                    })
+                    
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"连接 {target['name']} 失败: {str(e)}")
+                continue
+        
+        # 所有目标都失败
+        return jsonify({
+            'status': 'error',
+            'message': '无法连接到任何谷歌服务，请检查网络连接或代理设置',
+            'latency': None
+        }), 400
+        
+    except Exception as e:
+        logger.error(f"网络连通性测试时出错: {str(e)}")
+        return jsonify({
+            'status': 'error', 
+            'message': f'网络测试失败: {str(e)}',
+            'latency': None
+        }), 500
+
+@app.route('/api/version/check', methods=['GET'])
+@auth_required
+def check_version_update():
+    """检查版本更新"""
+    try:
+        # 使用赞助者验证模块检查版本更新
+        validator = get_sponsor_validator()
+        
+        # 检查是否有赞助者密钥
+        if not validator.has_sponsor_key():
+            return jsonify({
+                'status': 'skip', 
+                'message': '未配置赞助者密钥，跳过版本检查'
+            }), 200
+        
+        # 获取版本信息
+        version_info = validator.check_version_update()
+        
+        if version_info:
+            return jsonify({
+                'status': 'success',
+                'version': version_info.get('version'),
+                'description': version_info.get('description', {})
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '获取版本信息失败，请检查网络连接或赞助者凭证'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"检查版本更新时出错: {str(e)}")
+        return jsonify({
+            'status': 'error', 
+            'message': f'检查版本更新失败: {str(e)}'
+        }), 500
 
 @app.route('/api/server/list_scripts', methods=['GET'])
 def list_server_scripts():
@@ -5120,6 +5926,216 @@ logger.info("临时错误信息清理线程已启动")
 
 # 添加自启动相关的常量和函数
 CONFIG_FILE = "/home/steam/games/config.json"
+
+# 自启动功能初始化标志
+_auto_start_initialized = False
+
+def auto_start_servers():
+    """在应用启动时自动启动配置的服务器"""
+    global _auto_start_initialized
+    
+    if _auto_start_initialized:
+        return
+        
+    _auto_start_initialized = True
+    
+    try:
+        logger.info("开始检查自启动服务器配置...")
+        
+        # 加载配置
+        config = load_config()
+        auto_restart_servers = config.get('auto_restart_servers', [])
+        auto_restart_frps = config.get('auto_restart_frps', [])
+        
+        if not auto_restart_servers and not auto_restart_frps:
+            logger.info("没有配置自启动的服务器或内网穿透")
+            return
+            
+        # 延迟启动，确保应用完全初始化
+        def delayed_auto_start():
+            time.sleep(5)  # 等待5秒确保应用完全启动
+            
+            # 自动启动服务器
+            if auto_restart_servers:
+                logger.info(f"发现 {len(auto_restart_servers)} 个自启动服务器: {auto_restart_servers}")
+                
+                for game_id in auto_restart_servers:
+                    try:
+                        # 检查游戏目录是否存在
+                        game_dir = os.path.join(GAMES_DIR, game_id)
+                        if not os.path.exists(game_dir):
+                            logger.warning(f"游戏目录不存在，跳过自启动: {game_dir}")
+                            continue
+                            
+                        # 检查是否已经在运行
+                        if game_id in running_servers and running_servers[game_id].get('running', False):
+                            logger.info(f"游戏服务器 {game_id} 已在运行，跳过自启动")
+                            continue
+                            
+                        logger.info(f"自动启动游戏服务器: {game_id}")
+                        
+                        # 查找启动脚本
+                        script_name = "start.sh"
+                        script_path = os.path.join(game_dir, script_name)
+                        
+                        # 尝试从.last_script文件读取上次使用的脚本
+                        last_script_path = os.path.join(game_dir, '.last_script')
+                        if os.path.exists(last_script_path):
+                            try:
+                                with open(last_script_path, 'r') as f:
+                                    saved_script = f.read().strip()
+                                    if saved_script and os.path.exists(os.path.join(game_dir, saved_script)):
+                                        script_name = saved_script
+                                        script_path = os.path.join(game_dir, script_name)
+                                        logger.info(f"使用上次保存的启动脚本: {script_name}")
+                            except Exception as e:
+                                logger.warning(f"读取.last_script文件失败: {str(e)}")
+                        
+                        if not os.path.exists(script_path):
+                            logger.warning(f"启动脚本不存在，跳过自启动: {script_path}")
+                            continue
+                            
+                        # 确保脚本有执行权限
+                        if not os.access(script_path, os.X_OK):
+                            logger.info(f"添加脚本执行权限: {script_path}")
+                            os.chmod(script_path, 0o755)
+                        
+                        # 构建启动命令
+                        cmd = f"su - steam -c 'cd {game_dir} && ./{script_name}'"
+                        
+                        # 初始化服务器状态跟踪
+                        running_servers[game_id] = {
+                            'process': None,
+                            'output': [],
+                            'started_at': time.time(),
+                            'running': True,
+                            'return_code': None,
+                            'cmd': cmd,
+                            'master_fd': None,
+                            'game_dir': game_dir,
+                            'external': False,
+                            'script_name': script_name,
+                            'auto_started': True  # 标记为自动启动
+                        }
+                        
+                        # 创建输出队列
+                        if game_id not in server_output_queues:
+                            server_output_queues[game_id] = queue.Queue()
+                        
+                        # 在单独的线程中启动服务器
+                        server_thread = threading.Thread(
+                            target=run_game_server,
+                            args=(game_id, cmd, game_dir),
+                            daemon=True
+                        )
+                        server_thread.start()
+                        
+                        logger.info(f"游戏服务器 {game_id} 自启动线程已启动")
+                        
+                        # 间隔启动，避免同时启动太多服务器
+                        time.sleep(2)
+                        
+                    except Exception as e:
+                        logger.error(f"自动启动游戏服务器 {game_id} 失败: {str(e)}")
+            
+            # 自动启动内网穿透
+            if auto_restart_frps:
+                logger.info(f"发现 {len(auto_restart_frps)} 个自启动内网穿透: {auto_restart_frps}")
+                
+                for frp_id in auto_restart_frps:
+                    try:
+                        # 检查是否已经在运行
+                        if frp_id in running_frp_processes:
+                            logger.info(f"内网穿透 {frp_id} 已在运行，跳过自启动")
+                            continue
+                            
+                        logger.info(f"自动启动内网穿透: {frp_id}")
+                        
+                        # 加载FRP配置
+                        configs = load_frp_configs()
+                        target_config = None
+                        
+                        for config in configs:
+                            if config['id'] == frp_id:
+                                target_config = config
+                                break
+                        
+                        if not target_config:
+                            logger.warning(f"未找到内网穿透 {frp_id} 的配置，跳过自启动")
+                            continue
+                        
+                        # 启动内网穿透
+                        # 根据FRP类型选择不同的二进制文件和目录
+                        frp_binary = FRP_BINARY
+                        frp_dir = os.path.join(FRP_DIR, "LoCyanFrp")
+                        
+                        if target_config['type'] == 'custom':
+                            frp_binary = CUSTOM_FRP_BINARY
+                            frp_dir = CUSTOM_FRP_DIR
+                        elif target_config['type'] == 'mefrp':
+                            frp_binary = MEFRP_BINARY
+                            frp_dir = MEFRP_DIR
+                        elif target_config['type'] == 'sakura':
+                            frp_binary = SAKURA_BINARY
+                            frp_dir = SAKURA_DIR
+                        
+                        # 确保FRP可执行
+                        if not os.path.exists(frp_binary):
+                            logger.warning(f"{target_config['type']}客户端程序不存在，跳过自启动: {frp_binary}")
+                            continue
+                        
+                        # 设置可执行权限
+                        os.chmod(frp_binary, 0o755)
+                        
+                        # 创建日志文件
+                        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+                        log_file = open(log_file_path, 'w')
+                        
+                        # 构建命令
+                        command = f"{frp_binary} {target_config['command']}"
+                        
+                        # 启动FRP进程
+                        process = subprocess.Popen(
+                            shlex.split(command),
+                            stdout=log_file,
+                            stderr=log_file,
+                            cwd=frp_dir
+                        )
+                        
+                        # 保存进程信息
+                        running_frp_processes[frp_id] = {
+                            'process': process,
+                            'log_file': log_file_path,
+                            'started_at': time.time(),
+                            'auto_started': True  # 标记为自动启动
+                        }
+                        
+                        # 更新配置状态
+                        configs = load_frp_configs()
+                        for config in configs:
+                            if config['id'] == frp_id:
+                                config['status'] = 'running'
+                                break
+                        save_frp_configs(configs)
+                        
+                        logger.info(f"内网穿透 {frp_id} 自启动成功")
+                        
+                        # 间隔启动
+                        time.sleep(1)
+                        
+                    except Exception as e:
+                        logger.error(f"自动启动内网穿透 {frp_id} 失败: {str(e)}")
+                        
+            logger.info("自启动功能执行完成")
+        
+        # 在后台线程中执行延迟启动
+        auto_start_thread = threading.Thread(target=delayed_auto_start, daemon=True)
+        auto_start_thread.start()
+        
+        logger.info("自启动功能已初始化，将在5秒后开始执行")
+        
+    except Exception as e:
+        logger.error(f"初始化自启动功能失败: {str(e)}")
 
 def load_config():
     """加载配置文件"""
@@ -5384,6 +6400,9 @@ def restart_frp(frp_id):
         elif target_config['type'] == 'sakura':
             frp_binary = SAKURA_BINARY
             frp_dir = SAKURA_DIR
+        elif target_config['type'] == 'npc':
+            frp_binary = NPC_BINARY
+            frp_dir = NPC_DIR
         
         # 确保FRP可执行
         if not os.path.exists(frp_binary):
@@ -5978,7 +6997,9 @@ def create_backup_task():
             "enabled": True,
             "nextBackup": next_backup.strftime('%Y-%m-%d %H:%M:%S'),
             "lastBackup": None,
-            "status": "等待中"
+            "status": "等待中",
+            "linkedServerId": data.get('linkedServerId'),  # 关联的服务端ID
+            "autoControl": data.get('autoControl', False)  # 是否自动控制（服务端开启时启用备份，关闭时停用）
         }
         
         backup_tasks[task_id] = task
@@ -6032,6 +7053,10 @@ def update_backup_task(task_id):
             task['intervalUnit'] = data['intervalUnit']
         if 'keepCount' in data:
             task['keepCount'] = int(data['keepCount'])
+        if 'linkedServerId' in data:
+            task['linkedServerId'] = data['linkedServerId']
+        if 'autoControl' in data:
+            task['autoControl'] = data['autoControl']
         
         save_backup_config()
         logger.info(f"更新备份任务: {task['name']}")
@@ -6203,6 +7228,26 @@ def backup_scheduler():
             current_time = datetime.datetime.now()
             
             for task_id, task in backup_tasks.items():
+                # 检查是否启用了自动控制功能
+                if task.get('autoControl', False) and task.get('linkedServerId'):
+                    linked_server_id = task['linkedServerId']
+                    server_running = is_server_running(linked_server_id)
+                    
+                    # 根据服务端状态自动控制备份任务
+                    if server_running and not task.get('enabled', False):
+                        # 服务端运行中但备份任务未启用，自动启用
+                        task['enabled'] = True
+                        task['status'] = '已启用（自动）'
+                        logger.info(f"服务端 {linked_server_id} 运行中，自动启用备份任务: {task['name']}")
+                        save_backup_config()
+                    elif not server_running and task.get('enabled', False):
+                        # 服务端已停止但备份任务仍启用，自动停用
+                        task['enabled'] = False
+                        task['status'] = '已停用（自动）'
+                        logger.info(f"服务端 {linked_server_id} 已停止，自动停用备份任务: {task['name']}")
+                        save_backup_config()
+                
+                # 只有启用的任务才执行备份
                 if not task.get('enabled', False):
                     continue
                     
@@ -6215,6 +7260,12 @@ def backup_scheduler():
                     
                     # 检查是否到了备份时间
                     if current_time >= next_backup_time:
+                        # 如果关联了服务端且启用了自动控制，只有在服务端运行时才执行备份
+                        if task.get('autoControl', False) and task.get('linkedServerId'):
+                            if not is_server_running(task['linkedServerId']):
+                                logger.info(f"跳过备份任务 {task['name']}：关联的服务端 {task['linkedServerId']} 未运行")
+                                continue
+                        
                         logger.info(f"开始执行定时备份任务: {task['name']}")
                         execute_backup_task(task_id, task)
                         
@@ -6272,6 +7323,19 @@ def execute_backup_task(task_id, task):
     except Exception as e:
         task['status'] = '备份失败'
         logger.error(f"执行定时备份任务时出错: {task['name']}, 错误: {str(e)}")
+
+def is_server_running(server_id):
+    """检查指定服务端是否正在运行"""
+    try:
+        if server_id in running_servers:
+            server_data = running_servers[server_id]
+            process = server_data.get('process')
+            if process and process.poll() is None:
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"检查服务端 {server_id} 运行状态时出错: {str(e)}")
+        return False
 
 def start_backup_scheduler():
     """启动备份调度器"""
@@ -6492,6 +7556,80 @@ cd "$(dirname "$0")"
             'message': f'部署失败: {str(e)}'
         }), 500
 
+# 日志管理API
+@app.route('/api/logs/api-server', methods=['GET'])
+@auth_required
+def get_api_server_log():
+    """获取API服务器日志内容"""
+    try:
+        log_file_path = '/home/steam/server/api_server.log'
+        
+        # 检查日志文件是否存在
+        if not os.path.exists(log_file_path):
+            return jsonify({
+                'status': 'success',
+                'content': '日志文件不存在或尚未生成'
+            })
+        
+        # 读取日志文件内容
+        try:
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # 如果UTF-8解码失败，尝试其他编码
+            with open(log_file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+        
+        # 限制返回的内容大小（最后10000行）
+        lines = content.split('\n')
+        if len(lines) > 10000:
+            lines = lines[-10000:]
+            content = '\n'.join(lines)
+            content = '[日志内容过长，仅显示最后10000行]\n\n' + content
+        
+        return jsonify({
+            'status': 'success',
+            'content': content
+        })
+        
+    except Exception as e:
+        logger.error(f"获取API服务器日志失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取日志失败: {str(e)}'
+        }), 500
+
+@app.route('/api/logs/api-server/export', methods=['GET'])
+@auth_required
+def export_api_server_log():
+    """导出API服务器日志文件"""
+    try:
+        log_file_path = '/home/steam/server/api_server.log'
+        
+        # 检查日志文件是否存在
+        if not os.path.exists(log_file_path):
+            # 创建一个临时文件包含错误信息
+            temp_content = '日志文件不存在或尚未生成'
+            response = make_response(temp_content)
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            response.headers['Content-Disposition'] = 'attachment; filename=api_server_empty.log'
+            return response
+        
+        # 直接发送文件
+        return send_file(
+            log_file_path,
+            as_attachment=True,
+            download_name=f'api_server_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log',
+            mimetype='text/plain'
+        )
+        
+    except Exception as e:
+        logger.error(f"导出API服务器日志失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'导出日志失败: {str(e)}'
+        }), 500
+
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")
     logger.warning("======================================================")
@@ -6522,6 +7660,22 @@ if __name__ == '__main__':
     load_backup_config()
     start_backup_scheduler()
     
+    # 加载代理配置
+    try:
+        from config import load_config
+        config = load_config()
+        proxy_config = config.get('proxy')
+        if proxy_config:
+            apply_proxy_config(proxy_config)
+            logger.info("已加载代理配置")
+    except Exception as e:
+        logger.error(f"加载代理配置失败: {str(e)}")
+    
+    # 启动自启动功能
+    auto_start_servers()
+    
     # 直接运行时使用Flask内置服务器，而不是通过Gunicorn导入时
-    logger.warning("使用Flask开发服务器启动 - 不推荐用于生产环境")
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    # 从环境变量读取端口配置，默认为5000
+    port = int(os.environ.get('GUNICORN_PORT', 5000))
+    logger.warning(f"使用Flask开发服务器启动 - 不推荐用于生产环境，监听端口: {port}")
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
