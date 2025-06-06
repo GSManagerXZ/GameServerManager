@@ -28,8 +28,8 @@ const BetaNotice: React.FC<BetaNoticeProps> = ({
   }, []);
 
   const handleOk = () => {
-    // 设置cookie，永久有效
-    Cookies.set('beta_notice_acknowledged', 'true');
+    // 设置cookie，永久有效（365天）
+    Cookies.set('beta_notice_acknowledged', 'true', { expires: 365 });
     setVisible(false);
   };
 
