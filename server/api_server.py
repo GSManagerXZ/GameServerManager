@@ -3584,6 +3584,130 @@ def delete_item():
         logger.error(f"删除文件/目录时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'删除失败: {str(e)}'})
 
+@app.route('/api/search', methods=['GET'])
+def search_files():
+    """搜索文件和文件夹"""
+    try:
+        search_path = request.args.get('path', '/home/steam')
+        search_query = request.args.get('query', '')
+        search_type = request.args.get('type', 'all')  # all, file, directory
+        case_sensitive = request.args.get('case_sensitive', 'false').lower() == 'true'
+        max_results = int(request.args.get('max_results', '100'))
+        
+        # 安全检查
+        if '..' in search_path or not search_path.startswith('/'):
+            logger.warning(f"检测到无效搜索路径: {search_path}，已自动切换到默认路径")
+            search_path = '/home/steam'
+            
+        # 确保搜索路径存在
+        if not os.path.exists(search_path):
+            logger.warning(f"搜索路径不存在: {search_path}，切换到默认路径")
+            search_path = '/home/steam'
+            
+        if not os.path.isdir(search_path):
+            # 如果不是目录，使用其父目录
+            search_path = os.path.dirname(search_path)
+            
+        # 如果搜索查询为空，返回错误
+        if not search_query.strip():
+            return jsonify({'status': 'error', 'message': '搜索关键词不能为空'})
+            
+        results = []
+        search_count = 0
+        
+        # 递归搜索函数
+        def search_recursive(current_path, query, search_type, case_sensitive):
+            nonlocal search_count, max_results
+            
+            if search_count >= max_results:
+                return
+                
+            try:
+                # 遍历当前目录
+                for item_name in os.listdir(current_path):
+                    if search_count >= max_results:
+                        break
+                        
+                    item_path = os.path.join(current_path, item_name)
+                    
+                    # 跳过隐藏文件和系统文件（可选）
+                    if item_name.startswith('.'):
+                        continue
+                        
+                    try:
+                        # 获取文件信息
+                        stat_result = os.stat(item_path)
+                        is_directory = os.path.isdir(item_path)
+                        
+                        # 根据搜索类型过滤
+                        if search_type == 'file' and is_directory:
+                            # 如果只搜索文件，跳过目录，但仍需递归搜索目录内容
+                            if is_directory:
+                                search_recursive(item_path, query, search_type, case_sensitive)
+                            continue
+                        elif search_type == 'directory' and not is_directory:
+                            continue
+                            
+                        # 执行搜索匹配
+                        search_name = item_name if case_sensitive else item_name.lower()
+                        search_query_processed = query if case_sensitive else query.lower()
+                        
+                        if search_query_processed in search_name:
+                            # 获取文件大小和修改时间
+                            size = 0 if is_directory else stat_result.st_size
+                            mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_result.st_mtime))
+                            
+                            # 计算相对路径
+                            relative_path = os.path.relpath(item_path, search_path)
+                            if relative_path == '.':
+                                relative_path = item_name
+                                
+                            results.append({
+                                'name': item_name,
+                                'path': item_path,
+                                'relative_path': relative_path,
+                                'type': 'directory' if is_directory else 'file',
+                                'size': size,
+                                'modified': mtime,
+                                'parent_dir': current_path
+                            })
+                            search_count += 1
+                            
+                        # 如果是目录，递归搜索
+                        if is_directory and search_count < max_results:
+                            search_recursive(item_path, query, search_type, case_sensitive)
+                            
+                    except (OSError, PermissionError) as e:
+                        # 跳过无法访问的文件/目录
+                        logger.debug(f"跳过无法访问的项目 {item_path}: {str(e)}")
+                        continue
+                        
+            except (OSError, PermissionError) as e:
+                logger.debug(f"无法访问目录 {current_path}: {str(e)}")
+                return
+                
+        # 开始搜索
+        search_recursive(search_path, search_query, search_type, case_sensitive)
+        
+        # 按类型和名称排序
+        results.sort(key=lambda x: (0 if x['type'] == 'directory' else 1, x['name']))
+        
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'search_path': search_path,
+            'search_query': search_query,
+            'search_type': search_type,
+            'case_sensitive': case_sensitive,
+            'total_found': len(results),
+            'max_results': max_results,
+            'truncated': search_count >= max_results
+        })
+        
+    except Exception as e:
+        logger.error(f"搜索文件时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'搜索失败: {str(e)}'})
+
 @app.route('/api/create_folder', methods=['POST'])
 def create_folder():
     """创建文件夹"""

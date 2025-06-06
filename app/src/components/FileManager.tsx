@@ -105,6 +105,14 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     pageSize: 20,
   });
 
+  // 搜索相关状态
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchType, setSearchType] = useState<'all' | 'file' | 'directory'>('all');
+  const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
+  const [searchResults, setSearchResults] = useState<FileInfo[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [showSearchResults, setShowSearchResults] = useState<boolean>(false);
+
   // 创建函数引用，避免循环依赖
   const copyToClipboardRef = useRef<(file: FileInfo) => void>();
   const cutToClipboardRef = useRef<(file: FileInfo) => void>();
@@ -274,6 +282,65 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     const token = localStorage.getItem('auth_token');
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
+
+  // 搜索文件和文件夹
+  const searchFiles = useCallback(async (query: string, searchPath?: string) => {
+    if (!query.trim()) {
+      message.warning('请输入搜索关键词');
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await axios.get('/api/search', {
+        params: {
+          path: searchPath || currentPath,
+          query: query.trim(),
+          type: searchType,
+          case_sensitive: caseSensitive,
+          max_results: 100
+        },
+        headers: getHeaders()
+      });
+
+      if (response.data.status === 'success') {
+        setSearchResults(response.data.results);
+        setShowSearchResults(true);
+        message.success(`找到 ${response.data.total_found} 个结果${response.data.truncated ? '（已截断）' : ''}`);
+      } else {
+        message.error(response.data.message || '搜索失败');
+      }
+    } catch (error: any) {
+      message.error(`搜索失败: ${error.message}`);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [currentPath, searchType, caseSensitive]);
+
+  // 清除搜索结果
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+  }, []);
+
+  // 处理搜索结果中的文件点击
+  const handleSearchResultClick = useCallback((file: FileInfo) => {
+    if (file.type === 'directory') {
+      // 如果是目录，导航到该目录
+      navigateToDirectory(file.path);
+      clearSearch();
+    } else {
+      // 如果是文件，先导航到文件所在目录，然后选中文件
+      const parentDir = file.parent_dir || file.path.substring(0, file.path.lastIndexOf('/'));
+      navigateToDirectory(parentDir);
+      clearSearch();
+      // 延迟选中文件，等待目录加载完成
+      setTimeout(() => {
+        setSelectedFile(file);
+      }, 500);
+    }
+  }, [clearSearch]);
 
   // 文件右键菜单处理
   const handleContextMenu = (e: React.MouseEvent, file: FileInfo) => {
@@ -1606,7 +1673,119 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               </Space>
             )}
           </div>
+          
+          {/* 搜索区域 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Input.Search
+              placeholder="搜索文件和文件夹..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onSearch={(value) => searchFiles(value)}
+              loading={isSearching}
+              style={{ width: '300px' }}
+              allowClear
+            />
+            <Select
+              value={searchType}
+              onChange={setSearchType}
+              style={{ width: '100px' }}
+              size="middle"
+            >
+              <Select.Option value="all">全部</Select.Option>
+              <Select.Option value="file">文件</Select.Option>
+              <Select.Option value="directory">文件夹</Select.Option>
+            </Select>
+            <Checkbox
+              checked={caseSensitive}
+              onChange={(e) => setCaseSensitive(e.target.checked)}
+            >
+              区分大小写
+            </Checkbox>
+            {showSearchResults && (
+              <Button
+                onClick={clearSearch}
+                size="middle"
+              >
+                清除搜索
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* 搜索结果显示 */}
+        {showSearchResults && (
+          <div style={{ 
+            marginBottom: '16px',
+            padding: '12px',
+            backgroundColor: '#f6ffed',
+            border: '1px solid #b7eb8f',
+            borderRadius: '6px'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: '8px'
+            }}>
+              <Text strong>搜索结果 ({searchResults.length} 项)</Text>
+              <Text type="secondary">关键词: "{searchQuery}"</Text>
+            </div>
+            <div style={{ 
+              maxHeight: '200px', 
+              overflowY: 'auto',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+              gap: '8px'
+            }}>
+              {searchResults.map((file, index) => (
+                <div
+                  key={`search-${index}`}
+                  style={{
+                    padding: '8px 12px',
+                    backgroundColor: 'white',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                  onClick={() => handleSearchResultClick(file)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e6f7ff';
+                    e.currentTarget.style.borderColor = '#91d5ff';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.borderColor = '#d9d9d9';
+                  }}
+                >
+                  {file.type === 'directory' ? <FolderOutlined style={{ color: '#1890ff' }} /> : <FileOutlined style={{ color: '#52c41a' }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ 
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {file.name}
+                    </div>
+                    <div style={{ 
+                      fontSize: '12px',
+                      color: '#666',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {file.relative_path}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Breadcrumb style={{ 
           margin: '16px 0', 

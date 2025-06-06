@@ -18,7 +18,7 @@ if (rootElement) {
     <React.StrictMode>
       <BrowserRouter>
         <AuthProvider>
-          {/* 内测须知弹窗在所有页面显示 */}
+          {/* 欢迎弹窗在所有页面显示 */}
           <BetaNotice />
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -45,4 +45,4 @@ if (rootElement) {
       </BrowserRouter>
     </React.StrictMode>,
   );
-} 
+}

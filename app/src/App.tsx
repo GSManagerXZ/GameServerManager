@@ -179,8 +179,34 @@ const startServer = async (gameId: string, callback?: (line: any) => void, onCom
     return eventSource;
   } catch (error) {
     // console.error('启动服务器函数出错:', error);
-    if (onError) onError(error);
-    throw error;
+    
+    let errorMsg;
+    
+    // 处理axios错误响应，特别是400状态码的错误
+    if (error.response && error.response.status === 400 && error.response.data) {
+      errorMsg = error.response.data.message || '启动失败';
+      console.error(`启动服务器失败 (400): ${errorMsg}`);
+    }
+    // 处理其他axios错误
+    else if (error.response && error.response.data && error.response.data.message) {
+      errorMsg = error.response.data.message;
+      console.error(`启动服务器失败: ${errorMsg}`);
+    }
+    // 处理网络错误或其他错误
+    else {
+      errorMsg = error.message || '启动服务器时发生未知错误';
+    }
+    
+    // 创建统一的错误对象
+    const finalError = new Error(errorMsg);
+    
+    // 只调用onError回调，不再抛出错误，避免重复处理
+    if (onError) {
+      onError(finalError);
+    } else {
+      // 如果没有onError回调，才抛出错误
+      throw finalError;
+    }
   }
 };
 
@@ -627,6 +653,98 @@ const App: React.FC = () => {
     return savedPreference === null ? true : savedPreference === 'true';
   });
   
+  // 新增：当前背景图片URL
+  const [currentBackgroundUrl, setCurrentBackgroundUrl] = useState<string>('https://t.alcy.cc/ycy');
+  
+  // 新增：背景图片API列表
+  const backgroundApis = [
+    'https://t.alcy.cc/ycy',
+    'https://random-image-api.bakacookie520.top/pc-dark'
+  ];
+  
+  // 新增：竞速加载背景图片
+  const loadRandomBackground = useCallback(() => {
+    if (!enableRandomBackground) return;
+    
+    // 创建Promise数组，每个API一个Promise
+    const imagePromises = backgroundApis.map((apiUrl, index) => {
+      return new Promise<{url: string, index: number}>((resolve, reject) => {
+        const img = new Image();
+        const timestamp = Date.now();
+        const urlWithTimestamp = `${apiUrl}${apiUrl.includes('?') ? '&' : '?'}t=${timestamp}`;
+        
+        // 移除跨域属性以避免CORS错误
+        // img.crossOrigin = 'anonymous';
+        
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Timeout loading image from API ${index + 1}: ${apiUrl}`));
+        }, 8000); // 增加超时时间到8秒
+        
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          resolve({ url: urlWithTimestamp, index });
+        };
+        
+        img.onerror = (event) => {
+          clearTimeout(timeoutId);
+          console.warn(`API ${index + 1} (${apiUrl}) 加载失败:`, event);
+          reject(new Error(`Failed to load image from API ${index + 1}: ${apiUrl}`));
+        };
+        
+        img.src = urlWithTimestamp;
+      });
+    });
+    
+    // 使用Promise.race来获取最快加载完成的图片
+    Promise.race(imagePromises)
+      .then(({ url, index }) => {
+        setCurrentBackgroundUrl(url);
+        console.log(`背景图片加载成功 (API ${index + 1}):`, url);
+      })
+      .catch((error) => {
+        console.warn('竞速加载失败，尝试逐个加载:', error);
+        
+        // 如果竞速失败，尝试逐个加载
+        Promise.allSettled(imagePromises)
+          .then((results) => {
+            const successResult = results.find(result => result.status === 'fulfilled');
+            if (successResult && successResult.status === 'fulfilled') {
+              setCurrentBackgroundUrl(successResult.value.url);
+              console.log(`背景图片备用加载成功 (API ${successResult.value.index + 1}):`, successResult.value.url);
+            } else {
+              console.warn('所有背景图片API都加载失败，使用默认图片');
+              // 如果所有API都失败，直接使用第一个API URL（不带时间戳）
+              setCurrentBackgroundUrl(backgroundApis[0]);
+            }
+          });
+      });
+  }, [enableRandomBackground]);
+  
+  // 新增：在组件挂载时和背景开关变化时加载随机背景
+  useEffect(() => {
+    loadRandomBackground();
+  }, [loadRandomBackground]);
+  
+  // 新增：每30秒刷新一次背景图片
+  useEffect(() => {
+    if (!enableRandomBackground) return;
+    
+    const interval = setInterval(() => {
+      loadRandomBackground();
+    }, 30000); // 30秒
+    
+    return () => clearInterval(interval);
+  }, [loadRandomBackground]);
+  
+  // 新增：动态设置CSS变量来更新背景图片
+  useEffect(() => {
+    if (enableRandomBackground && currentBackgroundUrl) {
+      document.documentElement.style.setProperty('--dynamic-bg-url', `url('${currentBackgroundUrl}')`);
+    } else {
+      document.documentElement.style.removeProperty('--dynamic-bg-url');
+    }
+  }, [currentBackgroundUrl, enableRandomBackground]);
+  
   // 新增：是否启用不活动透明效果
   const [enableInactiveEffect, setEnableInactiveEffect] = useState<boolean>(() => {
     // 从localStorage读取用户偏好设置，默认开启
@@ -730,23 +848,25 @@ const App: React.FC = () => {
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [fileManagerVisible, setFileManagerVisible_orig] = useState<boolean>(false);
   const [fileManagerPath, setFileManagerPath_orig] = useState<string>('/home/steam');
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
 
   // Wrapped state setters with logging
   const setCurrentNav = (nav: string) => {
-    // const timestamp = () => new Date().toLocaleTimeString();
-    // console.log(`${timestamp()} APP: setCurrentNav called with: ${nav}. Current fileManagerVisible: ${fileManagerVisible}`);
-    setCurrentNav_orig(nav);
+    if (nav !== currentNav) {
+      setIsTransitioning(true);
+      setTimeout(() => {
+        setCurrentNav_orig(nav);
+        setIsTransitioning(false);
+      }, 300); // 匹配 CSS navFadeOut 动画时间 0.3s
+    }
+    // 如果 nav === currentNav，则不执行任何操作以避免不必要的重渲染
   };
 
   const setFileManagerVisible = (visible: boolean) => {
-    // const timestamp = () => new Date().toLocaleTimeString();
-    // console.log(`${timestamp()} APP: setFileManagerVisible called with: ${visible}. Current nav: ${currentNav}`);
     setFileManagerVisible_orig(visible);
   };
 
   const setFileManagerPath = (path: string) => {
-    // const timestamp = () => new Date().toLocaleTimeString();
-    // console.log(`${timestamp()} APP: setFileManagerPath called with: ${path}`);
     setFileManagerPath_orig(path);
   };
   
@@ -2512,7 +2632,7 @@ const App: React.FC = () => {
   // 版本检查相关状态
   const [versionUpdateModalVisible, setVersionUpdateModalVisible] = useState<boolean>(false);
   const [latestVersionInfo, setLatestVersionInfo] = useState<{version: string, description: any} | null>(null);
-  const currentVersion = '2.0.3'; // 当前版本号
+  const currentVersion = '2.1.0'; // 当前版本号
   
   // 版本检查功能
   const checkForUpdates = async () => {
@@ -2891,16 +3011,19 @@ const App: React.FC = () => {
         
         <Content style={{ width: '100%', maxWidth: '100%', margin: 0, padding: isMobile ? '4px' : '16px' }}>
           {currentNav === 'dashboard' && (
-            <ContainerInfo 
-              onStartServer={handleStartServer}
-              onStopServer={handleStopServer}
-              onUninstallGame={handleUninstall}
-            />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <ContainerInfo 
+                onStartServer={handleStartServer}
+                onStopServer={handleStopServer}
+                onUninstallGame={handleUninstall}
+              />
+            </div>
           )}
           
           {currentNav === 'games' && (
-            <div className="game-cards">
-              <Title level={2}>游戏服务器管理</Title>
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="game-cards">
+                <Title level={2}>游戏服务器管理</Title>
               <Tabs activeKey={tabKey} onChange={setTabKey}>
                 <TabPane tab="快速部署" key="install">
                   {gameLoading ? (
@@ -3056,12 +3179,14 @@ const App: React.FC = () => {
                   </div>
                 </TabPane>
               </Tabs>
+              </div>
             </div>
           )}
           
           {currentNav === 'servers' && (
-            <div className="running-servers">
-              <Title level={2}>服务端管理</Title>
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="running-servers">
+                <Title level={2}>服务端管理</Title>
               <Tabs defaultActiveKey="all" onChange={handleTabChange}>
                 <TabPane tab="全部服务端" key="all">
                   <div className="server-management">
@@ -3604,51 +3729,64 @@ const App: React.FC = () => {
                   </div>
                 </TabPane>
               </Tabs>
+              </div>
             </div>
           )}
 
           {currentNav === 'files' && (
-            <div className="file-management">
-              <Title level={2}>文件管理</Title>
-              <FileManager 
-                initialPath={fileManagerPath || '/home/steam'} 
-                // This FileManager is part of the main navigation.
-                // Its visibility is tied to whether 'files' is the currentNav.
-                isVisible={currentNav === 'files'} 
-              />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="file-management">
+                <Title level={2}>文件管理</Title>
+                <FileManager 
+                  initialPath={fileManagerPath || '/home/steam'} 
+                  // This FileManager is part of the main navigation.
+                  // Its visibility is tied to whether 'files' is the currentNav.
+                  isVisible={currentNav === 'files'} 
+                />
+              </div>
             </div>
           )}
 
           {currentNav === 'frp' && (
-            <div className="frp-management">
-              <FrpManager />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="frp-management">
+                <FrpManager />
+              </div>
             </div>
           )}
           
           {currentNav === 'about' && (
-            <div className="about-page">
-              <About />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="about-page">
+                <About />
+              </div>
             </div>
           )}
           
           {currentNav === 'server-guide' && (
-            <div className="server-guide-page">
-              <ServerGuide />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="server-guide-page">
+                <ServerGuide />
+              </div>
             </div>
           )}
           
           {currentNav === 'settings' && (
-            <div className="settings-page">
-              <Settings />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="settings-page">
+                <Settings />
+              </div>
             </div>
           )}
           {currentNav === 'environment' && (
-            <div className="environment-page">
-              <Environment />
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="environment-page">
+                <Environment />
+              </div>
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.3</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.6</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
