@@ -10,7 +10,7 @@
 [![Docker Pulls](https://badgen.net/docker/pulls/xiaozhu674/gameservermanager)](https://hub.docker.com/r/xiaozhu674/gameservermanager)
 [![License](https://badgen.net/github/license/yxsj245/GameServerManager)](https://github.com/yxsj245/GameServerManager/blob/main/LICENSE)
 
-[📖 文档站](http://blogpage.xiaozhuhouses.asia/html6/index.html#/) • [🌐 官方网站](http://blogpage.xiaozhuhouses.asia/html5/index.html) • [💬 QQ群](https://qm.qq.com/cgi-bin/qm/qr?k=xxx&jump_from=webapi)
+[📖 文档站](http://blogpage.xiaozhuhouses.asia/html6/index.html#/) • [🌐 官方网站](http://blogpage.xiaozhuhouses.asia/html5/index.html) • [💬 QQ群](https://qm.qq.com/q/oNd4HvMj6M)
 
 </div>
 
