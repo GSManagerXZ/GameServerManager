@@ -124,6 +124,7 @@ rm -f install.py && wget http://blogpage.xiaozhuhouses.asia/api/api1/install.py 
 - **Gunicorn** - WSGI服务器
 - **Docker** - 容器化技术
 - **SteamCMD** - Steam命令行工具
+- **Aria2** - 多协议下载器
 
 ---
 
