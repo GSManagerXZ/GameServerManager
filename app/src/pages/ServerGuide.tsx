@@ -48,6 +48,12 @@ const ServerGuide: React.FC = () => {
       tags: ['内网穿透', 'FRP']
     },
     {
+      name: '星辰的下载站',
+      description: '收集各种资源，免费下载',
+      url: 'https://download.xiaozhuhouses.asia/',
+      tags: ['资源']
+    },
+    {
       name: 'Rust服务器配置指南',
       description: '详细的Rust服务器配置教程，包括参数说明和优化建议',
       url: 'https://umod.org/community/oxide/guides',

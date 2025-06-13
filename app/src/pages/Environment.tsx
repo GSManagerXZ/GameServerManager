@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Progress, message, Tabs, List, Typography, Tag, Tooltip, Alert, Modal } from 'antd';
-import { CloudDownloadOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { CloudDownloadOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, DeleteOutlined, StopOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 const { TabPane } = Tabs;
@@ -79,6 +79,27 @@ const Environment: React.FC = () => {
     }
   };
 
+  // 取消Java下载
+  const cancelJavaDownload = async (versionId: string, versionName: string) => {
+    try {
+      const response = await axios.post('/api/environment/java/cancel', { version: versionId });
+      if (response.data.status === 'success') {
+        message.success(response.data.message);
+        // 清除进度信息
+        setJavaProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[versionId];
+          return newProgress;
+        });
+      } else {
+        message.error(response.data.message || '取消下载失败');
+      }
+    } catch (error: any) {
+      console.error('取消Java下载失败:', error);
+      message.error(error?.response?.data?.message || '取消下载失败');
+    }
+  };
+
   // 卸载Java
   const uninstallJava = async (versionId: string, versionName: string) => {
     confirm({
@@ -123,9 +144,11 @@ const Environment: React.FC = () => {
             [versionId]: progressData
           }));
 
-          // 如果安装完成或出错，停止轮询
+          // 如果安装完成、出错或被取消，停止轮询
           if (progressData.completed) {
-            if (progressData.error) {
+            if (progressData.status === 'cancelled') {
+              message.info(`下载已取消: ${progressData.error || '用户取消下载'}`);
+            } else if (progressData.error) {
               message.error(`安装失败: ${progressData.error}`);
             } else {
               message.success(`安装成功: ${progressData.version}`);
@@ -163,7 +186,8 @@ const Environment: React.FC = () => {
       'setting_permissions': '设置权限',
       'verifying': '验证安装',
       'completed': '安装完成',
-      'error': '安装失败'
+      'error': '安装失败',
+      'cancelled': '已取消'
     };
     return statusMap[status] || status;
   };
@@ -207,29 +231,48 @@ const Environment: React.FC = () => {
       );
     }
 
-    if (progress.error) {
+    if (progress.error || progress.status === 'cancelled') {
       return (
         <div>
-          <Tag color="error" icon={<CloseCircleOutlined />}>安装失败</Tag>
-          <p style={{ color: 'red' }}>{progress.error}</p>
+          <Tag color={progress.status === 'cancelled' ? 'warning' : 'error'} 
+               icon={progress.status === 'cancelled' ? <StopOutlined /> : <CloseCircleOutlined />}>
+            {progress.status === 'cancelled' ? '下载已取消' : '安装失败'}
+          </Tag>
+          <p style={{ color: progress.status === 'cancelled' ? '#faad14' : 'red' }}>
+            {progress.error}
+          </p>
           <Button 
             type="primary" 
             icon={<CloudDownloadOutlined />} 
             onClick={() => installJava(version.id)}
           >
-            重试安装
+            {progress.status === 'cancelled' ? '重新下载' : '重试安装'}
           </Button>
         </div>
       );
     }
 
+    // 正在下载/安装中，显示进度条和取消按钮
     return (
       <div>
         <Progress 
           percent={progress.progress} 
           status={progress.error ? "exception" : "active"} 
         />
-        <p>{getStatusText(progress.status)}</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <span>{getStatusText(progress.status)}</span>
+          {(progress.status === 'downloading' || progress.status === 'extracting') && (
+            <Button 
+              type="default" 
+              danger
+              size="small"
+              icon={<StopOutlined />} 
+              onClick={() => cancelJavaDownload(version.id, version.name)}
+            >
+              取消下载
+            </Button>
+          )}
+        </div>
       </div>
     );
   };
@@ -245,7 +288,7 @@ const Environment: React.FC = () => {
         <TabPane tab="Java环境" key="java">
           <Card title="Java环境安装" bordered={false}>
             <Paragraph>
-              许多游戏服务器（如Minecraft）需要Java环境才能运行。请选择需要安装的Java版本。
+              许多游戏服务器（如Minecraft）需要Java环境才能运行。请选择需要安装的Java版本。由于国内网络环境的限制，默认下载源速度不稳定，推荐您赞助项目畅享国内服务器提供高速下载特权。
             </Paragraph>
             
             <List
@@ -316,4 +359,4 @@ const Environment: React.FC = () => {
   );
 };
 
-export default Environment; 
+export default Environment;

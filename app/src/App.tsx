@@ -1,10 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List, Select, Checkbox } from 'antd';
+import { Layout, Typography, Row, Col, Card, Button, Spin, message, Tooltip, Modal, Tabs, Form, Input, Menu, Tag, Dropdown, Radio, Drawer, Switch, List, Select, Checkbox, Upload } from 'antd';
 import { CloudServerOutlined, DashboardOutlined, AppstoreOutlined, PlayCircleOutlined, ReloadOutlined, DownOutlined, InfoCircleOutlined, FolderOutlined, UserOutlined, LogoutOutlined, LockOutlined, GlobalOutlined, MenuOutlined, SettingOutlined, ToolOutlined, BookOutlined, RocketOutlined, HistoryOutlined } from '@ant-design/icons';
 import axios from 'axios';
 // 导入antd样式
 import 'antd/dist/antd.css';
 import './App.css';
+
+// 配置message为右上角通知样式，3秒自动消失
+message.config({
+  top: 24,
+  duration: 3,
+  maxCount: 5,
+  rtl: false,
+  prefixCls: 'ant-message',
+  getContainer: () => document.body,
+});
 import Terminal from './components/Terminal';
 import SimpleServerTerminal from './components/SimpleServerTerminal';
 import ContainerInfo from './components/ContainerInfo';
@@ -12,12 +22,15 @@ import FileManager from './components/FileManager';
 import Register from './components/Register'; // 导入注册组件
 import FrpManager from './components/FrpManager'; // 导入内网穿透组件
 import FrpDocModal from './components/FrpDocModal'; // 导入内网穿透文档弹窗组件
+import OnlineDeploy from './components/OnlineDeploy'; // 导入在线部署组件
 import About from './pages/About'; // 导入关于项目页面
 import Settings from './pages/Settings'; // 导入设置页面
 import Environment from './pages/Environment'; // 导入环境安装页面
 import ServerGuide from './pages/ServerGuide'; // 导入开服指南页面
-import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder, checkVersionUpdate } from './api';
+import PanelManager from './components/PanelManager'; // 导入面板管理组件
+import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder, checkVersionUpdate, downloadDockerImage } from './api';
 import { GameInfo } from './types';
+import terminalService from './services/terminalService';
 import { useAuth } from './context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from './hooks/useIsMobile'; // 导入移动设备检测钩子
@@ -27,6 +40,13 @@ const { Header, Content, Footer, Sider } = Layout;
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
 const { Option } = Select;
+
+// 扩展window对象类型
+declare global {
+  interface Window {
+    currentProgressHide?: () => void;
+  }
+}
 
 // 定义一个类型化的错误处理函数
 const handleError = (err: any): void => {
@@ -216,11 +236,16 @@ const stopServer = async (gameId: string, force: boolean = false) => {
     const loadingKey = `stopping_${gameId}`;
     message.loading({ content: `正在${force ? '强制' : ''}停止服务器...`, key: loadingKey, duration: 0 });
     
-    // 发送停止请求
-    const response = await axios.post('/api/server/stop', { 
-      game_id: gameId,
-      force
-    });
+    // 使用terminalService的terminate方法
+    const success = await terminalService.terminateProcess('server', gameId, force);
+    
+    if (!success) {
+      message.error({ content: '停止服务器失败', key: loadingKey });
+      return { status: 'error', message: '停止服务器失败' };
+    }
+    
+    // 模拟原来的响应格式
+    const response = { data: { status: 'success' } };
     
     // 如果成功或警告，验证服务器是否真的停止了
     if (response.data.status === 'success' || response.data.status === 'warning') {
@@ -520,14 +545,14 @@ const MinecraftDeploy: React.FC = () => {
 
         {selectedBuild && (
           <Col span={24}>
-            <Title level={4}>服务器名称</Title>
+            <Title level={4} style={{ padding: '50px' }}>服务器名称</Title>
             <Input
               placeholder="请输入服务器名称（将作为目录名）"
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
             />
             <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
-              服务器将部署到: /home/games/{customName || '服务器名称'}
+              服务器将部署到: /home/steam/games/{customName || '服务器名称'}
             </div>
           </Col>
         )}
@@ -609,6 +634,272 @@ const MinecraftDeploy: React.FC = () => {
           </Button>
         </div>
       )}
+    </div>
+  );
+};
+
+// 半自动部署组件
+const SemiAutoDeploy: React.FC = () => {
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [serverName, setServerName] = useState<string>('');
+  const [serverType, setServerType] = useState<string>('');
+  const [selectedJdk, setSelectedJdk] = useState<string>('');
+  const [installedJdks, setInstalledJdks] = useState<any[]>([]);
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [deploying, setDeploying] = useState<boolean>(false);
+
+  // 获取已安装的JDK列表
+  const fetchInstalledJdks = async () => {
+    try {
+      const response = await axios.get('/api/environment/java/versions');
+      if (response.data.status === 'success') {
+        const installedJdks = response.data.versions.filter((jdk: any) => jdk.installed);
+        setInstalledJdks(installedJdks);
+      } else {
+        message.error(response.data.message || '获取JDK列表失败');
+      }
+    } catch (error: any) {
+      message.error('获取JDK列表失败: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  // 处理文件选择
+  const handleFileChange = (info: any) => {
+    const { file } = info;
+    if (file.status === 'removed') {
+      setUploadFile(null);
+      setServerName('');
+      return;
+    }
+    
+    setUploadFile(file.originFileObj || file);
+    
+    // 根据文件名自动设置服务器名称
+    const fileName = file.name;
+    const nameWithoutExt = fileName.replace(/\.(zip|rar|tar\.gz|tar|7z)$/i, '');
+    setServerName(nameWithoutExt);
+  };
+
+  // 上传并部署
+  const handleDeploy = async () => {
+    if (!uploadFile) {
+      message.error('请选择要上传的压缩包');
+      return;
+    }
+    
+    if (!serverName.trim()) {
+      message.error('请输入服务器名称');
+      return;
+    }
+    
+    if (!serverType) {
+      message.error('请选择服务端类型');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      
+      // 创建FormData
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      formData.append('server_name', serverName.trim());
+      formData.append('server_type', serverType);
+      if (selectedJdk) {
+        formData.append('jdk_version', selectedJdk);
+      }
+      
+      // 显示上传开始消息
+      const hideLoading = message.loading('准备上传...', 0);
+      
+      // 上传文件并部署
+      const response = await axios.post('/api/semi-auto-deploy', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
+          hideLoading();
+          const hideProgress = message.loading(`上传中... ${percentCompleted}%`, 0);
+          // 保存当前进度消息的隐藏函数，以便下次更新时清除
+          if (window.currentProgressHide) {
+            window.currentProgressHide();
+          }
+          window.currentProgressHide = hideProgress;
+        }
+      });
+      
+      // 清除所有上传相关消息
+      if (window.currentProgressHide) {
+        window.currentProgressHide();
+        window.currentProgressHide = null;
+      }
+      message.destroy();
+      
+      if (response.data.status === 'success') {
+        message.success('服务器部署成功!');
+        Modal.success({
+          title: '部署成功',
+          content: (
+            <div>
+              <p>服务器已成功部署到: {response.data.data.game_dir}</p>
+              <p>服务器名称: {response.data.data.server_name}</p>
+              {response.data.data.start_script && (
+                <p>启动脚本: {response.data.data.start_script}</p>
+              )}
+              <p>您可以在"服务端管理"页面启动服务器</p>
+            </div>
+          )
+        });
+        
+        // 重置表单
+        setUploadFile(null);
+        setServerName('');
+        setServerType('');
+        setSelectedJdk('');
+      } else {
+        message.error(response.data.message || '部署失败');
+      }
+    } catch (error: any) {
+      message.destroy();
+      message.error('部署失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // 组件挂载时获取JDK列表
+  React.useEffect(() => {
+    fetchInstalledJdks();
+  }, []);
+
+  return (
+    <div>
+      <Row gutter={[16, 16]}>
+        <Col span={24}>
+          <Title level={4}>上传服务端压缩包</Title>
+          <Upload.Dragger
+            name="file"
+            multiple={false}
+            accept=".zip,.rar,.tar.gz,.tar,.7z"
+            beforeUpload={() => false} // 阻止自动上传
+            onChange={handleFileChange}
+            fileList={uploadFile ? [{
+              uid: '1',
+              name: uploadFile.name,
+              status: 'done' as const,
+              size: uploadFile.size
+            }] : []}
+          >
+            <p className="ant-upload-drag-icon">
+              <CloudServerOutlined />
+            </p>
+            <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+            <p className="ant-upload-hint">
+              支持 .zip, .rar, .tar.gz, .tar, .7z 格式的压缩包
+            </p>
+          </Upload.Dragger>
+        </Col>
+
+        {uploadFile && (
+          <>
+            <Col span={24}>
+              <Title level={4} style={{ padding: '70px' }}>服务器名称</Title>
+              <Input
+                placeholder="请输入服务器名称（将作为目录名）"
+                value={serverName}
+                onChange={(e) => setServerName(e.target.value)}
+              />
+              <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+                服务器将部署到: /home/steam/games/{serverName || '服务器名称'}
+              </div>
+            </Col>
+
+            <Col span={24}>
+              <Title level={4}>服务端类型</Title>
+              <Radio.Group
+                value={serverType}
+                onChange={(e) => setServerType(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <Radio.Button value="java" style={{ width: '50%', textAlign: 'center' }}>
+                  Java
+                </Radio.Button>
+                <Radio.Button value="other" style={{ width: '50%', textAlign: 'center' }}>
+                  其它
+                </Radio.Button>
+              </Radio.Group>
+            </Col>
+
+            {serverType === 'java' && (
+              <Col span={24}>
+                <Title level={4}>Java环境选择</Title>
+                <Select
+                  style={{ width: '100%' }}
+                  placeholder="请选择Java版本"
+                  value={selectedJdk}
+                  onChange={setSelectedJdk}
+                  allowClear
+                >
+                  {installedJdks.map(jdk => (
+                    <Option key={jdk.id} value={jdk.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{jdk.name}</span>
+                        <span style={{ color: '#666', fontSize: '12px' }}>{jdk.version}</span>
+                      </div>
+                    </Option>
+                  ))}
+                </Select>
+                <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+                  {installedJdks.length === 0 ? (
+                    <span>未检测到已安装的JDK，将使用系统默认Java。您可以在"环境安装"-"Java环境"中安装JDK。</span>
+                  ) : (
+                    <span>选择特定的JDK版本，或留空使用系统默认Java</span>
+                  )}
+                </div>
+              </Col>
+            )}
+
+            {serverName && serverType && (
+              <Col span={24}>
+                <Card style={{ backgroundColor: '#f6f8fa', border: '1px solid #d1d9e0' }}>
+                  <Title level={5}>部署信息确认</Title>
+                  <Row gutter={[16, 8]}>
+                    <Col span={12}>
+                      <strong>压缩包:</strong> {uploadFile.name}
+                    </Col>
+                    <Col span={12}>
+                      <strong>文件大小:</strong> {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
+                    </Col>
+                    <Col span={12}>
+                      <strong>服务器名称:</strong> {serverName}
+                    </Col>
+                    <Col span={12}>
+                      <strong>服务端类型:</strong> {serverType === 'java' ? 'Java' : '其它'}
+                    </Col>
+                    {serverType === 'java' && (
+                      <Col span={12}>
+                        <strong>Java环境:</strong> {selectedJdk ? installedJdks.find(jdk => jdk.id === selectedJdk)?.name || selectedJdk : '系统默认Java'}
+                      </Col>
+                    )}
+                  </Row>
+                  <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                    <Button
+                      type="primary"
+                      size="large"
+                      onClick={handleDeploy}
+                      loading={uploading}
+                      icon={<RocketOutlined />}
+                    >
+                      {uploading ? '部署中...' : '开始部署'}
+                    </Button>
+                  </div>
+                </Card>
+              </Col>
+            )}
+          </>
+        )}
+      </Row>
     </div>
   );
 };
@@ -725,16 +1016,16 @@ const App: React.FC = () => {
     loadRandomBackground();
   }, [loadRandomBackground]);
   
-  // 新增：每30秒刷新一次背景图片
-  useEffect(() => {
-    if (!enableRandomBackground) return;
-    
-    const interval = setInterval(() => {
-      loadRandomBackground();
-    }, 30000); // 30秒
-    
-    return () => clearInterval(interval);
-  }, [loadRandomBackground]);
+  // 移除自动刷新背景图片的定时器，确保每次网页刷新时只显示一次
+  // useEffect(() => {
+  //   if (!enableRandomBackground) return;
+  //   
+  //   const interval = setInterval(() => {
+  //     loadRandomBackground();
+  //   }, 30000); // 30秒
+  //   
+  //   return () => clearInterval(interval);
+  // }, [loadRandomBackground]);
   
   // 新增：动态设置CSS变量来更新背景图片
   useEffect(() => {
@@ -917,7 +1208,8 @@ const App: React.FC = () => {
   // 添加 handleSendServerInput 函数
   const handleSendServerInput = async (gameId: string, input: string) => {
     try {
-      if (!gameId || !input.trim()) return;
+      // 允许换行符通过，但过滤掉空字符串和只有空格的输入
+      if (!gameId || (input.trim() === '' && input !== '\\n')) return;
       
       // 添加到输出，以便用户可以看到自己的输入
       setServerOutputs(prev => {
@@ -979,12 +1271,18 @@ const App: React.FC = () => {
           
           // 添加游戏来源提示
           if (gameResp.data.source === 'cloud') {
-            message.success('已以赞助者身份从云端获取游戏列表');
+            message.success('赞助者验证通过');
           } 
           // 如果有云端错误但仍然使用了本地游戏列表
           else if (gameResp.data.cloud_error) {
             if (gameResp.data.cloud_error.includes('403')) {
-              message.error('赞助者凭证验证不通过，已切换至本地游戏列表');
+              message.error('赞助者凭证验证不通过，已自动清除无效凭证');
+              // 删除无效的赞助者凭证
+              try {
+                await axios.delete('/api/settings/sponsor-key');
+              } catch (error) {
+                console.error('删除赞助者凭证失败:', error);
+              }
             } else {
               message.warn(`云端连接失败：${gameResp.data.cloud_error}，已使用本地游戏列表`);
             }
@@ -2632,7 +2930,8 @@ const App: React.FC = () => {
   // 版本检查相关状态
   const [versionUpdateModalVisible, setVersionUpdateModalVisible] = useState<boolean>(false);
   const [latestVersionInfo, setLatestVersionInfo] = useState<{version: string, description: any} | null>(null);
-  const currentVersion = '2.1.0'; // 当前版本号
+  const [downloadingImage, setDownloadingImage] = useState<boolean>(false);
+  const currentVersion = '2.2.0'; // 当前版本号
   
   // 版本检查功能
   const checkForUpdates = async () => {
@@ -2653,6 +2952,91 @@ const App: React.FC = () => {
     } catch (error) {
       // 静默处理版本检查错误，不影响用户体验
       console.warn('版本检查失败:', error);
+    }
+  };
+  
+  // 下载镜像功能
+  const handleDownloadImage = async () => {
+    try {
+      setDownloadingImage(true);
+      message.loading('正在下载并导入镜像，请稍候...', 0);
+      
+      const response = await downloadDockerImage();
+      
+      message.destroy(); // 清除loading消息
+      
+      if (response && response.status === 'success') {
+        message.success(response.message);
+        
+        // 如果有Docker命令，显示复制对话框
+        if (response.docker_command) {
+          Modal.info({
+            title: '镜像下载成功',
+            content: (
+              <div>
+                <p>镜像已成功下载并导入，请复制以下命令手动执行：</p>
+                <div style={{
+                  background: '#f5f5f5',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                  wordBreak: 'break-all',
+                  marginTop: '12px'
+                }}>
+                  {response.docker_command}
+                </div>
+                <Button 
+                  type="primary" 
+                  style={{ marginTop: '12px' }}
+                  onClick={() => {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                      navigator.clipboard.writeText(response.docker_command!).then(() => {
+                        message.success('命令已复制到剪贴板');
+                      }).catch(() => {
+                        message.error('复制失败，请手动复制');
+                      });
+                    } else {
+                      // 降级方案
+                      try {
+                        const textArea = document.createElement('textarea');
+                        textArea.value = response.docker_command!;
+                        textArea.style.position = 'fixed';
+                        textArea.style.opacity = '0';
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        const successful = document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        
+                        if (successful) {
+                          message.success('命令已复制到剪贴板');
+                        } else {
+                          message.error('复制失败，请手动复制');
+                        }
+                      } catch (err) {
+                        message.error('复制失败，请手动复制');
+                      }
+                    }
+                  }}
+                >
+                  复制命令
+                </Button>
+              </div>
+            ),
+            width: 600
+          });
+        }
+        
+        setVersionUpdateModalVisible(false);
+      } else {
+        message.error(response?.message || '下载失败');
+      }
+    } catch (error: any) {
+      message.destroy();
+      message.error(error?.message || '下载镜像时发生错误');
+    } finally {
+      setDownloadingImage(false);
     }
   };
   
@@ -3176,6 +3560,18 @@ const App: React.FC = () => {
                     <Card title="Minecraft服务器快速部署">
                       <MinecraftDeploy />
                     </Card>
+                  </div>
+                </TabPane>
+                <TabPane tab="半自动部署" key="semi-auto-deploy">
+                  <div style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 0' }}>
+                    <Card title="半自动部署">
+                      <SemiAutoDeploy />
+                    </Card>
+                  </div>
+                </TabPane>
+                <TabPane tab="在线部署" key="online-deploy">
+                  <div style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 0' }}>
+                    <OnlineDeploy />
                   </div>
                 </TabPane>
               </Tabs>
@@ -3786,7 +4182,7 @@ const App: React.FC = () => {
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.6</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.13</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
@@ -4311,6 +4707,14 @@ const App: React.FC = () => {
             }
           }}>
             复制镜像地址
+          </Button>,
+          <Button 
+            key="downloadImage" 
+            type="default"
+            loading={downloadingImage}
+            onClick={handleDownloadImage}
+          >
+            下载镜像
           </Button>,
           <Button key="download" type="primary" onClick={() => {
             window.open('https://pan.baidu.com/s/1NyinYIwX1xeL4jWafIuOgw?pwd=v75z', '_blank');

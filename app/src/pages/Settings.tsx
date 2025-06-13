@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Typography, Card, Tabs, Form, Input, Button, message, Alert, Divider, Spin, Switch, InputNumber, Select, Space } from 'antd';
 import axios from 'axios';
-import { HeartOutlined, InfoCircleOutlined, FileTextOutlined, DownloadOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
+import { HeartOutlined, InfoCircleOutlined, FileTextOutlined, DownloadOutlined, ReloadOutlined, GlobalOutlined, DockerOutlined } from '@ant-design/icons';
+import PanelManager from '../components/PanelManager';
 
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -464,7 +465,10 @@ const Settings: React.FC = () => {
         <InfoCircleOutlined /> 赞助者权益:
         <ul>
           <li>从云端获取更多可部署的游戏列表及最新的游戏启动脚本</li>
+          <li>国内服务器高速下载Java运行环境</li>
+          <li>在线部署使用权益</li>
           <li>版本更新提示功能</li>
+          <li>享受星辰资源站的高速下载特权</li>
         </ul>
       </Paragraph>
       
@@ -524,6 +528,9 @@ const Settings: React.FC = () => {
           <div style={{ maxWidth: 600, margin: '0 auto', padding: '20px 0' }}>
             {renderProxySection()}
           </div>
+        </TabPane>
+        <TabPane tab="面板管理" key="panel">
+          <PanelManager />
         </TabPane>
         <TabPane tab="日志" key="logs">
           <div style={{ padding: '20px 0' }}>

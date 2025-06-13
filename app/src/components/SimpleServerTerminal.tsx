@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Button, Input, Space, Tooltip, Modal } from 'antd';
-import { ClearOutlined, SearchOutlined, HistoryOutlined, ReloadOutlined, CopyOutlined } from '@ant-design/icons';
+import { ClearOutlined, SearchOutlined, HistoryOutlined, ReloadOutlined, CopyOutlined, EnterOutlined } from '@ant-design/icons';
 
 interface SimpleServerTerminalProps {
   outputs: string[];
@@ -410,6 +410,22 @@ const SimpleServerTerminal = forwardRef<SimpleServerTerminalRef, SimpleServerTer
     });
   };
 
+  // 发送回车信号
+  const [isEnterSending, setIsEnterSending] = useState(false);
+  const handleSendEnter = async () => {
+    if (isEnterSending) return; // 防止重复点击
+    
+    if (onSendCommand) {
+      setIsEnterSending(true);
+      console.log('发送回车信号: \\n');
+      onSendCommand('\\n');
+      // 短暂延迟后重置状态
+      setTimeout(() => setIsEnterSending(false), 500);
+    } else {
+      console.log('onSendCommand 函数未定义');
+    }
+  };
+
   // 显示快捷键帮助
   const showShortcutsHelp = () => {
     Modal.info({
@@ -451,6 +467,9 @@ const SimpleServerTerminal = forwardRef<SimpleServerTerminalRef, SimpleServerTer
           <p><strong>Ctrl + +/-</strong> - 调整字体大小</p>
           <p><strong>Ctrl+0</strong> - 重置字体大小</p>
           <p><strong>F1</strong> - 显示此帮助</p>
+          
+          <h4>特殊功能</h4>
+          <p><strong>回车按钮</strong> - 发送空行回车信号</p>
         </div>
       ),
       width: 600,
@@ -473,6 +492,17 @@ const SimpleServerTerminal = forwardRef<SimpleServerTerminalRef, SimpleServerTer
           增强终端 - 支持鼠标交互、命令历史和快捷键 | 输出行数: {outputs.length}
         </div>
         <Space size="small">
+          <Tooltip title="发送回车信号 (\\n)">
+            <Button 
+              size="small" 
+              icon={<EnterOutlined />}
+              onClick={handleSendEnter}
+              type="primary"
+              ghost
+              disabled={isEnterSending}
+              loading={isEnterSending}
+            />
+          </Tooltip>
           <Tooltip title="搜索内容 (Ctrl+F)">
             <Button 
               size="small" 

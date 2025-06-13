@@ -72,16 +72,71 @@ body {
 
 /* 菜单项悬停效果增强 */
 .ant-menu-item {
-  transition: all 0.2s ease-in-out !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 6px !important;
+  margin: 2px 8px !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.ant-menu-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(22, 119, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+  z-index: 0;
+}
+
+.ant-menu-item:hover::before {
+  left: 100%;
 }
 
 .ant-menu-item:hover {
-  transform: translateX(2px);
+  transform: translateX(4px);
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.08) 0%, rgba(22, 119, 255, 0.12) 100%) !important;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  border-left: 3px solid #1677ff;
 }
 
 .ant-menu-item-selected {
-  transform: translateX(4px) !important;
-  box-shadow: 2px 0 8px rgba(22, 119, 255, 0.2);
+  transform: translateX(6px) !important;
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.15) 0%, rgba(22, 119, 255, 0.25) 100%) !important;
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  border-left: 4px solid #1677ff;
+  position: relative;
+}
+
+.ant-menu-item-selected::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  background: #1677ff;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 8px rgba(22, 119, 255, 0.6);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: translateY(-50%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-50%) scale(1.2);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(-50%) scale(1);
+    opacity: 1;
+  }
 }
 
 @keyframes rotate {
@@ -121,6 +176,183 @@ body {
   top: 0;
   bottom: 0;
   z-index: 10;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(240, 240, 240, 0.6);
+}
+
+.fixed-sider .ant-menu {
+  background: transparent !important;
+  border-right: none !important;
+}
+
+.fixed-sider .ant-menu-item {
+  color: rgba(0, 0, 0, 0.75) !important;
+  font-weight: 500;
+}
+
+.fixed-sider .ant-menu-item:hover {
+  color: #1677ff !important;
+}
+
+.fixed-sider .ant-menu-item-selected {
+  color: #1677ff !important;
+  font-weight: 600;
+}
+
+/* 菜单项点击效果 */
+.ant-menu-item:active {
+  transform: translateX(2px) scale(0.98) !important;
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.25) 0%, rgba(22, 119, 255, 0.35) 100%) !important;
+  box-shadow: 0 1px 4px rgba(22, 119, 255, 0.3), inset 0 2px 4px rgba(22, 119, 255, 0.2) !important;
+  border-left: 5px solid #1677ff !important;
+  transition: all 0.1s ease !important;
+}
+
+/* 菜单图标动画效果 */
+.ant-menu-item .anticon {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ant-menu-item:hover .anticon {
+  transform: scale(1.1) rotate(5deg);
+  color: #1677ff;
+}
+
+.ant-menu-item:active .anticon {
+  transform: scale(0.95) rotate(-2deg);
+  color: #0958d9;
+  filter: drop-shadow(0 0 6px rgba(22, 119, 255, 0.6));
+}
+
+.ant-menu-item-selected .anticon {
+  transform: scale(1.15);
+  color: #1677ff;
+  filter: drop-shadow(0 0 4px rgba(22, 119, 255, 0.4));
+}
+
+/* 侧边栏触发器按钮样式优化 */
+.ant-layout-sider-trigger {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.08) 0%, rgba(22, 119, 255, 0.12) 100%) !important;
+  border-top: 1px solid rgba(240, 240, 240, 0.8) !important;
+  border-right: none !important;
+  color: #1677ff !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.ant-layout-sider-trigger::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(22, 119, 255, 0.15), transparent);
+  transition: left 0.5s ease;
+  z-index: 0;
+}
+
+.ant-layout-sider-trigger:hover::before {
+  left: 100%;
+}
+
+.ant-layout-sider-trigger:hover {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.15) 0%, rgba(22, 119, 255, 0.25) 100%) !important;
+  color: #1677ff !important;
+  box-shadow: 0 -2px 8px rgba(22, 119, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.ant-layout-sider-trigger .anticon {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 1;
+}
+
+.ant-layout-sider-trigger:hover .anticon {
+  transform: scale(1.1) rotate(180deg);
+  color: #1677ff;
+  filter: drop-shadow(0 0 4px rgba(22, 119, 255, 0.4));
+}
+
+.ant-layout-sider-trigger:active {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.3) 0%, rgba(22, 119, 255, 0.4) 100%) !important;
+  transform: translateY(0px) scale(0.95) !important;
+  box-shadow: 0 1px 4px rgba(22, 119, 255, 0.4), inset 0 2px 6px rgba(22, 119, 255, 0.3) !important;
+  transition: all 0.1s ease !important;
+}
+
+.ant-layout-sider-trigger:active .anticon {
+  transform: scale(0.9) rotate(180deg);
+  color: #0958d9;
+  filter: drop-shadow(0 0 6px rgba(22, 119, 255, 0.6));
+}
+
+/* 随机背景状态下的触发器样式 */
+.with-random-bg .ant-layout-sider-trigger {
+  background: rgba(0, 0, 0, 0.15) !important;
+  backdrop-filter: blur(15px) saturate(1.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.with-random-bg .ant-layout-sider-trigger:hover {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.25) 0%, rgba(22, 119, 255, 0.35) 100%) !important;
+  backdrop-filter: blur(20px) saturate(1.5);
+  color: #ffffff !important;
+  box-shadow: 0 -2px 12px rgba(22, 119, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.without-random-bg .ant-layout-sider-trigger {
+  background: linear-gradient(135deg, rgba(248, 249, 250, 0.95) 0%, rgba(240, 242, 245, 0.95) 100%) !important;
+  border-top: 1px solid rgba(240, 240, 240, 0.6) !important;
+  backdrop-filter: blur(8px);
+}
+
+.without-random-bg .ant-layout-sider-trigger:hover {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.12) 0%, rgba(22, 119, 255, 0.18) 100%) !important;
+  backdrop-filter: blur(12px);
+}
+
+/* 随机背景状态下的触发器点击效果 */
+.with-random-bg .ant-layout-sider-trigger:active {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.4) 0%, rgba(22, 119, 255, 0.5) 100%) !important;
+  backdrop-filter: blur(25px) saturate(2);
+  transform: translateY(0px) scale(0.95);
+  box-shadow: 0 1px 6px rgba(22, 119, 255, 0.5), inset 0 2px 8px rgba(22, 119, 255, 0.3);
+  transition: all 0.1s ease;
+}
+
+/* 无随机背景状态下的触发器点击效果 */
+.without-random-bg .ant-layout-sider-trigger:active {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.25) 0%, rgba(22, 119, 255, 0.35) 100%) !important;
+  backdrop-filter: blur(15px);
+  transform: translateY(0px) scale(0.95);
+  box-shadow: 0 1px 4px rgba(22, 119, 255, 0.4), inset 0 2px 6px rgba(22, 119, 255, 0.2);
+  transition: all 0.1s ease;
+}
+
+.without-random-bg .ant-layout-sider-trigger:hover {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.1) 0%, rgba(22, 119, 255, 0.15) 100%) !important;
+}
+
+/* 用户不活跃状态下的触发器样式 */
+.user-inactive .ant-layout-sider-trigger {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(2px) !important;
+  opacity: 0.08;
+  transition: all 0.5s ease-in-out;
+}
+
+.user-inactive .ant-layout-sider-trigger:hover {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(15px) !important;
+  opacity: 0.95 !important;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  transform: translateY(-4px) !important;
+  box-shadow: 0 -4px 20px rgba(22, 119, 255, 0.3) !important;
 }
 
 /* 内容区域样式，根据侧边栏的展开/折叠状态调整 */
@@ -164,11 +396,43 @@ body {
   font-weight: bold;
   border-bottom: 1px solid #f0f0f0;
   margin-bottom: 8px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border-radius: 8px;
+  margin: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.logo:hover {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.05) 0%, rgba(22, 119, 255, 0.1) 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.15);
+}
+
+.logo:active {
+  transform: translateY(0px) scale(0.95);
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.15) 0%, rgba(22, 119, 255, 0.25) 100%);
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.3), inset 0 2px 4px rgba(22, 119, 255, 0.2);
+  transition: all 0.1s ease;
 }
 
 .logo .anticon {
   font-size: 24px;
   margin-right: 8px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.logo:hover .anticon {
+  transform: scale(1.1) rotate(5deg);
+  color: #1677ff;
+  filter: drop-shadow(0 0 4px rgba(22, 119, 255, 0.4));
+}
+
+.logo:active .anticon {
+  transform: scale(0.9) rotate(-5deg);
+  color: #0958d9;
+  filter: drop-shadow(0 0 6px rgba(22, 119, 255, 0.6));
 }
 
 /* 容器信息页面样式 */
@@ -498,16 +762,23 @@ body {
     height: auto;
     max-height: 50px;
     overflow: hidden;
-    transition: max-height 0.3s;
-    background: rgba(255, 255, 255, 0.8) !important;
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(240, 240, 240, 0.5);
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(240, 240, 240, 0.6);
+    border-right: none;
   }
   
   .fixed-sider.expanded {
-    max-height: 300px;
+    max-height: 350px;
     overflow: auto;
-    background: rgba(255, 255, 255, 0.9) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  }
+  
+  .fixed-sider .ant-menu-item {
+    margin: 1px 4px !important;
+    border-radius: 4px !important;
   }
   
   .content-with-fixed-sider {
@@ -1091,6 +1362,32 @@ body {
   z-index: 1;
 }
 
+/* 文件管理页面独占右边样式 */
+.file-management {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--sider-width);
+  background: #fff;
+  z-index: 5;
+  padding: 16px;
+  overflow: auto;
+  transition: left 0.05s;
+}
+
+/* 当侧边栏折叠时调整文件管理器位置 */
+.content-with-fixed-sider.sider-collapsed .file-management {
+  left: var(--sider-collapsed-width);
+}
+
+/* 移动端时文件管理器占据全屏 */
+@media (max-width: 768px) {
+  .file-management {
+    left: 0;
+  }
+}
+
 /* 停止服务器按钮样式 */
 .stop-server-dropdown .ant-dropdown-menu {
   border-radius: 4px;
@@ -1113,7 +1410,7 @@ body {
 /* 游戏卡片中的封面图片样式 */
 .game-cover {
   width: 100%;
-  height: 160px;
+  height: 100px;
   background-color: #f0f0f0;
   background-size: cover;
   background-position: center;
@@ -1188,6 +1485,16 @@ body {
 .logout-btn:hover {
   color: #ff7875 !important;
   background-color: rgba(255, 77, 79, 0.1);
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(255, 77, 79, 0.2);
+}
+
+.logout-btn:active {
+  color: #d9363e !important;
+  background-color: rgba(255, 77, 79, 0.2);
+  transform: scale(0.95);
+  box-shadow: 0 1px 3px rgba(255, 77, 79, 0.3), inset 0 1px 2px rgba(255, 77, 79, 0.2);
+  transition: all 0.1s ease;
 }
 
 /* 登录页面样式 */
@@ -1749,10 +2056,10 @@ body {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(22,119,255,0.08);
   background: linear-gradient(135deg, #fff 60%, #f0f6ff 100%);
-  min-height: 180px;
+  min-height: 120px;
   position: relative;
   overflow: hidden;
-  padding: 16px;
+  padding: 12px;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -1887,8 +2194,238 @@ body {
 
 /* 补充下拉菜单、通知、输入框等组件的毛玻璃效果 */
 .ant-dropdown-menu,
-.ant-notification-notice,
+/* 消息通知样式 - 现代化右上角通知 */
+.ant-message {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    left: auto !important;
+    z-index: 1050 !important;
+    width: auto !important;
+    max-width: 350px !important;
+    pointer-events: none !important;
+  }
+
+.ant-message-notice {
+    margin-bottom: 8px !important;
+    padding: 0 !important;
+    pointer-events: auto !important;
+  }
+
 .ant-message-notice-content {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-radius: 12px !important;
+    box-shadow: 
+      0 15px 30px rgba(0, 0, 0, 0.08),
+      0 6px 12px rgba(0, 0, 0, 0.06),
+      0 2px 6px rgba(0, 0, 0, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    padding: 12px 16px !important;
+    min-width: 260px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  animation: messageSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  text-align: left !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+.ant-message-notice-content::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%, rgba(255, 255, 255, 0.05) 100%) !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+.ant-message-notice-content:hover {
+    transform: translateY(-1px) scale(1.01) !important;
+    box-shadow: 
+      0 20px 40px rgba(0, 0, 0, 0.12),
+      0 10px 20px rgba(0, 0, 0, 0.08),
+      0 4px 10px rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  }
+
+/* 消息滑入动画 */
+@keyframes messageSlideIn {
+  0% {
+    transform: translateX(120%) scale(0.8);
+    opacity: 0;
+  }
+  60% {
+    transform: translateX(-8%) scale(1.05);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* 不同类型消息的样式 */
+.ant-message-success .ant-message-notice-content {
+  border-left: 5px solid #52c41a !important;
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.08) 0%, rgba(255, 255, 255, 0.98) 20%, rgba(248, 250, 252, 0.95) 100%) !important;
+}
+
+.ant-message-success .ant-message-notice-content::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 5px !important;
+  height: 100% !important;
+  background: linear-gradient(180deg, #52c41a 0%, #73d13d 100%) !important;
+  box-shadow: 0 0 8px rgba(82, 196, 26, 0.3) !important;
+}
+
+.ant-message-error .ant-message-notice-content {
+  border-left: 5px solid #ff4d4f !important;
+  background: linear-gradient(135deg, rgba(255, 77, 79, 0.08) 0%, rgba(255, 255, 255, 0.98) 20%, rgba(248, 250, 252, 0.95) 100%) !important;
+}
+
+.ant-message-error .ant-message-notice-content::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 5px !important;
+  height: 100% !important;
+  background: linear-gradient(180deg, #ff4d4f 0%, #ff7875 100%) !important;
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.3) !important;
+}
+
+.ant-message-warning .ant-message-notice-content {
+  border-left: 5px solid #faad14 !important;
+  background: linear-gradient(135deg, rgba(250, 173, 20, 0.08) 0%, rgba(255, 255, 255, 0.98) 20%, rgba(248, 250, 252, 0.95) 100%) !important;
+}
+
+.ant-message-warning .ant-message-notice-content::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 5px !important;
+  height: 100% !important;
+  background: linear-gradient(180deg, #faad14 0%, #ffc53d 100%) !important;
+  box-shadow: 0 0 8px rgba(250, 173, 20, 0.3) !important;
+}
+
+.ant-message-info .ant-message-notice-content {
+  border-left: 5px solid #1890ff !important;
+  background: linear-gradient(135deg, rgba(24, 144, 255, 0.08) 0%, rgba(255, 255, 255, 0.98) 20%, rgba(248, 250, 252, 0.95) 100%) !important;
+}
+
+.ant-message-info .ant-message-notice-content::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 5px !important;
+  height: 100% !important;
+  background: linear-gradient(180deg, #1890ff 0%, #40a9ff 100%) !important;
+  box-shadow: 0 0 8px rgba(24, 144, 255, 0.3) !important;
+}
+
+.ant-message-loading .ant-message-notice-content {
+  border-left: 5px solid #1890ff !important;
+  background: linear-gradient(135deg, rgba(24, 144, 255, 0.08) 0%, rgba(255, 255, 255, 0.98) 20%, rgba(248, 250, 252, 0.95) 100%) !important;
+}
+
+.ant-message-loading .ant-message-notice-content::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 5px !important;
+  height: 100% !important;
+  background: linear-gradient(180deg, #1890ff 0%, #40a9ff 100%) !important;
+  box-shadow: 0 0 8px rgba(24, 144, 255, 0.3) !important;
+  animation: loadingPulse 1.5s ease-in-out infinite !important;
+}
+
+@keyframes loadingPulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(24, 144, 255, 0.3);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 16px rgba(24, 144, 255, 0.6);
+  }
+}
+
+/* 消息图标样式 */
+  .ant-message-notice-content .anticon {
+    font-size: 16px !important;
+    margin-right: 10px !important;
+    position: relative !important;
+    z-index: 2 !important;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1)) !important;
+    transition: all 0.3s ease !important;
+  }
+
+.ant-message-success .ant-message-notice-content .anticon {
+  color: #52c41a !important;
+  text-shadow: 0 0 8px rgba(82, 196, 26, 0.3) !important;
+}
+
+.ant-message-error .ant-message-notice-content .anticon {
+  color: #ff4d4f !important;
+  text-shadow: 0 0 8px rgba(255, 77, 79, 0.3) !important;
+}
+
+.ant-message-warning .ant-message-notice-content .anticon {
+  color: #faad14 !important;
+  text-shadow: 0 0 8px rgba(250, 173, 20, 0.3) !important;
+}
+
+.ant-message-info .ant-message-notice-content .anticon,
+.ant-message-loading .ant-message-notice-content .anticon {
+  color: #1890ff !important;
+  text-shadow: 0 0 8px rgba(24, 144, 255, 0.3) !important;
+}
+
+/* 消息文本样式 */
+  .ant-message-notice-content > span {
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+    color: rgba(0, 0, 0, 0.88) !important;
+    font-weight: 500 !important;
+    position: relative !important;
+    z-index: 2 !important;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8) !important;
+  }
+
+/* 响应式设计 */
+  @media (max-width: 768px) {
+    .ant-message {
+      right: 12px !important;
+      top: 12px !important;
+      max-width: calc(100vw - 24px) !important;
+    }
+    
+    .ant-message-notice-content {
+      min-width: 240px !important;
+      padding: 10px 14px !important;
+    }
+    
+    .ant-message-notice-content > span {
+      font-size: 12px !important;
+    }
+  }
+
+.ant-notification-notice {
   background: rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(10px);
   border-radius: 8px;
@@ -2028,6 +2565,18 @@ body {
 .user-info .ant-switch {
   margin-right: 12px;
   vertical-align: middle;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.user-info .ant-switch:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.2);
+}
+
+.user-info .ant-switch:active {
+  transform: scale(0.95);
+  box-shadow: 0 1px 3px rgba(22, 119, 255, 0.3), inset 0 1px 2px rgba(22, 119, 255, 0.1);
+  transition: all 0.1s ease;
 }
 
 /* 登录页面样式保持不变，始终使用随机背景 */
@@ -2071,8 +2620,18 @@ body {
 
 .user-inactive .fixed-sider {
   background: rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(1px) !important;
+  backdrop-filter: blur(2px) !important;
   opacity: 0.08;
+  transition: all 0.5s ease-in-out;
+}
+
+.user-inactive .fixed-sider:hover {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(15px) !important;
+  opacity: 0.95 !important;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  transform: translateX(2px) !important;
+  box-shadow: 2px 0 20px rgba(0, 0, 0, 0.15) !important;
 }
 
 /* 不活跃状态下的表格透明度变化 */

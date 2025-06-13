@@ -330,3 +330,28 @@ export const checkVersionUpdate = async (): Promise<{version: string, descriptio
     return null;
   }
 };
+
+export const downloadDockerImage = async (): Promise<{status: string, message: string, docker_command?: string} | null> => {
+  try {
+    const response = await api.post('/version/download-image');
+    
+    if (response.data.status === 'success') {
+      return {
+        status: response.data.status,
+        message: response.data.message,
+        docker_command: response.data.docker_command
+      };
+    } else {
+      return {
+        status: response.data.status,
+        message: response.data.message
+      };
+    }
+  } catch (error: any) {
+    console.error('下载Docker镜像失败:', error?.message || error);
+    return {
+      status: 'error',
+      message: error?.response?.data?.message || error?.message || '下载失败'
+    };
+  }
+};

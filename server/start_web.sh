@@ -2,6 +2,32 @@
 
 echo "==== 启动游戏服务器网页部署界面 ===="
 
+# 信号处理函数
+cleanup() {
+    echo "收到退出信号，正在优雅关闭Gunicorn..."
+    if [ ! -z "$GUNICORN_PID" ]; then
+        # 发送SIGTERM信号给gunicorn主进程
+        kill -TERM $GUNICORN_PID 2>/dev/null
+        # 等待进程结束，最多等待30秒
+        for i in {1..30}; do
+            if ! kill -0 $GUNICORN_PID 2>/dev/null; then
+                echo "Gunicorn已优雅关闭"
+                break
+            fi
+            sleep 1
+        done
+        # 如果进程仍然存在，强制杀死
+        if kill -0 $GUNICORN_PID 2>/dev/null; then
+            echo "强制关闭Gunicorn进程"
+            kill -KILL $GUNICORN_PID 2>/dev/null
+        fi
+    fi
+    exit 0
+}
+
+# 捕获SIGTERM和SIGINT信号
+trap cleanup SIGTERM SIGINT
+
 # 确认前端已构建
 if [ ! -d "/home/steam/app/dist" ]; then
   echo "错误: 前端未构建，请检查Dockerfile"
@@ -27,7 +53,24 @@ if [ "$USE_GUNICORN" != "true" ]; then
   echo "警告: 不推荐直接使用Flask开发服务器"
   echo "设置环境变量 USE_GUNICORN=true 可启用Gunicorn"
   cd /home/steam/server
-  exec python3 api_server.py
+  # 启动Flask开发服务器并记录PID
+  python3 api_server.py &
+  FLASK_PID=$!
+  echo "Flask开发服务器已启动，PID: $FLASK_PID"
+  
+  # 重新定义cleanup函数用于Flask
+  cleanup() {
+      echo "收到退出信号，正在关闭Flask服务器..."
+      if [ ! -z "$FLASK_PID" ]; then
+          kill -TERM $FLASK_PID 2>/dev/null
+          wait $FLASK_PID 2>/dev/null
+          echo "Flask服务器已关闭"
+      fi
+      exit 0
+  }
+  
+  # 等待Flask进程结束
+  wait $FLASK_PID
   exit 0
 fi
 
@@ -49,7 +92,8 @@ cd /home/steam/server
 # --access-logfile -: 访问日志输出到标准输出
 # --error-logfile -: 错误日志输出到标准输出
 
-exec gunicorn -w $WORKERS \
+# 启动gunicorn并记录PID
+gunicorn -w $WORKERS \
   -b 0.0.0.0:$PORT \
   --timeout $TIMEOUT \
   --preload \
@@ -60,4 +104,11 @@ exec gunicorn -w $WORKERS \
   --log-level info \
   --access-logfile - \
   --error-logfile - \
-  api_server:app
+  api_server:app &
+
+# 记录gunicorn主进程PID
+GUNICORN_PID=$!
+echo "Gunicorn已启动，PID: $GUNICORN_PID"
+
+# 等待gunicorn进程结束
+wait $GUNICORN_PID

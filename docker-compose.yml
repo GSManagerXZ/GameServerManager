@@ -5,7 +5,7 @@ services:
     build: .
     container_name: xiaozhugame_server # 替换为你需要创建的容器名称
     #image: gameservermanager:latest  # 替换为你的镜像名称(本地导入)
-    image: xiaozhu674/gameservermanager:2.0.1 # 替换为你的镜像名称(云端拉取)
+    image: xiaozhu674/gameservermanager:latest # 替换为你的镜像名称(云端拉取)
     user: root                         # 使用root用户运行容器
     ports:
       # 默认开放的常用Steam游戏服务器端口
@@ -17,6 +17,7 @@ services:
       - ./game_data:/home/steam/games  # 游戏数据，请将权限设置为777
       - ./game_file:/home/steam/.config # 通用游戏存档路径1。请务必将此宿主目录权限设置为777
       - ./game_file:/home/steam/.local  # 通用游戏存档路径2。请务必将此宿主目录权限设置为777
+      - /var/run/docker.sock:/var/run/docker.sock
       # - ./game_environment:/home/steam/environment  # 【可选】容器额外运行库安装路径 请将权限设置为777
       # - ./game_frpc/frpc/frpc.toml:/home/steam/FRP/frpc/frpc.toml # 【可选】容器内网穿透frpc配置文件
       # - ./game_backup:/home/steam/backup # 【可选】定时备份路径
