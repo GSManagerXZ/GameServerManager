@@ -26,7 +26,7 @@
         "script": false,
         "script_name": "echo=none",
         "tip": "游戏端口：7777 UDP，配置文件位置：Config/Game.ini，存档位置：位于映射的通用游戏存档路径目录中，温馨提示：请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/526870/header.jpg?t=1737364583",
+        "image":"https://shqnared.cdn.queniuqe.com/store_item_assets/steam/apps/526870/header.jpg?t=1737364583",
         "url":"https://store.steampowered.com/app/526870/_/"
     },
     "L4D2": {
@@ -196,7 +196,7 @@
         "anonymous": true,
         "script": false,
         "script_name": "",
-        "tip": "游戏端口：27015 UDP ，配置文件位置：WS/Saved/GameplaySettings/GameXishu.json，存档位置：WS/Saved/Worlds/Dedicated/;请将保存位置映射到容器外部，防止存档丢失",
+        "tip": "游戏端口：27015 UDP ，配置文件位置：WS/Saved/GameplaySettings/GameXishu.json，存档位置：WS/Saved/Worlds/Dedicated/;启动后卡住需要根据单核处理器性能决定，一般需要5分钟左右；请将保存位置映射到容器外部，防止存档丢失",
         "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2646460/header.jpg?t=1746601231",
         "url":"https://store.steampowered.com/app/2646460/Soulmask/"
     },

@@ -414,7 +414,16 @@ const FrpManager: React.FC = () => {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      render: (text: string) => text === 'general' ? '乐青FRP' : text === 'custom' ? '自建FRP' : text
+      render: (text: string) => {
+        switch(text) {
+          case 'general': return '乐青FRP';
+          case 'custom': return '自建FRP';
+          case 'mefrp': return 'MEFrp(幻缘映射)';
+          case 'sakura': return 'Sakura(樱花内网穿透)';
+          case 'npc': return 'NPC内网穿透';
+          default: return text;
+        }
+      }
     },
     {
       title: '状态',
@@ -656,6 +665,29 @@ const FrpManager: React.FC = () => {
                 </div>
               </Space>
             </div>
+          </TabPane>
+          <TabPane tab="npc" key="npc">
+            <Form form={form} layout="vertical" onFinish={createFrpConfig}>
+              <Form.Item
+                name="name"
+                label="配置名称"
+                rules={[{ required: true, message: '请输入配置名称' }]}
+              >
+                <Input placeholder="请输入配置名称，如：我的NPC" />
+              </Form.Item>
+              <Form.Item
+                name="command"
+                label="启动参数"
+                rules={[{ required: true, message: '请输入NPC启动参数' }]}
+              >
+                <Input placeholder="例如：-server=82.157.xx.xx:8024 -vkey=a82kjxxyllqnlruk -type=tcp" />
+              </Form.Item>
+              <Form.Item>
+                <Button type="primary" htmlType="submit" loading={loading}>
+                  创建
+                </Button>
+              </Form.Item>
+            </Form>
           </TabPane>
           <TabPane tab="LoCyanFrp(乐青映射)" key="general">
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
@@ -927,4 +959,4 @@ const FrpManager: React.FC = () => {
   );
 };
 
-export default FrpManager; 
+export default FrpManager;

@@ -36,7 +36,28 @@ const ansiColorMap: { [key: string]: string } = {
 
 // 解析ANSI颜色和样式
 const parseColoredText = (text: string): React.ReactNode => {
-  // 匹配所有ANSI转义序列
+  // 首先清理所有ANSI控制序列（非颜色相关的）
+  let cleanedText = text
+    // 清除光标位置控制序列
+    .replace(/\u001b\[\d*[ABCDEFGHJKST]/g, '')
+    // 清除光标位置设置序列 [H, [f
+    .replace(/\u001b\[\d*;?\d*[Hf]/g, '')
+    // 清除清屏序列 [J, [K
+    .replace(/\u001b\[\d*[JK]/g, '')
+    // 清除设备状态报告等控制序列
+    .replace(/\u001b\[\d*[nR]/g, '')
+    // 清除其他控制序列
+    .replace(/\u001b\[[0-9;]*[a-zA-Z]/g, (match) => {
+      // 保留颜色相关的序列（以m结尾）
+      if (match.endsWith('m')) {
+        return match;
+      }
+      return '';
+    })
+    // 清除非标准的控制字符
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
+  // 匹配颜色相关的ANSI转义序列
   const ansiRegex = /\u001b\[([0-9;]+)m/g;
   let result: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -44,12 +65,15 @@ const parseColoredText = (text: string): React.ReactNode => {
   let styleStack: any = {};
   let keyIndex = 0;
 
-  while ((match = ansiRegex.exec(text)) !== null) {
+  while ((match = ansiRegex.exec(cleanedText)) !== null) {
     // 添加前面的普通文本
     if (match.index > lastIndex) {
-      result.push(
-        <span key={`text-${keyIndex++}`} style={{ ...styleStack }}>{text.substring(lastIndex, match.index)}</span>
-      );
+      const textContent = cleanedText.substring(lastIndex, match.index);
+      if (textContent) {
+        result.push(
+          <span key={`text-${keyIndex++}`} style={{ ...styleStack }}>{textContent}</span>
+        );
+      }
     }
     // 解析ANSI参数
     const params = match[1].split(';');
@@ -84,12 +108,21 @@ const parseColoredText = (text: string): React.ReactNode => {
     lastIndex = ansiRegex.lastIndex;
   }
   // 添加剩余文本
-  if (lastIndex < text.length) {
-    result.push(
-      <span key={`text-${keyIndex++}`} style={{ ...styleStack }}>{text.substring(lastIndex)}</span>
-    );
+  if (lastIndex < cleanedText.length) {
+    const remainingText = cleanedText.substring(lastIndex);
+    if (remainingText) {
+      result.push(
+        <span key={`text-${keyIndex++}`} style={{ ...styleStack }}>{remainingText}</span>
+      );
+    }
   }
-  return result.length > 0 ? <>{result}</> : <>{text}</>;
+  
+  // 如果没有任何内容，返回清理后的文本
+  if (result.length === 0 && cleanedText) {
+    return <span>{cleanedText}</span>;
+  }
+  
+  return result.length > 0 ? <>{result}</> : null;
 };
 
 // 使用memo优化Terminal组件，避免不必要的重新渲染

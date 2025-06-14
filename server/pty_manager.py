@@ -9,9 +9,13 @@ import logging
 import subprocess
 import tempfile
 import psutil
+import re
+import termios
 
 # 配置日志
 logger = logging.getLogger("pty_manager")
+
+ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 class PTYProcess:
     """通用PTY进程管理类，用于处理各种需要交互式终端的进程"""
@@ -67,6 +71,15 @@ class PTYProcess:
             # 创建PTY
             self.master_fd, self.slave_fd = pty.openpty()
             logger.info(f"创建PTY: master={self.master_fd}, slave={self.slave_fd}")
+            
+            # 关闭ECHO，避免输入被进程再次回显导致前端显示错乱
+            try:
+                attrs = termios.tcgetattr(self.slave_fd)
+                attrs[3] = attrs[3] & ~termios.ECHO  # lflag
+                termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
+                logger.debug("已关闭PTY从端的ECHO标志")
+            except Exception as e_echo:
+                logger.warning(f"设置PTY从端ECHO标志失败: {e_echo}")
             
             # 启动进程，将输出连接到PTY从端
             self.process = subprocess.Popen(
@@ -355,6 +368,9 @@ class PTYProcess:
                     r, w, e = select.select([self.master_fd], [], [], 0.5)
                     if self.master_fd in r:
                         data = os.read(self.master_fd, 1024).decode('utf-8', errors='replace')
+                        # 移除ANSI转义序列，避免前端出现异常字符
+                        data = ANSI_ESCAPE_RE.sub('', data)
+                        data = data.replace('\r', '\n')
                         if not data:  # EOF
                             break
                         
@@ -362,6 +378,11 @@ class PTYProcess:
                         buffer += data
                         lines = buffer.split('\n')
                         buffer = lines.pop()  # 最后一个可能是不完整的行
+                        
+                        # 如果buffer以典型提示符结尾（如": ","> "），立即刷新输出
+                        if buffer and (buffer.endswith(': ') or buffer.endswith('> ')):
+                            lines.append(buffer)  # 将buffer视为完整行处理
+                            buffer = ''
                         
                         for line in lines:
                             line = line.rstrip()

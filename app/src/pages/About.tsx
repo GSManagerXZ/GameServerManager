@@ -1,10 +1,19 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { Typography, Card, Space, Divider, Tabs, Spin, Alert, Button } from 'antd';
-import { GithubOutlined, HeartOutlined, QqOutlined, ShoppingOutlined, CoffeeOutlined, GlobalOutlined } from '@ant-design/icons';
+import { GithubOutlined, HeartOutlined, QqOutlined, ShoppingOutlined, CoffeeOutlined, GlobalOutlined, TrophyOutlined } from '@ant-design/icons';
+import axios from 'axios';
 
 const { Title, Paragraph, Text } = Typography;
 const { TabPane } = Tabs;
+
+// 定义金牌赞助商数据类型
+interface SponsorData {
+  [key: string]: {
+    URL: string;
+    txt: string;
+  };
+}
 
 const About: React.FC = () => {
   const [officialWebLoading, setOfficialWebLoading] = useState<boolean>(true);
@@ -13,6 +22,9 @@ const About: React.FC = () => {
   const [githubError, setGithubError] = useState<boolean>(false);
   const [html6Loading, setHtml6Loading] = useState<boolean>(true);
   const [html6Error, setHtml6Error] = useState<boolean>(false);
+  const [sponsorLoading, setSponsorLoading] = useState<boolean>(true);
+  const [sponsorError, setSponsorError] = useState<boolean>(false);
+  const [sponsorData, setSponsorData] = useState<SponsorData>({});
 
   // 加载官网内容
   useEffect(() => {
@@ -59,6 +71,27 @@ const About: React.FC = () => {
     return () => {
       clearTimeout(timeoutId);
     };
+  }, []);
+
+  // 获取金牌赞助商数据
+  useEffect(() => {
+    const fetchSponsorData = async () => {
+      try {
+        setSponsorLoading(true);
+        setSponsorError(false);
+        
+        // 使用代理API避免CORS问题
+        const response = await axios.get('/api/sponsor');
+        setSponsorData(response.data);
+      } catch (error) {
+        console.error('获取金牌赞助商数据失败:', error);
+        setSponsorError(true);
+      } finally {
+        setSponsorLoading(false);
+      }
+    };
+
+    fetchSponsorData();
   }, []);
 
   // 处理官网iframe加载完成
@@ -317,7 +350,94 @@ const About: React.FC = () => {
           </div>
         </TabPane>
         
-        <TabPane tab="文档站" key="4">
+        <TabPane tab="金牌赞助商" key="4">
+          <div className="gold-sponsor-container">
+            <div className="sponsor-header">
+              <TrophyOutlined className="sponsor-logo" style={{ color: '#ffd700' }} />
+              <Title level={2}>金牌赞助商</Title>
+            </div>
+            
+            <Paragraph className="sponsor-description">
+              感谢以下金牌赞助商对GameServerManager项目的大力支持！
+            </Paragraph>
+            
+            {sponsorLoading ? (
+              <div className="loading-container">
+                <Spin size="large" />
+                <div style={{ marginTop: 16 }}>正在加载金牌赞助商信息...</div>
+              </div>
+            ) : sponsorError ? (
+              <Alert
+                message="加载失败"
+                description="无法获取金牌赞助商信息，请检查您的网络连接或稍后再试。"
+                type="error"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+            ) : (
+              <div className="gold-sponsors-grid">
+                {Object.entries(sponsorData).length === 0 ? (
+                  <div className="no-sponsors">
+                    <Paragraph>暂无金牌赞助商信息</Paragraph>
+                  </div>
+                ) : (
+                  Object.entries(sponsorData).map(([name, info]) => (
+                    <Card
+                      key={name}
+                      className="sponsor-card"
+                      hoverable
+                      style={{
+                        marginBottom: 16,
+                        borderColor: '#ffd700',
+                        borderWidth: 2
+                      }}
+                      onClick={() => {
+                        if (info.URL) {
+                          window.open(info.URL, '_blank');
+                        }
+                      }}
+                    >
+                      <div className="sponsor-card-content">
+                        <div className="sponsor-name">
+                          <TrophyOutlined style={{ color: '#ffd700', marginRight: 8 }} />
+                          <Title level={4} style={{ margin: 0, color: '#ffd700' }}>
+                            {name}
+                          </Title>
+                        </div>
+                        {info.txt && (
+                          <Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
+                            {info.txt}
+                          </Paragraph>
+                        )}
+                        {info.URL && (
+                          <div style={{ marginTop: 8 }}>
+                            <Button 
+                              type="link" 
+                              icon={<GlobalOutlined />}
+                              style={{ padding: 0, color: '#1890ff' }}
+                            >
+                              访问官网
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  ))
+                )}
+              </div>
+            )}
+            
+            <Divider />
+            
+            <div className="sponsor-footer">
+              <Paragraph>
+                想要成为我们的金牌赞助商？请通过赞助项目页面联系我们！
+              </Paragraph>
+            </div>
+          </div>
+        </TabPane>
+        
+        <TabPane tab="文档站" key="5">
           {html6Loading && (
             <div className="loading-container">
               <Spin size="large" />
@@ -360,4 +480,4 @@ const About: React.FC = () => {
   );
 };
 
-export default About; 
+export default About;

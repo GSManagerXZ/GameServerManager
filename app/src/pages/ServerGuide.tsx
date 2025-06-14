@@ -21,7 +21,7 @@ const ServerGuide: React.FC = () => {
       name: 'SteamDB',
       description: 'Steam平台上所有可用游戏服务器的完整列表和AppID',
       url: 'https://steamdb.info/search/?a=app&q=server',
-      tags: ['查询', '工具']
+      tags: ['工具']
     },
     {
       name: '灵依资源站',
@@ -48,34 +48,100 @@ const ServerGuide: React.FC = () => {
       tags: ['内网穿透', 'FRP']
     },
     {
+      name: '星辰的下载站',
+      description: '收集各种资源，免费下载',
+      url: 'https://download.xiaozhuhouses.asia/',
+      tags: ['资源']
+    },
+    {
       name: 'Rust服务器配置指南',
       description: '详细的Rust服务器配置教程，包括参数说明和优化建议',
       url: 'https://umod.org/community/oxide/guides',
-      tags: ['Rust', '配置']
-    },
-    {
-      name: 'ARK服务器配置工具',
-      description: 'ARK服务器配置生成器，可视化设置各种服务器参数',
-      url: 'https://arkserverconfig.com/',
-      tags: ['ARK', '工具']
+      tags: ['教程']
     },
     {
       name: '7 Days to Die服务器指南',
       description: '7D2D服务器设置和管理的完整教程',
       url: 'https://7daystodie.fandom.com/wiki/Server',
-      tags: ['7D2D', '教程']
+      tags: ['教程']
     },
     {
       name: 'UMOD插件平台',
       description: '各类游戏服务器的插件资源站，包括Rust、Unturned等',
       url: 'https://umod.org/',
-      tags: ['插件', '资源']
+      tags: ['插件']
     },
     {
       name: 'SourceMod插件',
       description: '适用于CS2、Team Fortress 2等Source引擎游戏的插件资源',
       url: 'https://www.sourcemod.net/',
-      tags: ['CS2', '插件']
+      tags: ['插件']
+    },
+    {
+      name: 'frp',
+      description: '快速反向代理，可帮助您将 NAT 或防火墙后面的本地服务器公开给 Internet。',
+      url: 'https://github.com/fatedier/frp',
+      tags: ['内网穿透', 'FRP']
+    },
+    {
+      name: 'nps',
+      description: '一款轻量级、高性能、功能强大的内网穿透代理服务器。支持tcp、udp、socks5、http等几乎所有流量转发，可用来访问内网网站、本地支付接口调试、ssh访问、远程桌面，内网dns解析、内网socks5代理等等……，并带有功能强大的web管理端。',
+      url: 'https://github.com/ehang-io/nps',
+      tags: ['内网穿透', 'nps']
+    },
+    {
+      name: '我的世界基岩服务端',
+      description: '如果想运行 Minecraft 版多人联机服务器，则首先要下载适用于 Windows 或 Ubuntu (Linux) 的 Bedrock 版专属服务器。',
+      url: 'https://www.minecraft.net/zh-hans/download/server/bedrock',
+      tags: ['内网穿透', 'nps']
+    },
+    {
+      name: '我的世界基岩服务端',
+      description: '如果想运行 Minecraft 版多人联机服务器，则首先要下载适用于 Windows 或 Ubuntu (Linux) 的 Bedrock 版专属服务器。',
+      url: 'https://www.minecraft.net/zh-hans/download/server/bedrock',
+      tags: ['Minecraft', '资源']
+    },
+    {
+      name: '我的世界Java服务端',
+      description: '请注意：该服务器的设置仅与 Minecraft：Java 版兼容。',
+      url: 'https://www.minecraft.net/zh-hans/download/server',
+      tags: ['Minecraft', '资源']
+    },
+    {
+      name: 'MineBBS 我的世界中文论坛',
+      description: '我的世界中文论坛',
+      url: 'https://www.minebbs.com/',
+      tags: ['Minecraft', '论坛']
+    },
+    {
+      name: '苦力怕论坛',
+      description: '最大的我的世界《Minecraft》基岩版（BE）中文资源、交流论坛之一。 你可以在这里找到优质的BE版附加包、BE版材质包、BE版地图等资源，以及最新的我的世界新闻资讯。',
+      url: 'https://klpbbs.com/',
+      tags: ['Minecraft', '论坛']
+    },
+    {
+      name: 'MCSManager',
+      description: '开源，易用，分布式架构的游戏服务器管理面板。',
+      url: 'https://www.mcsmanager.com/',
+      tags: ['面板', '程序']
+    },
+    {
+      name: 'MC百科|最大的Minecraft中文MOD百科',
+      description: '最大的Minecraft中文MOD百科',
+      url: 'https://www.mcmod.cn/',
+      tags: ['Minecraft', '论坛']
+    },
+    {
+      name: '幻兽帕鲁 | 繁殖计算器',
+      description: '最大的Minecraft中文MOD百科',
+      url: 'https://palworld.gg/zh-Hans/breeding-calculator',
+      tags: ['工具']
+    },
+    {
+      name: '幸福工厂 | 计算器',
+      description: '来自 Coffee Stain Studios 的 Satisfactory 游戏工具集合。',
+      url: 'https://satisfactory-calculator.com/zh',
+      tags: ['工具']
     }
   ];
 

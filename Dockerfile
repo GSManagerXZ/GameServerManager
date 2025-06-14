@@ -10,16 +10,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list \
     && sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
 
+# 添加deadsnakes PPA源以安装Python 3.13
+RUN apt-get update && apt-get install -y software-properties-common \
+    && apt-get install -y gpg \
+    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys F23C5A6CF475977595C89F51BA6932366A755776 \
+    && echo "deb http://ppa.launchpad.net/deadsnakes/ppa/ubuntu focal main" > /etc/apt/sources.list.d/deadsnakes.list
+
 # 安装SteamCMD和常见依赖（包括32位库）
 RUN apt-get update && apt-get upgrade -y \
     && dpkg --add-architecture i386 \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
+        aria2 \
         ca-certificates \
         locales \
         wget \
         curl \
         jq \
+        docker.io \
         xdg-user-dirs \
         libncurses5:i386 \
         libbz2-1.0:i386 \
@@ -42,6 +50,8 @@ RUN apt-get update && apt-get upgrade -y \
         libc6-dev \
         libasound2 \
         libpulse0 \
+        pulseaudio \
+        libpulse-dev \
         libnss3 \
         libgconf-2-4 \
         libcap2 \
@@ -94,8 +104,8 @@ RUN apt-get update && apt-get upgrade -y \
         net-tools \
         netcat \
         procps \
-        python3 \
-        python3-pip \
+        python3.13 \
+        python3.13-dev \
         tar \
         unzip \
         bzip2 \
@@ -103,6 +113,8 @@ RUN apt-get update && apt-get upgrade -y \
         zlib1g:i386 \
         fonts-wqy-zenhei \
         fonts-wqy-microhei \
+        libc6 \
+        libc6:i386 \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装Node.js (用于运行Web界面)
@@ -142,7 +154,7 @@ WORKDIR /home/steam
 # 下载并安装SteamCMD
 RUN mkdir -p ${STEAMCMD_DIR} \
     && cd ${STEAMCMD_DIR} \
-    && (if curl -s --connect-timeout 3 http://192.168.10.23:7890 >/dev/null 2>&1 || wget -q --timeout=3 --tries=1 http://192.168.10.23:7890 -O /dev/null >/dev/null 2>&1; then \
+    && (if curl -s --connect-timeout 3 http://192.168.10.43:7890 >/dev/null 2>&1 || wget -q --timeout=3 --tries=1 http://192.168.10.23:7890 -O /dev/null >/dev/null 2>&1; then \
           echo "代理服务器可用，使用代理下载和初始化"; \
           export http_proxy=http://192.168.10.23:7890; \
           export https_proxy=http://192.168.10.23:7890; \
@@ -183,8 +195,15 @@ WORKDIR /home/steam/app
 RUN npm install --legacy-peer-deps --no-fund && \
     npm install react-router-dom @types/react @types/react-dom react-dom @monaco-editor/react monaco-editor js-cookie @types/js-cookie
 
+# 安装pip for Python 3.13
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.13
+
+# 创建python3和pip3的符号链接指向python3.13
+RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 \
+    && ln -sf /usr/local/bin/pip3.13 /usr/bin/pip3
+
 # 安装后端依赖
-RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil PyJWT rarfile zstandard
+RUN python3.13 -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple flask flask-cors gunicorn requests psutil PyJWT rarfile zstandard docker
 
 # 添加启动脚本
 RUN echo '#!/bin/bash\n\
@@ -214,10 +233,12 @@ COPY --chown=steam:steam ./frp/LoCyanFrp /home/steam/FRP/LoCyanFrp
 COPY --chown=steam:steam ./frp/frpc /home/steam/FRP/frpc
 COPY --chown=steam:steam ./frp/mefrp /home/steam/FRP/mefrp
 COPY --chown=steam:steam ./frp/Sakura /home/steam/FRP/Sakura
+COPY --chown=steam:steam ./frp/npc /home/steam/FRP/npc
 RUN chmod +x /home/steam/FRP/LoCyanFrp/frpc
 RUN chmod +x /home/steam/FRP/frpc/frpc
 RUN chmod +x /home/steam/FRP/mefrp/frpc
 RUN chmod +x /home/steam/FRP/Sakura/frpc
+RUN chmod +x /home/steam/FRP/npc/frpc
 
 # 最后一步：复制前端代码并构建
 COPY --chown=steam:steam ./app /home/steam/app
@@ -228,8 +249,10 @@ RUN npm run build && \
 # 复制后端代码
 COPY --chown=steam:steam ./server /home/steam/server
 RUN chmod +x /home/steam/server/start_web.sh
+RUN chmod +x /home/steam/server/signal_handler.sh
 
 
 # 设置工作目录和启动命令
 WORKDIR /home/steam
-CMD ["/home/steam/start_web.sh"] 
+# 使用信号处理包装脚本确保能够正确处理Docker信号
+ENTRYPOINT ["/home/steam/server/signal_handler.sh", "/home/steam/start_web.sh"]

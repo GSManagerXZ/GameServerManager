@@ -27,6 +27,7 @@ import rarfile
 import lzma
 import stat
 import zstandard as zstd
+import multiprocessing
 from functools import wraps
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context, g, render_template_string, send_file, make_response
 from werkzeug.utils import secure_filename
@@ -42,6 +43,11 @@ import requests
 from pty_manager import pty_manager
 # 导入MC下载功能
 from MCdownloads import get_server_list, get_server_info, get_builds, get_core_info, download_file
+from sponsor_validator import SponsorValidator
+# 导入Java安装器
+from java_installer import install_java_worker
+# 导入Docker管理器
+from docker_manager import docker_manager
 
 # 输出管理函数
 def add_server_output(game_id, message, max_lines=500):
@@ -84,6 +90,9 @@ MEFRP_BINARY = os.path.join(MEFRP_DIR, "frpc")
 # Sakura内网穿透
 SAKURA_DIR = os.path.join(FRP_DIR, "Sakura")
 SAKURA_BINARY = os.path.join(SAKURA_DIR, "frpc")
+# NPC内网穿透
+NPC_DIR = os.path.join(FRP_DIR, "npc")
+NPC_BINARY = os.path.join(NPC_DIR, "frpc")
 
 # 确保FRP相关目录存在
 os.makedirs(FRP_DIR, exist_ok=True)
@@ -93,6 +102,7 @@ os.makedirs(CUSTOM_FRP_DIR, exist_ok=True)
 os.makedirs(os.path.join(FRP_DIR, "logs"), exist_ok=True)
 os.makedirs(MEFRP_DIR, exist_ok=True)
 os.makedirs(SAKURA_DIR, exist_ok=True)
+os.makedirs(NPC_DIR, exist_ok=True)
 
 # FRP进程字典
 running_frp_processes = {}  # id: {'process': process, 'log_file': log_file_path}
@@ -119,6 +129,30 @@ def ensure_backup_config_loaded():
         load_backup_config()
         start_backup_scheduler()
         _backup_config_loaded = True
+
+def ensure_auto_start_initialized():
+    """确保自启动功能已初始化（用于Gunicorn启动）"""
+    global _auto_start_initialized
+    
+    # 如果已经初始化过，直接返回，避免重复执行
+    if _auto_start_initialized:
+        logger.debug("自启动功能已初始化，跳过重复执行")
+        return
+        
+    # 如果有服务器正在运行，说明已经初始化过了，避免重复执行
+    if running_servers:
+        logger.debug(f"检测到 {len(running_servers)} 个服务器正在运行，跳过自启动检查")
+        _auto_start_initialized = True
+        return
+    
+    try:
+        auto_start_servers()
+        # 打印当前运行的游戏服务器信息
+        log_running_games()
+        _auto_start_initialized = True
+        logger.info("自启动功能初始化完成")
+    except Exception as e:
+        logger.error(f"初始化自启动功能时出错: {str(e)}")
 
 # 导入JWT配置
 from config import JWT_SECRET, JWT_EXPIRATION
@@ -168,9 +202,458 @@ def is_public_route(path):
     ]
     return path in public_routes
 
+# 代理配置应用函数
+def apply_proxy_config(proxy_config):
+    """应用系统级别的代理配置"""
+    try:
+        if proxy_config.get('enabled', False):
+            host = proxy_config.get('host', '')
+            port = proxy_config.get('port', 8080)
+            username = proxy_config.get('username', '')
+            password = proxy_config.get('password', '')
+            proxy_type = proxy_config.get('type', 'http')
+            no_proxy = proxy_config.get('no_proxy', '')
+            
+            # 构建代理URL
+            if username and password:
+                proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+            else:
+                proxy_url = f"{proxy_type}://{host}:{port}"
+            
+            # 1. 设置环境变量（应用程序级别）
+            os.environ['HTTP_PROXY'] = proxy_url
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['http_proxy'] = proxy_url
+            os.environ['https_proxy'] = proxy_url
+            os.environ['ALL_PROXY'] = proxy_url
+            os.environ['all_proxy'] = proxy_url
+            
+            if no_proxy:
+                os.environ['NO_PROXY'] = no_proxy
+                os.environ['no_proxy'] = no_proxy
+            
+            # 2. 配置系统级别代理
+            _configure_system_proxy(proxy_config)
+            
+            # 3. 配置APT代理（如果是Debian/Ubuntu系统）
+            _configure_apt_proxy(proxy_config)
+            
+            # 4. 写入全局环境配置文件
+            _write_global_proxy_config(proxy_config)
+            
+            logger.info(f"已应用系统级别代理配置: {proxy_type}://{host}:{port}")
+        else:
+            # 清除所有代理配置
+            _clear_all_proxy_config()
+            logger.info("已清除所有代理配置")
+            
+    except Exception as e:
+        logger.error(f"应用代理配置时出错: {str(e)}")
+
+def _configure_system_proxy(proxy_config):
+    """配置系统级别代理"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        
+        # 构建代理URL
+        if username and password:
+            proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"{proxy_type}://{host}:{port}"
+        
+        # 配置系统代理（通过gsettings，适用于GNOME桌面环境）
+        # 检查是否有桌面环境
+        if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+            try:
+                if proxy_type.lower() in ['http', 'https']:
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'host', host], check=False, stderr=subprocess.DEVNULL)
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'port', str(port)], check=False, stderr=subprocess.DEVNULL)
+                    if username and password:
+                        subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'authentication-user', username], check=False, stderr=subprocess.DEVNULL)
+                        subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'authentication-password', password], check=False, stderr=subprocess.DEVNULL)
+                        subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.http', 'use-authentication', 'true'], check=False, stderr=subprocess.DEVNULL)
+                    
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', 'manual'], check=False, stderr=subprocess.DEVNULL)
+                elif proxy_type.lower() == 'socks5':
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.socks', 'host', host], check=False, stderr=subprocess.DEVNULL)
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy.socks', 'port', str(port)], check=False, stderr=subprocess.DEVNULL)
+                    subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', 'manual'], check=False, stderr=subprocess.DEVNULL)
+                logger.info("已配置GNOME系统代理")
+            except Exception as e:
+                logger.warning(f"配置GNOME系统代理失败: {str(e)}")
+        else:
+            logger.info("无桌面环境，跳过GNOME系统代理配置")
+        
+        # 配置iptables透明代理（需要root权限）
+        try:
+            if proxy_type.lower() == 'socks5':
+                _configure_transparent_proxy(host, port)
+        except Exception as e:
+            logger.warning(f"配置透明代理失败: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"配置系统代理时出错: {str(e)}")
+
+def _configure_transparent_proxy(proxy_host, proxy_port):
+    """配置透明代理（使用iptables和redsocks）"""
+    try:
+        # 检查是否有redsocks
+        redsocks_config = f"""
+base {{
+    log_debug = off;
+    log_info = on;
+    log = "file:/tmp/redsocks.log";
+    daemon = on;
+    redirector = iptables;
+}}
+
+redsocks {{
+    local_ip = 127.0.0.1;
+    local_port = 12345;
+    ip = {proxy_host};
+    port = {proxy_port};
+    type = socks5;
+}}
+"""
+        
+        # 写入redsocks配置
+        with open('/tmp/redsocks.conf', 'w') as f:
+            f.write(redsocks_config)
+        
+        # 启动redsocks（如果存在）
+        try:
+            subprocess.run(['pkill', 'redsocks'], check=False)
+            subprocess.run(['redsocks', '-c', '/tmp/redsocks.conf'], check=False)
+        except FileNotFoundError:
+            logger.warning("redsocks未安装，跳过透明代理配置")
+            return
+        
+        # 配置iptables规则
+        iptables_rules = [
+            # 创建新链
+            ['iptables', '-t', 'nat', '-N', 'REDSOCKS'],
+            # 忽略本地和代理服务器的流量
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '127.0.0.0/8', '-j', 'RETURN'],
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', proxy_host, '-j', 'RETURN'],
+            # 忽略局域网流量
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '10.0.0.0/8', '-j', 'RETURN'],
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '172.16.0.0/12', '-j', 'RETURN'],
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-d', '192.168.0.0/16', '-j', 'RETURN'],
+            # 重定向其他流量到redsocks
+            ['iptables', '-t', 'nat', '-A', 'REDSOCKS', '-p', 'tcp', '-j', 'REDIRECT', '--to-ports', '12345'],
+            # 应用规则到OUTPUT链
+            ['iptables', '-t', 'nat', '-A', 'OUTPUT', '-p', 'tcp', '-j', 'REDSOCKS']
+        ]
+        
+        for rule in iptables_rules:
+            try:
+                subprocess.run(rule, check=False)
+            except Exception as e:
+                logger.warning(f"执行iptables规则失败: {' '.join(rule)}, 错误: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"配置透明代理时出错: {str(e)}")
+
+def _configure_apt_proxy(proxy_config):
+    """配置APT代理"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        
+        if proxy_type.lower() in ['http', 'https']:
+            # 构建代理URL
+            if username and password:
+                proxy_url = f"http://{username}:{password}@{host}:{port}"
+            else:
+                proxy_url = f"http://{host}:{port}"
+            
+            apt_proxy_config = f"""
+Acquire::http::Proxy "{proxy_url}";
+Acquire::https::Proxy "{proxy_url}";
+"""
+            
+            # 写入APT代理配置
+            os.makedirs('/etc/apt/apt.conf.d', exist_ok=True)
+            with open('/etc/apt/apt.conf.d/95proxy', 'w') as f:
+                f.write(apt_proxy_config)
+            
+            logger.info("已配置APT代理")
+            
+    except Exception as e:
+        logger.warning(f"配置APT代理失败: {str(e)}")
+
+def _configure_git_proxy(proxy_config):
+    """配置Git代理"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        
+        # 构建代理URL
+        if username and password:
+            proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"{proxy_type}://{host}:{port}"
+        
+        # 配置Git全局代理
+        if proxy_type.lower() in ['http', 'https']:
+            subprocess.run(['git', 'config', '--global', 'http.proxy', proxy_url], check=False)
+            subprocess.run(['git', 'config', '--global', 'https.proxy', proxy_url], check=False)
+        elif proxy_type.lower() == 'socks5':
+            subprocess.run(['git', 'config', '--global', 'http.proxy', proxy_url], check=False)
+            subprocess.run(['git', 'config', '--global', 'https.proxy', proxy_url], check=False)
+        
+        logger.info("已配置Git代理")
+        
+    except Exception as e:
+        logger.warning(f"配置Git代理失败: {str(e)}")
+
+def _write_global_proxy_config(proxy_config):
+    """写入全局环境配置文件"""
+    try:
+        host = proxy_config.get('host', '')
+        port = proxy_config.get('port', 8080)
+        username = proxy_config.get('username', '')
+        password = proxy_config.get('password', '')
+        proxy_type = proxy_config.get('type', 'http')
+        no_proxy = proxy_config.get('no_proxy', '')
+        
+        # 构建代理URL
+        if username and password:
+            proxy_url = f"{proxy_type}://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"{proxy_type}://{host}:{port}"
+        
+        # 写入/etc/environment
+        env_config = f"""
+# Proxy Configuration
+export HTTP_PROXY="{proxy_url}"
+export HTTPS_PROXY="{proxy_url}"
+export http_proxy="{proxy_url}"
+export https_proxy="{proxy_url}"
+export ALL_PROXY="{proxy_url}"
+export all_proxy="{proxy_url}"
+"""
+        
+        if no_proxy:
+            env_config += f"""
+export NO_PROXY="{no_proxy}"
+export no_proxy="{no_proxy}"
+"""
+        
+        # 写入到/etc/environment（需要root权限）
+        try:
+            with open('/etc/environment', 'a') as f:
+                f.write(env_config)
+        except PermissionError:
+            # 如果没有权限，写入到用户目录
+            home_dir = os.path.expanduser('~')
+            with open(os.path.join(home_dir, '.proxy_env'), 'w') as f:
+                f.write(env_config)
+            
+            # 添加到.bashrc
+            bashrc_path = os.path.join(home_dir, '.bashrc')
+            if os.path.exists(bashrc_path):
+                with open(bashrc_path, 'a') as f:
+                    f.write(f"\n# Load proxy configuration\nsource ~/.proxy_env\n")
+        
+        logger.info("已写入全局代理配置")
+        
+    except Exception as e:
+        logger.warning(f"写入全局代理配置失败: {str(e)}")
+
+def _clear_all_proxy_config():
+    """清除所有代理配置"""
+    try:
+        # 1. 清除环境变量
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                     'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy', 'FTP_PROXY', 'ftp_proxy']
+        for var in proxy_vars:
+            if var in os.environ:
+                del os.environ[var]
+        
+        # 2. 清除系统代理设置（GNOME）
+        if os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'):
+            try:
+                subprocess.run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', 'none'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.http', 'host'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.http', 'port'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.socks', 'host'], 
+                             check=False, stderr=subprocess.DEVNULL)
+                subprocess.run(['gsettings', 'reset', 'org.gnome.system.proxy.socks', 'port'], 
+                             check=False, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        
+        # 3. 清除APT代理
+        try:
+            if os.path.exists('/etc/apt/apt.conf.d/95proxy'):
+                os.remove('/etc/apt/apt.conf.d/95proxy')
+        except Exception:
+            pass
+        
+        # 4. 清除Git代理
+        try:
+            subprocess.run(['git', 'config', '--global', '--unset', 'http.proxy'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            subprocess.run(['git', 'config', '--global', '--unset', 'https.proxy'], 
+                         check=False, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        
+        # 5. 清除透明代理和iptables规则
+        try:
+            # 停止redsocks服务
+            subprocess.run(['pkill', '-f', 'redsocks'], check=False, stderr=subprocess.DEVNULL)
+            
+            # 清除iptables规则
+            subprocess.run(['iptables', '-t', 'nat', '-F', 'REDSOCKS'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            subprocess.run(['iptables', '-t', 'nat', '-D', 'OUTPUT', '-p', 'tcp', '-j', 'REDSOCKS'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            subprocess.run(['iptables', '-t', 'nat', '-X', 'REDSOCKS'], 
+                         check=False, stderr=subprocess.DEVNULL)
+            
+            # 删除redsocks配置文件
+            if os.path.exists('/tmp/redsocks.conf'):
+                os.remove('/tmp/redsocks.conf')
+        except Exception:
+            pass
+        
+        # 6. 清除环境配置文件
+        try:
+            home_dir = os.path.expanduser('~')
+            proxy_env_file = os.path.join(home_dir, '.proxy_env')
+            if os.path.exists(proxy_env_file):
+                os.remove(proxy_env_file)
+            
+            # 清除/etc/environment中的代理配置
+            if os.path.exists('/etc/environment'):
+                with open('/etc/environment', 'r') as f:
+                    lines = f.readlines()
+                
+                # 过滤掉代理相关的行
+                filtered_lines = []
+                for line in lines:
+                    if not any(proxy_var in line.upper() for proxy_var in 
+                             ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'FTP_PROXY']):
+                        filtered_lines.append(line)
+                
+                with open('/etc/environment', 'w') as f:
+                    f.writelines(filtered_lines)
+        except Exception:
+            pass
+        
+        # 7. 清除shell配置文件中的代理设置
+        try:
+            home_dir = os.path.expanduser('~')
+            shell_files = ['.bashrc', '.zshrc', '.profile', '.bash_profile']
+            
+            for shell_file in shell_files:
+                file_path = os.path.join(home_dir, shell_file)
+                if os.path.exists(file_path):
+                    with open(file_path, 'r') as f:
+                        content = f.read()
+                    
+                    # 移除代理相关的行
+                    lines = content.split('\n')
+                    filtered_lines = []
+                    skip_next = False
+                    
+                    for line in lines:
+                        if skip_next and line.strip() == '':
+                            skip_next = False
+                            continue
+                        
+                        if ('proxy' in line.lower() and ('export' in line or 'source' in line)) or \
+                           any(proxy_var in line.upper() for proxy_var in 
+                               ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'FTP_PROXY']) or \
+                           '.proxy_env' in line:
+                            skip_next = True
+                            continue
+                        
+                        filtered_lines.append(line)
+                        skip_next = False
+                    
+                    with open(file_path, 'w') as f:
+                        f.write('\n'.join(filtered_lines))
+        except Exception:
+            pass
+        
+        # 8. 重新加载shell环境（尝试）
+        try:
+            subprocess.run(['bash', '-c', 'source ~/.bashrc'], check=False, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        
+        # 9. 清除Docker代理配置（如果存在）
+        try:
+            docker_config_dir = os.path.expanduser('~/.docker')
+            docker_config_file = os.path.join(docker_config_dir, 'config.json')
+            if os.path.exists(docker_config_file):
+                import json
+                with open(docker_config_file, 'r') as f:
+                    config = json.load(f)
+                
+                # 移除代理配置
+                if 'proxies' in config:
+                    del config['proxies']
+                
+                with open(docker_config_file, 'w') as f:
+                    json.dump(config, f, indent=2)
+        except Exception:
+            pass
+        
+        logger.info("已清除所有代理配置，包括环境变量、系统设置、配置文件等")
+        
+    except Exception as e:
+        logger.error(f"清除代理配置时出错: {str(e)}")
+
 # 在每个请求前检查认证
+# 初始化代理配置（用于Gunicorn启动）
+def init_proxy_config():
+    """初始化代理配置"""
+    try:
+        from config import load_config
+        config = load_config()
+        proxy_config = config.get('proxy')
+        if proxy_config:
+            apply_proxy_config(proxy_config)
+            logger.info("已加载代理配置")
+    except Exception as e:
+        logger.error(f"加载代理配置失败: {str(e)}")
+
+# 在Gunicorn启动时初始化代理配置
+init_proxy_config()
+
 @app.before_request
 def check_auth():
+    # 环境管理相关的API路由，不触发自启动检查
+    environment_api_paths = [
+        '/api/environment/java/status',
+        '/api/environment/java/install',
+        '/api/environment/java/uninstall',
+        '/api/environment/java/check',
+        '/api/environment/status'
+    ]
+    
+    # 只有非环境管理的API请求才触发自启动检查
+    if request.path.startswith('/api/') and not any(request.path.startswith(path) for path in environment_api_paths):
+        # 确保自启动功能已初始化（用于Gunicorn启动）
+        ensure_auto_start_initialized()
+    
     # 记录请求路径，帮助调试
     logger.debug(f"收到请求: {request.method} {request.path}, 参数: {request.args}, 头部: {request.headers}")
     
@@ -239,6 +722,15 @@ output_queues = {}
 # 新增：用于存储每个游戏的运行中服务器进程和输出
 running_servers = {}  # game_id: {'process': process, 'output': [], 'master_fd': fd, 'started_at': time.time()}
 server_output_queues = {}  # game_id: queue.Queue()
+
+# 备份任务计数器
+backup_task_counter = 0
+
+# 备份任务字典
+backup_tasks = {}
+
+# 备份调度器运行状态
+backup_scheduler_running = False
 
 # 加载游戏配置
 def load_games_config():
@@ -580,8 +1072,11 @@ def run_game_server(game_id, cmd, cwd):
                 config = load_config()
                 auto_restart_servers = config.get('auto_restart_servers', [])
                 
-                if game_id in auto_restart_servers and return_code == 0:
-                    logger.info(f"游戏服务器 {game_id} 异常退出（非人工停止），自动重启中...")
+                if game_id in auto_restart_servers:
+                    if return_code == 0:
+                        logger.info(f"游戏服务器 {game_id} 异常退出（非人工停止），自动重启中...")
+                    else:
+                        logger.info(f"游戏服务器 {game_id} 因错误退出，返回码: {return_code}，自动重启中...")
                     
                     # 在新线程中重启服务器
                     restart_thread = threading.Thread(
@@ -591,7 +1086,7 @@ def run_game_server(game_id, cmd, cwd):
                     restart_thread.start()
                 else:
                     if return_code != 0:
-                        logger.info(f"游戏服务器 {game_id} 因错误退出，返回码: {return_code}，不进行自动重启")
+                        logger.info(f"游戏服务器 {game_id} 因错误退出，返回码: {return_code}，未配置自动重启")
                     else:
                         logger.info(f"游戏服务器 {game_id} 异常退出，但未配置自动重启")
             else:
@@ -736,17 +1231,16 @@ def get_games():
         logger.debug("获取游戏列表")
         
         # 检查赞助者身份
-        config = load_config()
-        sponsor_key = config.get('sponsor_key')
+        validator = get_sponsor_validator()
         cloud_error = None
         
         # 如果有赞助者密钥，尝试从云端获取游戏列表
-        if sponsor_key:
+        if validator.has_sponsor_key():
             try:
                 # 设置5秒超时
-                cloud_games = fetch_cloud_games(sponsor_key)
+                cloud_games = validator.fetch_cloud_games()
                 if cloud_games:
-                    logger.debug(f"从云端获取到 {len(cloud_games)} 个游戏")
+                    logger.info(f"从云端获取到 {len(cloud_games)} 个游戏")
                     return jsonify({'status': 'success', 'games': cloud_games, 'source': 'cloud'})
             except Exception as cloud_err:
                 logger.error(f"从云端获取游戏列表失败: {str(cloud_err)}")
@@ -769,7 +1263,7 @@ def get_games():
                 'url': game_info.get('url', '')
             })
         
-        logger.debug(f"从本地找到 {len(game_list)} 个游戏")
+        logger.info(f"从本地找到 {len(game_list)} 个游戏")
         response_data = {
             'status': 'success', 
             'games': game_list, 
@@ -785,45 +1279,16 @@ def get_games():
         logger.error(f"获取游戏列表失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# 导入赞助者验证模块
+from sponsor_validator import get_sponsor_validator
+
 def fetch_cloud_games(sponsor_key):
     """从云端获取游戏列表"""
     try:
-        logger.debug("正在从云端获取游戏列表...")
-        
-        # 创建一个带有超时的会话
-        session = requests.Session()
-        response = session.get('http://82.156.35.55:5001/games', 
-                              headers={'key': sponsor_key}, 
-                              timeout=5)
-        
-        if response.status_code == 200:
-            cloud_data = response.json()
-            game_list = []
-            
-            # 处理返回的云端游戏数据
-            for game_id, game_info in cloud_data.items():
-                game_list.append({
-                    'id': game_id,
-                    'name': game_info.get('game_nameCN', game_id),
-                    'appid': game_info.get('appid'),
-                    'anonymous': game_info.get('anonymous', True),
-                    'has_script': game_info.get('script', False),
-                    'tip': game_info.get('tip', ''),
-                    'image': game_info.get('image', ''),
-                    'url': game_info.get('url', ''),
-                    'script_name': game_info.get('script_name', '')  # 保存脚本内容
-                })
-            
-            return game_list
-        elif response.status_code == 403:
-            # 403错误意味着凭证验证不通过
-            logger.error("赞助者凭证验证不通过，状态码403")
-            raise Exception("403：赞助者凭证验证不通过")
-        else:
-            logger.error(f"云端服务器返回错误: {response.status_code}")
-            return None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"请求云端服务器失败: {str(e)}")
+        validator = get_sponsor_validator()
+        return validator.fetch_cloud_games(sponsor_key)
+    except Exception as e:
+        logger.error(f"获取云端游戏列表失败: {str(e)}")
         raise
 
 @app.route('/api/install', methods=['POST'])
@@ -840,15 +1305,14 @@ def install_game():
         logger.info(f"请求安装游戏: {game_id}")
         
         # 获取游戏信息 - 首先尝试从云端获取
-        config = load_config()
-        sponsor_key = config.get('sponsor_key')
+        validator = get_sponsor_validator()
         game_info = None
         script_name = None
         
         # 如果有赞助者凭证，尝试从云端获取游戏信息
-        if sponsor_key:
+        if validator.has_sponsor_key():
             try:
-                cloud_games = fetch_cloud_games(sponsor_key)
+                cloud_games = validator.fetch_cloud_games()
                 if cloud_games:
                     # 查找指定游戏
                     for game in cloud_games:
@@ -871,7 +1335,7 @@ def install_game():
         
         # 如果已经有正在运行的安装进程，则返回
         if game_id in active_installations and active_installations[game_id].get('process') and active_installations[game_id]['process'].poll() is None:
-            logger.debug(f"游戏 {game_id} 已经在安装中")
+            logger.info(f"游戏 {game_id} 已经在安装中")
             return jsonify({
                 'status': 'success', 
                 'message': f'游戏 {game_id} 已经在安装中'
@@ -922,7 +1386,7 @@ def install_game():
         if password:
             cmd += f" --password {shlex.quote(password)}"
         cmd += " 2>&1'"
-        logger.debug(f"准备执行命令 (将使用PTY): {cmd}")
+        logger.info(f"准备执行命令 (将使用PTY): {cmd}")
         
         # 初始化安装状态跟踪
         active_installations[game_id] = {
@@ -1266,16 +1730,9 @@ def uninstall_game():
                 except Exception as e:
                     logger.error(f"停止游戏服务器 {game_id} 时出错: {str(e)}")
                     
-        # 使用steam用户删除目录，避免权限问题
-        try:
-            # 先尝试使用steam用户删除
-            uninstall_cmd = f"su - steam -c 'rm -rf {shlex.quote(game_dir)}'"
-            logger.info(f"以steam用户运行卸载命令: {uninstall_cmd}")
-            subprocess.run(uninstall_cmd, shell=True, check=True)
-        except subprocess.CalledProcessError:
-            # 如果失败，尝试直接删除
-            logger.warning(f"使用steam用户删除失败，尝试直接删除: {game_dir}")
-            shutil.rmtree(game_dir)
+        # 直接删除游戏目录
+        logger.info(f"直接删除游戏目录: {game_dir}")
+        shutil.rmtree(game_dir)
             
         # 清理服务器状态
         if game_id in running_servers:
@@ -1297,7 +1754,7 @@ def send_input():
     data = request.json
     game_id = data.get('game_id')
     value = data.get('value')
-    if not game_id or not value:
+    if not game_id or value is None:
         return jsonify({'status': 'error', 'message': '缺少参数'}), 400
     
     # 使用PTY管理器设置输入值
@@ -2051,18 +2508,7 @@ def server_send_input():
         if pty_manager.send_input(process_id, value):
             logger.info(f"输入发送成功: game_id={game_id}")
             
-            # 将输入回显到输出队列
-            if game_id in server_output_queues:
-                echo_message = f"> {value}"
-                server_output_queues[game_id].put(echo_message)
-                logger.debug(f"输入已回显到输出队列: game_id={game_id}")
-                
-                # 同时保存到输出历史
-                if game_id in running_servers:
-                    if 'output' not in running_servers[game_id]:
-                        running_servers[game_id]['output'] = []
-                    add_server_output(game_id, echo_message)
-                
+            # 不再手动回显，以避免顺序错乱
             return jsonify({'status': 'success', 'message': '输入已发送'})
         else:
             logger.error(f"发送输入失败: game_id={game_id}")
@@ -2439,7 +2885,7 @@ def server_stream():
                             
                             # 截断长输出
                             if isinstance(line, str) and len(line) > 10000:
-                                logger.warning(f"输出行过长，已截断: {len(line)} 字符")
+                                logger.info(f"输出行过长，已截断: {len(line)} 字符")
                                 line = line[:10000] + "... (输出过长，已截断)"
                             
                             logger.debug(f"发送服务器输出 #{output_count}: {line[:100]}...")
@@ -2527,6 +2973,7 @@ def get_container_info():
                 'status': 'success',
                 'system_info': {
                     'cpu_usage': 0,
+                    'cpu_per_core': [],
                     'cpu_model': '获取超时',
                     'cpu_cores': 0,
                     'cpu_logical_cores': 0,
@@ -2590,6 +3037,7 @@ def get_container_info():
                 'status': 'success',
                 'system_info': {
                     'cpu_usage': 0,
+                    'cpu_per_core': [],
                     'cpu_model': cpu_model,
                     'cpu_cores': 0,
                     'cpu_logical_cores': 0,
@@ -2603,6 +3051,7 @@ def get_container_info():
         # 获取系统信息
         system_info = {
             'cpu_usage': psutil.cpu_percent(interval=None),  # 使用非阻塞方式获取CPU使用率
+            'cpu_per_core': psutil.cpu_percent(interval=None, percpu=True),  # 每个核心的使用率
             'cpu_model': cpu_model,
             'cpu_cores': psutil.cpu_count(logical=False),  # 物理核心数
             'cpu_logical_cores': psutil.cpu_count(logical=True),  # 逻辑核心数
@@ -2656,7 +3105,7 @@ def get_container_info():
             
             # 如果有服务器正在运行，跳过详细的空间计算，使用估算值或缓存
             if has_running_servers:
-                logger.info("检测到有服务器正在运行，跳过详细的游戏空间计算")
+                logger.debug("检测到有服务器正在运行，跳过详细的游戏空间计算")
                 
                 # 尝试从缓存加载游戏空间数据
                 try:
@@ -2706,7 +3155,7 @@ def get_container_info():
                             for dirpath, dirnames, filenames in os.walk(game_path):
                                 # 检查是否超过每个游戏的时间限制
                                 if time.time() - game_start_time > time_per_game:
-                                    logger.warning(f"计算游戏 {game_id} 空间占用超时")
+                                    logger.debug(f"计算游戏 {game_id} 空间占用超时")
                                     size = -1  # 使用-1表示计算超时
                                     break
                                     
@@ -3163,6 +3612,130 @@ def delete_item():
         logger.error(f"删除文件/目录时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'删除失败: {str(e)}'})
 
+@app.route('/api/search', methods=['GET'])
+def search_files():
+    """搜索文件和文件夹"""
+    try:
+        search_path = request.args.get('path', '/home/steam')
+        search_query = request.args.get('query', '')
+        search_type = request.args.get('type', 'all')  # all, file, directory
+        case_sensitive = request.args.get('case_sensitive', 'false').lower() == 'true'
+        max_results = int(request.args.get('max_results', '100'))
+        
+        # 安全检查
+        if '..' in search_path or not search_path.startswith('/'):
+            logger.warning(f"检测到无效搜索路径: {search_path}，已自动切换到默认路径")
+            search_path = '/home/steam'
+            
+        # 确保搜索路径存在
+        if not os.path.exists(search_path):
+            logger.warning(f"搜索路径不存在: {search_path}，切换到默认路径")
+            search_path = '/home/steam'
+            
+        if not os.path.isdir(search_path):
+            # 如果不是目录，使用其父目录
+            search_path = os.path.dirname(search_path)
+            
+        # 如果搜索查询为空，返回错误
+        if not search_query.strip():
+            return jsonify({'status': 'error', 'message': '搜索关键词不能为空'})
+            
+        results = []
+        search_count = 0
+        
+        # 递归搜索函数
+        def search_recursive(current_path, query, search_type, case_sensitive):
+            nonlocal search_count, max_results
+            
+            if search_count >= max_results:
+                return
+                
+            try:
+                # 遍历当前目录
+                for item_name in os.listdir(current_path):
+                    if search_count >= max_results:
+                        break
+                        
+                    item_path = os.path.join(current_path, item_name)
+                    
+                    # 跳过隐藏文件和系统文件（可选）
+                    if item_name.startswith('.'):
+                        continue
+                        
+                    try:
+                        # 获取文件信息
+                        stat_result = os.stat(item_path)
+                        is_directory = os.path.isdir(item_path)
+                        
+                        # 根据搜索类型过滤
+                        if search_type == 'file' and is_directory:
+                            # 如果只搜索文件，跳过目录，但仍需递归搜索目录内容
+                            if is_directory:
+                                search_recursive(item_path, query, search_type, case_sensitive)
+                            continue
+                        elif search_type == 'directory' and not is_directory:
+                            continue
+                            
+                        # 执行搜索匹配
+                        search_name = item_name if case_sensitive else item_name.lower()
+                        search_query_processed = query if case_sensitive else query.lower()
+                        
+                        if search_query_processed in search_name:
+                            # 获取文件大小和修改时间
+                            size = 0 if is_directory else stat_result.st_size
+                            mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_result.st_mtime))
+                            
+                            # 计算相对路径
+                            relative_path = os.path.relpath(item_path, search_path)
+                            if relative_path == '.':
+                                relative_path = item_name
+                                
+                            results.append({
+                                'name': item_name,
+                                'path': item_path,
+                                'relative_path': relative_path,
+                                'type': 'directory' if is_directory else 'file',
+                                'size': size,
+                                'modified': mtime,
+                                'parent_dir': current_path
+                            })
+                            search_count += 1
+                            
+                        # 如果是目录，递归搜索
+                        if is_directory and search_count < max_results:
+                            search_recursive(item_path, query, search_type, case_sensitive)
+                            
+                    except (OSError, PermissionError) as e:
+                        # 跳过无法访问的文件/目录
+                        logger.debug(f"跳过无法访问的项目 {item_path}: {str(e)}")
+                        continue
+                        
+            except (OSError, PermissionError) as e:
+                logger.debug(f"无法访问目录 {current_path}: {str(e)}")
+                return
+                
+        # 开始搜索
+        search_recursive(search_path, search_query, search_type, case_sensitive)
+        
+        # 按类型和名称排序
+        results.sort(key=lambda x: (0 if x['type'] == 'directory' else 1, x['name']))
+        
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'search_path': search_path,
+            'search_query': search_query,
+            'search_type': search_type,
+            'case_sensitive': case_sensitive,
+            'total_found': len(results),
+            'max_results': max_results,
+            'truncated': search_count >= max_results
+        })
+        
+    except Exception as e:
+        logger.error(f"搜索文件时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'搜索失败: {str(e)}'})
+
 @app.route('/api/create_folder', methods=['POST'])
 def create_folder():
     """创建文件夹"""
@@ -3218,6 +3791,190 @@ def rename_item():
     except Exception as e:
         logger.error(f"重命名文件/目录时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'重命名失败: {str(e)}'})
+
+@app.route('/api/semi-auto-deploy', methods=['POST'])
+@auth_required
+def semi_auto_deploy():
+    """半自动部署服务器"""
+    try:
+        # 检查是否有文件
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': '没有文件'}), 400
+            
+        file = request.files['file']
+        server_name = request.form.get('server_name', '').strip()
+        server_type = request.form.get('server_type', '').strip()
+        jdk_version = request.form.get('jdk_version', '').strip()
+        
+        # 验证参数
+        if not server_name:
+            return jsonify({'status': 'error', 'message': '服务器名称不能为空'}), 400
+            
+        if not server_type:
+            return jsonify({'status': 'error', 'message': '请选择服务端类型'}), 400
+            
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': '没有选择文件'}), 400
+            
+        # 安全处理文件名
+        filename = secure_filename(file.filename)
+        
+        # 检查文件扩展名
+        allowed_extensions = ['.zip', '.rar', '.tar.gz', '.tar', '.7z']
+        if not any(filename.lower().endswith(ext) for ext in allowed_extensions):
+            return jsonify({'status': 'error', 'message': '不支持的文件格式，请上传 .zip, .rar, .tar.gz, .tar, .7z 格式的压缩包'}), 400
+            
+        # 创建游戏目录
+        games_dir = "/home/steam/games"
+        game_dir = os.path.join(games_dir, server_name)
+        
+        # 检查目录是否已存在
+        if os.path.exists(game_dir):
+            return jsonify({'status': 'error', 'message': f'服务器 {server_name} 已存在，请选择其他名称'}), 400
+            
+        # 确保games目录存在
+        os.makedirs(games_dir, exist_ok=True)
+        os.makedirs(game_dir, exist_ok=True)
+        
+        # 保存上传的文件到临时位置
+        temp_file = os.path.join(game_dir, filename)
+        file.save(temp_file)
+        
+        logger.info(f"文件已上传: {temp_file}, 用户: {g.user.get('username')}")
+        
+        # 解压文件
+        try:
+            if filename.lower().endswith('.zip'):
+                with zipfile.ZipFile(temp_file, 'r') as zip_ref:
+                    zip_ref.extractall(game_dir)
+            elif filename.lower().endswith('.rar'):
+                with rarfile.RarFile(temp_file, 'r') as rar_ref:
+                    rar_ref.extractall(game_dir)
+            elif filename.lower().endswith(('.tar.gz', '.tar')):
+                with tarfile.open(temp_file, 'r:*') as tar_ref:
+                    tar_ref.extractall(game_dir)
+            elif filename.lower().endswith('.7z'):
+                # 使用7z命令行工具
+                result = subprocess.run(['7z', 'x', temp_file, f'-o{game_dir}'], 
+                                      capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception(f"7z解压失败: {result.stderr}")
+            else:
+                raise Exception("不支持的压缩格式")
+                
+            logger.info(f"文件解压成功: {game_dir}")
+            
+        except Exception as e:
+            # 清理失败的目录
+            if os.path.exists(game_dir):
+                shutil.rmtree(game_dir)
+            logger.error(f"解压文件失败: {str(e)}")
+            return jsonify({'status': 'error', 'message': f'解压文件失败: {str(e)}'}), 500
+            
+        # 删除原始压缩包
+        try:
+            os.remove(temp_file)
+        except:
+            pass
+            
+        # 设置目录权限
+        try:
+            subprocess.run(['chown', '-R', 'steam:steam', game_dir], check=True)
+        except:
+            logger.warning(f"设置目录权限失败: {game_dir}")
+            
+        # 如果是Java类型，生成启动脚本
+        start_script = None
+        if server_type == 'java':
+            start_script = generate_java_start_script(game_dir, server_name, jdk_version)
+            
+        return jsonify({
+            'status': 'success',
+            'message': '服务器部署成功',
+            'data': {
+                'server_name': server_name,
+                'game_dir': game_dir,
+                'server_type': server_type,
+                'start_script': start_script
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"半自动部署时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'部署失败: {str(e)}'}), 500
+
+def generate_java_start_script(game_dir, server_name, jdk_version=None):
+    """生成Java启动脚本"""
+    try:
+        # 查找jar文件
+        jar_files = []
+        for root, dirs, files in os.walk(game_dir):
+            for file in files:
+                if file.lower().endswith('.jar') and not file.lower().startswith('libraries'):
+                    jar_files.append(os.path.relpath(os.path.join(root, file), game_dir))
+                    
+        if not jar_files:
+            logger.warning(f"在 {game_dir} 中未找到jar文件")
+            return None
+            
+        # 选择最可能的服务端jar文件
+        server_jar = None
+        for jar in jar_files:
+            jar_name = os.path.basename(jar).lower()
+            if any(keyword in jar_name for keyword in ['server', 'spigot', 'paper', 'bukkit', 'forge', 'fabric']):
+                server_jar = jar
+                break
+                
+        if not server_jar:
+            # 如果没找到明显的服务端jar，使用第一个
+            server_jar = jar_files[0]
+            
+        # 确定Java可执行文件路径
+        java_executable = "java"
+        if jdk_version and jdk_version in JAVA_VERSIONS:
+            java_dir = JAVA_VERSIONS[jdk_version]["dir"]
+            java_executable = os.path.join(java_dir, "bin/java")
+            
+        # 生成启动脚本内容
+        script_content = f"""#!/bin/bash
+# {server_name} 服务器启动脚本
+# 自动生成于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+cd "$(dirname "$0")"
+
+# Java可执行文件路径
+JAVA_EXEC="{java_executable}"
+
+# 服务端jar文件
+SERVER_JAR="{server_jar}"
+
+# JVM参数
+JVM_ARGS="-Xmx2G -Xms1G -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1"
+
+# 启动服务器
+echo "正在启动 {server_name} 服务器..."
+echo "Java: $JAVA_EXEC"
+echo "服务端: $SERVER_JAR"
+echo "JVM参数: $JVM_ARGS"
+echo ""
+
+"$JAVA_EXEC" $JVM_ARGS -jar "$SERVER_JAR" nogui
+"""
+        
+        # 写入启动脚本
+        script_path = os.path.join(game_dir, "start.sh")
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+            
+        # 设置执行权限
+        os.chmod(script_path, 0o755)
+        
+        logger.info(f"Java启动脚本已生成: {script_path}")
+        return "start.sh"
+        
+    except Exception as e:
+        logger.error(f"生成Java启动脚本失败: {str(e)}")
+        return None
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -4065,6 +4822,9 @@ def start_frp():
         elif target_config['type'] == 'sakura':
             frp_binary = SAKURA_BINARY
             frp_dir = SAKURA_DIR
+        elif target_config['type'] == 'npc':
+            frp_binary = NPC_BINARY
+            frp_dir = NPC_DIR
         
         # 确保FRP可执行
         if not os.path.exists(frp_binary):
@@ -4968,9 +5728,217 @@ def get_network_info():
             'public_ip': public_ip,
             'io_stats': io_stats
         })
+        
     except Exception as e:
         logger.error(f"获取网络信息失败: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/system_processes', methods=['GET'])
+@auth_required
+def get_system_processes():
+    """获取当前运行的所有进程信息"""
+    try:
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent', 'create_time', 'cmdline']):
+            try:
+                proc_info = proc.info
+                # 过滤掉一些系统进程和权限不足的进程
+                if proc_info['name'] and proc_info['pid'] > 1:
+                    # 获取命令行参数，限制长度
+                    cmdline = ' '.join(proc_info['cmdline'] or [])[:100]
+                    if len(cmdline) > 100:
+                        cmdline += '...'
+                    
+                    processes.append({
+                        'pid': proc_info['pid'],
+                        'name': proc_info['name'],
+                        'username': proc_info['username'] or 'unknown',
+                        'cpu_percent': round(proc_info['cpu_percent'] or 0, 2),
+                        'memory_percent': round(proc_info['memory_percent'] or 0, 2),
+                        'create_time': proc_info['create_time'],
+                        'cmdline': cmdline
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        # 按CPU使用率排序
+        processes.sort(key=lambda x: x['cpu_percent'], reverse=True)
+        
+        return jsonify({
+            'status': 'success',
+            'processes': processes
+        })
+        
+    except Exception as e:
+        logger.error(f"获取进程信息失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/system_ports', methods=['GET'])
+@auth_required
+def get_system_ports():
+    """获取当前活跃的端口和对应的进程信息"""
+    try:
+        ports = []
+        port_set = set()  # 用于去重
+        
+        # 获取所有网络连接（包括IPv4和IPv6）
+        try:
+            connections = psutil.net_connections(kind='inet')
+        except psutil.AccessDenied:
+            # 如果权限不足，尝试只获取当前进程的连接
+            connections = psutil.net_connections(kind='inet', perproc=False)
+        
+        for conn in connections:
+            try:
+                port_info = None
+                
+                # 处理监听端口（服务器端口）
+                if conn.status == psutil.CONN_LISTEN and conn.laddr:
+                    port_key = (conn.laddr.port, conn.laddr.ip, 'LISTEN')
+                    if port_key not in port_set:
+                        port_set.add(port_key)
+                        port_info = {
+                            'port': conn.laddr.port,
+                            'address': conn.laddr.ip,
+                            'family': 'IPv4' if conn.family == socket.AF_INET else 'IPv6',
+                            'type': 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                            'status': 'LISTEN',
+                            'pid': conn.pid,
+                            'process_name': None,
+                            'process_cmdline': None
+                        }
+                
+                # 处理已建立的连接（显示本地端口）
+                elif conn.status == psutil.CONN_ESTABLISHED and conn.laddr:
+                    port_key = (conn.laddr.port, conn.laddr.ip, 'ESTABLISHED')
+                    if port_key not in port_set:
+                        port_set.add(port_key)
+                        remote_info = f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "Unknown"
+                        port_info = {
+                            'port': conn.laddr.port,
+                            'address': conn.laddr.ip,
+                            'family': 'IPv4' if conn.family == socket.AF_INET else 'IPv6',
+                            'type': 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                            'status': f'ESTABLISHED -> {remote_info}',
+                            'pid': conn.pid,
+                            'process_name': None,
+                            'process_cmdline': None
+                        }
+                
+                # 处理UDP连接（通常没有状态）
+                elif conn.type == socket.SOCK_DGRAM and conn.laddr:
+                    port_key = (conn.laddr.port, conn.laddr.ip, 'UDP')
+                    if port_key not in port_set:
+                        port_set.add(port_key)
+                        port_info = {
+                            'port': conn.laddr.port,
+                            'address': conn.laddr.ip,
+                            'family': 'IPv4' if conn.family == socket.AF_INET else 'IPv6',
+                            'type': 'UDP',
+                            'status': 'ACTIVE',
+                            'pid': conn.pid,
+                            'process_name': None,
+                            'process_cmdline': None
+                        }
+                
+                # 获取进程信息
+                if port_info and conn.pid:
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        port_info['process_name'] = proc.name()
+                        cmdline = ' '.join(proc.cmdline()[:3])  # 只取前3个参数
+                        if len(cmdline) > 80:
+                            cmdline = cmdline[:80] + '...'
+                        port_info['process_cmdline'] = cmdline
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        port_info['process_name'] = 'Unknown'
+                        port_info['process_cmdline'] = 'Access Denied'
+                
+                if port_info:
+                    ports.append(port_info)
+                    
+            except Exception:
+                continue
+        
+        # 按端口号排序
+        ports.sort(key=lambda x: x['port'])
+        
+        return jsonify({
+            'status': 'success',
+            'ports': ports
+        })
+        
+    except Exception as e:
+        logger.error(f"获取端口信息失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/kill_process', methods=['POST'])
+@auth_required
+def kill_process():
+    """结束指定的进程"""
+    try:
+        data = request.get_json()
+        if not data or 'pid' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': '缺少进程ID参数'
+            }), 400
+        
+        pid = data['pid']
+        force = data.get('force', False)
+        
+        try:
+            proc = psutil.Process(pid)
+            proc_name = proc.name()
+            
+            # 安全检查：不允许杀死重要的系统进程
+            critical_processes = ['systemd', 'kernel', 'init', 'kthreadd', 'ssh', 'sshd']
+            if proc_name.lower() in critical_processes:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'不允许结束关键系统进程: {proc_name}'
+                }), 403
+            
+            if force:
+                proc.kill()  # SIGKILL
+                action = '强制结束'
+            else:
+                proc.terminate()  # SIGTERM
+                action = '正常结束'
+            
+            logger.info(f"{action}进程: PID={pid}, Name={proc_name}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'已{action}进程 {proc_name} (PID: {pid})'
+            })
+            
+        except psutil.NoSuchProcess:
+            return jsonify({
+                'status': 'error',
+                'message': '进程不存在或已结束'
+            }), 404
+        except psutil.AccessDenied:
+            return jsonify({
+                'status': 'error',
+                'message': '权限不足，无法结束该进程'
+            }), 403
+            
+    except Exception as e:
+        logger.error(f"结束进程失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 # 添加公网IP缓存相关变量
 cached_public_ip = None
@@ -4987,29 +5955,12 @@ def save_sponsor_key():
         if not sponsor_key:
             return jsonify({'status': 'error', 'message': '赞助者凭证不能为空'}), 400
             
-        # 加载现有配置
-        config_path = "/home/steam/games/config.json"
-        existing_config = {}
-        
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    existing_config = json.load(f)
-            except Exception as e:
-                logger.error(f"读取配置文件失败: {str(e)}")
-                
-        # 确保目录存在
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        
-        # 添加或更新赞助者凭证
-        existing_config['sponsor_key'] = sponsor_key
-        
-        # 保存配置
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(existing_config, f, indent=4)
-            
-        logger.info("赞助者凭证已保存")
-        return jsonify({'status': 'success', 'message': '赞助者凭证已保存'})
+        # 使用赞助者验证模块保存密钥
+        validator = get_sponsor_validator()
+        if validator.save_sponsor_key(sponsor_key):
+            return jsonify({'status': 'success', 'message': '赞助者凭证已保存'})
+        else:
+            return jsonify({'status': 'error', 'message': '保存赞助者凭证失败'}), 500
         
     except Exception as e:
         logger.error(f"保存赞助者凭证时出错: {str(e)}")
@@ -5019,36 +5970,628 @@ def save_sponsor_key():
 def get_sponsor_key():
     """获取当前赞助者凭证"""
     try:
-        # 加载配置文件
-        config_path = "/home/steam/games/config.json"
+        # 使用赞助者验证模块获取密钥信息
+        validator = get_sponsor_validator()
         
-        if not os.path.exists(config_path):
-            return jsonify({'status': 'success', 'sponsor_key': None})
-            
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                sponsor_key = config.get('sponsor_key')
-                
-                # 为了安全起见，只返回是否存在凭证，不返回完整凭证
-                if sponsor_key:
-                    # 只返回前四个字符和最后四个字符，中间用星号代替
-                    masked_key = sponsor_key[:4] + '*' * (len(sponsor_key) - 8) + sponsor_key[-4:] if len(sponsor_key) > 8 else sponsor_key
-                    return jsonify({
-                        'status': 'success', 
-                        'has_sponsor_key': True,
-                        'masked_sponsor_key': masked_key
-                    })
-                else:
-                    return jsonify({'status': 'success', 'has_sponsor_key': False})
-                    
-        except Exception as e:
-            logger.error(f"读取配置文件失败: {str(e)}")
-            return jsonify({'status': 'error', 'message': f'读取配置文件失败: {str(e)}'}), 500
+        if validator.has_sponsor_key():
+            masked_key = validator.get_masked_sponsor_key()
+            return jsonify({
+                'status': 'success', 
+                'has_sponsor_key': True,
+                'masked_sponsor_key': masked_key
+            })
+        else:
+            return jsonify({'status': 'success', 'has_sponsor_key': False})
             
     except Exception as e:
         logger.error(f"获取赞助者凭证时出错: {str(e)}")
         return jsonify({'status': 'error', 'message': f'获取赞助者凭证失败: {str(e)}'}), 500
+
+@app.route('/api/settings/sponsor-key', methods=['DELETE'])
+def delete_sponsor_key():
+    """删除赞助者凭证"""
+    try:
+        # 使用赞助者验证模块删除密钥
+        validator = get_sponsor_validator()
+        
+        if validator.remove_sponsor_key():
+            return jsonify({'status': 'success', 'message': '赞助者凭证已删除'})
+        else:
+            return jsonify({'status': 'error', 'message': '删除赞助者凭证失败'}), 500
+            
+    except Exception as e:
+        logger.error(f"删除赞助者凭证时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'删除赞助者凭证失败: {str(e)}'}), 500
+
+@app.route('/api/sponsor', methods=['GET'])
+def get_gold_sponsors():
+    """获取金牌赞助商信息（代理请求解决CORS问题）"""
+    try:
+        # 代理请求到外部API
+        response = requests.get('http://82.156.35.55:5001/sponsor', timeout=10)
+        
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            logger.error(f"获取金牌赞助商数据失败，状态码: {response.status_code}")
+            return jsonify({'status': 'error', 'message': '获取金牌赞助商数据失败'}), response.status_code
+            
+    except requests.exceptions.Timeout:
+        logger.error("获取金牌赞助商数据超时")
+        return jsonify({'status': 'error', 'message': '请求超时，请稍后重试'}), 408
+    except requests.exceptions.ConnectionError:
+        logger.error("无法连接到金牌赞助商服务器")
+        return jsonify({'status': 'error', 'message': '无法连接到服务器'}), 503
+    except Exception as e:
+        logger.error(f"获取金牌赞助商数据时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'获取数据失败: {str(e)}'}), 500
+
+@app.route('/api/sponsor/validate', methods=['GET'])
+@auth_required
+def validate_sponsor():
+    """验证赞助者身份"""
+    try:
+        # 使用赞助者验证模块验证身份
+        validator = get_sponsor_validator()
+        
+        # 检查是否有赞助者密钥
+        if not validator.has_sponsor_key():
+            return jsonify({
+                'status': 'success',
+                'valid': False,
+                'message': '未配置赞助者密钥'
+            })
+        
+        # 验证赞助者密钥
+        is_valid = validator.validate_sponsor_key()
+        
+        if is_valid:
+            return jsonify({
+                'status': 'success',
+                'valid': True,
+                'message': '赞助者身份验证成功'
+            })
+        else:
+            return jsonify({
+                'status': 'success',
+                'valid': False,
+                'message': '赞助者身份验证失败'
+            })
+            
+    except Exception as e:
+        logger.error(f"验证赞助者身份时出错: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'valid': False,
+            'message': f'验证失败: {str(e)}'
+        }), 500
+
+@app.route('/api/online-games', methods=['GET'])
+@auth_required
+def get_online_games():
+    """获取在线游戏列表"""
+    try:
+        validator = get_sponsor_validator()
+        
+        # 验证赞助者身份
+        if not validator.has_sponsor_key() or not validator.validate_sponsor_key():
+            return jsonify({
+                'status': 'error',
+                'message': '需要赞助者权限'
+            }), 403
+        
+        # 获取赞助者密钥
+        sponsor_key = validator.get_sponsor_key()
+        if not sponsor_key:
+            return jsonify({
+                'status': 'error',
+                'message': '未找到赞助者密钥'
+            }), 403
+        
+        # 请求在线游戏列表
+        import requests
+        headers = {'key': sponsor_key}
+        response = requests.get('http://82.156.35.55:5001/OnlineInstall', headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            games_data = response.json()
+            return jsonify({
+                'status': 'success',
+                'games': games_data
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'获取在线游戏列表失败: HTTP {response.status_code}'
+            }), 500
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"请求在线游戏列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'网络请求失败: {str(e)}'
+        }), 500
+    except Exception as e:
+        logger.error(f"获取在线游戏列表时发生错误: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取游戏列表时发生错误: {str(e)}'
+        }), 500
+
+# 在线部署相关的全局变量 (使用multiprocessing.Manager)
+manager = multiprocessing.Manager()
+active_online_deployments = manager.dict()  # game_id -> deployment_data (manager.dict)
+online_deploy_queues = manager.dict()  # game_id -> queue (manager.Queue)
+
+@app.route('/api/online-deploy', methods=['POST'])
+@auth_required
+def deploy_online_game():
+    """启动在线游戏部署"""
+    try:
+        validator = get_sponsor_validator()
+        
+        # 验证赞助者身份
+        if not validator.has_sponsor_key() or not validator.validate_sponsor_key():
+            return jsonify({
+                'status': 'error',
+                'message': '需要赞助者权限'
+            }), 403
+        
+        data = request.get_json()
+        game_id = data.get('gameId')
+        game_name = data.get('gameName')
+        download_url = data.get('downloadUrl')
+        script_content = data.get('script')
+        
+        if not all([game_id, game_name, download_url, script_content]):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要参数'
+            }), 400
+        
+        # 检查是否已有部署在进行
+        if game_id in active_online_deployments:
+            return jsonify({
+                'status': 'error',
+                'message': f'游戏 {game_name} 正在部署中，请等待完成'
+            }), 409
+        
+        # 初始化部署状态 (使用Manager)
+        deployment_data = manager.dict()
+        deployment_data['game_name'] = game_name
+        deployment_data['download_url'] = download_url
+        deployment_data['script_content'] = script_content
+        deployment_data['status'] = 'starting'
+        deployment_data['progress'] = 0
+        deployment_data['message'] = '正在准备部署...'
+        deployment_data['complete'] = False
+        deployment_data['start_time'] = time.time()
+        active_online_deployments[game_id] = deployment_data
+        
+        deploy_queue = manager.Queue()
+        online_deploy_queues[game_id] = deploy_queue
+        
+        # 启动部署进程
+        deploy_process = multiprocessing.Process(
+            target=_deploy_online_game_worker,
+            args=(game_id, game_name, download_url, script_content, deployment_data, deploy_queue),
+            daemon=True
+        )
+        deploy_process.start()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'开始部署游戏 {game_name}',
+            'game_id': game_id
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"启动在线游戏部署时发生错误: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'启动部署时发生错误: {str(e)}'
+        }), 500
+
+def _deploy_online_game_worker(game_id, game_name, download_url, script_content, deployment_data, deploy_queue):
+    """在线游戏部署工作线程 - 调用aria2下载器模块"""
+    from aria2_downloader import deploy_online_game_worker
+    
+    # 直接调用aria2下载器模块中的函数
+    deploy_online_game_worker(game_id, game_name, download_url, script_content, deployment_data, deploy_queue)
+
+@app.route('/api/online-deploy/stream', methods=['GET'])
+@auth_required
+def online_deploy_stream():
+    """获取在线部署的实时进度"""
+    try:
+        game_id = request.args.get('game_id')
+        
+        if not game_id:
+            return jsonify({'status': 'error', 'message': '缺少游戏ID'}), 400
+        
+        validator = get_sponsor_validator()
+        
+        # 验证赞助者身份
+        if not validator.has_sponsor_key() or not validator.validate_sponsor_key():
+            return jsonify({
+                'status': 'error',
+                'message': '需要赞助者权限'
+            }), 403
+        
+        # 检查部署是否存在
+        if game_id not in active_online_deployments:
+            return jsonify({
+                'status': 'error',
+                'message': f'游戏 {game_id} 没有活跃的部署任务'
+            }), 404
+        
+        # 确保有队列
+        if game_id not in online_deploy_queues:
+            online_deploy_queues[game_id] = manager.Queue()
+            
+            # 如果部署已完成，添加完成消息
+            deployment_data = active_online_deployments[game_id]
+            if deployment_data.get('complete', False):
+                online_deploy_queues[game_id].put({
+                    'progress': deployment_data.get('progress', 100),
+                    'status': deployment_data.get('status', 'completed'),
+                    'message': deployment_data.get('message', '部署已完成'),
+                    'complete': True,
+                    'game_dir': deployment_data.get('game_dir')
+                })
+        
+        def generate():
+            deployment_data = active_online_deployments[game_id]
+            deploy_queue = online_deploy_queues[game_id]
+            
+            # 发送连接成功消息
+            yield f"data: {json.dumps({'message': '连接成功，开始接收部署进度...', 'progress': deployment_data.get('progress', 0), 'status': deployment_data.get('status', 'starting')})}\n\n"
+            
+            # 超时设置
+            timeout_seconds = 600  # 10分钟超时
+            last_output_time = time.time()
+            heartbeat_interval = 10  # 每10秒发送一次心跳
+            next_heartbeat = time.time() + heartbeat_interval
+            
+            while True:
+                try:
+                    # 尝试获取队列中的数据
+                    try:
+                        item = deploy_queue.get(timeout=1)
+                        last_output_time = time.time()
+                        
+                        # 发送进度更新
+                        yield f"data: {json.dumps(item)}\n\n"
+                        
+                        # 如果部署完成，结束流
+                        if item.get('complete', False):
+                            break
+                            
+                    except queue.Empty:
+                        # 心跳检查
+                        current_time = time.time()
+                        if current_time >= next_heartbeat:
+                            yield f"data: {json.dumps({'heartbeat': True, 'timestamp': current_time})}\n\n"
+                            next_heartbeat = current_time + heartbeat_interval
+                        
+                        # 检查是否超时
+                        if time.time() - last_output_time > timeout_seconds:
+                            logger.warning(f"游戏 {game_id} 的部署流超时")
+                            yield f"data: {json.dumps({'message': '部署流超时，请刷新页面查看最新状态', 'status': 'timeout', 'complete': True})}\n\n"
+                            break
+                        
+                        # 检查部署是否已完成但未发送完成消息
+                        if deployment_data.get('complete', False):
+                            final_data = {
+                                'progress': deployment_data.get('progress', 100),
+                                'status': deployment_data.get('status', 'completed'),
+                                'message': deployment_data.get('message', '部署已完成'),
+                                'complete': True
+                            }
+                            if deployment_data.get('game_dir'):
+                                final_data['game_dir'] = deployment_data['game_dir']
+                            yield f"data: {json.dumps(final_data)}\n\n"
+                            break
+                        
+                        continue
+                        
+                except Exception as e:
+                    logger.error(f"生成部署流数据时出错: {str(e)}")
+                    yield f"data: {json.dumps({'error': str(e), 'complete': True})}\n\n"
+                    break
+        
+        return Response(stream_with_context(generate()),
+                       mimetype='text/event-stream',
+                       headers={
+                           'Cache-Control': 'no-cache',
+                           'X-Accel-Buffering': 'no'
+                       })
+                       
+    except Exception as e:
+        logger.error(f"在线部署流处理错误: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/settings/proxy', methods=['POST'])
+@auth_required
+def save_proxy_config():
+    """保存代理配置"""
+    try:
+        data = request.json
+        
+        # 验证必要字段
+        if data.get('enabled', False):
+            if not data.get('host'):
+                return jsonify({'status': 'error', 'message': '代理服务器地址不能为空'}), 400
+            if not data.get('port'):
+                return jsonify({'status': 'error', 'message': '端口号不能为空'}), 400
+        
+        # 加载现有配置
+        from config import load_config, save_config
+        config = load_config()
+        
+        # 更新代理配置
+        config['proxy'] = {
+            'enabled': data.get('enabled', False),
+            'type': data.get('type', 'http'),
+            'host': data.get('host', ''),
+            'port': data.get('port', 8080),
+            'username': data.get('username', ''),
+            'password': data.get('password', ''),
+            'no_proxy': data.get('no_proxy', '')
+        }
+        
+        # 保存配置
+        if save_config(config):
+            # 应用代理配置到环境变量
+            apply_proxy_config(config['proxy'])
+            return jsonify({'status': 'success', 'message': '代理配置保存成功'})
+        else:
+            return jsonify({'status': 'error', 'message': '保存代理配置失败'}), 500
+            
+    except Exception as e:
+        logger.error(f"保存代理配置时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'保存代理配置失败: {str(e)}'}), 500
+
+@app.route('/api/settings/proxy', methods=['GET'])
+@auth_required
+def get_proxy_config():
+    """获取代理配置"""
+    try:
+        from config import load_config
+        config = load_config()
+        
+        # 获取代理配置，如果不存在则返回默认配置
+        proxy_config = config.get('proxy', {
+            'enabled': False,
+            'type': 'http',
+            'host': '',
+            'port': 8080,
+            'username': '',
+            'password': '',
+            'no_proxy': ''
+        })
+        
+        return jsonify({
+            'status': 'success',
+            'config': proxy_config
+        })
+        
+    except Exception as e:
+        logger.error(f"获取代理配置时出错: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'获取代理配置失败: {str(e)}'}), 500
+
+@app.route('/api/settings/test-network', methods=['POST'])
+@auth_required
+def test_network_connectivity():
+    """测试网络连通性（谷歌连接测试）"""
+    try:
+        import time
+        import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        
+        # 获取超时设置
+        data = request.get_json() or {}
+        timeout = data.get('timeout', 10)
+        
+        # 创建会话并配置重试策略
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=1,
+            backoff_factor=0.1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # 测试目标列表（按优先级排序）
+        test_targets = [
+            {'url': 'https://www.google.com', 'name': 'Google'},
+            {'url': 'https://www.googleapis.com', 'name': 'Google APIs'},
+            {'url': 'https://dns.google', 'name': 'Google DNS'},
+        ]
+        
+        start_time = time.time()
+        
+        for target in test_targets:
+            try:
+                response = session.get(
+                    target['url'],
+                    timeout=timeout/1000,  # 转换为秒
+                    allow_redirects=True,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                )
+                
+                end_time = time.time()
+                latency_ms = int((end_time - start_time) * 1000)
+                
+                if response.status_code == 200:
+                    return jsonify({
+                        'status': 'success',
+                        'message': f'成功连接到 {target["name"]}',
+                        'latency': latency_ms,
+                        'target': target['name'],
+                        'url': target['url']
+                    })
+                    
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"连接 {target['name']} 失败: {str(e)}")
+                continue
+        
+        # 所有目标都失败
+        return jsonify({
+            'status': 'error',
+            'message': '无法连接到任何谷歌服务，请检查网络连接或代理设置',
+            'latency': None
+        }), 400
+        
+    except Exception as e:
+        logger.error(f"网络连通性测试时出错: {str(e)}")
+        return jsonify({
+            'status': 'error', 
+            'message': f'网络测试失败: {str(e)}',
+            'latency': None
+        }), 500
+
+@app.route('/api/version/check', methods=['GET'])
+@auth_required
+def check_version_update():
+    """检查版本更新"""
+    try:
+        # 使用赞助者验证模块检查版本更新
+        validator = get_sponsor_validator()
+        
+        # 检查是否有赞助者密钥
+        if not validator.has_sponsor_key():
+            return jsonify({
+                'status': 'skip', 
+                'message': '未配置赞助者密钥，跳过版本检查'
+            }), 200
+        
+        # 获取版本信息
+        version_info = validator.check_version_update()
+        
+        if version_info:
+            return jsonify({
+                'status': 'success',
+                'version': version_info.get('version'),
+                'description': version_info.get('description', {})
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '获取版本信息失败，请检查网络连接或赞助者凭证'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"检查版本更新时出错: {str(e)}")
+        return jsonify({
+                'status': 'error', 
+                'message': f'检查版本更新失败: {str(e)}'
+            }), 500
+
+@app.route('/api/version/download-image', methods=['POST'])
+@auth_required
+def download_docker_image():
+    """下载并导入Docker镜像"""
+    try:
+        # 验证赞助者身份
+        validator = get_sponsor_validator()
+        if not validator.has_sponsor_key() or not validator.validate_sponsor_key():
+            return jsonify({
+                'status': 'error',
+                'message': '此功能仅限赞助者使用，请先配置有效的赞助者凭证'
+            }), 403
+        
+        # 下载和导入Docker镜像
+        download_url = "http://langlangy.server.xiaozhuhouses.asia:8082/disk1/Docker/GSM%e9%9d%a2%e6%9d%bf/gameservermanager.tar.xz"
+        result = docker_manager.download_and_import_image(download_url, "gameservermanager:latest")
+        
+        if result['status'] != 'success':
+            logger.error(f"下载或导入镜像失败: {result['message']}")
+            return jsonify({
+                'status': 'error',
+                'message': f'下载或导入镜像失败: {result["message"]}'
+            }), 500
+        
+        logger.info("镜像下载和导入成功，开始获取容器配置")
+        
+        # 获取当前容器配置
+        container_info = docker_manager.get_container_info('GSManager')
+        
+        if container_info:
+             logger.info(f"获取到容器信息:")
+             logger.info(f"  - 容器名称: {container_info.get('name')}")
+             logger.info(f"  - 镜像: {container_info.get('image')}")
+             logger.info(f"  - 网络模式: {container_info.get('network_mode')}")
+             logger.info(f"  - 端口映射: {container_info.get('ports')}")
+             logger.info(f"  - 挂载点: {container_info.get('mounts')}")
+             logger.info(f"  - 环境变量数量: {len(container_info.get('environment', []))}")
+             logger.info(f"  - 重启策略: {container_info.get('restart_policy')}")
+             
+             # 更新镜像名称为最新版本
+             container_info['image'] = 'gameservermanager:latest'
+             
+             # 生成完整的启动命令
+             docker_command = docker_manager.generate_docker_command(container_info)
+             
+             if docker_command:
+                 logger.info(f"生成的Docker命令: {docker_command}")
+                 return jsonify({
+                     'status': 'success',
+                     'message': '已生成基于当前容器配置的启动命令',
+                     'docker_command': docker_command,
+                     'container_config': container_info
+                 })
+             else:
+                 logger.error("生成Docker命令失败")
+                 return jsonify({
+                     'status': 'error',
+                     'message': '生成Docker命令失败'
+                 }), 500
+        else:
+            logger.warning("未找到GSManager容器，尝试查找其他可能的容器名称")
+            
+            # 尝试查找可能的容器名称变体
+            possible_names = ['GSManager', 'gameservermanager', 'gsm', 'game-server-manager', 'GameServerManager']
+            found_container = None
+            
+            for name in possible_names:
+                container_info = docker_manager.get_container_info(name)
+                if container_info:
+                    found_container = container_info
+                    logger.info(f"找到容器: {name}")
+                    break
+            
+            if found_container:
+                # 更新容器名称和镜像
+                found_container['name'] = 'GSManager'
+                found_container['image'] = 'gameservermanager:latest'
+                
+                docker_command = docker_manager.generate_docker_command(found_container)
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': '已基于现有容器配置生成启动命令',
+                    'docker_command': docker_command,
+                    'container_config': found_container
+                })
+            else:
+                logger.error("未找到任何相关容器，无法生成完整的启动命令")
+                return jsonify({
+                    'status': 'error',
+                    'message': '未找到GSManager容器，无法生成完整的启动命令。请确保容器正在运行。'
+                }), 404
+            
+    except Exception as e:
+        logger.error(f"下载Docker镜像时出错: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'下载Docker镜像失败: {str(e)}'
+        }), 500
 
 @app.route('/api/server/list_scripts', methods=['GET'])
 def list_server_scripts():
@@ -5120,6 +6663,261 @@ logger.info("临时错误信息清理线程已启动")
 
 # 添加自启动相关的常量和函数
 CONFIG_FILE = "/home/steam/games/config.json"
+
+# 自启动功能初始化标志
+_auto_start_initialized = False
+
+def log_running_games():
+    """使用logger打印当前正在运行的游戏服务器信息"""
+    try:
+        if not running_servers:
+            logger.info("当前没有正在运行的游戏服务器")
+            return
+        
+        logger.info("=== 当前正在运行的游戏服务器 ===")
+        running_count = 0
+        
+        for game_id, server_data in running_servers.items():
+            process = server_data.get('process')
+            pty_process = server_data.get('pty_process')
+            started_at = server_data.get('started_at')
+            
+            # 检查进程是否真的在运行
+            is_running = False
+            pid = None
+            
+            if process and hasattr(process, 'poll') and process.poll() is None:
+                is_running = True
+                pid = process.pid
+            elif pty_process and hasattr(pty_process, 'process') and pty_process.process:
+                if hasattr(pty_process.process, 'poll') and pty_process.process.poll() is None:
+                    is_running = True
+                    pid = pty_process.process.pid
+            
+            if is_running:
+                running_count += 1
+                uptime = time.time() - started_at if started_at else 0
+                uptime_str = f"{int(uptime // 3600)}小时{int((uptime % 3600) // 60)}分钟" if uptime > 0 else "未知"
+                
+                logger.info(f"  游戏ID: {game_id}")
+                logger.info(f"    进程PID: {pid}")
+                logger.info(f"    运行时长: {uptime_str}")
+                logger.info(f"    启动时间: {datetime.datetime.fromtimestamp(started_at).strftime('%Y-%m-%d %H:%M:%S') if started_at else '未知'}")
+                logger.info(f"    是否有PTY: {'是' if pty_process else '否'}")
+            else:
+                logger.warning(f"  游戏ID: {game_id} - 进程已停止但仍在running_servers中")
+        
+        logger.info(f"=== 总计: {running_count} 个游戏服务器正在运行 ===")
+        
+    except Exception as e:
+        logger.error(f"打印运行中游戏服务器信息时出错: {str(e)}")
+
+def auto_start_servers():
+    """在应用启动时自动启动配置的服务器"""
+    global _auto_start_initialized
+    
+    if _auto_start_initialized:
+        return
+        
+    _auto_start_initialized = True
+    
+    try:
+        logger.info("开始检查自启动服务器配置...")
+        
+        # 加载配置
+        config = load_config()
+        auto_restart_servers = config.get('auto_restart_servers', [])
+        auto_restart_frps = config.get('auto_restart_frps', [])
+        
+        if not auto_restart_servers and not auto_restart_frps:
+            logger.info("没有配置自启动的服务器或内网穿透")
+            return
+            
+        # 延迟启动，确保应用完全初始化
+        def delayed_auto_start():
+            time.sleep(5)  # 等待5秒确保应用完全启动
+            
+            # 自动启动服务器
+            if auto_restart_servers:
+                logger.info(f"发现 {len(auto_restart_servers)} 个自启动服务器: {auto_restart_servers}")
+                
+                for game_id in auto_restart_servers:
+                    try:
+                        # 检查游戏目录是否存在
+                        game_dir = os.path.join(GAMES_DIR, game_id)
+                        if not os.path.exists(game_dir):
+                            logger.warning(f"游戏目录不存在，跳过自启动: {game_dir}")
+                            continue
+                            
+                        # 检查是否已经在运行
+                        if game_id in running_servers and running_servers[game_id].get('running', False):
+                            logger.info(f"游戏服务器 {game_id} 已在运行，跳过自启动")
+                            continue
+                            
+                        logger.info(f"自动启动游戏服务器: {game_id}")
+                        
+                        # 查找启动脚本
+                        script_name = "start.sh"
+                        script_path = os.path.join(game_dir, script_name)
+                        
+                        # 尝试从.last_script文件读取上次使用的脚本
+                        last_script_path = os.path.join(game_dir, '.last_script')
+                        if os.path.exists(last_script_path):
+                            try:
+                                with open(last_script_path, 'r') as f:
+                                    saved_script = f.read().strip()
+                                    if saved_script and os.path.exists(os.path.join(game_dir, saved_script)):
+                                        script_name = saved_script
+                                        script_path = os.path.join(game_dir, script_name)
+                                        logger.info(f"使用上次保存的启动脚本: {script_name}")
+                            except Exception as e:
+                                logger.warning(f"读取.last_script文件失败: {str(e)}")
+                        
+                        if not os.path.exists(script_path):
+                            logger.warning(f"启动脚本不存在，跳过自启动: {script_path}")
+                            continue
+                            
+                        # 确保脚本有执行权限
+                        if not os.access(script_path, os.X_OK):
+                            logger.info(f"添加脚本执行权限: {script_path}")
+                            os.chmod(script_path, 0o755)
+                        
+                        # 构建启动命令
+                        cmd = f"su - steam -c 'cd {game_dir} && ./{script_name}'"
+                        
+                        # 初始化服务器状态跟踪
+                        running_servers[game_id] = {
+                            'process': None,
+                            'output': [],
+                            'started_at': time.time(),
+                            'running': True,
+                            'return_code': None,
+                            'cmd': cmd,
+                            'master_fd': None,
+                            'game_dir': game_dir,
+                            'external': False,
+                            'script_name': script_name,
+                            'auto_started': True  # 标记为自动启动
+                        }
+                        
+                        # 创建输出队列
+                        if game_id not in server_output_queues:
+                            server_output_queues[game_id] = queue.Queue()
+                        
+                        # 在单独的线程中启动服务器
+                        server_thread = threading.Thread(
+                            target=run_game_server,
+                            args=(game_id, cmd, game_dir),
+                            daemon=True
+                        )
+                        server_thread.start()
+                        
+                        logger.info(f"游戏服务器 {game_id} 自启动线程已启动")
+                        
+                        # 间隔启动，避免同时启动太多服务器
+                        time.sleep(2)
+                        
+                    except Exception as e:
+                        logger.error(f"自动启动游戏服务器 {game_id} 失败: {str(e)}")
+            
+            # 自动启动内网穿透
+            if auto_restart_frps:
+                logger.info(f"发现 {len(auto_restart_frps)} 个自启动内网穿透: {auto_restart_frps}")
+                
+                for frp_id in auto_restart_frps:
+                    try:
+                        # 检查是否已经在运行
+                        if frp_id in running_frp_processes:
+                            logger.info(f"内网穿透 {frp_id} 已在运行，跳过自启动")
+                            continue
+                            
+                        logger.info(f"自动启动内网穿透: {frp_id}")
+                        
+                        # 加载FRP配置
+                        configs = load_frp_configs()
+                        target_config = None
+                        
+                        for config in configs:
+                            if config['id'] == frp_id:
+                                target_config = config
+                                break
+                        
+                        if not target_config:
+                            logger.warning(f"未找到内网穿透 {frp_id} 的配置，跳过自启动")
+                            continue
+                        
+                        # 启动内网穿透
+                        # 根据FRP类型选择不同的二进制文件和目录
+                        frp_binary = FRP_BINARY
+                        frp_dir = os.path.join(FRP_DIR, "LoCyanFrp")
+                        
+                        if target_config['type'] == 'custom':
+                            frp_binary = CUSTOM_FRP_BINARY
+                            frp_dir = CUSTOM_FRP_DIR
+                        elif target_config['type'] == 'mefrp':
+                            frp_binary = MEFRP_BINARY
+                            frp_dir = MEFRP_DIR
+                        elif target_config['type'] == 'sakura':
+                            frp_binary = SAKURA_BINARY
+                            frp_dir = SAKURA_DIR
+                        
+                        # 确保FRP可执行
+                        if not os.path.exists(frp_binary):
+                            logger.warning(f"{target_config['type']}客户端程序不存在，跳过自启动: {frp_binary}")
+                            continue
+                        
+                        # 设置可执行权限
+                        os.chmod(frp_binary, 0o755)
+                        
+                        # 创建日志文件
+                        log_file_path = os.path.join(FRP_LOGS_DIR, f"{frp_id}.log")
+                        log_file = open(log_file_path, 'w')
+                        
+                        # 构建命令
+                        command = f"{frp_binary} {target_config['command']}"
+                        
+                        # 启动FRP进程
+                        process = subprocess.Popen(
+                            shlex.split(command),
+                            stdout=log_file,
+                            stderr=log_file,
+                            cwd=frp_dir
+                        )
+                        
+                        # 保存进程信息
+                        running_frp_processes[frp_id] = {
+                            'process': process,
+                            'log_file': log_file_path,
+                            'started_at': time.time(),
+                            'auto_started': True  # 标记为自动启动
+                        }
+                        
+                        # 更新配置状态
+                        configs = load_frp_configs()
+                        for config in configs:
+                            if config['id'] == frp_id:
+                                config['status'] = 'running'
+                                break
+                        save_frp_configs(configs)
+                        
+                        logger.info(f"内网穿透 {frp_id} 自启动成功")
+                        
+                        # 间隔启动
+                        time.sleep(1)
+                        
+                    except Exception as e:
+                        logger.error(f"自动启动内网穿透 {frp_id} 失败: {str(e)}")
+                        
+            logger.info("自启动功能执行完成")
+        
+        # 在后台线程中执行延迟启动
+        auto_start_thread = threading.Thread(target=delayed_auto_start, daemon=True)
+        auto_start_thread.start()
+        
+        logger.info("自启动功能已初始化，将在5秒后开始执行")
+        
+    except Exception as e:
+        logger.error(f"初始化自启动功能失败: {str(e)}")
 
 def load_config():
     """加载配置文件"""
@@ -5384,6 +7182,9 @@ def restart_frp(frp_id):
         elif target_config['type'] == 'sakura':
             frp_binary = SAKURA_BINARY
             frp_dir = SAKURA_DIR
+        elif target_config['type'] == 'npc':
+            frp_binary = NPC_BINARY
+            frp_dir = NPC_DIR
         
         # 确保FRP可执行
         if not os.path.exists(frp_binary):
@@ -5497,26 +7298,31 @@ JAVA_VERSIONS = {
     "jdk8": {
         "dir": JAVA_JDK8_DIR,
         "url": JAVA_JDK8_URL,
+        "sponsor_url": "http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/openjdk-8u44-linux-x64.tar.gz",
         "display_name": "JDK 8"
     },
     "jdk12": {
         "dir": JAVA_JDK12_DIR,
         "url": JAVA_JDK12_URL,
+        "sponsor_url": "http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/openjdk-12+32_linux-x64_bin.tar.gz",
         "display_name": "JDK 12"
     },
     "jdk17": {
         "dir": JAVA_JDK17_DIR,
         "url": JAVA_JDK17_URL,
+        "sponsor_url": "http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/openjdk-17.0.0.1+2_linux-x64_bin.tar.gz",
         "display_name": "JDK 17"
     },
     "jdk21": {
         "dir": JAVA_JDK21_DIR,
         "url": JAVA_JDK21_URL,
+        "sponsor_url": "http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/openjdk-21+35_linux-x64_bin.tar.gz",
         "display_name": "JDK 21"
     },
     "jdk24": {
         "dir": JAVA_JDK24_DIR,
         "url": JAVA_JDK24_URL,
+        "sponsor_url": "http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/openjdk-24+36_linux-x64_bin.tar.gz",
         "display_name": "JDK 24"
     }
 }
@@ -5527,6 +7333,81 @@ os.makedirs(JAVA_DIR, exist_ok=True)
 
 # 环境安装进度跟踪
 environment_install_progress = {}
+
+# Java下载并发控制
+java_download_lock = threading.Lock()
+current_java_download = None
+java_download_cancelled = {}  # 存储取消下载的标志 {version: True/False}
+
+# 初始化赞助者验证器
+sponsor_validator = SponsorValidator()
+
+def verify_sponsor_for_java() -> tuple[bool, str]:
+    """验证赞助者身份用于Java下载
+    
+    Returns:
+        tuple: (是否为赞助者, 验证信息)
+    """
+    try:
+        # 从配置文件中读取sponsor_key
+        config_path = "/home/steam/games/config.json"
+        sponsor_key = None
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    sponsor_key = config.get('sponsor_key')
+            except Exception as e:
+                logger.warning(f"读取配置文件失败: {str(e)}")
+        
+        if not sponsor_key:
+            logger.info("未找到赞助者密钥，将使用普通下载链接")
+            return False, "未找到赞助者密钥"
+        
+        # 验证赞助者密钥
+        url = "http://82.156.35.55:5001/verify"
+        headers = {
+            'key': sponsor_key,
+            'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+            'Accept': '*/*',
+            'Host': '82.156.35.55:5001',
+            'Connection': 'keep-alive'
+        }
+        
+        logger.debug(f"开始验证赞助者身份")
+        logger.debug(f"验证接口: {url}")
+        logger.debug(f"使用密钥: {sponsor_key[:8]}...{sponsor_key[-4:] if len(sponsor_key) > 12 else sponsor_key}")
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        logger.debug(f"验证接口响应状态码: {response.status_code}")
+        logger.debug(f"验证接口返回内容: {response.text.strip()}")
+        
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                is_sponsor = result.get('is_sponsor', False)
+                if is_sponsor:
+                    logger.debug("赞助者验证成功，将使用专用下载链接")
+                    return True, "赞助者验证成功"
+                else:
+                    logger.debug("非赞助者用户，将使用普通下载链接")
+                    return False, "非赞助者用户"
+            except json.JSONDecodeError:
+                # 如果不是JSON格式，回退到原来的文本检查方式
+                result = response.text.strip()
+                if "success" in result.lower() or "valid" in result.lower():
+                    return True, "赞助者验证成功"
+                else:
+                    return False, "非赞助者用户"
+        else:
+            logger.warning(f"⚠️ 赞助者验证失败，状态码: {response.status_code}，将使用普通下载链接")
+            return False, f"验证服务器返回状态码: {response.status_code}"
+            
+    except Exception as e:
+        logger.warning(f"赞助者验证出错: {str(e)}，将使用普通下载链接")
+        return False, f"验证出错: {str(e)}"
 
 # 检查Java是否已安装
 def check_java_installation(version="jdk8"):
@@ -5563,155 +7444,122 @@ def check_java_installation(version="jdk8"):
 # 安装Java的函数
 def install_java(version="jdk8"):
     """安装指定版本的Java"""
+    global current_java_download
+    
     if version not in JAVA_VERSIONS:
         return False, f"不支持的Java版本: {version}，支持的版本有: {', '.join(JAVA_VERSIONS.keys())}"
     
-    # 初始化进度
+    # 检查是否有其他Java正在下载
+    with java_download_lock:
+        if current_java_download is not None:
+            current_downloading = JAVA_VERSIONS.get(current_java_download, {}).get('display_name', current_java_download)
+            return False, f"当前正在下载 {current_downloading}，请等待完成后再下载其他版本"
+        
+        # 设置当前下载的版本
+        current_java_download = version
+    
+    # 初始化进度和取消标志
     environment_install_progress[version] = {
         "progress": 0,
         "status": "downloading",
         "completed": False,
         "error": None
     }
+    java_download_cancelled[version] = False
     
-    # 在新线程中执行安装
-    thread = threading.Thread(target=_install_java_thread, args=(version,))
+    # 使用独立进程执行安装，避免GIL锁竞争
+    from java_installer import install_java_worker
+    
+    # 验证赞助者身份
+    is_sponsor, verify_msg = verify_sponsor_for_java()
+    
+    # 根据赞助者身份选择下载链接
+    if is_sponsor and "sponsor_url" in JAVA_VERSIONS[version]:
+        java_url = JAVA_VERSIONS[version]["sponsor_url"]
+    else:
+        java_url = JAVA_VERSIONS[version]["url"]
+    
+    # 创建进程间通信队列
+    install_queue = multiprocessing.Queue()
+    
+    # 启动独立进程进行安装
+    process = multiprocessing.Process(
+        target=install_java_worker,
+        args=(version, JAVA_VERSIONS, java_url, is_sponsor, install_queue)
+    )
+    process.daemon = True
+    process.start()
+    
+    # 在新线程中监控进程进度
+    thread = threading.Thread(target=_monitor_java_install_process, args=(version, process, install_queue))
     thread.daemon = True
     thread.start()
     
     return True, f"{JAVA_VERSIONS[version]['display_name']}安装已启动"
 
-def _install_java_thread(version="jdk8"):
-    """在后台线程中安装Java"""
+def _monitor_java_install_process(version, process, install_queue):
+    """监控Java安装进程的进度"""
+    global current_java_download
+    
     try:
-        if version not in JAVA_VERSIONS:
-            raise ValueError(f"不支持的Java版本: {version}")
-        
-        java_dir = JAVA_VERSIONS[version]["dir"]
-        java_url = JAVA_VERSIONS[version]["url"]
-        
-        # 下载JDK
-        environment_install_progress[version]["status"] = "downloading"
-        environment_install_progress[version]["progress"] = 5
-        
-        # 创建临时目录
-        temp_dir = tempfile.mkdtemp()
-        temp_file = os.path.join(temp_dir, f"{version}.tar.gz")
-        
-        # 下载文件
-        logger.info(f"开始下载{JAVA_VERSIONS[version]['display_name']}: {java_url}")
-        response = requests.get(java_url, stream=True)
-        response.raise_for_status()
-        
-        # 获取文件大小
-        total_size = int(response.headers.get('content-length', 0))
-        downloaded = 0
-        
-        # 写入文件
-        with open(temp_file, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    # 更新下载进度
-                    if total_size > 0:
-                        progress = int(20 * downloaded / total_size) + 5  # 5-25%
-                        environment_install_progress[version]["progress"] = min(progress, 25)
-        
-        # 解压文件
-        environment_install_progress[version]["status"] = "extracting"
-        environment_install_progress[version]["progress"] = 30
-        
-        # 确保目标目录存在并为空
-        if os.path.exists(java_dir):
-            shutil.rmtree(java_dir)
-        os.makedirs(java_dir, exist_ok=True)
-        
-        # 解压tar.gz文件
-        logger.info(f"解压{JAVA_VERSIONS[version]['display_name']}到: {java_dir}")
-        with tarfile.open(temp_file, "r:gz") as tar:
-            # 获取根目录名称
-            root_dir = tar.getnames()[0].split('/')[0]
-            
-            # 解压所有文件
-            for i, member in enumerate(tar.getmembers()):
-                tar.extract(member, temp_dir)
-                # 更新解压进度
-                progress = int(40 * i / len(tar.getmembers())) + 30  # 30-70%
-                environment_install_progress[version]["progress"] = min(progress, 70)
-        
-        # 移动文件到目标目录
-        environment_install_progress[version]["status"] = "installing"
-        environment_install_progress[version]["progress"] = 75
-        
-        # 源目录是解压后的根目录
-        extracted_files = os.listdir(temp_dir)
-        
-        # 找到解压后的目录
-        source_dir = None
-        for item in extracted_files:
-            if os.path.isdir(os.path.join(temp_dir, item)) and item != "__MACOSX":
-                source_dir = os.path.join(temp_dir, item)
+        while process.is_alive() or not install_queue.empty():
+            try:
+                # 从队列中获取进度更新
+                progress_data = install_queue.get(timeout=1)
+                
+                # 检查是否被用户取消
+                if java_download_cancelled.get(version, False):
+                    logger.info(f"{JAVA_VERSIONS[version]['display_name']} 安装已被用户取消")
+                    process.terminate()
+                    process.join(timeout=5)
+                    if process.is_alive():
+                        process.kill()
+                    
+                    environment_install_progress[version]["status"] = "cancelled"
+                    environment_install_progress[version]["error"] = "安装已被用户取消"
+                    environment_install_progress[version]["completed"] = True
+                    break
+                
+                # 更新进度数据
+                environment_install_progress[version].update(progress_data)
+                
+                # 如果安装完成或出错，退出循环
+                if progress_data.get('completed', False):
+                    break
+                    
+            except queue.Empty:
+                # 队列为空，继续等待
+                continue
+            except Exception as e:
+                logger.error(f"监控Java安装进程时出错: {e}")
                 break
         
-        if not source_dir:
-            raise Exception("无法找到解压后的Java目录")
+        # 等待进程结束
+        process.join(timeout=5)
         
-        # 复制所有文件到目标目录
-        for item in os.listdir(source_dir):
-            s = os.path.join(source_dir, item)
-            d = os.path.join(java_dir, item)
-            if os.path.isdir(s):
-                shutil.copytree(s, d)
-            else:
-                shutil.copy2(s, d)
-        
-        # 设置执行权限
-        environment_install_progress[version]["status"] = "setting_permissions"
-        environment_install_progress[version]["progress"] = 85
-        
-        # 设置bin目录中所有文件的执行权限
-        bin_dir = os.path.join(java_dir, "bin")
-        for file in os.listdir(bin_dir):
-            file_path = os.path.join(bin_dir, file)
-            st = os.stat(file_path)
-            os.chmod(file_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        
-        # 验证安装
-        environment_install_progress[version]["status"] = "verifying"
-        environment_install_progress[version]["progress"] = 90
-        
-        # 检查java是否可执行
-        java_executable = os.path.join(java_dir, "bin/java")
-        result = subprocess.run([java_executable, "-version"], 
-                               capture_output=True, 
-                               text=True)
-        
-        if result.returncode == 0:
-            # 获取版本信息
-            version_output = result.stderr  # java -version输出到stderr
-            version_match = re.search(r'version "([^"]+)"', version_output)
-            java_version = version_match.group(1) if version_match else "Unknown"
+        # 如果进程仍在运行，强制终止
+        if process.is_alive():
+            logger.warning(f"Java安装进程超时，强制终止")
+            process.terminate()
+            process.join(timeout=2)
+            if process.is_alive():
+                process.kill()
             
-            # 安装完成
-            environment_install_progress[version]["status"] = "completed"
-            environment_install_progress[version]["progress"] = 100
+            # 设置错误状态
+            environment_install_progress[version]["status"] = "error"
+            environment_install_progress[version]["error"] = "安装进程超时"
             environment_install_progress[version]["completed"] = True
-            environment_install_progress[version]["version"] = java_version
-            environment_install_progress[version]["path"] = java_executable
-            environment_install_progress[version]["usage_hint"] = f"使用方式: {java_executable} -version"
-            logger.info(f"{JAVA_VERSIONS[version]['display_name']}安装成功，版本: {java_version}")
-        else:
-            raise Exception("Java安装后无法执行")
-        
-        # 清理临时文件
-        shutil.rmtree(temp_dir)
-        
     except Exception as e:
-        logger.error(f"安装Java时出错: {str(e)}")
+        logger.error(f"监控Java安装进程时出错: {str(e)}")
         environment_install_progress[version]["status"] = "error"
         environment_install_progress[version]["error"] = str(e)
         environment_install_progress[version]["completed"] = True
+    finally:
+        # 重置当前下载状态
+        with java_download_lock:
+            current_java_download = None
+        # 清理取消标志
+        java_download_cancelled.pop(version, None)
 
 # Java环境API路由
 @app.route('/api/environment/java/status', methods=['GET'])
@@ -5816,31 +7664,6 @@ def get_java_versions():
             "message": str(e)
         }), 500
 
-# 卸载Java的函数
-def uninstall_java(version="jdk8"):
-    """卸载指定版本的Java"""
-    if version not in JAVA_VERSIONS:
-        return False, f"不支持的Java版本: {version}，支持的版本有: {', '.join(JAVA_VERSIONS.keys())}"
-    
-    java_dir = JAVA_VERSIONS[version]["dir"]
-    
-    # 检查是否已安装
-    installed, _ = check_java_installation(version)
-    if not installed:
-        return False, f"{JAVA_VERSIONS[version]['display_name']}未安装"
-    
-    try:
-        # 删除Java安装目录
-        if os.path.exists(java_dir):
-            shutil.rmtree(java_dir)
-            logger.info(f"{JAVA_VERSIONS[version]['display_name']}卸载成功")
-            return True, f"{JAVA_VERSIONS[version]['display_name']}卸载成功"
-        else:
-            return False, f"{JAVA_VERSIONS[version]['display_name']}安装目录不存在"
-    except Exception as e:
-        logger.error(f"卸载Java时出错: {str(e)}")
-        return False, f"卸载Java时出错: {str(e)}"
-
 @app.route('/api/environment/java/uninstall', methods=['POST'])
 @auth_required
 def uninstall_java_route():
@@ -5849,19 +7672,40 @@ def uninstall_java_route():
         data = request.get_json()
         version = data.get('version', 'jdk8')
         
-        # 卸载Java
-        success, message = uninstall_java(version)
-        
-        if success:
-            return jsonify({
-                "status": "success",
-                "message": message
-            })
-        else:
+        if version not in JAVA_VERSIONS:
             return jsonify({
                 "status": "error",
-                "message": message
+                "message": f"不支持的Java版本: {version}"
             }), 400
+        
+        # 检查是否已安装
+        installed, _ = check_java_installation(version)
+        if not installed:
+            return jsonify({
+                "status": "success",
+                "message": f"{JAVA_VERSIONS[version]['display_name']}未安装"
+            })
+        
+        # 检查是否正在安装中
+        if current_java_download == version:
+            return jsonify({
+                "status": "error",
+                "message": f"{JAVA_VERSIONS[version]['display_name']}正在安装中，无法卸载"
+            }), 400
+        
+        # 执行卸载
+        java_dir = JAVA_VERSIONS[version]["dir"]
+        if os.path.exists(java_dir):
+            shutil.rmtree(java_dir)
+            logger.info(f"已卸载{JAVA_VERSIONS[version]['display_name']}: {java_dir}")
+        
+        # 清理进度信息
+        environment_install_progress.pop(version, None)
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{JAVA_VERSIONS[version]['display_name']}卸载成功"
+        })
     except Exception as e:
         logger.error(f"卸载Java时出错: {str(e)}")
         return jsonify({
@@ -5869,67 +7713,61 @@ def uninstall_java_route():
             "message": str(e)
         }), 500
 
-# 备份任务管理
-backup_tasks = {}
-backup_task_counter = 0
-BACKUP_CONFIG_FILE = '/home/steam/games/config.json'
-backup_scheduler_running = False
-
-def load_backup_config():
-    """从配置文件加载备份任务"""
-    global backup_tasks, backup_task_counter
+@app.route('/api/environment/java/cancel', methods=['POST'])
+@auth_required
+def cancel_java_download_route():
+    """取消Java下载"""
     try:
-        if os.path.exists(BACKUP_CONFIG_FILE):
-            with open(BACKUP_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                backup_tasks = config.get('backup_tasks', {})
-                backup_task_counter = config.get('backup_task_counter', 0)
-                logger.info(f"已加载 {len(backup_tasks)} 个备份任务")
-        else:
-            # 确保配置文件目录存在
-            os.makedirs(os.path.dirname(BACKUP_CONFIG_FILE), exist_ok=True)
-            save_backup_config()
-    except Exception as e:
-        logger.error(f"加载备份配置失败: {str(e)}")
-        backup_tasks = {}
-        backup_task_counter = 0
-
-def save_backup_config():
-    """保存备份任务到配置文件"""
-    try:
-        # 读取现有配置文件
-        existing_config = {}
-        if os.path.exists(BACKUP_CONFIG_FILE):
-            try:
-                with open(BACKUP_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    existing_config = json.load(f)
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"读取现有配置文件失败，将创建新配置: {str(e)}")
-                existing_config = {}
+        data = request.get_json()
+        version = data.get('version', 'jdk8')
         
-        # 更新备份相关配置
-        existing_config['backup_tasks'] = backup_tasks
-        existing_config['backup_task_counter'] = backup_task_counter
+        if version not in JAVA_VERSIONS:
+            return jsonify({
+                "status": "error",
+                "message": f"不支持的Java版本: {version}"
+            }), 400
         
-        # 保存更新后的配置
-        with open(BACKUP_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(existing_config, f, ensure_ascii=False, indent=2)
-        logger.info("备份配置已保存")
+        # 检查是否正在下载
+        if current_java_download != version:
+            return jsonify({
+                "status": "error",
+                "message": f"{JAVA_VERSIONS[version]['display_name']}未在下载中"
+            }), 400
+        
+        # 设置取消标志
+        java_download_cancelled[version] = True
+        logger.info(f"用户请求取消{JAVA_VERSIONS[version]['display_name']}下载")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"已请求取消{JAVA_VERSIONS[version]['display_name']}下载"
+        })
     except Exception as e:
-        logger.error(f"保存备份配置失败: {str(e)}")
+        logger.error(f"取消Java下载时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 @app.route('/api/backup/tasks', methods=['GET'])
 @auth_required
 def get_backup_tasks():
-    """获取所有备份任务"""
+    """获取备份任务列表"""
     try:
         ensure_backup_config_loaded()
+        # 将backup_tasks对象转换为数组格式
+        tasks_list = []
+        for task_id, task_data in backup_tasks.items():
+            task_info = task_data.copy()
+            task_info['id'] = task_id
+            tasks_list.append(task_info)
+        
         return jsonify({
             "status": "success",
-            "tasks": list(backup_tasks.values())
+            "tasks": tasks_list
         })
     except Exception as e:
-        logger.error(f"获取备份任务时出错: {str(e)}")
+        logger.error(f"获取备份任务列表时出错: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -5978,7 +7816,9 @@ def create_backup_task():
             "enabled": True,
             "nextBackup": next_backup.strftime('%Y-%m-%d %H:%M:%S'),
             "lastBackup": None,
-            "status": "等待中"
+            "status": "等待中",
+            "linkedServerId": data.get('linkedServerId'),  # 关联的服务端ID
+            "autoControl": data.get('autoControl', False)  # 是否自动控制（服务端开启时启用备份，关闭时停用）
         }
         
         backup_tasks[task_id] = task
@@ -6032,6 +7872,10 @@ def update_backup_task(task_id):
             task['intervalUnit'] = data['intervalUnit']
         if 'keepCount' in data:
             task['keepCount'] = int(data['keepCount'])
+        if 'linkedServerId' in data:
+            task['linkedServerId'] = data['linkedServerId']
+        if 'autoControl' in data:
+            task['autoControl'] = data['autoControl']
         
         save_backup_config()
         logger.info(f"更新备份任务: {task['name']}")
@@ -6203,6 +8047,26 @@ def backup_scheduler():
             current_time = datetime.datetime.now()
             
             for task_id, task in backup_tasks.items():
+                # 检查是否启用了自动控制功能
+                if task.get('autoControl', False) and task.get('linkedServerId'):
+                    linked_server_id = task['linkedServerId']
+                    server_running = is_server_running(linked_server_id)
+                    
+                    # 根据服务端状态自动控制备份任务
+                    if server_running and not task.get('enabled', False):
+                        # 服务端运行中但备份任务未启用，自动启用
+                        task['enabled'] = True
+                        task['status'] = '已启用（自动）'
+                        logger.info(f"服务端 {linked_server_id} 运行中，自动启用备份任务: {task['name']}")
+                        save_backup_config()
+                    elif not server_running and task.get('enabled', False):
+                        # 服务端已停止但备份任务仍启用，自动停用
+                        task['enabled'] = False
+                        task['status'] = '已停用（自动）'
+                        logger.info(f"服务端 {linked_server_id} 已停止，自动停用备份任务: {task['name']}")
+                        save_backup_config()
+                
+                # 只有启用的任务才执行备份
                 if not task.get('enabled', False):
                     continue
                     
@@ -6215,6 +8079,12 @@ def backup_scheduler():
                     
                     # 检查是否到了备份时间
                     if current_time >= next_backup_time:
+                        # 如果关联了服务端且启用了自动控制，只有在服务端运行时才执行备份
+                        if task.get('autoControl', False) and task.get('linkedServerId'):
+                            if not is_server_running(task['linkedServerId']):
+                                logger.info(f"跳过备份任务 {task['name']}：关联的服务端 {task['linkedServerId']} 未运行")
+                                continue
+                        
                         logger.info(f"开始执行定时备份任务: {task['name']}")
                         execute_backup_task(task_id, task)
                         
@@ -6273,6 +8143,19 @@ def execute_backup_task(task_id, task):
         task['status'] = '备份失败'
         logger.error(f"执行定时备份任务时出错: {task['name']}, 错误: {str(e)}")
 
+def is_server_running(server_id):
+    """检查指定服务端是否正在运行"""
+    try:
+        if server_id in running_servers:
+            server_data = running_servers[server_id]
+            process = server_data.get('process')
+            if process and process.poll() is None:
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"检查服务端 {server_id} 运行状态时出错: {str(e)}")
+        return False
+
 def start_backup_scheduler():
     """启动备份调度器"""
     global backup_scheduler_running
@@ -6286,6 +8169,41 @@ def stop_backup_scheduler():
     global backup_scheduler_running
     backup_scheduler_running = False
     logger.info("备份调度器已停止")
+
+def load_backup_config():
+    """加载备份配置"""
+    global backup_tasks, backup_task_counter
+    try:
+        backup_config_file = '/home/steam/games/backup_config.json'
+        if os.path.exists(backup_config_file):
+            with open(backup_config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                backup_tasks = config.get('tasks', {})
+                backup_task_counter = config.get('counter', 0)
+                logger.info(f"已加载 {len(backup_tasks)} 个备份任务")
+        else:
+            backup_tasks = {}
+            backup_task_counter = 0
+            logger.info("备份配置文件不存在，使用默认配置")
+    except Exception as e:
+        logger.error(f"加载备份配置失败: {str(e)}")
+        backup_tasks = {}
+        backup_task_counter = 0
+
+def save_backup_config():
+    """保存备份配置"""
+    try:
+        backup_config_file = '/home/steam/games/backup_config.json'
+        os.makedirs(os.path.dirname(backup_config_file), exist_ok=True)
+        config = {
+            'tasks': backup_tasks,
+            'counter': backup_task_counter
+        }
+        with open(backup_config_file, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        logger.debug("备份配置已保存")
+    except Exception as e:
+        logger.error(f"保存备份配置失败: {str(e)}")
 
 # Minecraft部署相关API
 @app.route('/api/minecraft/servers', methods=['GET'])
@@ -6492,6 +8410,189 @@ cd "$(dirname "$0")"
             'message': f'部署失败: {str(e)}'
         }), 500
 
+# 日志管理API
+@app.route('/api/logs/api-server', methods=['GET'])
+@auth_required
+def get_api_server_log():
+    """获取API服务器日志内容"""
+    try:
+        log_file_path = '/home/steam/server/api_server.log'
+        
+        # 检查日志文件是否存在
+        if not os.path.exists(log_file_path):
+            return jsonify({
+                'status': 'success',
+                'content': '日志文件不存在或尚未生成'
+            })
+        
+        # 读取日志文件内容
+        try:
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # 如果UTF-8解码失败，尝试其他编码
+            with open(log_file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+        
+        # 限制返回的内容大小（最后10000行）
+        lines = content.split('\n')
+        if len(lines) > 10000:
+            lines = lines[-10000:]
+            content = '\n'.join(lines)
+            content = '[日志内容过长，仅显示最后10000行]\n\n' + content
+        
+        return jsonify({
+            'status': 'success',
+            'content': content
+        })
+        
+    except Exception as e:
+        logger.error(f"获取API服务器日志失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取日志失败: {str(e)}'
+        }), 500
+
+@app.route('/api/logs/api-server/export', methods=['GET'])
+@auth_required
+def export_api_server_log():
+    """导出API服务器日志文件"""
+    try:
+        log_file_path = '/home/steam/server/api_server.log'
+        
+        # 检查日志文件是否存在
+        if not os.path.exists(log_file_path):
+            # 创建一个临时文件包含错误信息
+            temp_content = '日志文件不存在或尚未生成'
+            response = make_response(temp_content)
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            response.headers['Content-Disposition'] = 'attachment; filename=api_server_empty.log'
+            return response
+        
+        # 直接发送文件
+        return send_file(
+            log_file_path,
+            as_attachment=True,
+            download_name=f'api_server_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log',
+            mimetype='text/plain'
+        )
+        
+    except Exception as e:
+        logger.error(f"导出API服务器日志失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'导出日志失败: {str(e)}'
+        }), 500
+
+# Docker管理API
+@app.route('/api/docker/containers', methods=['GET'])
+@auth_required
+def list_docker_containers():
+    """获取所有Docker容器列表"""
+    try:
+        containers = docker_manager.list_containers(all_containers=True)
+        return jsonify({
+            'status': 'success',
+            'containers': containers
+        })
+    except Exception as e:
+        logger.error(f"获取容器列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取容器列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/docker/container/<container_name>', methods=['GET'])
+@auth_required
+def get_docker_container_info(container_name):
+    """获取指定容器的详细信息"""
+    try:
+        if not docker_manager.is_connected():
+            return jsonify({
+                'status': 'error',
+                'message': 'Docker服务未连接，请检查Docker是否正常运行'
+            }), 500
+        
+        container_info = docker_manager.get_container_info(container_name)
+        if not container_info:
+            return jsonify({
+                'status': 'error',
+                'message': f'容器 {container_name} 不存在'
+            }), 404
+        
+        return jsonify({
+            'status': 'success',
+            'container': container_info
+        })
+    except Exception as e:
+        logger.error(f"获取容器信息失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取容器信息失败: {str(e)}'
+        }), 500
+
+@app.route('/api/docker/container/<container_name>/stop', methods=['POST'])
+@auth_required
+def stop_container(container_name):
+    """停止指定容器"""
+    try:
+        result = docker_manager.stop_container(container_name)
+        if result['status'] == 'error':
+            return jsonify(result), 500
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"停止容器失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'停止容器失败: {str(e)}'
+        }), 500
+
+@app.route('/api/docker/container/<container_name>/restart', methods=['POST'])
+@auth_required
+def restart_container(container_name):
+    """重启指定容器"""
+    try:
+        result = docker_manager.restart_container(container_name)
+        if result['status'] == 'error':
+            return jsonify(result), 500
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"重启容器失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'重启容器失败: {str(e)}'
+        }), 500
+
+@app.route('/api/docker/generate-command', methods=['POST'])
+@auth_required
+def generate_docker_command():
+    """根据配置生成Docker运行命令"""
+    try:
+        config = request.get_json()
+        if not config:
+            return jsonify({
+                'status': 'error',
+                'message': '请提供容器配置信息'
+            }), 400
+        
+        command = docker_manager.generate_docker_command(config)
+        if not command:
+            return jsonify({
+                'status': 'error',
+                'message': '生成Docker命令失败'
+            }), 500
+        
+        return jsonify({
+            'status': 'success',
+            'command': command
+        })
+    except Exception as e:
+        logger.error(f"生成Docker命令失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'生成Docker命令失败: {str(e)}'
+        }), 500
+
 if __name__ == '__main__':
     logger.warning("检测到直接运行api_server.py")
     logger.warning("======================================================")
@@ -6522,6 +8623,25 @@ if __name__ == '__main__':
     load_backup_config()
     start_backup_scheduler()
     
+    # 加载代理配置
+    try:
+        from config import load_config
+        config = load_config()
+        proxy_config = config.get('proxy')
+        if proxy_config:
+            apply_proxy_config(proxy_config)
+            logger.info("已加载代理配置")
+    except Exception as e:
+        logger.error(f"加载代理配置失败: {str(e)}")
+    
+    # 启动自启动功能
+    auto_start_servers()
+    
+    # 打印当前运行的游戏服务器信息
+    log_running_games()
+    
     # 直接运行时使用Flask内置服务器，而不是通过Gunicorn导入时
-    logger.warning("使用Flask开发服务器启动 - 不推荐用于生产环境")
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    # 从环境变量读取端口配置，默认为5000
+    port = int(os.environ.get('GUNICORN_PORT', 5000))
+    logger.warning(f"使用Flask开发服务器启动 - 不推荐用于生产环境，监听端口: {port}")
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

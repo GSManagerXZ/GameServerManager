@@ -15,7 +15,8 @@ import {
   InboxOutlined, EyeOutlined, FileImageOutlined,
   ReloadOutlined, CompressOutlined, FileZipOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
-  QuestionCircleOutlined
+  QuestionCircleOutlined, FolderOpenOutlined,
+  FormOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import Editor, { Monaco } from "@monaco-editor/react";
@@ -99,11 +100,19 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     y: 0,
     visible: false
   });
-  // 添加分页状态
-  const [pagination, setPagination] = useState({
-    current: 1,
-    pageSize: 20,
-  });
+  // 无限滚动相关状态
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [displayedFiles, setDisplayedFiles] = useState<FileInfo[]>([]);
+  const [pageSize] = useState<number>(50); // 每次加载的文件数量
+
+  // 搜索相关状态
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchType, setSearchType] = useState<'all' | 'file' | 'directory'>('all');
+  const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
+  const [searchResults, setSearchResults] = useState<FileInfo[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [showSearchResults, setShowSearchResults] = useState<boolean>(false);
 
   // 创建函数引用，避免循环依赖
   const copyToClipboardRef = useRef<(file: FileInfo) => void>();
@@ -275,6 +284,65 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
+  // 搜索文件和文件夹
+  const searchFiles = useCallback(async (query: string, searchPath?: string) => {
+    if (!query.trim()) {
+      message.warning('请输入搜索关键词');
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await axios.get('/api/search', {
+        params: {
+          path: searchPath || currentPath,
+          query: query.trim(),
+          type: searchType,
+          case_sensitive: caseSensitive,
+          max_results: 100
+        },
+        headers: getHeaders()
+      });
+
+      if (response.data.status === 'success') {
+        setSearchResults(response.data.results);
+        setShowSearchResults(true);
+        message.success(`找到 ${response.data.total_found} 个结果${response.data.truncated ? '（已截断）' : ''}`);
+      } else {
+        message.error(response.data.message || '搜索失败');
+      }
+    } catch (error: any) {
+      message.error(`搜索失败: ${error.message}`);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [currentPath, searchType, caseSensitive]);
+
+  // 清除搜索结果
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+  }, []);
+
+  // 处理搜索结果中的文件点击
+  const handleSearchResultClick = useCallback((file: FileInfo) => {
+    if (file.type === 'directory') {
+      // 如果是目录，导航到该目录
+      navigateToDirectory(file.path);
+      clearSearch();
+    } else {
+      // 如果是文件，先导航到文件所在目录，然后选中文件
+      const parentDir = file.parent_dir || file.path.substring(0, file.path.lastIndexOf('/'));
+      navigateToDirectory(parentDir);
+      clearSearch();
+      // 延迟选中文件，等待目录加载完成
+      setTimeout(() => {
+        setSelectedFile(file);
+      }, 500);
+    }
+  }, [clearSearch]);
+
   // 文件右键菜单处理
   const handleContextMenu = (e: React.MouseEvent, file: FileInfo) => {
     e.preventDefault();
@@ -380,6 +448,26 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     if ((window as any).activeFileManagerId !== instanceId.current) {
       // console.log(`${currentTimestamp()} FM ${instanceId.current}: handleKeyboardShortcuts SKIPPING. ActiveId is ${(window as any).activeFileManagerId}, MY id is ${instanceId.current}. Key: ${e.key}`);
       return;
+    }
+    
+    // 检查当前焦点是否在输入框或文本区域中，如果是则不处理快捷键
+    const activeElement = document.activeElement;
+    if (activeElement && (
+      activeElement.tagName === 'INPUT' || 
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.contentEditable === 'true' ||
+      activeElement.classList.contains('ant-input') ||
+      activeElement.closest('.ant-input') ||
+      activeElement.closest('.ant-select') ||
+      activeElement.closest('.monaco-editor')
+    )) {
+      // 如果焦点在输入框中，只处理特定的快捷键（如编辑器中的保存）
+      if (isEditModalVisible && e.ctrlKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveFile();
+        return;
+      }
+      return; // 其他情况下不处理快捷键，让输入框正常工作
     }
     
     // console.log(`${currentTimestamp()} FM ${instanceId.current}: handleKeyboardShortcuts EXECUTING. ActiveId is ${instanceId.current}. isVisibleRef_debug: ${isVisibleRef_debug.current}. Key: ${e.key}, Ctrl: ${e.ctrlKey}`);
@@ -525,7 +613,14 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
       });
       
       if (response.data.status === 'success') {
-        setFiles(response.data.files || []);
+        const allFiles = response.data.files || [];
+        setFiles(allFiles);
+        
+        // 初始显示前pageSize个文件
+        const initialFiles = allFiles.slice(0, pageSize);
+        setDisplayedFiles(initialFiles);
+        setHasMore(allFiles.length > pageSize);
+        
         // 使用服务器返回的实际路径，它可能与请求的路径不同
         const actualPath = response.data.path || path;
         setCurrentPath(actualPath);
@@ -544,12 +639,6 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
         });
         
         setBreadcrumbItems(items);
-        
-        // 切换目录时重置分页到第一页，但保留页面大小
-        setPagination(prev => ({
-          ...prev,
-          current: 1
-        }));
         
         // 如果服务器返回了消息，显示提示
         if (response.data.message) {
@@ -577,7 +666,29 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pageSize]);
+
+  // 加载更多文件
+  const loadMoreFiles = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    
+    setLoadingMore(true);
+    
+    // 模拟异步加载
+    setTimeout(() => {
+      const currentLength = displayedFiles.length;
+      const nextFiles = files.slice(currentLength, currentLength + pageSize);
+      
+      if (nextFiles.length > 0) {
+        setDisplayedFiles(prev => [...prev, ...nextFiles]);
+        setHasMore(currentLength + nextFiles.length < files.length);
+      } else {
+        setHasMore(false);
+      }
+      
+      setLoadingMore(false);
+    }, 300);
+  }, [displayedFiles.length, files, pageSize, loadingMore, hasMore]);
 
   // 更新loadDirectoryRef
   loadDirectoryRef.current = loadDirectory;
@@ -1542,9 +1653,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
           alignItems: 'center',
           marginBottom: '16px',
           transition: 'all 0.3s ease',
-          padding: isHovering ? '5px 10px' : '0',
-          backgroundColor: isHovering ? 'rgba(230, 247, 255, 0.5)' : 'transparent',
-          borderRadius: '4px'
+          padding: isHovering ? '8px 12px' : '4px 8px',
+          background: isHovering ? 'rgba(230, 247, 255, 0.8)' : 'rgba(230, 247, 255, 0.6)',
+          backdropFilter: isHovering ? 'blur(12px)' : 'blur(8px)',
+          WebkitBackdropFilter: isHovering ? 'blur(12px)' : 'blur(8px)',
+          border: '1px solid rgba(24, 144, 255, 0.2)',
+          borderRadius: '6px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <Button
@@ -1606,13 +1720,136 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               </Space>
             )}
           </div>
+          
+          {/* 搜索区域 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Input.Search
+              placeholder="搜索文件和文件夹..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onSearch={(value) => searchFiles(value)}
+              loading={isSearching}
+              style={{ width: '300px' }}
+              allowClear
+            />
+            <Select
+              value={searchType}
+              onChange={setSearchType}
+              style={{ width: '100px' }}
+              size="middle"
+            >
+              <Select.Option value="all">全部</Select.Option>
+              <Select.Option value="file">文件</Select.Option>
+              <Select.Option value="directory">文件夹</Select.Option>
+            </Select>
+            <Checkbox
+              checked={caseSensitive}
+              onChange={(e) => setCaseSensitive(e.target.checked)}
+            >
+              区分大小写
+            </Checkbox>
+            {showSearchResults && (
+              <Button
+                onClick={clearSearch}
+                size="middle"
+              >
+                清除搜索
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* 搜索结果显示 */}
+        {showSearchResults && (
+          <div style={{ 
+            marginBottom: '16px',
+            padding: '12px',
+            background: 'rgba(246, 255, 237, 0.8)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            border: '1px solid rgba(183, 235, 143, 0.6)',
+            borderRadius: '6px'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: '8px'
+            }}>
+              <Text strong>搜索结果 ({searchResults.length} 项)</Text>
+              <Text type="secondary">关键词: "{searchQuery}"</Text>
+            </div>
+            <div style={{ 
+              maxHeight: '200px', 
+              overflowY: 'auto',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+              gap: '8px'
+            }}>
+              {searchResults.map((file, index) => (
+                <div
+                  key={`search-${index}`}
+                  style={{
+                    padding: '8px 12px',
+                    background: 'rgba(255, 255, 255, 0.8)',
+                    backdropFilter: 'blur(6px)',
+                    WebkitBackdropFilter: 'blur(6px)',
+                    border: '1px solid rgba(217, 217, 217, 0.6)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                  onClick={() => handleSearchResultClick(file)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(230, 247, 255, 0.9)';
+                    e.currentTarget.style.backdropFilter = 'blur(10px)';
+                    e.currentTarget.style.WebkitBackdropFilter = 'blur(10px)';
+                    e.currentTarget.style.borderColor = 'rgba(145, 213, 255, 0.8)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.8)';
+                    e.currentTarget.style.backdropFilter = 'blur(6px)';
+                    e.currentTarget.style.WebkitBackdropFilter = 'blur(6px)';
+                    e.currentTarget.style.borderColor = 'rgba(217, 217, 217, 0.6)';
+                  }}
+                >
+                  {file.type === 'directory' ? <FolderOutlined style={{ color: '#1890ff' }} /> : <FileOutlined style={{ color: '#52c41a' }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ 
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {file.name}
+                    </div>
+                    <div style={{ 
+                      fontSize: '12px',
+                      color: '#666',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {file.relative_path}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Breadcrumb style={{ 
           margin: '16px 0', 
           transition: 'all 0.3s ease',
           padding: isHovering ? '5px 10px' : '0',
-          backgroundColor: isHovering ? 'rgba(230, 247, 255, 0.5)' : 'transparent',
+          background: isHovering ? 'rgba(230, 247, 255, 0.7)' : 'transparent',
+          backdropFilter: isHovering ? 'blur(8px)' : 'none',
+          WebkitBackdropFilter: isHovering ? 'blur(8px)' : 'none',
+          border: isHovering ? '1px solid rgba(24, 144, 255, 0.2)' : 'none',
           borderRadius: '4px'
         }}>
           {breadcrumbItems.map((item, index) => (
@@ -1635,26 +1872,10 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                   ...rowSelection,
                 }}
                 columns={columns} 
-                dataSource={files.map(file => ({ ...file, key: file.path }))} 
-                pagination={{ 
-                  current: pagination.current,
-                  pageSize: pagination.pageSize,
-                  showSizeChanger: true,
-                  pageSizeOptions: ['10', '20', '50', '100'],
-                  showTotal: (total) => `共 ${total} 项`,
-                  style: { marginBottom: '30px', padding: '10px 0' },
-                  onChange: (current: number, pageSize: number) => {
-                    setPagination({ current, pageSize });
-                  },
-                  onShowSizeChange: (current: number, size: number) => {
-                    setPagination({
-                      current: 1, // 改变每页显示数量时，通常会跳转到第一页
-                      pageSize: size
-                    });
-                  }
-                }}
+                dataSource={displayedFiles.map(file => ({ ...file, key: file.path }))} 
+                pagination={false}
                 size="middle"
-                scroll={{ y: isHovering ? 'calc(100vh - 350px)' : 'calc(100vh - 420px)' }}
+                scroll={{ y: isHovering ? 'calc(100vh - 280px)' : 'calc(100vh - 320px)' }}
                 onRow={(record: FileInfo) => ({
                   onClick: () => {
                     setSelectedFile(record);
@@ -1682,6 +1903,45 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                   className: selectedFiles.some(file => file.path === record.path) ? 'selected-row' : ''
                 })}
               />
+              
+              {/* 加载更多按钮 */}
+              {!loading && hasMore && (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '20px 0',
+                  borderTop: '1px solid #f0f0f0'
+                }}>
+                  <Button 
+                    type="primary" 
+                    loading={loadingMore}
+                    onClick={loadMoreFiles}
+                    size="large"
+                    style={{ minWidth: '120px' }}
+                  >
+                    {loadingMore ? '加载中...' : '继续加载'}
+                  </Button>
+                  <div style={{ 
+                    marginTop: '8px', 
+                    color: '#666', 
+                    fontSize: '12px' 
+                  }}>
+                    已显示 {displayedFiles.length} / {files.length} 项
+                  </div>
+                </div>
+              )}
+              
+              {/* 已加载完所有文件的提示 */}
+              {!loading && !hasMore && files.length > 0 && (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '20px 0',
+                  borderTop: '1px solid #f0f0f0',
+                  color: '#999',
+                  fontSize: '14px'
+                }}>
+                  已显示全部 {files.length} 项文件
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1695,6 +1955,12 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
             z-index: 1;
             border-radius: 8px;
             overflow: hidden;
+            /* 毛玻璃效果 */
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
           }
           .file-manager-hover {
             transform: scale(1.01, 1.06);
@@ -1703,15 +1969,25 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
             overflow: visible;
             margin: 20px -5px;
             border: 1px solid rgba(24, 144, 255, 0.3);
-            background-color: rgba(255, 255, 255, 0.95);
+            /* 悬停时增强毛玻璃效果 */
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
           }
           .file-manager-toolbar {
             margin-bottom: 16px;
             transition: all 0.3s ease;
             border-radius: 6px;
+            /* 工具栏毛玻璃效果 */
+            background: rgba(230, 247, 255, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(24, 144, 255, 0.2);
           }
           .file-manager-hover .file-manager-toolbar {
-            background-color: rgba(230, 247, 255, 0.5);
+            background: rgba(230, 247, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             padding: 5px;
           }
           .file-manager-hover .ant-btn {
@@ -1723,7 +1999,10 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
           }
           .file-manager-content {
-            background-color: white;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             border-radius: 4px;
             transition: all 0.3s ease;
           }
@@ -1732,15 +2011,15 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
             border-radius: 8px;
             padding-bottom: 10px;
             margin-bottom: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
           }
           .file-manager-hover .ant-table {
             transition: all 0.3s ease;
             max-height: calc(100vh - 320px);
           }
-          .file-manager-hover .ant-pagination {
-            margin-top: 12px;
-            margin-bottom: 5px;
-          }
+
           .directory-name {
             color: #1890ff;
             cursor: pointer;
@@ -1806,32 +2085,79 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
           >
             <Menu>
               {contextMenuFile.type === 'directory' ? (
-                <Menu.Item key="open" onClick={() => {
-                  navigateToDirectory(contextMenuFile.path);
-                  hideAllContextMenus();
-                }}>
-                  打开文件夹
-                </Menu.Item>
+                <>
+                  <Menu.Item key="open" onClick={() => {
+                    navigateToDirectory(contextMenuFile.path);
+                    hideAllContextMenus();
+                  }} icon={<FolderOpenOutlined />}>
+                    打开文件夹
+                  </Menu.Item>
+                  <Menu.Item key="download-folder" onClick={() => {
+                    // 下载文件夹（先压缩再下载）
+                    setLoading(true);
+                    const paths = [contextMenuFile.path];
+                    axios.post('/api/compress', { paths, currentPath })
+                      .then(response => {
+                        if (response.data.status === 'success') {
+                          const zipPath = response.data.zipPath;
+                          const zipName = zipPath.split('/').pop() || `${contextMenuFile.name}.zip`;
+                          
+                          // 获取认证令牌
+                          const token = localStorage.getItem('auth_token');
+                          
+                          // 下载压缩文件
+                          const downloadUrl = `${window.location.protocol}//${window.location.host}/api/download?path=${encodeURIComponent(zipPath)}${token ? `&token=${token}` : ''}`;
+                          
+                          if (downloadLinkRef.current) {
+                            downloadLinkRef.current.href = downloadUrl;
+                            downloadLinkRef.current.download = zipName;
+                            downloadLinkRef.current.click();
+                          } else {
+                            const a = document.createElement('a');
+                            a.href = downloadUrl;
+                            a.download = zipName;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          }
+                          
+                          message.success('文件夹下载已开始');
+                        } else {
+                          message.error('压缩文件夹失败: ' + response.data.message);
+                        }
+                      })
+                      .catch(error => {
+                        console.error('压缩文件夹失败:', error);
+                        message.error('压缩文件夹失败');
+                      })
+                      .finally(() => {
+                        setLoading(false);
+                        hideAllContextMenus();
+                      });
+                  }} icon={<DownloadOutlined />}>
+                    下载文件夹
+                  </Menu.Item>
+                </>
               ) : (
                 <>
                   <Menu.Item key="edit" onClick={() => {
                     openFileForEdit(contextMenuFile);
                     hideAllContextMenus();
-                  }}>
+                  }} icon={<EditOutlined />}>
                     编辑
                   </Menu.Item>
                   {isImageFile(contextMenuFile.name) && (
                     <Menu.Item key="preview" onClick={() => {
                       previewImage(contextMenuFile);
                       hideAllContextMenus();
-                    }}>
+                    }} icon={<EyeOutlined />}>
                       预览
                     </Menu.Item>
                   )}
                   <Menu.Item key="download" onClick={() => {
                     downloadFile(contextMenuFile);
                     hideAllContextMenus();
-                  }}>
+                  }} icon={<DownloadOutlined />}>
                     下载
                   </Menu.Item>
                   {(() => {
@@ -1847,7 +2173,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                           setExtractPath(currentPath);
                           setIsExtractModalVisible(true);
                           hideAllContextMenus();
-                        }}>
+                        }} icon={<FileZipOutlined />}>
                           解压
                         </Menu.Item>
                       );
@@ -1860,13 +2186,13 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               <Menu.Item key="copy" onClick={() => {
                 copyToClipboard(contextMenuFile);
                 hideAllContextMenus();
-              }}>
+              }} icon={<CopyOutlined />}>
                 复制
               </Menu.Item>
               <Menu.Item key="cut" onClick={() => {
                 cutToClipboard(contextMenuFile);
                 hideAllContextMenus();
-              }}>
+              }} icon={<ScissorOutlined />}>
                 剪切
               </Menu.Item>
               <Menu.Item key="rename" onClick={() => {
@@ -1874,7 +2200,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 setNewFileName(contextMenuFile.name);
                 setIsRenameModalVisible(true);
                 hideAllContextMenus();
-              }}>
+              }} icon={<FormOutlined />}>
                 重命名
               </Menu.Item>
               <Menu.Item key="permissions" onClick={() => {
@@ -1882,7 +2208,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 setSelectedFiles([contextMenuFile]);
                 setIsPermissionsModalVisible(true);
                 hideAllContextMenus();
-              }}>
+              }} icon={<SafetyCertificateOutlined />}>
                 修改权限
               </Menu.Item>
               <Menu.Item key="compress-file" onClick={() => {
@@ -1893,14 +2219,14 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 setCompressName(defaultName);
                 setIsCompressModalVisible(true);
                 hideAllContextMenus();
-              }}>
+              }} icon={<FileZipOutlined />}>
                 压缩
               </Menu.Item>
               <Menu.Divider />
               <Menu.Item key="delete" danger onClick={() => {
                 deleteItem(contextMenuFile);
                 hideAllContextMenus();
-              }}>
+              }} icon={<DeleteOutlined />}>
                 删除
               </Menu.Item>
             </Menu>
@@ -1930,26 +2256,26 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               <Menu.Item key="new-folder" onClick={() => {
                 setIsNewFolderModalVisible(true);
                 hideAllContextMenus();
-              }}>
+              }} icon={<FolderAddOutlined />}>
                 新建文件夹
               </Menu.Item>
               <Menu.Item key="new-file" onClick={() => {
                 setIsNewFileModalVisible(true);
                 hideAllContextMenus();
-              }}>
+              }} icon={<FileAddOutlined />}>
                 新建文件
               </Menu.Item>
               <Menu.Item key="upload" onClick={() => {
                 setIsUploadModalVisible(true);
                 hideAllContextMenus();
-              }}>
+              }} icon={<UploadOutlined />}>
                 上传文件
               </Menu.Item>
               {clipboard && (
                 <Menu.Item key="paste" onClick={() => {
                   pasteFromClipboard();
                   hideAllContextMenus();
-                }}>
+                }} icon={<FileOutlined />}>
                   粘贴
                 </Menu.Item>
               )}
@@ -1958,13 +2284,13 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                   <Menu.Item key="delete-selected" danger onClick={() => {
                     deleteSelectedItems();
                     hideAllContextMenus();
-                  }}>
+                  }} icon={<DeleteOutlined />}>
                     删除选中项
                   </Menu.Item>
                   <Menu.Item key="permissions-selected" onClick={() => {
                     setIsPermissionsModalVisible(true);
                     hideAllContextMenus();
-                  }}>
+                  }} icon={<SafetyCertificateOutlined />}>
                     修改权限
                   </Menu.Item>
                 </>
@@ -1981,7 +2307,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                   message.warning('请选择要压缩的文件或文件夹');
                 }
                 hideAllContextMenus();
-              }}>
+              }} icon={<FileZipOutlined />}>
                 压缩选中文件
               </Menu.Item>
               {selectedFiles.length === 1 && selectedFiles[0].type === 'file' && (() => {
@@ -1997,7 +2323,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                       setExtractPath(currentPath);
                       setIsExtractModalVisible(true);
                       hideAllContextMenus();
-                    }}>
+                    }} icon={<FileZipOutlined />}>
                       解压选中文件
                     </Menu.Item>
                   );
@@ -2007,7 +2333,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               <Menu.Item key="refresh" onClick={() => {
                 loadDirectory(currentPath);
                 hideAllContextMenus();
-              }}>
+              }} icon={<ReloadOutlined />}>
                 刷新
               </Menu.Item>
             </Menu>

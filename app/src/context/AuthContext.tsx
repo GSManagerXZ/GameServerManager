@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import axios from 'axios';
+import { setGlobalLogoutCallback } from '../api';
 
 // 认证上下文接口
 interface AuthContextType {
@@ -31,10 +32,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [isFirstUse, setIsFirstUse] = useState<boolean>(false);
 
+  // 登出函数
+  const logout = async (): Promise<void> => {
+    return new Promise((resolve) => {
+      // 在移除令牌前，先添加登出动画类
+      const userInfoElement = document.querySelector('.user-info');
+      if (userInfoElement) {
+        userInfoElement.classList.add('logout-animation');
+      }
+      
+      // 延迟执行，等待动画完成
+      setTimeout(() => {
+        // 清除本地存储
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('username');
+        
+        // 更新状态
+        setToken(null);
+        setUsername(null);
+        setIsAuthenticated(false);
+        
+        // 移除axios请求头
+        delete axios.defaults.headers.common['Authorization'];
+        
+        // 跳转到登录页面
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
+        
+        resolve();
+      }, 500); // 动画持续时间
+    });
+  };
+
   // 初始化时检查本地存储的认证信息
   useEffect(() => {
     const initializeAuth = async () => {
       setLoading(true);
+      
+      // 设置全局logout回调，用于401自动退出登录
+      setGlobalLogoutCallback(() => {
+        logout();
+      });
       
       // 首先检查是否首次使用
       try {
@@ -167,33 +206,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // 登出函数
-  const logout = async (): Promise<void> => {
-    return new Promise((resolve) => {
-      // 在移除令牌前，先添加登出动画类
-      const userInfoElement = document.querySelector('.user-info');
-      if (userInfoElement) {
-        userInfoElement.classList.add('logout-animation');
-      }
-      
-      // 延迟执行，等待动画完成
-      setTimeout(() => {
-        // 清除本地存储
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('username');
-        
-        // 更新状态
-        setToken(null);
-        setUsername(null);
-        setIsAuthenticated(false);
-        
-        // 移除axios请求头
-        delete axios.defaults.headers.common['Authorization'];
-        
-        resolve();
-      }, 500); // 动画持续时间
-    });
-  };
+
 
   return (
     <AuthContext.Provider 
@@ -224,4 +237,4 @@ export const useAuth = (): AuthContextType => {
   }
   
   return context;
-}; 
+};

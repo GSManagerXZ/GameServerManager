@@ -14,7 +14,7 @@ interface BetaNoticeProps {
 }
 
 const BetaNotice: React.FC<BetaNoticeProps> = ({
-  title = "项目内测须知",
+  title = "欢迎使用",
   content
 }) => {
   const [visible, setVisible] = useState(false);
@@ -28,27 +28,24 @@ const BetaNotice: React.FC<BetaNoticeProps> = ({
   }, []);
 
   const handleOk = () => {
-    // 设置cookie，有效期24小时
-    Cookies.set('beta_notice_acknowledged', 'true', { expires: 1 });
+    // 设置cookie，永久有效（365天）
+    Cookies.set('beta_notice_acknowledged', 'true', { expires: 365 });
     setVisible(false);
   };
 
   const defaultContent = (
     <>
       <Paragraph>
-        欢迎参与本项目的公测。请注意以下事项：
+        欢迎使用本项目。
       </Paragraph>
       <Paragraph>
-        1. 本项目目前处于公测阶段，可能存在部分功能使用异常。(在发布之前作者已做过全局测试，正常使用基本不会出现bug)
+        如遇到任何问题或使用建议，请加入QQ群交流：1040201322，反馈给开发者。
       </Paragraph>
       <Paragraph>
-        2. 目前已知存在的可能问题：steam二次验证输入验证码可能存在问题，建议关闭二次验证或使用steamcmd进行安装。
+        如需商业合作或技术支持，请加开发者QQ：3354416548
       </Paragraph>
       <Paragraph>
-        3. 如遇到任何问题，请加入QQ群交流：1040201322，反馈给开发者。
-      </Paragraph>
-      <Paragraph>
-        4. 最后非常感谢您的使用，本项目没有任何限制，全靠玩家自觉赞助，如果喜欢记得帮忙宣传下项目和赞助项目(关于项目页面)，好的项目离不开大家的支持与赞助。
+        最后非常感谢您的使用，本项目没有任何本地使用限制现在不会将来也不会，全靠玩家自觉赞助，如果喜欢记得帮忙宣传下项目和赞助项目(关于项目页面)，好的项目离不开大家的支持与赞助。
       </Paragraph>
     </>
   );
@@ -71,4 +68,4 @@ const BetaNotice: React.FC<BetaNoticeProps> = ({
   );
 };
 
-export default BetaNotice; 
+export default BetaNotice;

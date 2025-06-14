@@ -46,13 +46,13 @@ def save_config(config):
             except:
                 pass
         
-        # 合并现有配置和新配置
-        if "jwt" in config:
-            existing_config["jwt"] = config["jwt"]
+        # 合并现有配置和新配置（追加方式，不覆盖其他配置）
+        for key, value in config.items():
+            existing_config[key] = value
         
         # 保存合并后的配置
         with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(existing_config, f, indent=4)
+            json.dump(existing_config, f, indent=4, ensure_ascii=False)
         print(f"配置已保存到: {CONFIG_PATH}")
         return True
     except Exception as e:
@@ -80,4 +80,4 @@ else:
 
 # 导出JWT配置供其他模块使用
 JWT_SECRET = app_config["jwt"]["secret"]
-JWT_EXPIRATION = app_config["jwt"]["expiration"] 
+JWT_EXPIRATION = app_config["jwt"]["expiration"]

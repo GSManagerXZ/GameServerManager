@@ -72,42 +72,95 @@ const terminalHandlers: Record<TerminalType, TerminalInputHandler> = {
       }
     },
     terminate: async (gameId: string, force: boolean = false) => {
+      console.log(`[终端服务] 开始停止服务器，gameId: ${gameId}, force: ${force}`);
+      
       try {
-        const response = await axios.post('/api/server/stop', { game_id: gameId, force });
+        // 如果是强制停止，直接发送强制停止请求
+        if (force) {
+          console.log('[终端服务] 执行强制停止');
+          const response = await axios.post('/api/server/stop', { game_id: gameId, force: true });
+          console.log('[终端服务] 强制停止响应:', response.data);
+          return response.data.status === 'success';
+        }
         
-        // 增加对警告状态的处理
-        if (response.data.status === 'warning') {
-          message.warning(response.data.message || '服务器可能未完全停止');
-          
-          // 如果不是强制模式，提示用户是否要强制停止
-          if (!force) {
-            if (window.confirm('服务器未完全停止，是否尝试强制停止？')) {
-              // 递归调用，使用强制模式
-              return await terminalHandlers.server.terminate(gameId, true);
-            }
-          }
-          // 即使有警告，也返回成功，因为服务器已标记为停止
+        // 优雅停止流程
+        console.log('[终端服务] 开始优雅停止流程');
+        
+        // 1. 先发送stop命令到游戏服务器
+        console.log('[终端服务] 发送stop命令到游戏服务器');
+        try {
+          const sendResult = await terminalHandlers.server.send(gameId, 'stop');
+          console.log('[终端服务] stop命令发送结果:', sendResult);
+        } catch (sendError) {
+          console.error('[终端服务] 发送stop命令失败:', sendError);
+        }
+        
+        // 2. 发送ctrl+c中断信号
+        console.log('[终端服务] 发送ctrl+c中断信号');
+        const gracefulResponse = await axios.post('/api/server/stop', { game_id: gameId, force: false });
+        console.log('[终端服务] ctrl+c信号响应:', gracefulResponse.data);
+        
+        // 如果立即成功，直接返回
+        if (gracefulResponse.data.status === 'success') {
+          console.log('[终端服务] 优雅停止立即成功');
           return true;
         }
         
-        // 停止后验证服务器状态
+        // 等待5秒后检查服务器状态
+        console.log('[终端服务] 等待5秒后检查服务器状态...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
         try {
+          console.log('[终端服务] 检查服务器状态');
           const statusCheck = await axios.get(`/api/server/status?game_id=${gameId}`);
-          if (statusCheck.data.server_status === 'running') {
-            message.warning('服务器仍在运行，尝试强制停止');
-            // 如果仍在运行且不是强制模式，使用强制模式再次尝试
-            if (!force) {
-              return await terminalHandlers.server.terminate(gameId, true);
-            }
+          console.log('[终端服务] 服务器状态:', statusCheck.data);
+          
+          // 如果服务器已停止，返回成功
+          if (statusCheck.data.server_status !== 'running') {
+            console.log('[终端服务] 服务器已成功停止');
+            return true;
           }
+          
+          // 如果5秒后服务器仍在运行，执行强制停止
+          console.log('[终端服务] 服务器仍在运行，执行强制停止');
+          message.warning('服务器未响应优雅停止，正在强制停止...');
+          
+          const forceResponse = await axios.post('/api/server/stop', { game_id: gameId, force: true });
+          console.log('[终端服务] 强制停止响应:', forceResponse.data);
+          return forceResponse.data.status === 'success';
+          
         } catch (statusError) {
-          console.error('检查服务器状态失败:', statusError);
+          console.error('[终端服务] 检查服务器状态失败:', statusError);
+          // 如果无法检查状态，尝试强制停止
+          console.log('[终端服务] 无法检查服务器状态，尝试强制停止');
+          const forceResponse = await axios.post('/api/server/stop', { game_id: gameId, force: true });
+          console.log('[终端服务] 最终强制停止响应:', forceResponse.data);
+          return forceResponse.data.status === 'success';
         }
         
-        return response.data.status === 'success';
       } catch (error) {
-        message.error('停止服务器失败');
-        return false;
+        console.error('[终端服务] 停止服务器过程中出现异常:', error);
+        
+        // 即使出现异常，也要检查服务器是否实际已经停止
+        try {
+          console.log('[终端服务] 异常情况下检查服务器状态');
+          const statusCheck = await axios.get(`/api/server/status?game_id=${gameId}`);
+          console.log('[终端服务] 异常情况下服务器状态:', statusCheck.data);
+          
+          if (statusCheck.data.server_status !== 'running') {
+            console.log('[终端服务] 虽然过程中有异常，但服务器已成功停止');
+            message.success('服务器已停止');
+            return true;
+          } else {
+            console.log('[终端服务] 服务器仍在运行，停止失败');
+            message.error('停止服务器失败');
+            return false;
+          }
+        } catch (statusError) {
+          console.error('[终端服务] 无法检查服务器最终状态:', statusError);
+          message.error('停止服务器失败');
+          return false;
+        }
       }
     }
   },
@@ -208,4 +261,4 @@ const terminalService = {
   }
 };
 
-export default terminalService; 
+export default terminalService;
