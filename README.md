@@ -42,29 +42,7 @@ GameServerManager（简称GSManager）是一个基于 **Docker** 技术的现代
 ```bash
 rm -f install.py && wget http://blogpage.xiaozhuhouses.asia/api/api1/install.py && python3 install.py
 ```
-
-### 手动部署
-
-1. **克隆项目**
-   ```bash
-   git clone https://github.com/yxsj245/GameServerManager.git
-   cd GameServerManager
-   ```
-
-2. **创建数据目录**
-   ```bash
-   mkdir -p game_data game_file
-   chmod 777 game_data game_file
-   ```
-
-3. **启动服务**
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **访问管理界面**
-   
-   打开浏览器访问：`http://localhost:5000`
+> debian(docker自行安装)和centos请使用手动安装，详见文档站
 
 ---
 
