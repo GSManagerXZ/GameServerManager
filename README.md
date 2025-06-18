@@ -1,7 +1,7 @@
 # 项目介绍
 <div align="center">
 
-# 🎮 GameServerManager (GSManager)
+# ![logo3](https://github.com/user-attachments/assets/8d1a37bd-5955-4dc2-b314-aecb04f985dc)
 
 **让游戏服务器的部署、管理和维护变得简单高效**
 
