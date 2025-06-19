@@ -355,3 +355,19 @@ export const downloadDockerImage = async (): Promise<{status: string, message: s
     };
   }
 };
+
+export const getDockerImages = async (): Promise<{id: string, tag: string, size: number, created: string}[]> => {
+  try {
+    const response = await api.get('/docker/images');
+    
+    if (response.data.status === 'success') {
+      return response.data.images || [];
+    } else {
+      console.error('获取Docker镜像列表失败:', response.data.message);
+      return [];
+    }
+  } catch (error: any) {
+    console.error('获取Docker镜像列表失败:', error?.message || error);
+    return [];
+  }
+};

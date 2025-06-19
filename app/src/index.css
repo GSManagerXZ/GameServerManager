@@ -43,7 +43,7 @@ body {
 }
 
 .game-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
@@ -86,4 +86,4 @@ body {
 @keyframes cardAppear {
   0% { opacity: 0; transform: translateY(30px) scale(0.98); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
-} 
+}

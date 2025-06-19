@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Form, Input, Button, Card, Typography, message } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Card, Typography, message, Modal } from 'antd';
+import { UserOutlined, LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,8 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
   const [registerSuccess, setRegisterSuccess] = useState(false);
   const [registerError, setRegisterError] = useState(false);
   const [hasFocus, setHasFocus] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
   const navigate = useNavigate();
   const { setAuthenticated } = useAuth();
   
@@ -73,6 +75,59 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
     loadRandomBackground();
   }, [loadRandomBackground]);
   
+  // 检查Web Authentication API支持
+  useEffect(() => {
+    const checkBiometricSupport = () => {
+      try {
+        console.log('注册页面检查Web Authentication API支持...');
+        console.log('window.PublicKeyCredential:', !!window.PublicKeyCredential);
+        console.log('navigator.credentials:', !!navigator.credentials);
+        console.log('location.protocol:', location.protocol);
+        console.log('location.hostname:', location.hostname);
+        console.log('window.isSecureContext:', window.isSecureContext);
+        
+        // 检查浏览器是否支持Web Authentication API
+        if (typeof window.PublicKeyCredential !== 'undefined' && 
+            navigator.credentials && 
+            typeof navigator.credentials.create === 'function' &&
+            typeof navigator.credentials.get === 'function') {
+          
+          console.log('Web Authentication API基础支持检查通过');
+          
+          // 简化安全上下文检查，允许更多环境
+          const isLocalhost = location.hostname === 'localhost' || 
+                             location.hostname === '127.0.0.1' ||
+                             location.hostname === '0.0.0.0';
+          const isHttps = location.protocol === 'https:';
+          const isHttp = location.protocol === 'http:';
+          
+          if (isHttps || isLocalhost || isHttp) {
+            setBiometricSupported(true);
+            console.log('生物识别认证支持已启用');
+            
+            if (isHttp && !isLocalhost) {
+              console.warn('注意：在非localhost的HTTP环境下使用生物识别可能存在安全风险');
+            }
+          } else {
+            console.warn('当前环境不支持生物识别认证：需要HTTPS、localhost或HTTP环境');
+          }
+        } else {
+          console.warn('浏览器不支持Web Authentication API');
+          if (!window.PublicKeyCredential) {
+            console.warn('缺少 window.PublicKeyCredential');
+          }
+          if (!navigator.credentials) {
+            console.warn('缺少 navigator.credentials');
+          }
+        }
+      } catch (error) {
+        console.error('检查生物识别支持时出错:', error);
+      }
+    };
+    
+    checkBiometricSupport();
+  }, []);
+  
   // 新增：动态设置CSS变量来更新背景图片
   useEffect(() => {
     if (currentBackgroundUrl) {
@@ -82,8 +137,103 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
     // 组件卸载时清理CSS变量
     return () => {
       document.documentElement.style.removeProperty('--dynamic-bg-url');
-    };
+    };  
   }, [currentBackgroundUrl]);
+
+  // Base64转换函数
+  const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
+  // 注册生物识别认证
+  const registerBiometric = async (username: string) => {
+    if (!biometricSupported) {
+      message.error('当前环境不支持生物识别认证');
+      return;
+    }
+
+    try {
+      setBiometricLoading(true);
+      
+      // 生成随机挑战值
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      
+      // 生成用户ID
+      const userId = new TextEncoder().encode(username);
+      
+      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+        challenge,
+        rp: {
+          name: 'GameServerManager',
+          id: location.hostname,
+        },
+        user: {
+          id: userId,
+          name: username,
+          displayName: username,
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' }, // ES256
+          { alg: -257, type: 'public-key' }, // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+        },
+        timeout: 60000,
+        attestation: 'direct',
+      };
+      
+      const credential = await navigator.credentials.create({
+        publicKey: publicKeyCredentialCreationOptions,
+      }) as PublicKeyCredential;
+      
+      if (credential) {
+        const response = credential.response as AuthenticatorAttestationResponse;
+        
+        // 将凭据信息发送到后端保存
+        const credentialData = {
+          id: credential.id,
+          rawId: arrayBufferToBase64(credential.rawId),
+          type: credential.type,
+          response: {
+            attestationObject: arrayBufferToBase64(response.attestationObject),
+            clientDataJSON: arrayBufferToBase64(response.clientDataJSON),
+          },
+          username,
+        };
+        
+        await axios.post('/api/auth/register_biometric', credentialData);
+        message.success('生物识别认证注册成功！');
+      }
+    } catch (error: any) {
+      console.error('生物识别注册失败:', error);
+      if (error.name === 'NotAllowedError') {
+        message.error('用户取消了生物识别注册');
+      } else if (error.name === 'NotSupportedError') {
+        message.error('设备不支持生物识别认证');
+      } else {
+        message.error('生物识别注册失败，请稍后重试');
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
 
   const onFinish = async (values: { username: string; password: string; confirmPassword: string }) => {
     if (values.password !== values.confirmPassword) {
@@ -114,15 +264,119 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
         // 更新认证状态
         setAuthenticated(response.data.token, values.username, response.data.role || 'user');
         
-        // 延迟导航，等待动画完成
-        setTimeout(() => {
-          // 调用成功回调（如果提供）
-          if (onRegisterSuccess) {
-            onRegisterSuccess(response.data.token, values.username, response.data.role || 'user');
+        // 检查是否支持生物识别，如果支持则询问用户是否注册
+        if (biometricSupported) {
+          // 检查用户是否已经选择永久跳过
+          const skipBiometric = localStorage.getItem(`skipBiometric_${values.username}`);
+          if (skipBiometric !== 'true') {
+            Modal.confirm({
+              title: '设置生物识别登录',
+              icon: <SafetyCertificateOutlined />,
+              content: (
+                <div>
+                  <p>您的设备支持生物识别认证，是否现在设置生物识别登录？这将让您下次登录更加便捷和安全。</p>
+                  <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                    <button 
+                      style={{
+                        padding: '6px 12px',
+                        border: '1px solid #1890ff',
+                        borderRadius: '4px',
+                        background: '#1890ff',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                      }}
+                      onClick={async () => {
+                        await registerBiometric(values.username);
+                        Modal.destroyAll();
+                        // 注册生物识别后再跳转
+                        setTimeout(() => {
+                          if (onRegisterSuccess) {
+                            onRegisterSuccess(response.data.token, values.username, response.data.role || 'user');
+                          } else {
+                            navigate('/');
+                          }
+                        }, 1000);
+                      }}
+                    >
+                      立即设置
+                    </button>
+                    <button 
+                      style={{
+                        padding: '6px 12px',
+                        border: '1px solid #d9d9d9',
+                        borderRadius: '4px',
+                        background: '#fff',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                      }}
+                      onClick={() => {
+                        Modal.destroyAll();
+                        // 用户选择稍后设置，直接跳转
+                        setTimeout(() => {
+                          if (onRegisterSuccess) {
+                            onRegisterSuccess(response.data.token, values.username, response.data.role || 'user');
+                          } else {
+                            navigate('/');
+                          }
+                        }, 500);
+                      }}
+                    >
+                      稍后设置
+                    </button>
+                    <button 
+                      style={{
+                        padding: '6px 12px',
+                        border: '1px solid #ff4d4f',
+                        borderRadius: '4px',
+                        background: '#fff',
+                        color: '#ff4d4f',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                      }}
+                      onClick={() => {
+                        localStorage.setItem(`skipBiometric_${values.username}`, 'true');
+                        Modal.destroyAll();
+                        message.info('已永久跳过生物识别设置');
+                        // 永久跳过后直接跳转
+                        setTimeout(() => {
+                          if (onRegisterSuccess) {
+                            onRegisterSuccess(response.data.token, values.username, response.data.role || 'user');
+                          } else {
+                            navigate('/');
+                          }
+                        }, 500);
+                      }}
+                    >
+                      永久跳过
+                    </button>
+                  </div>
+                </div>
+              ),
+              footer: null, // 隐藏默认按钮
+              width: 500
+            });
           } else {
-            navigate('/');
+            // 用户已选择永久跳过，直接跳转
+            setTimeout(() => {
+              if (onRegisterSuccess) {
+                onRegisterSuccess(response.data.token, values.username, response.data.role || 'user');
+              } else {
+                navigate('/');
+              }
+            }, 500);
           }
-        }, 500);
+        } else {
+          // 不支持生物识别，延迟导航，等待动画完成
+          setTimeout(() => {
+            // 调用成功回调（如果提供）
+            if (onRegisterSuccess) {
+              onRegisterSuccess(response.data.token, values.username, response.data.role || 'user');
+            } else {
+              navigate('/');
+            }
+          }, 500);
+        }
       } else {
         setRegisterError(true);
         message.error(response.data.message || '注册失败');

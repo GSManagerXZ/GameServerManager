@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Tabs, Form, Input, Button, message, Alert, Divider, Spin, Switch, InputNumber, Select, Space } from 'antd';
+import { Typography, Card, Tabs, Form, Input, Button, message, Alert, Divider, Spin, Switch, InputNumber, Select, Space, Table, Modal } from 'antd';
 import axios from 'axios';
-import { HeartOutlined, InfoCircleOutlined, FileTextOutlined, DownloadOutlined, ReloadOutlined, GlobalOutlined, DockerOutlined } from '@ant-design/icons';
+import { HeartOutlined, InfoCircleOutlined, FileTextOutlined, DownloadOutlined, ReloadOutlined, GlobalOutlined, DockerOutlined, CloudServerOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import PanelManager from '../components/PanelManager';
+import { getDockerImages } from '../api';
+import { useState, useEffect } from 'react';
 
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -33,6 +35,39 @@ const Settings: React.FC = () => {
     password: '',
     no_proxy: ''
   });
+
+  // MCSM对接相关状态
+  const [mcsmForm] = Form.useForm();
+  const [mcsmLoading, setMcsmLoading] = useState(false);
+  
+  // Docker镜像相关状态
+  const [dockerImages, setDockerImages] = useState<{id: string, tag: string, size: number, created: string}[]>([]);
+  const [dockerImagesLoading, setDockerImagesLoading] = useState(false);
+
+  // 表单数据持久化工具函数
+  const saveFormData = (formName: string, data: any) => {
+    try {
+      localStorage.setItem(`gsm_form_${formName}`, JSON.stringify(data));
+    } catch (error) {
+      console.error('保存表单数据失败:', error);
+    }
+  };
+
+  const loadFormData = (formName: string) => {
+    try {
+      const saved = localStorage.getItem(`gsm_form_${formName}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch (error) {
+      console.error('加载表单数据失败:', error);
+      return null;
+    }
+  };
+
+  // 监听表单变化并自动保存
+  const handleFormChange = (formName: string, formInstance: any) => {
+    const values = formInstance.getFieldsValue();
+    saveFormData(formName, values);
+  };
 
   // 获取赞助者凭证信息
   useEffect(() => {
@@ -73,8 +108,62 @@ const Settings: React.FC = () => {
       }
     };
 
+    // 先尝试从localStorage恢复代理表单数据
+    const savedProxyData = loadFormData('proxy');
+    if (savedProxyData) {
+      setProxyConfig(savedProxyData);
+      proxyForm.setFieldsValue(savedProxyData);
+    }
+
     fetchProxyConfig();
   }, [proxyForm]);
+
+  // 获取Docker镜像列表
+  useEffect(() => {
+    const fetchDockerImages = async () => {
+      try {
+        setDockerImagesLoading(true);
+        const images = await getDockerImages();
+        setDockerImages(images);
+      } catch (error) {
+        console.error('获取Docker镜像列表失败:', error);
+        message.error('获取Docker镜像列表失败');
+      } finally {
+        setDockerImagesLoading(false);
+      }
+    };
+
+    fetchDockerImages();
+  }, []);
+
+  // 恢复表单数据
+  useEffect(() => {
+    // 恢复MCSM表单数据
+    const savedMcsmData = loadFormData('mcsm');
+    if (savedMcsmData) {
+      mcsmForm.setFieldsValue(savedMcsmData);
+    }
+  }, [mcsmForm]);
+
+  // 部署到MCSM面板
+  const handleCreateMcsmInstance = async (values) => {
+    try {
+      setMcsmLoading(true);
+      
+      const response = await axios.post('/api/mcsm/create-instance', values);
+      
+      if (response.data.status === 'success') {
+        message.success('部署到MCSM面板成功！');
+        // 部署成功后不清空表单，保留用户输入的数据
+      } else {
+        message.error(response.data.message || '部署失败');
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || '部署失败');
+    } finally {
+      setMcsmLoading(false);
+    }
+  };
 
   // 获取日志内容
   const fetchLogContent = async () => {
@@ -258,7 +347,7 @@ const Settings: React.FC = () => {
       }
     >
       <Paragraph>
-        查看和导出API服务器的运行日志，帮助诊断系统问题。
+        查看和导出API服务端的运行日志，帮助诊断系统问题。
       </Paragraph>
       
       <div style={{ 
@@ -295,6 +384,124 @@ const Settings: React.FC = () => {
     </Card>
   );
 
+  // MCSM对接部分的JSX
+  const renderMcsmSection = () => {
+    return (
+      <Card 
+        title={<><CloudServerOutlined /> MCSM面板对接</>}
+        bordered={false} 
+        className="settings-card"
+      >
+        <Paragraph>
+          将本地游戏服务端对接到MCSM面板进行统一管理。填写以下信息即可快速部署到MCSM面板。
+        </Paragraph>
+        
+        <Form
+          form={mcsmForm}
+          layout="vertical"
+          onFinish={handleCreateMcsmInstance}
+          onValuesChange={() => handleFormChange('mcsm', mcsmForm)}
+        >
+          <Form.Item
+            name="urlapi"
+            label="MCSM面板地址"
+            rules={[{ required: true, message: '请输入MCSM面板地址' }]}
+          >
+            <Input placeholder="例如: 192.168.1.100:23333" />
+          </Form.Item>
+          
+          <Form.Item
+            name="daemonId"
+            label="守护进程ID"
+            rules={[{ required: true, message: '请输入守护进程ID' }]}
+          >
+            <Input placeholder="例如: 12345678" />
+          </Form.Item>
+          
+          <Form.Item
+            name="apikey"
+            label="API密钥"
+            rules={[{ required: true, message: '请输入API密钥' }]}
+          >
+            <Input.Password placeholder="请输入MCSM面板的API密钥" />
+          </Form.Item>
+          
+          <Form.Item
+            name="nickname"
+            label="实例名称"
+            rules={[{ required: true, message: '请输入实例名称' }]}
+          >
+            <Input placeholder="为实例起一个名称" />
+          </Form.Item>
+          
+          <Form.Item
+            name="cwd"
+            label="工作目录"
+            rules={[{ required: true, message: '请输入工作目录' }]}
+            extra="请填写宿主机绝对路径到游戏服务端根目录，非容器路径。"
+          >
+            <Input placeholder="/home/steam/games/your_server" />
+          </Form.Item>
+          
+          <Form.Item
+            name="image"
+            label="GSM面板Docker镜像"
+            rules={[{ required: true, message: '请选择Docker镜像' }]}
+            initialValue="xiaozhuhouses/gsmanager:latest"
+          >
+            <Select
+              placeholder="请选择Docker镜像"
+              loading={dockerImagesLoading}
+              showSearch
+              allowClear
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+              notFoundContent={dockerImagesLoading ? <Spin size="small" /> : '暂无镜像'}
+            >
+              {dockerImages.map((image) => (
+                <Select.Option key={image.tag} value={image.tag}>
+                  {image.tag}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          
+          <Form.Item
+            name="startCommand"
+            label="启动脚本名称"
+            rules={[{ required: true, message: '请输入启动脚本名称' }]}
+          >
+            <Input placeholder="例如: start.sh" />
+          </Form.Item>
+          
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mcsmLoading} size="large">
+              部署到MCSM面板
+            </Button>
+          </Form.Item>
+        </Form>
+        
+        <Alert
+          message="使用说明"
+          description={
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              <li>请确保MCSM面板已正确安装并运行</li>
+              <li>需要在MCSM面板中获取API密钥和守护进程ID</li>
+              <li>工作目录必须填写宿主机的绝对路径，不是容器内路径</li>
+              <li>启动脚本名称是服务端目录下的启动脚本文件名</li>
+              <li>部署成功后可在MCSM面板中管理该实例</li>
+            </ul>
+          }
+          type="info"
+          showIcon
+          style={{ marginTop: 16 }}
+        />
+      </Card>
+    );
+  };
+
   // 代理设置部分的JSX
   const renderProxySection = () => (
     <Card 
@@ -303,7 +510,7 @@ const Settings: React.FC = () => {
       className="settings-card"
     >
       <Paragraph>
-        配置全局网络代理，用于访问外部资源时使用代理服务器。
+        配置全局网络代理，用于访问外部资源时使用代理服务端。
       </Paragraph>
       
       <Form
@@ -311,6 +518,7 @@ const Settings: React.FC = () => {
         layout="vertical"
         onFinish={handleProxyConfigSubmit}
         initialValues={proxyConfig}
+        onValuesChange={() => handleFormChange('proxy', proxyForm)}
       >
         <Form.Item
           name="enabled"
@@ -342,8 +550,8 @@ const Settings: React.FC = () => {
                 
                 <Form.Item
                   name="host"
-                  label="代理服务器地址"
-                  rules={[{ required: true, message: '请输入代理服务器地址' }]}
+                  label="代理服务端地址"
+                  rules={[{ required: true, message: '请输入代理服务端地址' }]}
                 >
                   <Input placeholder="例如: 127.0.0.1" />
                 </Form.Item>
@@ -437,8 +645,8 @@ const Settings: React.FC = () => {
         description={
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             <li>代理配置将影响系统的所有网络请求</li>
-            <li>请确保代理服务器地址和端口正确</li>
-            <li>如果代理服务器需要认证，请填写用户名和密码</li>
+            <li>请确保代理服务端地址和端口正确</li>
+            <li>如果代理服务端需要认证，请填写用户名和密码</li>
             <li>修改配置后可能需要重启服务才能生效</li>
           </ul>
         }
@@ -465,7 +673,7 @@ const Settings: React.FC = () => {
         <InfoCircleOutlined /> 赞助者权益:
         <ul>
           <li>从云端获取更多可部署的游戏列表及最新的游戏启动脚本</li>
-          <li>国内服务器高速下载Java运行环境</li>
+          <li>国内服务端高速下载Java运行环境</li>
           <li>在线部署使用权益</li>
           <li>版本更新提示功能</li>
           <li>享受星辰资源站的高速下载特权</li>
@@ -531,6 +739,11 @@ const Settings: React.FC = () => {
         </TabPane>
         <TabPane tab="面板管理" key="panel">
           <PanelManager />
+        </TabPane>
+        <TabPane tab="对接MCSM" key="mcsm">
+          <div style={{ padding: '20px 0' }}>
+            {renderMcsmSection()}
+          </div>
         </TabPane>
         <TabPane tab="日志" key="logs">
           <div style={{ padding: '20px 0' }}>

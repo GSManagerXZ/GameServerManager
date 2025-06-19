@@ -93,12 +93,6 @@ const ServerGuide: React.FC = () => {
       name: '我的世界基岩服务端',
       description: '如果想运行 Minecraft 版多人联机服务器，则首先要下载适用于 Windows 或 Ubuntu (Linux) 的 Bedrock 版专属服务器。',
       url: 'https://www.minecraft.net/zh-hans/download/server/bedrock',
-      tags: ['内网穿透', 'nps']
-    },
-    {
-      name: '我的世界基岩服务端',
-      description: '如果想运行 Minecraft 版多人联机服务器，则首先要下载适用于 Windows 或 Ubuntu (Linux) 的 Bedrock 版专属服务器。',
-      url: 'https://www.minecraft.net/zh-hans/download/server/bedrock',
       tags: ['Minecraft', '资源']
     },
     {
@@ -132,8 +126,14 @@ const ServerGuide: React.FC = () => {
       tags: ['Minecraft', '论坛']
     },
     {
+      name: '幻兽帕鲁 | 配置文件生成',
+      description: '幻兽帕鲁服务器设定生成',
+      url: 'https://www.huaxiahulian.com/hspl/',
+      tags: ['工具']
+    },
+    {
       name: '幻兽帕鲁 | 繁殖计算器',
-      description: '最大的Minecraft中文MOD百科',
+      description: '通过它们的繁殖力确定成对帕鲁数量的后代。',
       url: 'https://palworld.gg/zh-Hans/breeding-calculator',
       tags: ['工具']
     },

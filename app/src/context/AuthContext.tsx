@@ -29,6 +29,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [token, setToken] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isFirstUse, setIsFirstUse] = useState<boolean>(false);
 
@@ -46,10 +47,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // 清除本地存储
         localStorage.removeItem('auth_token');
         localStorage.removeItem('username');
+        localStorage.removeItem('role');
         
         // 更新状态
         setToken(null);
         setUsername(null);
+        setRole(null);
         setIsAuthenticated(false);
         
         // 移除axios请求头
@@ -89,10 +92,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // 否则检查本地存储的令牌
         const storedToken = localStorage.getItem('auth_token');
         const storedUsername = localStorage.getItem('username');
+        const storedRole = localStorage.getItem('role');
         
         if (storedToken) {
           setToken(storedToken);
           setUsername(storedUsername);
+          setRole(storedRole);
           setIsAuthenticated(true);
           
           // 设置axios默认请求头
@@ -126,10 +131,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // 设置已认证状态
   const setAuthenticated = (token: string, username: string, role: string) => {
+    // 存储到localStorage
+    localStorage.setItem('auth_token', token);
+    localStorage.setItem('username', username);
+    localStorage.setItem('role', role);
+    
+    // 更新状态
     setToken(token);
     setUsername(username);
+    setRole(role);
     setIsAuthenticated(true);
     setIsFirstUse(false);
+    
+    // 设置axios默认请求头
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   };
 
   // 登录函数
@@ -144,10 +159,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // 存储认证信息
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('username', username);
+        localStorage.setItem('role', response.data.role || 'user');
         
         // 更新状态
         setToken(response.data.token);
         setUsername(username);
+        setRole(response.data.role || 'user');
         setIsAuthenticated(true);
         setIsFirstUse(false);
         
@@ -185,10 +202,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // 存储认证信息
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('username', username);
+        localStorage.setItem('role', response.data.role || 'user');
         
         // 更新状态
         setToken(response.data.token);
         setUsername(username);
+        setRole(response.data.role || 'user');
         setIsAuthenticated(true);
         setIsFirstUse(false);
         

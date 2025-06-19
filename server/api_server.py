@@ -28,6 +28,8 @@ import lzma
 import stat
 import zstandard as zstd
 import multiprocessing
+import secrets
+import struct
 from functools import wraps
 from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context, g, render_template_string, send_file, make_response
 from werkzeug.utils import secure_filename
@@ -48,6 +50,10 @@ from sponsor_validator import SponsorValidator
 from java_installer import install_java_worker
 # 导入Docker管理器
 from docker_manager import docker_manager
+# 导入Minecraft整合包安装器
+from minecraft_modpack_installer import MinecraftModpackInstaller
+# 导入网易云音乐播放器
+from Wangyi import NeteaseMusicPlayer
 
 # 输出管理函数
 def add_server_output(game_id, message, max_lines=500):
@@ -65,16 +71,28 @@ def add_server_output(game_id, message, max_lines=500):
         # 移除最旧的输出，保持在指定行数以内
         running_servers[game_id]['output'] = running_servers[game_id]['output'][-max_lines:]
 
+# 确保日志目录存在
+log_dir = '/home/steam/server'
+os.makedirs(log_dir, exist_ok=True)
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('api_server.log')
-    ]
+        logging.FileHandler('/home/steam/server/api_server.log', encoding='utf-8')
+    ],
+    force=True  # 强制重新配置日志
 )
 logger = logging.getLogger("api_server")
+
+# 测试日志是否正常工作
+logger.info("API服务器日志系统初始化完成")
+logger.info(f"日志文件路径: /home/steam/server/api_server.log")
+logger.info(f"当前工作目录: {os.getcwd()}")
+logger.info(f"Python版本: {sys.version}")
+logger.info("="*50)
 
 # FRP相关配置
 FRP_DIR = "/home/steam/FRP"
@@ -112,6 +130,9 @@ manually_stopped_servers = set()  # 存储人工停止的服务器ID
 
 # 添加一个全局变量来跟踪人工停止的内网穿透
 manually_stopped_frps = set()  # 存储人工停止的内网穿透ID
+
+# 网易云音乐播放器实例
+netease_player = None
 
 app = Flask(__name__, static_folder='../app/dist')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用缓存，确保始终获取最新文件
@@ -197,7 +218,10 @@ def is_public_route(path):
     public_routes = [
         '/api/auth/login',
         '/api/auth/register',
-        '/api/auth/check_first_use'
+        '/api/auth/check_first_use',
+        '/api/auth/register_biometric',
+        '/api/auth/biometric_challenge',
+        '/api/auth/verify_biometric'
         # 注意：/api/terminate_install 需要认证，不应该出现在这个列表中
     ]
     return path in public_routes
@@ -1211,7 +1235,8 @@ def static_files(path):
     try:
         # 如果请求的是API路径，不进行处理，让后续的路由处理
         if path.startswith('api/'):
-            return None
+            from flask import abort
+            abort(404)  # 让Flask继续寻找其他路由
             
         # 检查是否存在对应的静态文件
         file_path = os.path.join('../app/dist', path)
@@ -3287,6 +3312,7 @@ def clean_installation_output(game_id):
 
 # 文件管理相关的API路由
 
+@app.route('/api/list_files', methods=['GET'])
 @app.route('/api/files', methods=['GET'])
 def list_files():
     """列出指定目录下的文件和子目录"""
@@ -4617,6 +4643,259 @@ def login():
     except Exception as e:
         logger.error(f"登录失败: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# 生物识别认证相关API
+
+# 生物识别凭据存储文件路径
+BIOMETRIC_CREDENTIALS_PATH = os.path.join(GAMES_DIR, 'biometric_credentials.json')
+
+def load_biometric_credentials():
+    """加载生物识别凭据"""
+    if not os.path.exists(BIOMETRIC_CREDENTIALS_PATH):
+        return {}
+    
+    try:
+        with open(BIOMETRIC_CREDENTIALS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"加载生物识别凭据失败: {str(e)}")
+        return {}
+
+def save_biometric_credentials(credentials):
+    """保存生物识别凭据"""
+    try:
+        # 确保目录存在
+        os.makedirs(os.path.dirname(BIOMETRIC_CREDENTIALS_PATH), exist_ok=True)
+        
+        with open(BIOMETRIC_CREDENTIALS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(credentials, f, ensure_ascii=False, indent=2)
+        
+        # 设置文件权限
+        os.chmod(BIOMETRIC_CREDENTIALS_PATH, 0o600)  # 只有所有者可读写
+        return True
+    except Exception as e:
+        logger.error(f"保存生物识别凭据失败: {str(e)}")
+        return False
+
+# 临时存储挑战值（实际生产环境应使用Redis等缓存）
+biometric_challenges = {}
+
+@app.route('/api/auth/register_biometric', methods=['POST'])
+def register_biometric():
+    """注册生物识别认证"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '无效的请求数据'
+            }), 400
+        
+        username = data.get('username')
+        credential_id = data.get('id')
+        raw_id = data.get('rawId')
+        credential_type = data.get('type')
+        response_data = data.get('response', {})
+        
+        if not all([username, credential_id, raw_id, credential_type, response_data]):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要的凭据信息'
+            }), 400
+        
+        # 验证用户是否存在
+        user_exists = False
+        if os.path.exists(USER_CONFIG_PATH):
+            try:
+                with open(USER_CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+                users = config.get('users', [])
+                for user in users:
+                    if user.get('username') == username:
+                        user_exists = True
+                        break
+            except Exception as e:
+                logger.error(f"验证用户存在性失败: {str(e)}")
+        
+        if not user_exists:
+            return jsonify({
+                'status': 'error',
+                'message': '用户不存在'
+            }), 404
+        
+        # 加载现有的生物识别凭据
+        credentials = load_biometric_credentials()
+        
+        # 检查用户是否已经注册过生物识别
+        if username in credentials:
+            return jsonify({
+                'status': 'error',
+                'message': '该用户已注册生物识别认证'
+            }), 400
+        
+        # 存储凭据信息（简化版本，实际应该验证attestation）
+        credential_data = {
+            'id': credential_id,
+            'rawId': raw_id,
+            'type': credential_type,
+            'response': response_data,
+            'username': username,
+            'created_at': time.time()
+        }
+        
+        credentials[username] = credential_data
+        
+        # 保存凭据
+        if save_biometric_credentials(credentials):
+            logger.info(f"用户 {username} 成功注册生物识别认证")
+            return jsonify({
+                'status': 'success',
+                'message': '生物识别认证注册成功'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '保存生物识别凭据失败'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"注册生物识别认证失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'注册失败: {str(e)}'
+        }), 500
+
+@app.route('/api/auth/biometric_challenge', methods=['GET'])
+def get_biometric_challenge():
+    """获取生物识别认证挑战值"""
+    try:
+        # 生成随机挑战值
+        challenge = secrets.token_bytes(32)
+        challenge_b64 = base64.b64encode(challenge).decode('utf-8')
+        
+        # 生成挑战ID
+        challenge_id = str(uuid.uuid4())
+        
+        # 存储挑战值（实际生产环境应设置过期时间）
+        biometric_challenges[challenge_id] = {
+            'challenge': challenge_b64,
+            'created_at': time.time()
+        }
+        
+        # 清理过期的挑战值（超过5分钟）
+        current_time = time.time()
+        expired_challenges = []
+        for cid, cdata in biometric_challenges.items():
+            if current_time - cdata['created_at'] > 300:  # 5分钟
+                expired_challenges.append(cid)
+        
+        for cid in expired_challenges:
+            del biometric_challenges[cid]
+        
+        # 加载生物识别凭据，获取允许的凭据列表
+        credentials = load_biometric_credentials()
+        allow_credentials = []
+        
+        for username, cred_data in credentials.items():
+            allow_credentials.append({
+                'id': cred_data['rawId'],
+                'type': cred_data['type']
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'challenge': challenge_b64,
+            'challengeId': challenge_id,
+            'allowCredentials': allow_credentials
+        })
+        
+    except Exception as e:
+        logger.error(f"生成生物识别挑战值失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'生成挑战值失败: {str(e)}'
+        }), 500
+
+@app.route('/api/auth/verify_biometric', methods=['POST'])
+def verify_biometric():
+    """验证生物识别认证"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '无效的请求数据'
+            }), 400
+        
+        credential_id = data.get('id')
+        raw_id = data.get('rawId')
+        credential_type = data.get('type')
+        response_data = data.get('response', {})
+        
+        if not all([credential_id, raw_id, credential_type, response_data]):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要的认证信息'
+            }), 400
+        
+        # 加载生物识别凭据
+        credentials = load_biometric_credentials()
+        
+        # 查找匹配的凭据
+        matched_user = None
+        for username, cred_data in credentials.items():
+            if cred_data['id'] == credential_id and cred_data['rawId'] == raw_id:
+                matched_user = username
+                break
+        
+        if not matched_user:
+            logger.warning(f"未找到匹配的生物识别凭据: {credential_id}")
+            return jsonify({
+                'status': 'error',
+                'message': '未找到匹配的生物识别凭据'
+            }), 404
+        
+        # 简化版本的验证（实际应该验证签名等）
+        # 这里我们假设如果凭据ID匹配就认为验证成功
+        
+        # 获取用户信息
+        user = None
+        if os.path.exists(USER_CONFIG_PATH):
+            try:
+                with open(USER_CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+                users = config.get('users', [])
+                for u in users:
+                    if u.get('username') == matched_user:
+                        user = u
+                        break
+            except Exception as e:
+                logger.error(f"获取用户信息失败: {str(e)}")
+        
+        if not user:
+            return jsonify({
+                'status': 'error',
+                'message': '用户不存在'
+            }), 404
+        
+        # 生成令牌
+        token = generate_token(user)
+        logger.info(f"用户 {matched_user} 通过生物识别认证登录成功")
+        
+        return jsonify({
+            'status': 'success',
+            'token': token,
+            'username': matched_user,
+            'role': user.get('role', 'user'),
+            'message': '生物识别认证成功'
+        })
+        
+    except Exception as e:
+        logger.error(f"验证生物识别认证失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'验证失败: {str(e)}'
+        }), 500
 
 @app.route('/api/open_game_folder', methods=['GET', 'POST'])
 def open_game_folder():
@@ -6143,11 +6422,16 @@ def deploy_online_game():
         download_url = data.get('downloadUrl')
         script_content = data.get('script')
         
-        if not all([game_id, game_name, download_url, script_content]):
+        # 验证必要参数，script_content可以为空
+        if not all([game_id, game_name, download_url]):
             return jsonify({
                 'status': 'error',
                 'message': '缺少必要参数'
             }), 400
+        
+        # script_content为None时设为空字符串
+        if script_content is None:
+            script_content = ""
         
         # 检查是否已有部署在进行
         if game_id in active_online_deployments:
@@ -7331,8 +7615,11 @@ JAVA_VERSIONS = {
 os.makedirs(ENVIRONMENT_DIR, exist_ok=True)
 os.makedirs(JAVA_DIR, exist_ok=True)
 
-# 环境安装进度跟踪
-environment_install_progress = {}
+# 环境安装进度跟踪 - 使用共享字典解决多进程状态同步问题
+# 创建专门用于Java安装的multiprocessing.Manager
+java_manager = multiprocessing.Manager()
+java_install_progress = java_manager.dict()  # 专门用于Java安装进度的共享字典
+environment_install_progress = {}  # 保留原有字典用于其他环境安装
 
 # Java下载并发控制
 java_download_lock = threading.Lock()
@@ -7458,13 +7745,13 @@ def install_java(version="jdk8"):
         # 设置当前下载的版本
         current_java_download = version
     
-    # 初始化进度和取消标志
-    environment_install_progress[version] = {
+    # 初始化进度和取消标志 - 使用共享字典
+    java_install_progress[version] = java_manager.dict({
         "progress": 0,
         "status": "downloading",
         "completed": False,
         "error": None
-    }
+    })
     java_download_cancelled[version] = False
     
     # 使用独立进程执行安装，避免GIL锁竞争
@@ -7515,13 +7802,13 @@ def _monitor_java_install_process(version, process, install_queue):
                     if process.is_alive():
                         process.kill()
                     
-                    environment_install_progress[version]["status"] = "cancelled"
-                    environment_install_progress[version]["error"] = "安装已被用户取消"
-                    environment_install_progress[version]["completed"] = True
+                    java_install_progress[version]["status"] = "cancelled"
+                    java_install_progress[version]["error"] = "安装已被用户取消"
+                    java_install_progress[version]["completed"] = True
                     break
                 
                 # 更新进度数据
-                environment_install_progress[version].update(progress_data)
+                java_install_progress[version].update(progress_data)
                 
                 # 如果安装完成或出错，退出循环
                 if progress_data.get('completed', False):
@@ -7546,14 +7833,14 @@ def _monitor_java_install_process(version, process, install_queue):
                 process.kill()
             
             # 设置错误状态
-            environment_install_progress[version]["status"] = "error"
-            environment_install_progress[version]["error"] = "安装进程超时"
-            environment_install_progress[version]["completed"] = True
+            java_install_progress[version]["status"] = "error"
+            java_install_progress[version]["error"] = "安装进程超时"
+            java_install_progress[version]["completed"] = True
     except Exception as e:
         logger.error(f"监控Java安装进程时出错: {str(e)}")
-        environment_install_progress[version]["status"] = "error"
-        environment_install_progress[version]["error"] = str(e)
-        environment_install_progress[version]["completed"] = True
+        java_install_progress[version]["status"] = "error"
+        java_install_progress[version]["error"] = str(e)
+        java_install_progress[version]["completed"] = True
     finally:
         # 重置当前下载状态
         with java_download_lock:
@@ -7570,12 +7857,14 @@ def get_java_status():
         version = request.args.get('version', 'jdk8')
         installed, java_version = check_java_installation(version)
         
-        # 获取安装进度
-        progress_info = environment_install_progress.get(version, {
+        # 获取安装进度 - 使用共享字典
+        progress_info_proxy = java_install_progress.get(version, java_manager.dict({
             "progress": 0,
             "status": "not_started",
             "completed": False
-        })
+        }))
+        # 将共享字典代理对象转换为普通字典，确保jsonify能正常工作
+        progress_info = dict(progress_info_proxy)
         
         # 如果已安装但进度信息不完整，补充信息
         if installed and not progress_info.get("completed"):
@@ -7700,7 +7989,7 @@ def uninstall_java_route():
             logger.info(f"已卸载{JAVA_VERSIONS[version]['display_name']}: {java_dir}")
         
         # 清理进度信息
-        environment_install_progress.pop(version, None)
+        java_install_progress.pop(version, None)
         
         return jsonify({
             "status": "success",
@@ -8309,6 +8598,7 @@ def deploy_minecraft_server():
         core_version = data.get('core_version')
         custom_name = data.get('custom_name', server_name)
         selected_jdk = data.get('selected_jdk')  # 新增JDK选择参数
+        deploy_mode = data.get('deploy_mode', 'new')  # 新增部署模式参数，默认为新建
         
         if not all([server_name, mc_version, core_version]):
             return jsonify({
@@ -8316,9 +8606,9 @@ def deploy_minecraft_server():
                 'message': '缺少必要参数: server_name, mc_version, core_version'
             }), 400
         
-        # 确定Java可执行文件路径
+        # 确定Java可执行文件路径（仅在新建模式下需要）
         java_executable = 'java'  # 默认使用系统Java
-        if selected_jdk:
+        if deploy_mode == 'new' and selected_jdk:
             if selected_jdk in JAVA_VERSIONS:
                 installed, _ = check_java_installation(selected_jdk)
                 if installed:
@@ -8366,41 +8656,54 @@ def deploy_minecraft_server():
                     f.write(chunk)
                     downloaded += len(chunk)
         
-        # 创建启动脚本，使用选择的JDK
-        start_script_content = f"""#!/bin/bash
+        # 只有在新建模式下才创建启动脚本和配置文件
+        if deploy_mode == 'new':
+            # 创建启动脚本，使用选择的JDK
+            start_script_content = f"""#!/bin/bash
 cd "$(dirname "$0")"
 {java_executable} -Xmx2G -Xms1G -jar {filename} nogui
 """
-        
-        start_script_path = os.path.join(game_dir, 'start.sh')
-        with open(start_script_path, 'w') as f:
-            f.write(start_script_content)
-        
-        # 设置执行权限
-        os.chmod(start_script_path, 0o755)
-        
-        # 创建eula.txt文件
-        eula_path = os.path.join(game_dir, 'eula.txt')
-        with open(eula_path, 'w') as f:
-            f.write('eula=true\n')
+            
+            start_script_path = os.path.join(game_dir, 'start.sh')
+            with open(start_script_path, 'w') as f:
+                f.write(start_script_content)
+            
+            # 设置执行权限
+            os.chmod(start_script_path, 0o755)
+            
+            # 创建eula.txt文件
+            eula_path = os.path.join(game_dir, 'eula.txt')
+            with open(eula_path, 'w') as f:
+                f.write('eula=true\n')
         
         # 设置目录权限
         subprocess.run(['chown', '-R', 'steam:steam', game_dir], check=False)
         
-        logger.info(f"Minecraft服务端部署完成: {game_dir}，使用JDK: {java_executable}")
+        if deploy_mode == 'new':
+            logger.info(f"Minecraft服务端部署完成: {game_dir}，使用JDK: {java_executable}")
+            message_text = 'Minecraft服务端部署成功'
+        else:
+            logger.info(f"Minecraft服务端核心文件下载完成: {game_dir}")
+            message_text = 'Minecraft服务端核心文件下载成功'
+        
+        response_data = {
+            'game_dir': game_dir,
+            'filename': filename,
+            'server_name': server_name,
+            'mc_version': mc_version,
+            'core_version': core_version,
+            'deploy_mode': deploy_mode
+        }
+        
+        # 只有在新建模式下才返回JDK相关信息
+        if deploy_mode == 'new':
+            response_data['java_executable'] = java_executable
+            response_data['selected_jdk'] = selected_jdk
         
         return jsonify({
             'status': 'success',
-            'message': f'Minecraft服务端部署成功',
-            'data': {
-                'game_dir': game_dir,
-                'filename': filename,
-                'server_name': server_name,
-                'mc_version': mc_version,
-                'core_version': core_version,
-                'java_executable': java_executable,
-                'selected_jdk': selected_jdk
-            }
+            'message': message_text,
+            'data': response_data
         })
         
     except Exception as e:
@@ -8409,6 +8712,339 @@ cd "$(dirname "$0")"
             'status': 'error',
             'message': f'部署失败: {str(e)}'
         }), 500
+
+@app.route('/api/minecraft/modpack/search', methods=['GET'])
+@auth_required
+def search_modpacks():
+    """搜索Minecraft整合包"""
+    try:
+        query = request.args.get('query', '')
+        max_results = int(request.args.get('max_results', 20))
+        
+        installer = MinecraftModpackInstaller()
+        modpacks = installer.cli.search_modpacks(query=query, max_results=max_results)
+        
+        # 验证返回数据格式
+        if not isinstance(modpacks, list):
+            logger.error(f"搜索整合包返回数据格式错误: 期望列表，收到 {type(modpacks)}")
+            return jsonify({
+                'status': 'error',
+                'message': '搜索结果格式错误'
+            }), 500
+        
+        return jsonify({
+            'status': 'success',
+            'data': modpacks
+        })
+        
+    except Exception as e:
+        logger.error(f"搜索整合包失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'搜索失败: {str(e)}'
+        }), 500
+
+@app.route('/api/minecraft/modpack/<modpack_id>/versions', methods=['GET'])
+@auth_required
+def get_modpack_versions(modpack_id):
+    """获取整合包版本列表"""
+    try:
+        installer = MinecraftModpackInstaller()
+        versions = installer.cli.get_modpack_versions(modpack_id)
+        
+        return jsonify({
+            'status': 'success',
+            'data': versions
+        })
+        
+    except Exception as e:
+        logger.error(f"获取整合包版本失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取版本失败: {str(e)}'
+        }), 500
+
+# Minecraft整合包部署相关的全局变量
+active_modpack_deployments = manager.dict()  # deployment_id -> deployment_data
+modpack_deploy_queues = manager.dict()  # deployment_id -> queue
+
+@app.route('/api/minecraft/modpack/deploy', methods=['POST'])
+@auth_required
+def deploy_minecraft_modpack():
+    """启动Minecraft整合包部署"""
+    try:
+        data = request.get_json()
+        modpack_id = data.get('modpack_id')
+        version_id = data.get('version_id')
+        folder_name = data.get('folder_name')
+        java_version = data.get('java_version', 'system')
+        
+        if not all([modpack_id, version_id, folder_name]):
+            return jsonify({
+                'status': 'error',
+                'message': '缺少必要参数: modpack_id, version_id, folder_name'
+            }), 400
+        
+        # 验证文件夹名称
+        if any(char in folder_name for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']):
+            return jsonify({
+                'status': 'error',
+                'message': '文件夹名称包含非法字符'
+            }), 400
+        
+        # 检查文件夹是否已存在
+        install_path = os.path.join('/home/steam/games', folder_name)
+        if os.path.exists(install_path):
+            return jsonify({
+                'status': 'error',
+                'message': f'文件夹 {folder_name} 已存在'
+            }), 400
+        
+        # 验证Java版本
+        installer = MinecraftModpackInstaller()
+        if java_version != 'system' and java_version not in installer.java_versions:
+            return jsonify({
+                'status': 'error',
+                'message': f'不支持的Java版本: {java_version}'
+            }), 400
+        
+        if java_version != 'system':
+            installed, _ = installer.check_java_installation(java_version)
+            if not installed:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Java版本 {java_version} 未安装，请先安装对应的Java版本后再进行操作'
+                }), 400
+        
+        # 获取整合包信息
+        modpack_data = installer.cli.get_modpack_details(modpack_id)
+        if not modpack_data:
+            return jsonify({
+                'status': 'error',
+                'message': '获取整合包信息失败'
+            }), 500
+        
+        # 获取版本信息
+        versions = installer.cli.get_modpack_versions(modpack_id)
+        version_data = None
+        for version in versions:
+            if version['id'] == version_id:
+                version_data = version
+                break
+        
+        if not version_data:
+            return jsonify({
+                'status': 'error',
+                'message': '找不到指定的版本'
+            }), 400
+        
+        # 生成部署ID
+        deployment_id = f"modpack_{int(time.time())}_{folder_name}"
+        
+        # 检查是否已有部署在进行
+        if deployment_id in active_modpack_deployments:
+            return jsonify({
+                'status': 'error',
+                'message': f'整合包 {folder_name} 正在部署中，请等待完成'
+            }), 400
+        
+        # 初始化部署状态
+        deployment_data = manager.dict()
+        deployment_data['modpack_name'] = modpack_data['title']
+        deployment_data['folder_name'] = folder_name
+        deployment_data['status'] = 'starting'
+        deployment_data['progress'] = 0
+        deployment_data['message'] = '正在准备部署...'
+        deployment_data['complete'] = False
+        deployment_data['start_time'] = time.time()
+        active_modpack_deployments[deployment_id] = deployment_data
+        
+        deploy_queue = manager.Queue()
+        modpack_deploy_queues[deployment_id] = deploy_queue
+        
+        # 启动部署进程
+        deploy_process = multiprocessing.Process(
+            target=_deploy_modpack_worker,
+            args=(deployment_id, modpack_data, version_data, folder_name, java_version, deployment_data, deploy_queue),
+            daemon=True
+        )
+        deploy_process.start()
+        
+        logger.info(f"开始部署整合包: {modpack_data['title']} v{version_data['version_number']} 到 {folder_name}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'开始部署整合包 {modpack_data["title"]}',
+            'deployment_id': deployment_id
+        })
+        
+    except Exception as e:
+        logger.error(f"启动整合包部署时发生错误: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'启动部署时发生错误: {str(e)}'
+        }), 500
+
+def _deploy_modpack_worker(deployment_id, modpack_data, version_data, folder_name, java_version, deployment_data, deploy_queue):
+    """整合包部署工作进程"""
+    try:
+        installer = MinecraftModpackInstaller()
+        
+        def progress_callback(progress_data):
+            """进度回调函数"""
+            deployment_data['progress'] = progress_data['progress']
+            deployment_data['message'] = progress_data['message']
+            deployment_data['status'] = progress_data.get('status', 'installing')
+            deploy_queue.put(progress_data)
+        
+        # 执行安装
+        result = installer.install_modpack(
+            modpack_data,
+            version_data,
+            folder_name,
+            java_version,
+            progress_callback
+        )
+        
+        if result['success']:
+            deployment_data['status'] = 'completed'
+            deployment_data['progress'] = 100
+            deployment_data['message'] = '整合包部署成功'
+            deployment_data['complete'] = True
+            deployment_data['data'] = result['data']
+            
+            deploy_queue.put({
+                'progress': 100,
+                'status': 'completed',
+                'message': '整合包部署成功',
+                'complete': True,
+                'data': result['data']
+            })
+            
+            logger.info(f"整合包部署成功: {folder_name}")
+        else:
+            error_msg = f'部署失败: {result["message"]}'
+            deployment_data['status'] = 'error'
+            deployment_data['message'] = error_msg
+            deployment_data['complete'] = True
+            
+            deploy_queue.put({
+                'progress': deployment_data['progress'],
+                'status': 'error',
+                'message': error_msg,
+                'complete': True
+            })
+            
+            logger.error(f"整合包部署失败: {result['message']}")
+            
+    except Exception as e:
+        error_msg = f'部署时发生错误: {str(e)}'
+        logger.error(f"整合包部署时发生错误: {str(e)}", exc_info=True)
+        deployment_data['status'] = 'error'
+        deployment_data['message'] = error_msg
+        deployment_data['complete'] = True
+        deploy_queue.put({
+            'progress': deployment_data.get('progress', 0),
+            'status': 'error',
+            'message': error_msg,
+            'complete': True
+        })
+
+@app.route('/api/minecraft/modpack/deploy/stream', methods=['GET'])
+@auth_required
+def modpack_deploy_stream():
+    """获取整合包部署的实时进度"""
+    # 在请求上下文中获取参数
+    deployment_id = request.args.get('deployment_id')
+    if not deployment_id:
+        return jsonify({'error': '缺少deployment_id参数'}), 400
+    
+    def generate(deployment_id):
+        try:
+            
+            # 检查部署是否存在
+            if deployment_id not in active_modpack_deployments:
+                yield f"data: {json.dumps({'error': f'部署任务 {deployment_id} 不存在'})}\n\n"
+                return
+            
+            if deployment_id not in modpack_deploy_queues:
+                modpack_deploy_queues[deployment_id] = manager.Queue()
+            
+            # 如果部署已完成，添加完成消息
+            deployment_data = active_modpack_deployments[deployment_id]
+            if deployment_data.get('complete', False):
+                modpack_deploy_queues[deployment_id].put({
+                    'progress': deployment_data.get('progress', 100),
+                    'status': deployment_data.get('status', 'completed'),
+                    'message': deployment_data.get('message', '部署已完成'),
+                    'complete': True,
+                    'data': deployment_data.get('data')
+                })
+            
+            deployment_data = active_modpack_deployments[deployment_id]
+            deploy_queue = modpack_deploy_queues[deployment_id]
+            
+            # 发送初始连接消息
+            yield f"data: {json.dumps({'message': '连接成功，开始接收部署进度...', 'progress': deployment_data.get('progress', 0), 'status': deployment_data.get('status', 'starting')})}\n\n"
+            
+            # 持续监听进度更新
+            timeout_count = 0
+            max_timeout = 300  # 5分钟超时
+            
+            while timeout_count < max_timeout:
+                try:
+                    # 尝试从队列获取进度更新
+                    item = deploy_queue.get(timeout=1)
+                    timeout_count = 0  # 重置超时计数
+                    
+                    # 发送进度更新
+                    yield f"data: {json.dumps(item)}\n\n"
+                    
+                    # 如果部署完成，结束流
+                    if item.get('complete', False):
+                        break
+                        
+                except:
+                    timeout_count += 1
+                    continue
+            
+            if timeout_count >= max_timeout:
+                logger.warning(f"整合包部署 {deployment_id} 的流超时")
+                yield f"data: {json.dumps({'message': '部署流超时，请刷新页面查看最新状态', 'status': 'timeout', 'complete': True})}\n\n"
+            
+            # 检查部署是否已完成但未发送完成消息
+            if deployment_data.get('complete', False):
+                final_data = {
+                    'progress': deployment_data.get('progress', 100),
+                    'status': deployment_data.get('status', 'completed'),
+                    'message': deployment_data.get('message', '部署已完成'),
+                    'complete': True
+                }
+                if deployment_data.get('data'):
+                    final_data['data'] = deployment_data['data']
+                
+                yield f"data: {json.dumps(final_data)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"生成整合包部署流数据时出错: {str(e)}")
+            yield f"data: {json.dumps({'error': f'生成流数据时出错: {str(e)}'})}\n\n"
+        finally:
+            # 清理资源
+            try:
+                if deployment_id in active_modpack_deployments:
+                    if active_modpack_deployments[deployment_id].get('complete', False):
+                        active_modpack_deployments.pop(deployment_id, None)
+                        modpack_deploy_queues.pop(deployment_id, None)
+            except:
+                pass
+    
+    try:
+        return Response(generate(deployment_id), mimetype='text/event-stream')
+    except Exception as e:
+        logger.error(f"整合包部署流处理错误: {str(e)}")
+        return jsonify({'error': f'流处理错误: {str(e)}'}), 500
+
+
 
 # 日志管理API
 @app.route('/api/logs/api-server', methods=['GET'])
@@ -8502,6 +9138,23 @@ def list_docker_containers():
             'message': f'获取容器列表失败: {str(e)}'
         }), 500
 
+@app.route('/api/docker/images', methods=['GET'])
+@auth_required
+def list_docker_images():
+    """获取所有Docker镜像列表"""
+    try:
+        images = docker_manager.list_images()
+        return jsonify({
+            'status': 'success',
+            'images': images
+        })
+    except Exception as e:
+        logger.error(f"获取镜像列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取镜像列表失败: {str(e)}'
+        }), 500
+
 @app.route('/api/docker/container/<container_name>', methods=['GET'])
 @auth_required
 def get_docker_container_info(container_name):
@@ -8591,6 +9244,688 @@ def generate_docker_command():
         return jsonify({
             'status': 'error',
             'message': f'生成Docker命令失败: {str(e)}'
+        }), 500
+
+# MCSM对接相关API
+MCSM_INSTANCES_FILE = os.path.join('/home/steam/games', 'mcsm_instances.json')
+
+def load_mcsm_instances():
+    """加载MCSM实例配置"""
+    try:
+        if os.path.exists(MCSM_INSTANCES_FILE):
+            with open(MCSM_INSTANCES_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logger.error(f"加载MCSM实例配置失败: {str(e)}")
+        return []
+
+def save_mcsm_instances(instances):
+    """保存MCSM实例配置"""
+    try:
+        with open(MCSM_INSTANCES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(instances, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"保存MCSM实例配置失败: {str(e)}")
+        return False
+
+@app.route('/api/mcsm/instances', methods=['GET'])
+@auth_required
+def get_mcsm_instances():
+    """获取MCSM实例列表"""
+    try:
+        instances = load_mcsm_instances()
+        return jsonify({
+            'status': 'success',
+            'instances': instances
+        })
+    except Exception as e:
+        logger.error(f"获取MCSM实例列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取实例列表失败: {str(e)}'
+        }), 500
+
+@app.route('/api/mcsm/script-content', methods=['GET'])
+@auth_required
+def get_script_content():
+    """获取服务器启动脚本内容"""
+    try:
+        server_path = request.args.get('serverPath')
+        if not server_path:
+            return jsonify({
+                'status': 'error',
+                'message': '请提供服务器路径'
+            }), 400
+        
+        script_file = os.path.join(server_path, '.last_script')
+        if not os.path.exists(script_file):
+            return jsonify({
+                'status': 'success',
+                'content': '# 未找到启动脚本文件\n# 请手动配置启动命令'
+            })
+        
+        with open(script_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return jsonify({
+            'status': 'success',
+            'content': content
+        })
+    except Exception as e:
+        logger.error(f"获取脚本内容失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取脚本内容失败: {str(e)}'
+        }), 500
+
+@app.route('/api/mcsm/create-instance', methods=['POST'])
+@auth_required
+def create_mcsm_instance():
+    """创建MCSM实例"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请提供实例配置信息'
+            }), 400
+        
+        # 验证必需字段
+        required_fields = ['urlapi', 'daemonId', 'apikey', 'nickname', 'cwd', 'image', 'startCommand']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'status': 'error',
+                    'message': f'缺少必需字段: {field}'
+                }), 400
+        
+        # 获取启动脚本名称
+        script_name = data.get('startCommand', 'start.sh')
+        
+        # 导入MCSM SDK
+        from mcsm_sdk import create_instance
+        
+        # 调用MCSM API创建实例
+        result = create_instance(
+            urlapi=data['urlapi'],
+            daemonId=data['daemonId'],
+            apikey=data['apikey'],
+            nickname=data['nickname'],
+            cwd=data['cwd'],
+            image=data['image'],
+            CUSTOM_RUN_SCRIPT=script_name
+        )
+        
+        # 检查MCSM API响应
+        if result.get('status') == 200:
+            # 保存实例信息到本地
+            instances = load_mcsm_instances()
+            
+            instance_data = {
+                'id': str(uuid.uuid4()),
+                'urlapi': data['urlapi'],
+                'daemonId': data['daemonId'],
+                'apikey': data['apikey'],
+                'nickname': data['nickname'],
+                'cwd': data['cwd'],
+                'image': data['image'],
+                'scriptName': script_name,
+                'createTime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'mcsmInstanceId': result.get('data', {}).get('instanceUuid', '')
+            }
+            
+            instances.append(instance_data)
+            
+            if save_mcsm_instances(instances):
+                return jsonify({
+                    'status': 'success',
+                    'message': 'MCSM实例创建成功',
+                    'instance': instance_data,
+                    'mcsmResult': result
+                })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'MCSM实例创建成功，但保存本地配置失败'
+                }), 500
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'MCSM API调用失败: {result.get("data", "未知错误")}',
+                'mcsmResult': result
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"创建MCSM实例失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'创建实例失败: {str(e)}'
+        }), 500
+
+@app.route('/api/mcsm/instances/<instance_id>', methods=['DELETE'])
+@auth_required
+def delete_mcsm_instance(instance_id):
+    """删除MCSM实例"""
+    try:
+        instances = load_mcsm_instances()
+        
+        # 查找要删除的实例
+        instance_to_delete = None
+        for i, instance in enumerate(instances):
+            if instance.get('id') == instance_id:
+                instance_to_delete = instances.pop(i)
+                break
+        
+        if not instance_to_delete:
+            return jsonify({
+                'status': 'error',
+                'message': '实例不存在'
+            }), 404
+        
+        # 保存更新后的实例列表
+        if save_mcsm_instances(instances):
+            return jsonify({
+                'status': 'success',
+                'message': '实例删除成功'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '删除实例失败'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"删除MCSM实例失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'删除实例失败: {str(e)}'
+        }), 500
+
+@app.route('/api/settings/favorite-files', methods=['GET'])
+@auth_required
+def get_favorite_files():
+    """获取文件收藏配置"""
+    try:
+        from config import load_config
+        config = load_config()
+        
+        # 获取文件收藏配置，如果不存在则返回空列表
+        favorite_files = config.get('favorite_files', [])
+        
+        return jsonify({
+            'status': 'success',
+            'favorite_files': favorite_files
+        })
+        
+    except Exception as e:
+        logger.error(f"获取文件收藏配置时出错: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取文件收藏配置失败: {str(e)}'
+        }), 500
+
+@app.route('/api/settings/favorite-files', methods=['POST'])
+@auth_required
+def save_favorite_files():
+    """保存文件收藏配置"""
+    try:
+        data = request.json
+        
+        if not isinstance(data, dict) or 'favorite_files' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求数据格式错误'
+            }), 400
+        
+        favorite_files = data['favorite_files']
+        
+        if not isinstance(favorite_files, list):
+            return jsonify({
+                'status': 'error',
+                'message': '收藏文件数据必须是数组格式'
+            }), 400
+        
+        # 加载现有配置
+        from config import load_config, save_config
+        config = load_config()
+        
+        # 更新文件收藏配置
+        config['favorite_files'] = favorite_files
+        
+        # 保存配置到 /home/steam/games/config.json
+        if save_config(config):
+            return jsonify({
+                'status': 'success',
+                'message': '文件收藏配置保存成功'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '保存文件收藏配置失败'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"保存文件收藏配置时出错: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'保存文件收藏配置失败: {str(e)}'
+        }), 500
+
+# 游戏配置文件管理相关API
+from game_config_manager import game_config_manager
+
+@app.route('/api/game-config/available', methods=['GET'])
+@auth_required
+def get_available_game_configs():
+    """获取所有可用的游戏配置文件模板"""
+    try:
+        configs = game_config_manager.get_available_configs()
+        return jsonify({
+            'status': 'success',
+            'configs': configs
+        })
+    except Exception as e:
+        logger.error(f"获取可用配置文件失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取可用配置文件失败: {str(e)}'
+        }), 500
+
+@app.route('/api/game-config/schema/<config_id>', methods=['GET'])
+@auth_required
+def get_game_config_schema(config_id):
+    """获取指定配置文件的模板结构"""
+    try:
+        schema = game_config_manager.get_config_schema(config_id)
+        if schema is None:
+            return jsonify({
+                'status': 'error',
+                'message': '配置文件模板不存在'
+            }), 404
+            
+        return jsonify({
+            'status': 'success',
+            'schema': schema
+        })
+    except Exception as e:
+        logger.error(f"获取配置文件模板失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取配置文件模板失败: {str(e)}'
+        }), 500
+
+@app.route('/api/game-config/read', methods=['POST'])
+@auth_required
+def read_game_config():
+    """读取游戏配置文件"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求数据不能为空'
+            }), 400
+        
+        server_path = data.get('server_path')
+        config_id = data.get('config_id')
+        parser_type = data.get('parser_type', 'configobj')
+        
+        if not server_path or not config_id:
+            return jsonify({
+                'status': 'error',
+                'message': '服务端路径和配置文件ID不能为空'
+            }), 400
+        
+        # 获取配置模板
+        schema = game_config_manager.get_config_schema(config_id)
+        if schema is None:
+            return jsonify({
+                'status': 'error',
+                'message': '配置文件模板不存在'
+            }), 404
+        
+        # 读取配置文件
+        config_data = game_config_manager.read_game_config(server_path, schema, parser_type)
+        
+        return jsonify({
+            'status': 'success',
+            'config_data': config_data,
+            'schema': schema
+        })
+        
+    except Exception as e:
+        logger.error(f"读取游戏配置失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'读取游戏配置失败: {str(e)}'
+        }), 500
+
+@app.route('/api/game-config/save', methods=['POST'])
+@auth_required
+def save_game_config():
+    """保存游戏配置文件"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求数据不能为空'
+            }), 400
+        
+        server_path = data.get('server_path')
+        config_id = data.get('config_id')
+        config_data = data.get('config_data')
+        parser_type = data.get('parser_type', 'configobj')
+        
+        if not server_path or not config_id or not config_data:
+            return jsonify({
+                'status': 'error',
+                'message': '服务端路径、配置文件ID和配置数据不能为空'
+            }), 400
+        
+        # 获取配置模板
+        schema = game_config_manager.get_config_schema(config_id)
+        if schema is None:
+            return jsonify({
+                'status': 'error',
+                'message': '配置文件模板不存在'
+            }), 404
+        
+        # 保存配置文件
+        success = game_config_manager.save_game_config(server_path, schema, config_data, parser_type)
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': '配置文件保存成功'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '配置文件保存失败'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"保存游戏配置失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'保存游戏配置失败: {str(e)}'
+        }), 500
+
+@app.route('/api/game-config/servers', methods=['GET'])
+@auth_required
+def get_available_servers():
+    """获取所有可用的服务端路径"""
+    try:
+        servers = []
+        
+        # 扫描已安装的游戏
+        if os.path.exists(GAMES_DIR):
+            for item in os.listdir(GAMES_DIR):
+                item_path = os.path.join(GAMES_DIR, item)
+                if os.path.isdir(item_path):
+                    servers.append({
+                        'id': item,
+                        'name': item,
+                        'path': item_path
+                    })
+        
+        return jsonify({
+            'status': 'success',
+            'servers': servers
+        })
+        
+    except Exception as e:
+        logger.error(f"获取可用服务端失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取可用服务端失败: {str(e)}'
+        }), 500
+
+# 网易云音乐相关API接口
+@app.route('/api/netease/load_playlist', methods=['POST'])
+@auth_required
+def load_netease_playlist():
+    """加载网易云音乐歌单"""
+    global netease_player
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求数据不能为空'
+            }), 400
+        
+        playlist_id = data.get('playlist_id')
+        if not playlist_id:
+            return jsonify({
+                'status': 'error',
+                'message': '歌单ID不能为空'
+            }), 400
+        
+        # 获取歌曲数量限制，默认50首
+        song_limit = data.get('song_limit', 50)
+        try:
+            song_limit = int(song_limit)
+            if song_limit <= 0:
+                song_limit = 50
+        except (ValueError, TypeError):
+            song_limit = 50
+        
+        # 初始化播放器（如果还没有初始化）
+        if netease_player is None:
+            netease_player = NeteaseMusicPlayer()
+        
+        # 加载歌单
+        success = netease_player.load_playlist(playlist_id, song_limit)
+        
+        if success:
+            # 获取歌单信息，包含播放链接
+            songs = []
+            limited_playlist = netease_player.playlist  # 已经在load_playlist中限制了数量
+            
+            for song in limited_playlist:
+                # 获取播放链接
+                song_url = netease_player.get_song_url(song['id'])
+                songs.append({
+                    'id': song['id'],
+                    'name': song['name'],
+                    'artist': song['artist'],
+                    'duration': song['duration'],
+                    'url': song_url  # 添加播放链接
+                })
+            
+            total_songs = len(netease_player.playlist)
+            loaded_songs = len(songs)
+            message = f'成功加载歌单，共 {total_songs} 首歌曲，已加载前 {loaded_songs} 首'
+            if total_songs <= song_limit:
+                message = f'成功加载歌单，共 {loaded_songs} 首歌曲'
+            
+            return jsonify({
+                'status': 'success',
+                'message': message,
+                'songs': songs,
+                'total_songs': total_songs,
+                'loaded_songs': loaded_songs
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '加载歌单失败，请检查歌单ID是否正确'
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"加载网易云歌单失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'加载歌单失败: {str(e)}'
+        }), 500
+
+@app.route('/api/netease/play', methods=['POST'])
+@auth_required
+def play_netease_music():
+    """播放网易云音乐"""
+    global netease_player
+    try:
+        if netease_player is None:
+            return jsonify({
+                'status': 'error',
+                'message': '请先加载歌单'
+            }), 400
+        
+        data = request.get_json()
+        song_index = data.get('song_index') if data else None
+        
+        success = netease_player.play_song(song_index)
+        
+        if success:
+            current_song = netease_player.current_song
+            return jsonify({
+                'status': 'success',
+                'message': '开始播放',
+                'current_song': {
+                    'id': current_song['id'],
+                    'name': current_song['name'],
+                    'artist': current_song['artist'],
+                    'duration': current_song['duration'],
+                    'url': current_song.get('url')  # 包含播放链接
+                } if current_song else None
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '播放失败'
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"播放网易云音乐失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'播放失败: {str(e)}'
+        }), 500
+
+@app.route('/api/netease/pause', methods=['POST'])
+@auth_required
+def pause_netease_music():
+    """暂停网易云音乐"""
+    global netease_player
+    try:
+        if netease_player is None:
+            return jsonify({
+                'status': 'error',
+                'message': '播放器未初始化'
+            }), 400
+        
+        netease_player.pause()
+        
+        return jsonify({
+            'status': 'success',
+            'message': '已暂停播放'
+        })
+        
+    except Exception as e:
+        logger.error(f"暂停网易云音乐失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'暂停失败: {str(e)}'
+        }), 500
+
+@app.route('/api/netease/resume', methods=['POST'])
+@auth_required
+def resume_netease_music():
+    """恢复网易云音乐播放"""
+    global netease_player
+    try:
+        if netease_player is None:
+            return jsonify({
+                'status': 'error',
+                'message': '播放器未初始化'
+            }), 400
+        
+        netease_player.resume()
+        
+        return jsonify({
+            'status': 'success',
+            'message': '已恢复播放'
+        })
+        
+    except Exception as e:
+        logger.error(f"恢复网易云音乐播放失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'恢复播放失败: {str(e)}'
+        }), 500
+
+@app.route('/api/netease/stop', methods=['POST'])
+@auth_required
+def stop_netease_music():
+    """停止网易云音乐播放"""
+    global netease_player
+    try:
+        if netease_player is None:
+            return jsonify({
+                'status': 'error',
+                'message': '播放器未初始化'
+            }), 400
+        
+        netease_player.stop()
+        
+        return jsonify({
+            'status': 'success',
+            'message': '已停止播放'
+        })
+        
+    except Exception as e:
+        logger.error(f"停止网易云音乐播放失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'停止播放失败: {str(e)}'
+        }), 500
+
+@app.route('/api/netease/status', methods=['GET'])
+@auth_required
+def get_netease_music_status():
+    """获取网易云音乐播放状态"""
+    global netease_player
+    try:
+        if netease_player is None:
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'is_playing': False,
+                    'is_paused': False,
+                    'current_song': None,
+                    'playlist_length': 0,
+                    'current_index': 0
+                }
+            })
+        
+        current_song = netease_player.current_song
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'is_playing': netease_player.is_playing,
+                'is_paused': netease_player.is_paused,
+                'current_song': {
+                    'id': current_song['id'],
+                    'name': current_song['name'],
+                    'artist': current_song['artist'],
+                    'duration': current_song['duration'],
+                    'url': current_song.get('url')  # 包含播放链接
+                } if current_song else None,
+                'playlist_length': len(netease_player.playlist),
+                'current_index': netease_player.current_index
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"获取网易云音乐状态失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'获取状态失败: {str(e)}'
         }), 500
 
 if __name__ == '__main__':

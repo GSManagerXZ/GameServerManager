@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Form, Input, Button, Card, message, Typography, Modal } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Card, message, Typography, Modal, Tooltip } from 'antd';
+import { UserOutlined, LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import '../App.css';
@@ -14,13 +14,318 @@ interface LoginFormValues {
 }
 
 const Login: React.FC = () => {
-  const { login, isFirstUse, checkFirstUse } = useAuth();
+  const { login, isFirstUse, checkFirstUse, setAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
   const [loginError, setLoginError] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
   const [hasFocus, setHasFocus] = useState(false);
   const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
   const navigate = useNavigate();
+  
+  // 检查Web Authentication API支持
+  useEffect(() => {
+    const checkBiometricSupport = () => {
+      try {
+        console.log('开始检查Web Authentication API支持...');
+        console.log('window.PublicKeyCredential:', !!window.PublicKeyCredential);
+        console.log('navigator.credentials:', !!navigator.credentials);
+        console.log('location.protocol:', location.protocol);
+        console.log('location.hostname:', location.hostname);
+        console.log('window.isSecureContext:', window.isSecureContext);
+        
+        // 检查浏览器是否支持Web Authentication API
+        if (typeof window.PublicKeyCredential !== 'undefined' && 
+            navigator.credentials && 
+            typeof navigator.credentials.create === 'function' &&
+            typeof navigator.credentials.get === 'function') {
+          
+          console.log('Web Authentication API基础支持检查通过');
+          
+          // 简化安全上下文检查，允许更多环境
+          const isLocalhost = location.hostname === 'localhost' || 
+                             location.hostname === '127.0.0.1' ||
+                             location.hostname === '0.0.0.0';
+          const isHttps = location.protocol === 'https:';
+          const isHttp = location.protocol === 'http:';
+          
+          // 在开发环境或本地环境下放宽限制
+          if (isHttps || isLocalhost || isHttp) {
+            setBiometricSupported(true);
+            console.log('Web Authentication API支持已启用');
+            
+            if (isHttp && !isLocalhost) {
+              console.warn('注意：在HTTP环境下使用生物识别可能存在安全风险，建议使用HTTPS');
+            }
+          } else {
+            console.warn('Web Authentication API需要安全上下文或本地环境');
+            setBiometricSupported(false);
+          }
+        } else {
+          console.warn('浏览器不支持Web Authentication API');
+          console.log('缺少的API:', {
+            PublicKeyCredential: !window.PublicKeyCredential,
+            credentials: !navigator.credentials,
+            create: !navigator.credentials?.create,
+            get: !navigator.credentials?.get
+          });
+          setBiometricSupported(false);
+        }
+      } catch (error) {
+        console.error('检查Web Authentication API支持时出错:', error);
+        setBiometricSupported(false);
+      }
+    };
+    
+    checkBiometricSupport();
+  }, []);
+  
+  // 生成随机挑战值
+  const generateChallenge = (): Uint8Array => {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return array;
+  };
+  
+  // 将ArrayBuffer转换为Base64
+  const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+  
+  // 将Base64转换为ArrayBuffer
+  const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+  
+  // 注册生物识别认证
+  const registerBiometric = async (username: string) => {
+    if (!biometricSupported) {
+      message.error('当前环境不支持生物识别认证');
+      return;
+    }
+    
+    try {
+      setBiometricLoading(true);
+      
+      // 生成注册选项
+      const challenge = generateChallenge();
+      const userId = new TextEncoder().encode(username);
+      
+      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+        challenge,
+        rp: {
+          name: 'GameServerManager',
+          id: location.hostname,
+        },
+        user: {
+          id: userId,
+          name: username,
+          displayName: username,
+        },
+        pubKeyCredParams: [
+          {
+            alg: -7, // ES256
+            type: 'public-key',
+          },
+          {
+            alg: -257, // RS256
+            type: 'public-key',
+          },
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+        },
+        timeout: 60000,
+        attestation: 'direct',
+      };
+      
+      const credential = await navigator.credentials.create({
+        publicKey: publicKeyCredentialCreationOptions,
+      }) as PublicKeyCredential;
+      
+      if (credential) {
+        const response = credential.response as AuthenticatorAttestationResponse;
+        
+        // 将凭据信息发送到后端保存
+        const credentialData = {
+          id: credential.id,
+          rawId: arrayBufferToBase64(credential.rawId),
+          type: credential.type,
+          response: {
+            attestationObject: arrayBufferToBase64(response.attestationObject),
+            clientDataJSON: arrayBufferToBase64(response.clientDataJSON),
+          },
+          username,
+        };
+        
+        await axios.post('/api/auth/register_biometric', credentialData);
+        message.success('生物识别认证注册成功！');
+      }
+    } catch (error: any) {
+      console.error('生物识别注册失败:', error);
+      if (error.name === 'NotAllowedError') {
+        message.error('用户取消了生物识别注册');
+      } else if (error.name === 'NotSupportedError') {
+        message.error('设备不支持生物识别认证');
+      } else {
+        message.error('生物识别注册失败，请稍后重试');
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
+  
+  // 检查生物识别支持并显示详细错误信息
+  const checkBiometricSupportWithDetails = () => {
+    const reasons = [];
+    
+    if (typeof window.PublicKeyCredential === 'undefined') {
+      reasons.push('浏览器不支持Web Authentication API');
+    }
+    
+    if (!navigator.credentials) {
+      reasons.push('浏览器不支持Credentials API');
+    }
+    
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      reasons.push('需要HTTPS安全连接或本地环境');
+    }
+    
+    return {
+      supported: reasons.length === 0,
+      reasons
+    };
+  };
+  
+  // 处理生物识别按钮点击
+  const handleBiometricClick = () => {
+    if (!biometricSupported) {
+      const { reasons } = checkBiometricSupportWithDetails();
+      
+      Modal.warning({
+        title: '生物识别不可用',
+        content: (
+          <div>
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f0f8ff', borderRadius: '6px', border: '1px solid #d1ecf1' }}>
+              <h4 style={{ margin: '0 0 8px 0', color: '#0c5460', fontSize: '14px' }}>💡 什么是生物识别？</h4>
+              <p style={{ margin: 0, fontSize: '13px', color: '#0c5460', lineHeight: '1.5' }}>
+                生物识别是一种基于Web Authentication API技术实现的安全认证方式。它允许网站使用设备内置的生物识别功能（如指纹识别、面部识别等）进行身份验证，无需输入密码。这种方式不仅方便快捷，而且更加安全，因为生物特征数据始终存储在设备的安全区域内，不会传输到网站服务器。Web Authentication API（也称为WebAuthn）是W3C和FIDO联盟共同制定的网络标准，已被主流浏览器广泛支持
+              </p>
+            </div>
+            <p>您的浏览器或环境不支持生物识别登录，原因如下：</p>
+            <ul style={{ marginTop: '8px', paddingLeft: '20px' }}>
+              {reasons.map((reason, index) => (
+                <li key={index} style={{ marginBottom: '4px' }}>{reason}</li>
+              ))}
+            </ul>
+            <p style={{ marginTop: '12px', color: '#666' }}>
+              建议：使用支持WebAuthn的现代浏览器（如Chrome、Edge、Firefox、Safari等）并确保在HTTPS环境下访问。
+            </p>
+          </div>
+        ),
+        okText: '我知道了',
+        width: 600
+      });
+      return;
+    }
+    
+    loginWithBiometric();
+  };
+
+  // 使用生物识别登录
+  const loginWithBiometric = async () => {
+    
+    try {
+      setBiometricLoading(true);
+      setLoginError(false);
+      
+      // 从后端获取认证选项
+      const challengeResponse = await axios.get('/api/auth/biometric_challenge');
+      const { challenge, allowCredentials } = challengeResponse.data;
+      
+      const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
+        challenge: base64ToArrayBuffer(challenge),
+        allowCredentials: allowCredentials.map((cred: any) => ({
+          id: base64ToArrayBuffer(cred.id),
+          type: 'public-key',
+        })),
+        userVerification: 'required',
+        timeout: 60000,
+      };
+      
+      const assertion = await navigator.credentials.get({
+        publicKey: publicKeyCredentialRequestOptions,
+      }) as PublicKeyCredential;
+      
+      if (assertion) {
+        const response = assertion.response as AuthenticatorAssertionResponse;
+        
+        // 将认证信息发送到后端验证
+        const assertionData = {
+          id: assertion.id,
+          rawId: arrayBufferToBase64(assertion.rawId),
+          type: assertion.type,
+          response: {
+            authenticatorData: arrayBufferToBase64(response.authenticatorData),
+            clientDataJSON: arrayBufferToBase64(response.clientDataJSON),
+            signature: arrayBufferToBase64(response.signature),
+            userHandle: response.userHandle ? arrayBufferToBase64(response.userHandle) : null,
+          },
+        };
+        
+        const verifyResponse = await axios.post('/api/auth/verify_biometric', assertionData);
+        
+        if (verifyResponse.data.status === 'success') {
+          // 登录成功
+          setLoginSuccess(true);
+          message.success('生物识别登录成功！');
+          
+          // 设置认证状态
+          setAuthenticated(verifyResponse.data.token, verifyResponse.data.username, verifyResponse.data.role || 'user');
+          
+          // 延迟导航，等待动画完成
+          setTimeout(() => {
+            navigate('/');
+          }, 500);
+        } else {
+          setLoginError(true);
+          message.error('生物识别验证失败');
+        }
+      }
+    } catch (error: any) {
+      console.error('生物识别登录失败:', error);
+      setLoginError(true);
+      
+      if (error.name === 'NotAllowedError') {
+        message.error('用户取消了生物识别认证');
+      } else if (error.name === 'NotSupportedError') {
+        message.error('设备不支持生物识别认证');
+      } else if (error.response?.status === 404) {
+        message.error('未找到已注册的生物识别信息，请先注册');
+      } else {
+        message.error('生物识别登录失败，请稍后重试');
+      }
+      
+      // 重置错误状态
+      setTimeout(() => {
+        setLoginError(false);
+      }, 500);
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
   
   // 新增：当前背景图片URL
   const [currentBackgroundUrl, setCurrentBackgroundUrl] = useState<string>('https://t.alcy.cc/ycy');
@@ -160,6 +465,77 @@ const Login: React.FC = () => {
         setLoginSuccess(true);
         message.success('登录成功');
         
+        // 如果支持生物识别且用户还未注册，询问是否注册
+        if (biometricSupported) {
+          // 检查用户是否已经选择永久跳过
+          const skipBiometric = localStorage.getItem(`skipBiometric_${values.username}`);
+          if (skipBiometric !== 'true') {
+            setTimeout(() => {
+              Modal.confirm({
+                title: '生物识别认证',
+                content: (
+                  <div>
+                    <p>是否要为您的账户注册生物识别认证（如指纹、面部识别等）？这将让您下次登录更加便捷和安全。</p>
+                    <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                      <button 
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d9d9d9',
+                          borderRadius: '4px',
+                          background: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '14px'
+                        }}
+                        onClick={() => {
+                          registerBiometric(values.username);
+                          Modal.destroyAll();
+                        }}
+                      >
+                        注册
+                      </button>
+                      <button 
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d9d9d9',
+                          borderRadius: '4px',
+                          background: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '14px'
+                        }}
+                        onClick={() => {
+                          Modal.destroyAll();
+                        }}
+                      >
+                        取消
+                      </button>
+                      <button 
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #ff4d4f',
+                          borderRadius: '4px',
+                          background: '#fff',
+                          color: '#ff4d4f',
+                          cursor: 'pointer',
+                          fontSize: '14px'
+                        }}
+                        onClick={() => {
+                          localStorage.setItem(`skipBiometric_${values.username}`, 'true');
+                          Modal.destroyAll();
+                          message.info('已永久跳过生物识别注册');
+                        }}
+                      >
+                        永久跳过
+                      </button>
+                    </div>
+                  </div>
+                ),
+                footer: null, // 隐藏默认按钮
+                width: 500
+              });
+            }, 1000);
+          }
+        }
+        
         // 延迟导航，等待动画完成
         setTimeout(() => {
           navigate('/');
@@ -295,6 +671,34 @@ const Login: React.FC = () => {
             >
               登录
             </Button>
+          </Form.Item>
+          
+          <Form.Item>
+            <Tooltip 
+              title={!biometricSupported ? "您的浏览器不支持生物识别，点击查看详情" : ""}
+              placement="top"
+            >
+              <Button 
+                type="default" 
+                icon={<SafetyCertificateOutlined />}
+                loading={biometricLoading}
+                block
+                className="biometric-login-button"
+                onClick={handleBiometricClick}
+                style={{
+                  marginTop: '8px',
+                  background: biometricSupported 
+                    ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                    : '#f5f5f5',
+                  border: 'none',
+                  color: biometricSupported ? 'white' : '#bfbfbf',
+                  fontWeight: '500',
+                  cursor: 'pointer'
+                }}
+              >
+                生物识别登录
+              </Button>
+            </Tooltip>
           </Form.Item>
           
           <div style={{ textAlign: 'center', display: 'flex', justifyContent: 'space-between' }}>

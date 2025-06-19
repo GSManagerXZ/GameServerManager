@@ -1,0 +1,487 @@
+meta:
+  game_name: "方舟生存进化"
+  config_file: "ShooterGame/Saved/Config/LinuxServer/GameUserSettings.ini"
+  parser: "configobj"
+
+sections:
+  - key: "SessionSettings"
+    fields:
+      # 会话设置
+      - name: "SessionName"
+        display: "服务器名称"
+        default: "Unnamed Server"
+        type: "string"
+        description: "服务器在游戏列表中显示的名称"
+      - name: "Port"
+        display: "游戏端口【1024到65535】"
+        default: 7777
+        type: "number"
+        description: "服务器游戏端口"
+      - name: "QueryPort"
+        display: "查询端口【1024到65535】"
+        default: 27015
+        type: "number"
+        description: "服务器查询端口，用于Steam查询"
+      - name: "MultiHome"
+        display: "多网卡IP"
+        default: ""
+        type: "string"
+        description: "多网卡环境下指定绑定的IP地址"
+  
+  - key: "ServerSettings"
+    fields:
+      # 服务器基础设置
+      - name: "ServerPassword"
+        display: "服务器密码"
+        default: ""
+        type: "string"
+        description: "玩家进入服务器需要的密码，留空表示无密码"
+      - name: "ServerAdminPassword"
+        display: "管理员密码"
+        default: ""
+        type: "string"
+        description: "管理员权限密码"
+      - name: "SpectatorPassword"
+        display: "观察者密码"
+        default: ""
+        type: "string"
+        description: "观察者模式密码"
+      
+      # RCON设置
+      - name: "RCONEnabled"
+        display: "启用RCON"
+        default: false
+        type: "boolean"
+        description: "是否启用远程控制台功能"
+      - name: "RCONPort"
+        display: "RCON端口【1024到65535】"
+        default: 32330
+        type: "number"
+        description: "RCON远程控制台端口"
+      - name: "RCONServerGameLogBuffer"
+        display: "RCON日志缓冲【100到10000】"
+        default: 600
+        type: "number"
+        description: "RCON服务器游戏日志缓冲区大小"
+      
+      # 日志和管理设置
+      - name: "AdminLogging"
+        display: "管理员日志"
+        default: false
+        type: "boolean"
+        description: "是否记录管理员操作日志"
+      - name: "ActiveMods"
+        display: "激活的MOD"
+        default: ""
+        type: "string"
+        description: "激活的MOD ID列表，用逗号分隔"
+      - name: "AutoSavePeriodMinutes"
+        display: "自动保存间隔【5到60】"
+        default: 15.0
+        type: "number"
+        description: "自动保存游戏的时间间隔（分钟）"
+      
+      # 部落和日志设置
+      - name: "TribeLogDestroyedEnemyStructures"
+        display: "部落日志记录摧毁敌方建筑"
+        default: false
+        type: "boolean"
+        description: "部落日志是否记录摧毁敌方建筑的信息"
+      - name: "AllowHideDamageSourceFromLogs"
+        display: "允许隐藏伤害来源日志"
+        default: false
+        type: "boolean"
+        description: "是否允许在日志中隐藏伤害来源"
+      - name: "bFilterTribeNames"
+        display: "过滤部落名称"
+        default: false
+        type: "boolean"
+        description: "是否过滤不当的部落名称"
+      - name: "bFilterCharacterNames"
+        display: "过滤角色名称"
+        default: false
+        type: "boolean"
+        description: "是否过滤不当的角色名称"
+      - name: "bFilterChat"
+        display: "过滤聊天内容"
+        default: false
+        type: "boolean"
+        description: "是否过滤不当的聊天内容"
+      
+      # 连接和服务器模式设置
+      - name: "AllowSharedConnections"
+        display: "允许共享连接"
+        default: true
+        type: "boolean"
+        description: "是否允许共享网络连接"
+      - name: "ServerHardcore"
+        display: "硬核模式"
+        default: false
+        type: "boolean"
+        description: "是否启用硬核模式（死亡后角色删除）"
+      - name: "ServerPVE"
+        display: "PVE模式"
+        default: true
+        type: "boolean"
+        description: "是否启用PVE模式（玩家vs环境）"
+      
+      # 建筑设置
+      - name: "AllowCaveBuildingPvE"
+        display: "PVE模式允许洞穴建筑"
+        default: false
+        type: "boolean"
+        description: "PVE模式下是否允许在洞穴中建造"
+      - name: "AllowCaveBuildingPvP"
+        display: "PVP模式允许洞穴建筑"
+        default: true
+        type: "boolean"
+        description: "PVP模式下是否允许在洞穴中建造"
+      - name: "EnableExtraStructurePreventionVolumes"
+        display: "启用额外建筑阻止区域"
+        default: false
+        type: "boolean"
+        description: "是否启用额外的建筑阻止区域"
+      
+      # 传输和上传设置
+      - name: "NoTributeDownloads"
+        display: "禁止贡品下载"
+        default: true
+        type: "boolean"
+        description: "是否禁止从其他服务器下载贡品"
+      - name: "PreventUploadSurvivors"
+        display: "阻止上传幸存者"
+        default: true
+        type: "boolean"
+        description: "是否阻止上传幸存者角色"
+      - name: "PreventUploadItems"
+        display: "阻止上传物品"
+        default: true
+        type: "boolean"
+        description: "是否阻止上传物品"
+      - name: "PreventUploadDinos"
+        display: "阻止上传恐龙"
+        default: true
+        type: "boolean"
+        description: "是否阻止上传恐龙"
+      - name: "CrossARKAllowForeignDinoDownloads"
+        display: "跨方舟允许外来恐龙下载"
+        default: false
+        type: "boolean"
+        description: "是否允许从其他方舟服务器下载恐龙"
+      
+      # PVP设置
+      - name: "PreventOfflinePvP"
+        display: "阻止离线PVP"
+        default: false
+        type: "boolean"
+        description: "是否阻止对离线玩家的PVP攻击"
+      - name: "TribeNameChangeCooldown"
+        display: "部落改名冷却时间【1到168】"
+        default: 15
+        type: "number"
+        description: "部落改名的冷却时间（小时）"
+      - name: "PreventTribeAlliances"
+        display: "阻止部落联盟"
+        default: false
+        type: "boolean"
+        description: "是否阻止部落之间结成联盟"
+      
+      # 疾病和动画设置
+      - name: "PreventDiseases"
+        display: "阻止疾病"
+        default: false
+        type: "boolean"
+        description: "是否阻止疾病系统"
+      - name: "NonPermanentDiseases"
+        display: "非永久性疾病"
+        default: false
+        type: "boolean"
+        description: "疾病是否为非永久性"
+      - name: "PreventSpawnAnimations"
+        display: "阻止生成动画"
+        default: false
+        type: "boolean"
+        description: "是否阻止生物生成动画"
+      
+      # 平台和载具设置
+      - name: "PlatformSaddleBuildAreaBoundsMultiplier"
+        display: "平台鞍建造区域倍数【0.1到10.0】"
+        default: 1.0
+        type: "number"
+        description: "平台鞍上建造区域的大小倍数"
+      - name: "MaxGateFrameOnSaddles"
+        display: "鞍上最大门框数【0到20】"
+        default: 2
+        type: "number"
+        description: "平台鞍上允许的最大门框数量"
+      
+      # 游戏机制设置
+      - name: "RandomSupplyCratePoints"
+        display: "随机补给箱点"
+        default: false
+        type: "boolean"
+        description: "是否随机化补给箱掉落点"
+      - name: "AllowTekSuitPowersInGenesis"
+        display: "创世纪中允许泰克套装能力"
+        default: false
+        type: "boolean"
+        description: "在创世纪地图中是否允许使用泰克套装能力"
+      - name: "EnableCryoSicknessPVE"
+        display: "PVE启用冷冻病"
+        default: false
+        type: "boolean"
+        description: "PVE模式下是否启用冷冻舱疾病"
+      - name: "MaxHexagonsPerCharacter"
+        display: "每角色最大六边形【1000到2000000000】"
+        default: 2000000000
+        type: "number"
+        description: "每个角色可持有的最大六边形数量"
+      
+      # 语音聊天设置
+      - name: "globalVoiceChat"
+        display: "全局语音聊天"
+        default: false
+        type: "boolean"
+        description: "是否启用全局语音聊天"
+      - name: "proximityChat"
+        display: "邻近语音聊天"
+        default: false
+        type: "boolean"
+        description: "是否启用邻近语音聊天"
+      
+      # 通知设置
+      - name: "alwaysNotifyPlayerLeft"
+        display: "总是通知玩家离开"
+        default: false
+        type: "boolean"
+        description: "玩家离开时是否总是发送通知"
+      - name: "DontAlwaysNotifyPlayerJoined"
+        display: "不总是通知玩家加入"
+        default: false
+        type: "boolean"
+        description: "玩家加入时是否不总是发送通知"
+      
+      # 界面设置
+      - name: "ServerCrosshair"
+        display: "服务器准星"
+        default: true
+        type: "boolean"
+        description: "是否显示服务器准星"
+      - name: "ServerForceNoHud"
+        display: "服务器强制无HUD"
+        default: false
+        type: "boolean"
+        description: "是否强制隐藏HUD界面"
+      - name: "AllowThirdPersonPlayer"
+        display: "允许第三人称视角"
+        default: false
+        type: "boolean"
+        description: "是否允许玩家使用第三人称视角"
+      - name: "ShowMapPlayerLocation"
+        display: "地图显示玩家位置"
+        default: false
+        type: "boolean"
+        description: "地图上是否显示玩家位置"
+      
+      # 伽马和显示设置
+      - name: "EnablePVPGamma"
+        display: "启用PVP伽马"
+        default: false
+        type: "boolean"
+        description: "PVP模式下是否启用伽马调节"
+      - name: "DisablePvEGamma"
+        display: "禁用PVE伽马"
+        default: true
+        type: "boolean"
+        description: "PVE模式下是否禁用伽马调节"
+      - name: "ShowFloatingDamageText"
+        display: "显示浮动伤害文字"
+        default: false
+        type: "boolean"
+        description: "是否显示浮动的伤害数字"
+      - name: "AllowHitMarkers"
+        display: "允许命中标记"
+        default: true
+        type: "boolean"
+        description: "是否允许显示命中标记"
+      
+      # 飞行和恐龙设置
+      - name: "AllowFlyerCarryPVE"
+        display: "PVE允许飞行生物携带"
+        default: false
+        type: "boolean"
+        description: "PVE模式下飞行生物是否可以携带玩家"
+      - name: "AllowRaidDinoFeeding"
+        display: "允许突袭恐龙喂食"
+        default: false
+        type: "boolean"
+        description: "是否允许在突袭中喂食恐龙"
+      - name: "DisableDinoDecayPvE"
+        display: "PVE禁用恐龙衰减"
+        default: false
+        type: "boolean"
+        description: "PVE模式下是否禁用恐龙衰减"
+      - name: "PvPDinoDecay"
+        display: "PVP恐龙衰减"
+        default: false
+        type: "boolean"
+        description: "PVP模式下是否启用恐龙衰减"
+      - name: "AutoDestroyDecayedDinos"
+        display: "自动销毁衰减恐龙"
+        default: false
+        type: "boolean"
+        description: "是否自动销毁衰减的恐龙"
+      
+      # 恐龙数量限制
+      - name: "MaxTamedDinos"
+        display: "最大驯服恐龙数【100到50000】"
+        default: 5000
+        type: "number"
+        description: "服务器最大驯服恐龙总数"
+      - name: "MaxPersonalTamedDinos"
+        display: "个人最大驯服恐龙数【10到500】"
+        default: 40.0
+        type: "number"
+        description: "每个玩家最大驯服恐龙数量"
+      - name: "PersonalTamedDinosSaddleStructureCost"
+        display: "个人驯服恐龙鞍结构成本【1到100】"
+        default: 19
+        type: "number"
+        description: "个人驯服恐龙鞍上结构的成本"
+      
+      # 印记设置
+      - name: "DisableImprintDinoBuff"
+        display: "禁用印记恐龙增益"
+        default: false
+        type: "boolean"
+        description: "是否禁用恐龙印记带来的属性增益"
+      - name: "AllowAnyoneBabyImprintCuddle"
+        display: "允许任何人幼崽印记拥抱"
+        default: false
+        type: "boolean"
+        description: "是否允许任何人对幼崽进行印记拥抱"
+      
+      # 采集和资源设置
+      - name: "UseOptimizedHarvestingHealth"
+        display: "使用优化采集生命值"
+        default: false
+        type: "boolean"
+        description: "是否使用优化的采集生命值计算"
+      - name: "ClampResourceHarvestDamage"
+        display: "限制资源采集伤害"
+        default: false
+        type: "boolean"
+        description: "是否限制资源采集时的伤害值"
+      - name: "ClampItemSpoilingTimes"
+        display: "限制物品腐坏时间"
+        default: false
+        type: "boolean"
+        description: "是否限制物品的腐坏时间"
+      
+      # 建筑衰减设置
+      - name: "PvPStructureDecay"
+        display: "PVP建筑衰减"
+        default: false
+        type: "boolean"
+        description: "PVP模式下是否启用建筑衰减"
+      - name: "TheMaxStructuresInRange"
+        display: "范围内最大建筑数【1000到50000】"
+        default: 10500
+        type: "number"
+        description: "指定范围内允许的最大建筑数量"
+      - name: "DisableStructureDecayPVE"
+        display: "PVE禁用建筑衰减"
+        default: true
+        type: "boolean"
+        description: "PVE模式下是否禁用建筑衰减"
+      - name: "ForceAllStructureLocking"
+        display: "强制所有建筑锁定"
+        default: false
+        type: "boolean"
+        description: "是否强制锁定所有建筑"
+      - name: "OnlyAutoDestroyCoreStructures"
+        display: "仅自动销毁核心建筑"
+        default: false
+        type: "boolean"
+        description: "是否仅自动销毁核心建筑"
+      - name: "OnlyDecayUnsnappedCoreStructures"
+        display: "仅衰减未连接核心建筑"
+        default: false
+        type: "boolean"
+        description: "是否仅对未连接的核心建筑进行衰减"
+      - name: "FastDecayUnsnappedCoreStructures"
+        display: "快速衰减未连接核心建筑"
+        default: false
+        type: "boolean"
+        description: "是否快速衰减未连接的核心建筑"
+      - name: "DestroyUnconnectedWaterPipes"
+        display: "销毁未连接水管"
+        default: false
+        type: "boolean"
+        description: "是否销毁未连接的水管"
+      - name: "IgnoreLimitMaxStructuresInRangeTypeFlag"
+        display: "忽略范围内最大建筑类型标志限制"
+        default: false
+        type: "boolean"
+        description: "是否忽略范围内最大建筑类型标志的限制"
+      
+      # 建筑拾取设置
+      - name: "AlwaysAllowStructurePickup"
+        display: "总是允许建筑拾取"
+        default: false
+        type: "boolean"
+        description: "是否总是允许拾取建筑"
+      - name: "StructurePickupTimeAfterPlacement"
+        display: "建筑放置后拾取时间【0到3600】"
+        default: 30.0
+        type: "number"
+        description: "建筑放置后可以拾取的时间（秒）"
+      - name: "StructurePickupHoldDuration"
+        display: "建筑拾取按住时间【0.1到10.0】"
+        default: 0.5
+        type: "number"
+        description: "拾取建筑需要按住的时间（秒）"
+      
+      # MOD和物品设置
+      - name: "AllowIntegratedSPlusStructures"
+        display: "允许集成S+建筑"
+        default: true
+        type: "boolean"
+        description: "是否允许集成Structures Plus建筑"
+      - name: "ItemStackSizeMultiplier"
+        display: "物品堆叠倍数【0.1到1000.0】"
+        default: 100.0
+        type: "number"
+        description: "物品堆叠数量的倍数"
+  
+  - key: "MultiHome"
+    fields:
+      # 多网卡设置
+      - name: "MultiHome"
+        display: "启用多网卡"
+        default: false
+        type: "boolean"
+        description: "是否启用多网卡支持"
+  
+  - key: "/Script/Engine.GameSession"
+    fields:
+      # 游戏会话设置
+      - name: "MaxPlayers"
+        display: "最大玩家数【1到200】"
+        default: 70
+        type: "number"
+        description: "服务器允许的最大玩家数量"
+  
+  - key: "MessageOfTheDay"
+    fields:
+      # 每日消息设置
+      - name: "Message"
+        display: "每日消息内容"
+        default: ""
+        type: "string"
+        description: "玩家进入服务器时显示的每日消息"
+      - name: "Duration"
+        display: "消息显示时长【5到300】"
+        default: 20
+        type: "number"
+        description: "每日消息显示的时长（秒）"

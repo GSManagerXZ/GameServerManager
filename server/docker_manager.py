@@ -287,6 +287,41 @@ class DockerManager:
             logger.error(f"列出容器失败: {str(e)}")
             return []
     
+    def list_images(self) -> List[Dict[str, Any]]:
+        """列出所有Docker镜像"""
+        if not self.is_connected():
+            return []
+        
+        try:
+            images = self.client.images.list()
+            result = []
+            
+            for image in images:
+                # 获取镜像标签
+                tags = image.tags if image.tags else []
+                
+                # 如果没有标签，使用镜像ID
+                if not tags:
+                    tags = [image.id[:12]]
+                
+                for tag in tags:
+                    # 跳过<none>标签
+                    if '<none>' not in tag:
+                        result.append({
+                            'id': image.id[:12],
+                            'tag': tag,
+                            'size': image.attrs.get('Size', 0),
+                            'created': image.attrs.get('Created', '')
+                        })
+            
+            # 按标签名排序，gameservermanager相关镜像排在前面
+            result.sort(key=lambda x: (0 if 'gameservermanager' in x['tag'].lower() else 1, x['tag']))
+            
+            return result
+        except Exception as e:
+            logger.error(f"列出镜像失败: {str(e)}")
+            return []
+    
     def download_and_import_image(self, download_url: str, image_name: str = "gameservermanager:latest") -> Dict[str, Any]:
         """下载并导入Docker镜像"""
         try:

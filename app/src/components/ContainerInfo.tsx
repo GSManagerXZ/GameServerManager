@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useMusic } from '../context/MusicContext';
 import { Card, Progress, Statistic, Table, Typography, Button, Space, Row, Col, Divider, Tag, Dropdown, Menu, Alert, Modal, message, Slider } from 'antd';
 import { ReloadOutlined, HddOutlined, RocketOutlined, AppstoreOutlined, DownOutlined, GlobalOutlined, WarningOutlined, DesktopOutlined, ApiOutlined, ExclamationCircleOutlined, StopOutlined, DragOutlined, SettingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
@@ -94,9 +95,28 @@ interface ContainerInfoProps {
 interface CardConfig {
   id: string;
   title: string;
-  type: 'cpu' | 'memory' | 'disk' | 'network' | 'installedGames' | 'runningGames' | 'processes' | 'ports';
+  type: 'cpu' | 'memory' | 'disk' | 'network' | 'installedGames' | 'runningGames' | 'processes' | 'ports' | 'netease';
   visible: boolean;
   span: number; // 栅格占用宽度
+}
+
+// 网易云音乐相关接口
+interface NeteaseMusicState {
+  playlistId: string;
+  isPlaying: boolean;
+  isPaused: boolean;
+  currentSong: {
+    name: string;
+    artist: string;
+    duration: number;
+  } | null;
+  playlist: Array<{
+    id: string;
+    name: string;
+    artist: string;
+    duration: number;
+  }>;
+  currentIndex: number;
 }
 
 // 默认卡片配置
@@ -108,7 +128,8 @@ const defaultCardConfigs: CardConfig[] = [
   { id: 'installedGames', title: '已安装游戏', type: 'installedGames', visible: true, span: 12 },
   { id: 'runningGames', title: '正在运行的服务器', type: 'runningGames', visible: true, span: 12 },
   { id: 'processes', title: '系统进程', type: 'processes', visible: true, span: 12 },
-  { id: 'ports', title: '活跃端口', type: 'ports', visible: true, span: 12 }
+  { id: 'ports', title: '活跃端口', type: 'ports', visible: true, span: 12 },
+  { id: 'netease', title: '网易云音乐', type: 'netease', visible: true, span: 12 }
 ];
 
 const ContainerInfo: React.FC<ContainerInfoProps> = ({
@@ -135,6 +156,17 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
   const [settingsVisible, setSettingsVisible] = useState<boolean>(false);
   const [cpuCoresExpanded, setCpuCoresExpanded] = useState<boolean>(false); // CPU核心展开状态
   const [helpModalVisible, setHelpModalVisible] = useState<boolean>(false); // 帮助弹窗状态
+  // 使用全局音乐状态
+  const { 
+    musicState: neteaseMusicState, 
+    loadPlaylist: loadMusicPlaylist,
+    playMusic: playMusicGlobal,
+    pauseMusic: pauseMusicGlobal,
+    resumeMusic: resumeMusicGlobal,
+    stopMusic: stopMusicGlobal,
+    nextSong: nextSongGlobal,
+    previousSong: previousSongGlobal
+  } = useMusic();
   const isMobile = useIsMobile(); // 检测是否为移动端
 
   const fetchContainerInfo = async (includeNetworkInfo = false) => {
@@ -1256,6 +1288,211 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
     </Card>
   );
 
+  // 网易云音乐相关功能函数 - 现在使用全局Context
+  const loadPlaylist = loadMusicPlaylist;
+  const playMusic = playMusicGlobal;
+  const pauseMusic = pauseMusicGlobal;
+  const resumeMusic = resumeMusicGlobal;
+  const stopMusic = stopMusicGlobal;
+  const nextSong = nextSongGlobal;
+  const previousSong = previousSongGlobal;
+
+  // 本地函数已移除，现在使用全局Context中的函数
+
+  const formatDuration = (duration: number) => {
+    const minutes = Math.floor(duration / 60000);
+    const seconds = Math.floor((duration % 60000) / 1000);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // 渲染网易云音乐卡片
+  const renderNeteaseMusicCard = () => {
+    const { playlistId, isPlaying, isPaused, currentSong, playlist, isPlayerVisible } = neteaseMusicState;
+    
+    return (
+      <Card 
+        title="网易云音乐" 
+        size={isMobile ? "small" : "default"}
+        extra={
+          <Space>
+            <Button 
+              size="small" 
+              onClick={() => {
+                Modal.confirm({
+                  title: '加载网易云音乐歌单',
+                  content: (
+                    <div>
+                      <p>请输入网易云音乐歌单ID：</p>
+                      <input 
+                        id="playlist-input" 
+                        type="text" 
+                        placeholder="例如：19723756" 
+                        defaultValue={playlistId}
+                        style={{ width: '100%', padding: '8px', border: '1px solid #d9d9d9', borderRadius: '4px', marginBottom: '12px' }}
+                      />
+                      <p>加载歌曲数量：</p>
+                      <input 
+                        id="song-limit-input" 
+                        type="number" 
+                        placeholder="默认50首" 
+                        defaultValue="50"
+                        min="1"
+                        max="1000"
+                        style={{ width: '100%', padding: '8px', border: '1px solid #d9d9d9', borderRadius: '4px' }}
+                      />
+                      <p style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                        推荐歌单：19723756(飙升榜)、3778678(热歌榜)
+                      </p>
+                      <p style={{ marginTop: '4px', fontSize: '12px', color: '#999' }}>
+                        建议加载50-200首歌曲以获得最佳体验
+                      </p>
+                    </div>
+                  ),
+                  onOk: () => {
+                    const playlistInput = document.getElementById('playlist-input') as HTMLInputElement;
+                    const songLimitInput = document.getElementById('song-limit-input') as HTMLInputElement;
+                    const id = playlistInput?.value?.trim();
+                    const limit = parseInt(songLimitInput?.value) || 50;
+                    if (id) {
+                      loadPlaylist(id, limit);
+                    }
+                  }
+                });
+              }}
+            >
+              加载歌单
+            </Button>
+          </Space>
+        }
+      >
+        <div style={{ minHeight: '200px' }}>
+          {/* 当前播放信息 */}
+          {isPlayerVisible && currentSong ? (
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{currentSong.name}</div>
+              <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>
+                {currentSong.artist} • {formatDuration(currentSong.duration)}
+              </div>
+              {/* 全局音频播放提示 */}
+              <div style={{ 
+                padding: '8px', 
+                backgroundColor: '#e6f7ff', 
+                borderRadius: '4px', 
+                marginBottom: '8px',
+                fontSize: '12px',
+                color: '#1890ff'
+              }}>
+                🎵 音乐正在全局播放，切换页面不会中断
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Button 
+                  size="small" 
+                  onClick={previousSong}
+                  disabled={playlist.length === 0}
+                >
+                  上一首
+                </Button>
+                {isPlaying ? (
+                  isPaused ? (
+                    <Button size="small" type="primary" onClick={resumeMusic}>
+                      继续播放
+                    </Button>
+                  ) : (
+                    <Button size="small" onClick={pauseMusic}>
+                      暂停
+                    </Button>
+                  )
+                ) : (
+                  <Button 
+                    size="small" 
+                    type="primary" 
+                    onClick={() => playMusic()}
+                    disabled={playlist.length === 0}
+                  >
+                    播放
+                  </Button>
+                )}
+                <Button size="small" onClick={stopMusic} disabled={!isPlaying}>
+                  停止
+                </Button>
+                <Button 
+                  size="small" 
+                  onClick={nextSong}
+                  disabled={playlist.length === 0}
+                >
+                  下一首
+                </Button>
+              </div>
+            </div>
+          ) : isPlayerVisible ? (
+            <div style={{ textAlign: 'center', color: '#999', marginBottom: '16px' }}>
+              {playlist.length > 0 ? '请选择歌曲播放' : '请先加载歌单'}
+            </div>
+          ) : null}
+
+          {/* 歌单列表 */}
+          {isPlayerVisible && playlist.length > 0 ? (
+            <div>
+              <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: 'bold' }}>
+                歌单 ({playlist.length} 首)
+              </div>
+              <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                {playlist.map((song, index) => (
+                  <div 
+                    key={song.id}
+                    style={{
+                      padding: '8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      backgroundColor: index === neteaseMusicState.currentIndex ? '#e6f7ff' : 'transparent',
+                      border: index === neteaseMusicState.currentIndex ? '1px solid #1890ff' : '1px solid transparent',
+                      marginBottom: '4px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                    onClick={() => playMusic(index)}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ 
+                        fontWeight: index === neteaseMusicState.currentIndex ? 'bold' : 'normal',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {song.name}
+                      </div>
+                      <div style={{ 
+                        fontSize: '12px', 
+                        color: '#666',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {song.artist}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#999', marginLeft: '8px' }}>
+                      {formatDuration(song.duration)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : !isPlayerVisible ? (
+            <div style={{ textAlign: 'center', color: '#ccc', padding: '40px 0' }}>
+              点击"加载歌单"开始使用音乐播放功能
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', color: '#ccc', padding: '40px 0' }}>
+              暂无歌单数据
+            </div>
+          )}
+        </div>
+      </Card>
+    );
+  };
+
   // 根据卡片类型渲染对应的卡片
   const renderCard = (config: CardConfig) => {
     switch (config.type) {
@@ -1275,6 +1512,8 @@ const ContainerInfo: React.FC<ContainerInfoProps> = ({
         return renderProcessesCard();
       case 'ports':
         return renderPortsCard();
+      case 'netease':
+        return renderNeteaseMusicCard();
       default:
         return null;
     }

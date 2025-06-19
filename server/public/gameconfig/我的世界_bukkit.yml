@@ -1,0 +1,159 @@
+meta:
+  game_name: "我的世界_Bukkit"
+  config_file: "bukkit.yml"
+  parser: "ruamel.yaml"
+
+sections:
+  - key: "settings"
+    fields:
+      - name: "allow-end"
+        display: "允许末地"
+        default: true
+        type: "boolean"
+        description: "是否允许玩家进入末地"
+      - name: "warn-on-overload"
+        display: "过载警告"
+        default: true
+        type: "boolean"
+        description: "服务器过载时是否显示警告"
+      - name: "permissions-file"
+        display: "权限文件"
+        default: "permissions.yml"
+        type: "string"
+        description: "权限配置文件名称"
+      - name: "update-folder"
+        display: "更新文件夹"
+        default: "update"
+        type: "string"
+        description: "插件更新文件夹路径"
+      - name: "plugin-profiling"
+        display: "插件性能分析"
+        default: false
+        type: "boolean"
+        description: "是否启用插件性能分析"
+      - name: "connection-throttle"
+        display: "连接限制"
+        default: 4000
+        type: "number"
+        description: "连接限制时间（毫秒）"
+      - name: "query-plugins"
+        display: "查询插件"
+        default: true
+        type: "boolean"
+        description: "是否允许查询服务器插件列表"
+      - name: "deprecated-verbose"
+        display: "弃用详细信息"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "true"
+            label: "启用"
+          - value: "false"
+            label: "禁用"
+        description: "弃用API调用的详细信息显示"
+      - name: "shutdown-message"
+        display: "关闭消息"
+        default: "Server closed"
+        type: "string"
+        description: "服务器关闭时显示的消息"
+      - name: "minimum-api"
+        display: "最低API版本"
+        default: "none"
+        type: "string"
+        description: "插件所需的最低API版本"
+      - name: "use-map-color-cache"
+        display: "使用地图颜色缓存"
+        default: true
+        type: "boolean"
+        description: "是否使用地图颜色缓存以提高性能"
+
+  - key: "spawn-limits"
+    fields:
+      - name: "monsters"
+        display: "怪物生成限制"
+        default: 70
+        type: "number"
+        description: "每个世界怪物的最大生成数量"
+      - name: "animals"
+        display: "动物生成限制"
+        default: 10
+        type: "number"
+        description: "每个世界动物的最大生成数量"
+      - name: "water-animals"
+        display: "水生动物生成限制"
+        default: 5
+        type: "number"
+        description: "每个世界水生动物的最大生成数量"
+      - name: "water-ambient"
+        display: "水生环境生物生成限制"
+        default: 20
+        type: "number"
+        description: "每个世界水生环境生物的最大生成数量"
+      - name: "water-underground-creature"
+        display: "地下水生生物生成限制"
+        default: 5
+        type: "number"
+        description: "每个世界地下水生生物的最大生成数量"
+      - name: "axolotls"
+        display: "美西螈生成限制"
+        default: 5
+        type: "number"
+        description: "每个世界美西螈的最大生成数量"
+      - name: "ambient"
+        display: "环境生物生成限制"
+        default: 15
+        type: "number"
+        description: "每个世界环境生物的最大生成数量"
+
+  - key: "chunk-gc"
+    fields:
+      - name: "period-in-ticks"
+        display: "区块垃圾回收周期"
+        default: 600
+        type: "number"
+        description: "区块垃圾回收的执行周期（tick）"
+
+  - key: "ticks-per"
+    fields:
+      - name: "animal-spawns"
+        display: "动物生成间隔"
+        default: 400
+        type: "number"
+        description: "动物生成检查的tick间隔"
+      - name: "monster-spawns"
+        display: "怪物生成间隔"
+        default: 1
+        type: "number"
+        description: "怪物生成检查的tick间隔"
+      - name: "water-spawns"
+        display: "水生生物生成间隔"
+        default: 1
+        type: "number"
+        description: "水生生物生成检查的tick间隔"
+      - name: "water-ambient-spawns"
+        display: "水生环境生物生成间隔"
+        default: 1
+        type: "number"
+        description: "水生环境生物生成检查的tick间隔"
+      - name: "water-underground-creature-spawns"
+        display: "地下水生生物生成间隔"
+        default: 1
+        type: "number"
+        description: "地下水生生物生成检查的tick间隔"
+      - name: "axolotl-spawns"
+        display: "美西螈生成间隔"
+        default: 1
+        type: "number"
+        description: "美西螈生成检查的tick间隔"
+      - name: "ambient-spawns"
+        display: "环境生物生成间隔"
+        default: 1
+        type: "number"
+        description: "环境生物生成检查的tick间隔"
+      - name: "autosave"
+        display: "自动保存间隔"
+        default: 6000
+        type: "number"
+        description: "世界自动保存的tick间隔"

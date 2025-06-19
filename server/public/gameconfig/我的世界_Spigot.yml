@@ -1,0 +1,496 @@
+meta:
+  game_name: "我的世界_Spigot"
+  config_file: "spigot.yml"
+  parser: "ruamel.yaml"
+
+sections:
+  - key: "settings"
+    fields:
+      - name: "debug"
+        display: "调试模式"
+        default: false
+        type: "boolean"
+        description: "是否启用调试模式"
+      - name: "sample-count"
+        display: "样本计数"
+        default: 12
+        type: "number"
+        description: "服务器状态样本计数"
+      - name: "save-user-cache-on-stop-only"
+        display: "仅停止时保存用户缓存"
+        default: false
+        type: "boolean"
+        description: "是否仅在服务器停止时保存用户缓存"
+      - name: "bungeecord"
+        display: "BungeeCord支持"
+        default: false
+        type: "boolean"
+        description: "是否启用BungeeCord代理支持"
+      - name: "log-villager-deaths"
+        display: "记录村民死亡"
+        default: true
+        type: "boolean"
+        description: "是否记录村民死亡事件"
+      - name: "log-named-deaths"
+        display: "记录命名实体死亡"
+        default: true
+        type: "boolean"
+        description: "是否记录有名字的实体死亡事件"
+      - name: "timeout-time"
+        display: "超时时间"
+        default: 60
+        type: "number"
+        description: "玩家超时时间（秒）"
+      - name: "restart-on-crash"
+        display: "崩溃时重启"
+        default: true
+        type: "boolean"
+        description: "服务器崩溃时是否自动重启"
+      - name: "restart-script"
+        display: "重启脚本"
+        default: "./start.sh"
+        type: "string"
+        description: "服务器重启脚本路径"
+      - name: "moved-wrongly-threshold"
+        display: "移动错误阈值"
+        default: 0.0625
+        type: "number"
+        description: "玩家移动错误检测阈值"
+      - name: "moved-too-quickly-multiplier"
+        display: "移动过快倍数"
+        default: 10.0
+        type: "number"
+        description: "玩家移动过快检测倍数"
+      - name: "user-cache-size"
+        display: "用户缓存大小"
+        default: 1000
+        type: "number"
+        description: "用户缓存最大条目数"
+      - name: "netty-threads"
+        display: "网络线程数"
+        default: 4
+        type: "number"
+        description: "Netty网络处理线程数"
+      - name: "player-shuffle"
+        display: "玩家随机排序"
+        default: 0
+        type: "number"
+        description: "玩家列表随机排序间隔"
+
+  - key: "messages"
+    fields:
+      - name: "whitelist"
+        display: "白名单消息"
+        default: "You are not whitelisted on this server!"
+        type: "string"
+        description: "玩家不在白名单时显示的消息"
+      - name: "unknown-command"
+        display: "未知命令消息"
+        default: "Unknown command. Type \"/help\" for help."
+        type: "string"
+        description: "输入未知命令时显示的消息"
+      - name: "server-full"
+        display: "服务器满员消息"
+        default: "The server is full!"
+        type: "string"
+        description: "服务器满员时显示的消息"
+      - name: "outdated-client"
+        display: "客户端过时消息"
+        default: "Outdated client! Please use {0}"
+        type: "string"
+        description: "客户端版本过时时显示的消息"
+      - name: "outdated-server"
+        display: "服务器过时消息"
+        default: "Outdated server! I'm still on {0}"
+        type: "string"
+        description: "服务器版本过时时显示的消息"
+      - name: "restart"
+        display: "重启消息"
+        default: "Server is restarting"
+        type: "string"
+        description: "服务器重启时显示的消息"
+
+  - key: "commands"
+    fields:
+      - name: "tab-complete"
+        display: "Tab补全"
+        default: 0
+        type: "number"
+        description: "Tab补全功能设置"
+      - name: "send-namespaced"
+        display: "发送命名空间"
+        default: true
+        type: "boolean"
+        description: "是否发送命名空间命令"
+      - name: "silent-commandblock-console"
+        display: "静默命令方块控制台"
+        default: false
+        type: "boolean"
+        description: "命令方块是否静默输出到控制台"
+      - name: "log"
+        display: "记录命令"
+        default: true
+        type: "boolean"
+        description: "是否记录命令执行日志"
+
+  - key: "world-settings.default"
+    fields:
+      - name: "below-zero-generation-in-existing-chunks"
+        display: "现有区块零下生成"
+        default: true
+        type: "boolean"
+        description: "在现有区块中启用零下世界生成"
+      - name: "hanging-tick-frequency"
+        display: "悬挂物刷新频率"
+        default: 100
+        type: "number"
+        description: "悬挂物（画、物品展示框等）的刷新频率"
+      - name: "wither-spawn-sound-radius"
+        display: "凋零生成音效半径"
+        default: 0
+        type: "number"
+        description: "凋零生成音效的播放半径（0为禁用）"
+      - name: "end-portal-sound-radius"
+        display: "末地传送门音效半径"
+        default: 0
+        type: "number"
+        description: "末地传送门音效的播放半径（0为禁用）"
+      - name: "dragon-death-sound-radius"
+        display: "末影龙死亡音效半径"
+        default: 0
+        type: "number"
+        description: "末影龙死亡音效的播放半径（0为禁用）"
+      - name: "mob-spawn-range"
+        display: "生物生成范围"
+        default: 8
+        type: "number"
+        description: "生物生成的范围（区块）"
+      - name: "arrow-despawn-rate"
+        display: "箭矢消失速率"
+        default: 1200
+        type: "number"
+        description: "箭矢消失的时间（tick）"
+      - name: "trident-despawn-rate"
+        display: "三叉戟消失速率"
+        default: 1200
+        type: "number"
+        description: "三叉戟消失的时间（tick）"
+      - name: "item-despawn-rate"
+        display: "物品消失速率"
+        default: 6000
+        type: "number"
+        description: "掉落物品消失的时间（tick）"
+      - name: "nerf-spawner-mobs"
+        display: "削弱刷怪笼生物"
+        default: false
+        type: "boolean"
+        description: "是否削弱刷怪笼生成的生物AI"
+      - name: "simulation-distance"
+        display: "模拟距离"
+        default: "default"
+        type: "string"
+        description: "世界模拟距离设置"
+      - name: "view-distance"
+        display: "视距"
+        default: "default"
+        type: "string"
+        description: "玩家视距设置"
+      - name: "zombie-aggressive-towards-villager"
+        display: "僵尸攻击村民"
+        default: true
+        type: "boolean"
+        description: "僵尸是否会主动攻击村民"
+      - name: "enable-zombie-pigmen-portal-spawns"
+        display: "启用僵尸猪人传送门生成"
+        default: true
+        type: "boolean"
+        description: "是否允许僵尸猪人在传送门附近生成"
+      - name: "thunder-chance"
+        display: "雷电概率"
+        default: 100000
+        type: "number"
+        description: "雷电发生的概率（数值越大概率越小）"
+      - name: "unload-frozen-chunks"
+        display: "卸载冻结区块"
+        default: false
+        type: "boolean"
+        description: "是否卸载冻结的区块"
+      - name: "max-tnt-per-tick"
+        display: "每tick最大TNT数"
+        default: 100
+        type: "number"
+        description: "每个tick处理的最大TNT数量"
+      - name: "hopper-amount"
+        display: "漏斗传输数量"
+        default: 1
+        type: "number"
+        description: "漏斗每次传输的物品数量"
+      - name: "hopper-can-load-chunks"
+        display: "漏斗可加载区块"
+        default: false
+        type: "boolean"
+        description: "漏斗是否可以加载区块"
+      - name: "verbose"
+        display: "详细输出"
+        default: false
+        type: "boolean"
+        description: "是否启用详细日志输出"
+
+  - key: "world-settings.default.entity-activation-range"
+    fields:
+      - name: "animals"
+        display: "动物激活范围"
+        default: 32
+        type: "number"
+        description: "动物实体的激活范围（方块）"
+      - name: "monsters"
+        display: "怪物激活范围"
+        default: 32
+        type: "number"
+        description: "怪物实体的激活范围（方块）"
+      - name: "raiders"
+        display: "袭击者激活范围"
+        default: 64
+        type: "number"
+        description: "袭击者实体的激活范围（方块）"
+      - name: "misc"
+        display: "杂项激活范围"
+        default: 16
+        type: "number"
+        description: "杂项实体的激活范围（方块）"
+      - name: "water"
+        display: "水生物激活范围"
+        default: 16
+        type: "number"
+        description: "水生实体的激活范围（方块）"
+      - name: "villagers"
+        display: "村民激活范围"
+        default: 32
+        type: "number"
+        description: "村民实体的激活范围（方块）"
+      - name: "flying-monsters"
+        display: "飞行怪物激活范围"
+        default: 32
+        type: "number"
+        description: "飞行怪物实体的激活范围（方块）"
+      - name: "tick-inactive-villagers"
+        display: "刷新非活跃村民"
+        default: true
+        type: "boolean"
+        description: "是否刷新非活跃状态的村民"
+      - name: "ignore-spectators"
+        display: "忽略观察者"
+        default: false
+        type: "boolean"
+        description: "激活范围计算是否忽略观察者模式玩家"
+
+  - key: "world-settings.default.growth"
+    fields:
+      - name: "cactus-modifier"
+        display: "仙人掌生长倍率"
+        default: 100
+        type: "number"
+        description: "仙人掌生长速度倍率（百分比）"
+      - name: "cane-modifier"
+        display: "甘蔗生长倍率"
+        default: 100
+        type: "number"
+        description: "甘蔗生长速度倍率（百分比）"
+      - name: "melon-modifier"
+        display: "西瓜生长倍率"
+        default: 100
+        type: "number"
+        description: "西瓜生长速度倍率（百分比）"
+      - name: "mushroom-modifier"
+        display: "蘑菇生长倍率"
+        default: 100
+        type: "number"
+        description: "蘑菇生长速度倍率（百分比）"
+      - name: "pumpkin-modifier"
+        display: "南瓜生长倍率"
+        default: 100
+        type: "number"
+        description: "南瓜生长速度倍率（百分比）"
+      - name: "sapling-modifier"
+        display: "树苗生长倍率"
+        default: 100
+        type: "number"
+        description: "树苗生长速度倍率（百分比）"
+      - name: "beetroot-modifier"
+        display: "甜菜根生长倍率"
+        default: 100
+        type: "number"
+        description: "甜菜根生长速度倍率（百分比）"
+      - name: "carrot-modifier"
+        display: "胡萝卜生长倍率"
+        default: 100
+        type: "number"
+        description: "胡萝卜生长速度倍率（百分比）"
+      - name: "potato-modifier"
+        display: "土豆生长倍率"
+        default: 100
+        type: "number"
+        description: "土豆生长速度倍率（百分比）"
+      - name: "wheat-modifier"
+        display: "小麦生长倍率"
+        default: 100
+        type: "number"
+        description: "小麦生长速度倍率（百分比）"
+      - name: "netherwart-modifier"
+        display: "地狱疣生长倍率"
+        default: 100
+        type: "number"
+        description: "地狱疣生长速度倍率（百分比）"
+      - name: "vine-modifier"
+        display: "藤蔓生长倍率"
+        default: 100
+        type: "number"
+        description: "藤蔓生长速度倍率（百分比）"
+      - name: "cocoa-modifier"
+        display: "可可豆生长倍率"
+        default: 100
+        type: "number"
+        description: "可可豆生长速度倍率（百分比）"
+      - name: "bamboo-modifier"
+        display: "竹子生长倍率"
+        default: 100
+        type: "number"
+        description: "竹子生长速度倍率（百分比）"
+      - name: "sweetberry-modifier"
+        display: "甜浆果生长倍率"
+        default: 100
+        type: "number"
+        description: "甜浆果生长速度倍率（百分比）"
+      - name: "kelp-modifier"
+        display: "海带生长倍率"
+        default: 100
+        type: "number"
+        description: "海带生长速度倍率（百分比）"
+      - name: "twistingvines-modifier"
+        display: "缠怨藤生长倍率"
+        default: 100
+        type: "number"
+        description: "缠怨藤生长速度倍率（百分比）"
+      - name: "weepingvines-modifier"
+        display: "垂泪藤生长倍率"
+        default: 100
+        type: "number"
+        description: "垂泪藤生长速度倍率（百分比）"
+      - name: "cavevines-modifier"
+        display: "洞穴藤蔓生长倍率"
+        default: 100
+        type: "number"
+        description: "洞穴藤蔓生长速度倍率（百分比）"
+      - name: "glowberry-modifier"
+        display: "发光浆果生长倍率"
+        default: 100
+        type: "number"
+        description: "发光浆果生长速度倍率（百分比）"
+
+  - key: "world-settings.default.entity-tracking-range"
+    fields:
+      - name: "players"
+        display: "玩家追踪范围"
+        default: 128
+        type: "number"
+        description: "玩家实体的追踪范围（方块）"
+      - name: "animals"
+        display: "动物追踪范围"
+        default: 96
+        type: "number"
+        description: "动物实体的追踪范围（方块）"
+      - name: "monsters"
+        display: "怪物追踪范围"
+        default: 96
+        type: "number"
+        description: "怪物实体的追踪范围（方块）"
+      - name: "misc"
+        display: "杂项追踪范围"
+        default: 96
+        type: "number"
+        description: "杂项实体的追踪范围（方块）"
+      - name: "display"
+        display: "显示实体追踪范围"
+        default: 128
+        type: "number"
+        description: "显示实体的追踪范围（方块）"
+      - name: "other"
+        display: "其他追踪范围"
+        default: 64
+        type: "number"
+        description: "其他实体的追踪范围（方块）"
+
+  - key: "world-settings.default.ticks-per"
+    fields:
+      - name: "hopper-transfer"
+        display: "漏斗传输间隔"
+        default: 8
+        type: "number"
+        description: "漏斗传输物品的tick间隔"
+      - name: "hopper-check"
+        display: "漏斗检查间隔"
+        default: 1
+        type: "number"
+        description: "漏斗检查物品的tick间隔"
+
+  - key: "world-settings.default.hunger"
+    fields:
+      - name: "jump-walk-exhaustion"
+        display: "跳跃行走消耗"
+        default: 0.05
+        type: "number"
+        description: "跳跃行走时的饥饿值消耗"
+      - name: "jump-sprint-exhaustion"
+        display: "跳跃冲刺消耗"
+        default: 0.2
+        type: "number"
+        description: "跳跃冲刺时的饥饿值消耗"
+      - name: "combat-exhaustion"
+        display: "战斗消耗"
+        default: 0.1
+        type: "number"
+        description: "战斗时的饥饿值消耗"
+      - name: "regen-exhaustion"
+        display: "回血消耗"
+        default: 6.0
+        type: "number"
+        description: "自然回血时的饥饿值消耗"
+      - name: "swim-multiplier"
+        display: "游泳倍数"
+        default: 0.01
+        type: "number"
+        description: "游泳时的饥饿值消耗倍数"
+      - name: "sprint-multiplier"
+        display: "冲刺倍数"
+        default: 0.1
+        type: "number"
+        description: "冲刺时的饥饿值消耗倍数"
+      - name: "other-multiplier"
+        display: "其他倍数"
+        default: 0.0
+        type: "number"
+        description: "其他动作的饥饿值消耗倍数"
+
+  - key: "advancements"
+    fields:
+      - name: "disable-saving"
+        display: "禁用成就保存"
+        default: false
+        type: "boolean"
+        description: "是否禁用成就进度保存"
+
+  - key: "players"
+    fields:
+      - name: "disable-saving"
+        display: "禁用玩家保存"
+        default: false
+        type: "boolean"
+        description: "是否禁用玩家数据保存"
+
+  - key: "stats"
+    fields:
+      - name: "disable-saving"
+        display: "禁用统计保存"
+        default: false
+        type: "boolean"
+        description: "是否禁用统计数据保存"

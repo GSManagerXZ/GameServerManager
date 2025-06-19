@@ -1,0 +1,376 @@
+meta:
+  game_name: "我的世界_Java"
+  config_file: "server.properties"
+  parser: "properties"
+
+sections:
+  - key: "server.properties"
+    fields:
+      # 基础服务器设置
+      - name: "motd"
+        display: "服务器描述(MOTD)"
+        default: "A Minecraft Server"
+        type: "string"
+        description: "在服务器列表中显示的服务器描述信息"
+      - name: "server-port"
+        display: "服务器端口【1024到65535】"
+        default: 25565
+        type: "number"
+        description: "服务器监听的端口号"
+      - name: "server-ip"
+        display: "服务器IP地址"
+        default: ""
+        type: "string"
+        description: "服务器绑定的IP地址，留空表示绑定所有可用IP"
+      - name: "max-players"
+        display: "最大玩家数【1到2147483647】"
+        default: 20
+        type: "number"
+        description: "服务器可容纳的最大玩家数量"
+      
+      # 游戏模式设置
+      - name: "gamemode"
+        display: "游戏模式"
+        default: "survival"
+        type: "select"
+        options:
+          - value: "survival"
+            label: "生存模式"
+          - value: "creative"
+            label: "创造模式"
+          - value: "adventure"
+            label: "冒险模式"
+          - value: "spectator"
+            label: "观察者模式"
+        description: "新玩家的默认游戏模式"
+      - name: "force-gamemode"
+        display: "强制游戏模式"
+        default: false
+        type: "boolean"
+        description: "是否强制玩家使用默认游戏模式"
+      - name: "difficulty"
+        display: "游戏难度"
+        default: "easy"
+        type: "select"
+        options:
+          - value: "peaceful"
+            label: "和平"
+          - value: "easy"
+            label: "简单"
+          - value: "normal"
+            label: "普通"
+          - value: "hard"
+            label: "困难"
+        description: "设置世界的难度等级"
+      - name: "hardcore"
+        display: "极限模式"
+        default: false
+        type: "boolean"
+        description: "是否启用极限模式（死亡后被踢出服务器）"
+      
+      # 世界设置
+      - name: "level-name"
+        display: "世界名称"
+        default: "world"
+        type: "string"
+        description: "世界文件夹的名称"
+      - name: "level-seed"
+        display: "世界种子"
+        default: ""
+        type: "string"
+        description: "用于生成世界的种子值，留空则随机生成"
+      - name: "level-type"
+        display: "世界类型"
+        default: "minecraft:normal"
+        type: "select"
+        options:
+          - value: "minecraft:normal"
+            label: "普通世界"
+          - value: "minecraft:flat"
+            label: "超平坦世界"
+          - value: "minecraft:large_biomes"
+            label: "巨型生物群系"
+          - value: "minecraft:amplified"
+            label: "放大化世界"
+        description: "世界生成类型"
+      - name: "generate-structures"
+        display: "生成结构"
+        default: true
+        type: "boolean"
+        description: "是否生成村庄、地牢等结构"
+      - name: "generator-settings"
+        display: "生成器设置"
+        default: "{}"
+        type: "string"
+        description: "自定义世界生成器的设置（JSON格式）"
+      
+      # 玩家设置
+      - name: "online-mode"
+        display: "在线模式"
+        default: true
+        type: "boolean"
+        description: "是否验证玩家的Mojang账户"
+      - name: "white-list"
+        display: "启用白名单"
+        default: false
+        type: "boolean"
+        description: "是否只允许白名单中的玩家加入"
+      - name: "enforce-whitelist"
+        display: "强制白名单"
+        default: false
+        type: "boolean"
+        description: "启用白名单时是否踢出不在白名单中的在线玩家"
+      - name: "player-idle-timeout"
+        display: "玩家空闲超时【0到35791394】"
+        default: 0
+        type: "number"
+        description: "玩家空闲多少分钟后被踢出，0表示禁用"
+      - name: "op-permission-level"
+        display: "管理员权限等级【1到4】"
+        default: 4
+        type: "number"
+        description: "管理员的权限等级"
+      - name: "function-permission-level"
+        display: "函数权限等级【1到4】"
+        default: 2
+        type: "number"
+        description: "函数的默认权限等级"
+      
+      # PVP和战斗设置
+      - name: "pvp"
+        display: "PVP模式"
+        default: true
+        type: "boolean"
+        description: "是否允许玩家互相攻击"
+      - name: "spawn-protection"
+        display: "出生点保护半径【0到29999984】"
+        default: 16
+        type: "number"
+        description: "出生点周围的保护区域半径（方块数）"
+      
+      # 世界和性能设置
+      - name: "view-distance"
+        display: "视距【3到32】"
+        default: 10
+        type: "number"
+        description: "服务器发送给客户端的最大视距（区块数）"
+      - name: "simulation-distance"
+        display: "模拟距离【3到32】"
+        default: 10
+        type: "number"
+        description: "服务器模拟的最大距离（区块数）"
+      - name: "max-world-size"
+        display: "最大世界大小【1到29999984】"
+        default: 29999984
+        type: "number"
+        description: "世界边界的最大半径"
+      - name: "max-tick-time"
+        display: "最大tick时间【0到9223372036854775807】"
+        default: 60000
+        type: "number"
+        description: "单个tick的最大时间（毫秒），超过则认为服务器崩溃"
+      - name: "max-chained-neighbor-updates"
+        display: "最大连锁邻居更新【1到1000000】"
+        default: 1000000
+        type: "number"
+        description: "限制连锁方块更新的数量"
+      
+      # 网络设置
+      - name: "network-compression-threshold"
+        display: "网络压缩阈值【-1到65535】"
+        default: 256
+        type: "number"
+        description: "网络数据包压缩的最小大小，-1表示禁用压缩"
+      - name: "rate-limit"
+        display: "速率限制【0到2147483647】"
+        default: 0
+        type: "number"
+        description: "每秒允许的数据包数量，0表示禁用"
+      - name: "prevent-proxy-connections"
+        display: "阻止代理连接"
+        default: false
+        type: "boolean"
+        description: "是否阻止通过代理或VPN的连接"
+      
+      # 查询和RCON设置
+      - name: "enable-query"
+        display: "启用查询"
+        default: false
+        type: "boolean"
+        description: "是否启用GameSpy4协议服务器监听器"
+      - name: "query.port"
+        display: "查询端口【1到65535】"
+        default: 25565
+        type: "number"
+        description: "查询服务的端口号"
+      - name: "enable-rcon"
+        display: "启用RCON"
+        default: false
+        type: "boolean"
+        description: "是否启用远程控制台"
+      - name: "rcon.port"
+        display: "RCON端口【1到65535】"
+        default: 25575
+        type: "number"
+        description: "RCON服务的端口号"
+      - name: "rcon.password"
+        display: "RCON密码"
+        default: ""
+        type: "string"
+        description: "RCON的访问密码"
+      
+      # 其他设置
+      - name: "allow-flight"
+        display: "允许飞行"
+        default: false
+        type: "boolean"
+        description: "是否允许玩家在生存模式下飞行"
+      - name: "allow-nether"
+        display: "允许下界"
+        default: true
+        type: "boolean"
+        description: "是否允许玩家进入下界"
+      - name: "spawn-monsters"
+        display: "生成怪物"
+        default: true
+        type: "boolean"
+        description: "是否在黑暗中生成敌对生物"
+      - name: "enable-command-block"
+        display: "启用命令方块"
+        default: false
+        type: "boolean"
+        description: "是否启用命令方块"
+      - name: "hide-online-players"
+        display: "隐藏在线玩家"
+        default: false
+        type: "boolean"
+        description: "是否在服务器列表中隐藏在线玩家列表"
+      - name: "broadcast-console-to-ops"
+        display: "向管理员广播控制台"
+        default: true
+        type: "boolean"
+        description: "是否向管理员发送控制台命令输出"
+      - name: "broadcast-rcon-to-ops"
+        display: "向管理员广播RCON"
+        default: true
+        type: "boolean"
+        description: "是否向管理员发送RCON命令输出"
+      - name: "enable-status"
+        display: "启用状态"
+        default: true
+        type: "boolean"
+        description: "是否在服务器列表中显示为在线"
+      - name: "entity-broadcast-range-percentage"
+        display: "实体广播范围百分比【10到1000】"
+        default: 100
+        type: "number"
+        description: "实体追踪范围的百分比"
+      - name: "log-ips"
+        display: "记录IP地址"
+        default: true
+        type: "boolean"
+        description: "是否在日志中记录玩家IP地址"
+      - name: "sync-chunk-writes"
+        display: "同步区块写入"
+        default: true
+        type: "boolean"
+        description: "是否同步写入区块数据"
+      - name: "use-native-transport"
+        display: "使用原生传输"
+        default: true
+        type: "boolean"
+        description: "是否使用针对Linux的数据包发送优化"
+      - name: "enable-jmx-monitoring"
+        display: "启用JMX监控"
+        default: false
+        type: "boolean"
+        description: "是否启用JMX监控"
+      - name: "pause-when-empty-seconds"
+        display: "空服务器暂停秒数【1到2147483647】"
+        default: 60
+        type: "number"
+        description: "服务器空闲时暂停tick的秒数"
+      
+      # 资源包设置
+      - name: "require-resource-pack"
+        display: "强制资源包"
+        default: false
+        type: "boolean"
+        description: "是否强制玩家使用服务器资源包"
+      - name: "resource-pack"
+        display: "资源包URL"
+        default: ""
+        type: "string"
+        description: "资源包的下载链接"
+      - name: "resource-pack-prompt"
+        display: "资源包提示"
+        default: ""
+        type: "string"
+        description: "资源包下载提示信息"
+      - name: "resource-pack-sha1"
+        display: "资源包SHA1"
+        default: ""
+        type: "string"
+        description: "资源包的SHA1校验值"
+      - name: "resource-pack-id"
+        display: "资源包ID"
+        default: ""
+        type: "string"
+        description: "资源包的UUID标识符"
+      
+      # 安全设置
+      - name: "enforce-secure-profile"
+        display: "强制安全配置文件"
+        default: true
+        type: "boolean"
+        description: "是否强制玩家使用安全配置文件"
+      - name: "accepts-transfers"
+        display: "接受传输"
+        default: false
+        type: "boolean"
+        description: "是否接受来自其他服务器的玩家传输"
+      
+      # 数据包设置
+      - name: "initial-enabled-packs"
+        display: "初始启用数据包"
+        default: "vanilla"
+        type: "string"
+        description: "服务器启动时启用的数据包"
+      - name: "initial-disabled-packs"
+        display: "初始禁用数据包"
+        default: ""
+        type: "string"
+        description: "服务器启动时禁用的数据包"
+      
+      # 文件压缩设置
+      - name: "region-file-compression"
+        display: "区域文件压缩"
+        default: "deflate"
+        type: "select"
+        options:
+          - value: "deflate"
+            label: "deflate压缩"
+          - value: "lz4"
+            label: "lz4压缩"
+          - value: "none"
+            label: "不压缩"
+        description: "区域文件的压缩算法"
+      
+      # 文本过滤设置
+      - name: "text-filtering-config"
+        display: "文本过滤配置"
+        default: ""
+        type: "string"
+        description: "文本过滤的配置文件路径"
+      - name: "text-filtering-version"
+        display: "文本过滤版本"
+        default: 0
+        type: "number"
+        description: "文本过滤系统的版本号"
+      
+      # 错误报告设置
+      - name: "bug-report-link"
+        display: "错误报告链接"
+        default: ""
+        type: "string"
+        description: "错误报告的提交链接"

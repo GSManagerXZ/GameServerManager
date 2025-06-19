@@ -248,17 +248,8 @@ class FabricAPI(BaseLoaderAPI):
         """下载Fabric加载器JAR文件"""
         if not loader_version:
             self._log_operation("获取最新加载器版本")
-            loaders = self.get_loader_versions()
-            # 检查返回的数据结构
-            if loaders and isinstance(loaders[0], dict):
-                if "loader" in loaders[0]:
-                    # 带游戏版本的调用格式: {"loader": {...}, "intermediary": {...}}
-                    loader_version = loaders[0]["loader"]["version"]
-                else:
-                    # 不带游戏版本的调用格式: {"version": "...", "stable": ...}
-                    loader_version = loaders[0]["version"]
-            else:
-                raise ValueError("无法获取加载器版本信息")
+            loaders = self._make_request(f"{self.base_url}/v2/versions/loader")
+            loader_version = loaders[0]["version"]
             self._log_version_info("加载器版本", loader_version, is_latest=True)
         else:
             self._log_version_info("加载器版本", loader_version)
@@ -267,6 +258,26 @@ class FabricAPI(BaseLoaderAPI):
         full_path = os.path.join(save_path, filename)
         # 使用Maven仓库的直接下载链接
         url = f"https://maven.fabricmc.net/net/fabricmc/fabric-loader/{loader_version}/fabric-loader-{loader_version}.jar"
+        
+        return self._download_file(url, full_path)
+
+    def download_server_jar(self, save_path: str, game_version: str, loader_version: str, installer_version: Optional[str] = None) -> str:
+        """下载Fabric服务器JAR文件"""
+        if not installer_version:
+            self._log_operation("获取最新安装器版本")
+            installers = self.get_installer_versions()
+            installer_version = installers[0]["version"]
+            self._log_version_info("安装器版本", installer_version, is_latest=True)
+        else:
+            self._log_version_info("安装器版本", installer_version)
+        
+        self._log_operation("下载服务器JAR", f"游戏版本: {game_version}, 加载器版本: {loader_version}")
+        
+        filename = f"fabric-server-{game_version}-{loader_version}.jar"
+        full_path = os.path.join(save_path, filename)
+        
+        # 使用Fabric Meta API的服务器JAR下载端点
+        url = f"{self.base_url}/v2/versions/loader/{game_version}/{loader_version}/{installer_version}/server/jar"
         
         return self._download_file(url, full_path)
 
@@ -532,9 +543,9 @@ class MinecraftLoaderAPI:
         
         # 初始化各个加载器的API
         self.apis = {
-            LoaderType.FABRIC: FabricAPI(),
-            LoaderType.FORGE: ForgeAPI(),
-            LoaderType.QUILT: QuiltAPI()
+            "fabric": FabricAPI(),
+            "forge": ForgeAPI(),
+            "quilt": QuiltAPI()
         }
         
         logger.info(f"统一API初始化完成，临时目录: {self.temp_dir}")
@@ -549,7 +560,7 @@ class MinecraftLoaderAPI:
     
     def get_supported_loaders(self) -> List[str]:
         """获取支持的加载器类型"""
-        return [loader.value for loader in LoaderType]
+        return list(self.apis.keys())
     
     def get_game_versions(self, loader_type: str, stable_only: bool = True, 
                          limit: int = 50) -> Dict[str, Any]:
@@ -565,8 +576,7 @@ class MinecraftLoaderAPI:
             标准响应格式
         """
         try:
-            loader_enum = LoaderType(loader_type.lower())
-            api = self.apis[loader_enum]
+            api = self.apis[loader_type]
             
             versions = api.get_game_versions(stable_only)
             
@@ -606,8 +616,7 @@ class MinecraftLoaderAPI:
             标准响应格式
         """
         try:
-            loader_enum = LoaderType(loader_type.lower())
-            api = self.apis[loader_enum]
+            api = self.apis[loader_type]
             
             if save_path is None:
                 save_path = self.temp_dir
@@ -648,8 +657,7 @@ class MinecraftLoaderAPI:
             标准响应格式
         """
         try:
-            loader_enum = LoaderType(loader_type.lower())
-            api = self.apis[loader_enum]
+            api = self.apis[loader_type]
             
             if save_path is None:
                 save_path = self.temp_dir
@@ -678,45 +686,75 @@ class MinecraftLoaderAPI:
     
     def get_compatible_loader_versions(self, loader_type: str, game_version: str, 
                                      stable_only: bool = True, limit: int = 10) -> Dict[str, Any]:
-        """
-        根据游戏版本获取兼容的加载器版本
-        
-        Args:
-            loader_type: 加载器类型 (fabric/forge/quilt)
-            game_version: 游戏版本，如 "1.20.1"
-            stable_only: 是否只返回稳定版本
-            limit: 限制返回数量
-            
-        Returns:
-            标准响应格式，包含兼容的加载器版本列表
-        """
+        """获取兼容的加载器版本"""
         try:
-            loader_enum = LoaderType(loader_type.lower())
-            api = self.apis[loader_enum]
+            if loader_type not in self.apis:
+                return self._create_response(False, f"不支持的加载器类型: {loader_type}")
             
-            compatible_versions = api.get_compatible_loader_versions(game_version, stable_only, limit)
+            api = self.apis[loader_type]
+            compatible_versions = api.get_compatible_loader_versions(
+                game_version, stable_only, limit
+            )
             
             return self._create_response(
-                True,
-                f"成功获取 {loader_type} 与游戏版本 {game_version} 兼容的 {len(compatible_versions)} 个加载器版本",
+                True, 
+                f"成功获取 {len(compatible_versions)} 个兼容版本",
                 {
                     "loader_type": loader_type,
                     "game_version": game_version,
+                    "compatible_versions": compatible_versions,
                     "stable_only": stable_only,
-                    "total": len(compatible_versions),
-                    "compatible_versions": compatible_versions
+                    "limit": limit
                 }
             )
             
-        except ValueError:
-            return self._create_response(
-                False, f"不支持的加载器类型: {loader_type}"
-            )
         except Exception as e:
-            return self._create_response(
-                False, f"获取兼容加载器版本失败: {str(e)}"
-            )
-    
+            return self._create_response(False, f"获取兼容版本失败: {str(e)}")
+
+    def download_server_jar(self, loader_type: str, game_version: str, loader_version: str, 
+                           save_path: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """下载服务器JAR文件"""
+        try:
+            if loader_type not in self.apis:
+                return self._create_response(False, f"不支持的加载器类型: {loader_type}")
+            
+            # 使用临时目录或指定路径
+            download_path = save_path or self.temp_dir
+            
+            api = self.apis[loader_type]
+            
+            # 目前只有Fabric支持服务器JAR下载
+            if loader_type == "fabric":
+                if not hasattr(api, 'download_server_jar'):
+                    return self._create_response(False, f"{loader_type.title()} 不支持服务器JAR下载")
+                
+                installer_version = kwargs.get('installer_version')
+                file_path = api.download_server_jar(
+                    download_path, game_version, loader_version, installer_version
+                )
+                
+                file_size = os.path.getsize(file_path)
+                filename = os.path.basename(file_path)
+                
+                return self._create_response(
+                    True,
+                    f"成功下载 {loader_type.title()} 服务器JAR文件",
+                    {
+                        "loader_type": loader_type,
+                        "game_version": game_version,
+                        "loader_version": loader_version,
+                        "installer_version": installer_version,
+                        "filename": filename,
+                        "file_path": file_path,
+                        "file_size": file_size
+                    }
+                )
+            else:
+                return self._create_response(False, f"{loader_type.title()} 暂不支持服务器JAR下载")
+                
+        except Exception as e:
+            return self._create_response(False, f"下载服务器JAR失败: {str(e)}")
+
     def cleanup(self):
         """清理临时文件"""
         try:

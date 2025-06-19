@@ -7,6 +7,7 @@ import Register from './components/Register.tsx'
 import NotFound from './components/NotFound.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
+import { MusicProvider } from './context/MusicContext.tsx'
 import BetaNotice from './components/BetaNotice.tsx'
 import './monaco-config.ts'
 import './index.css'
@@ -18,8 +19,9 @@ if (rootElement) {
     <React.StrictMode>
       <BrowserRouter>
         <AuthProvider>
-          {/* 欢迎弹窗在所有页面显示 */}
-          <BetaNotice />
+          <MusicProvider>
+            {/* 欢迎弹窗在所有页面显示 */}
+            <BetaNotice />
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={
@@ -41,6 +43,7 @@ if (rootElement) {
             {/* 捕获所有不匹配的路由 */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </MusicProvider>
         </AuthProvider>
       </BrowserRouter>
     </React.StrictMode>,

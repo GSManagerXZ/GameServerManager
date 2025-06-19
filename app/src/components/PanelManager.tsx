@@ -18,8 +18,8 @@ import {
   Row,
   Col,
   Switch,
-  Typography,
   Spin,
+  Typography,
   Collapse
 } from 'antd';
 import {
@@ -34,6 +34,7 @@ import {
   InfoCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import { getDockerImages } from '../api';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -103,6 +104,35 @@ const PanelManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState('info');
   const [networkMode, setNetworkMode] = useState<string>('bridge');
   const [collapsedPanels, setCollapsedPanels] = useState<string[]>([]);
+  
+  // Docker镜像相关状态
+  const [dockerImages, setDockerImages] = useState<{id: string, tag: string, size: number, created: string}[]>([]);
+  const [dockerImagesLoading, setDockerImagesLoading] = useState(false);
+
+  // 表单数据持久化工具函数
+  const saveFormData = (formName: string, data: any) => {
+    try {
+      localStorage.setItem(`gsm_form_${formName}`, JSON.stringify(data));
+    } catch (error) {
+      console.error('保存表单数据失败:', error);
+    }
+  };
+
+  const loadFormData = (formName: string) => {
+    try {
+      const saved = localStorage.getItem(`gsm_form_${formName}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch (error) {
+      console.error('加载表单数据失败:', error);
+      return null;
+    }
+  };
+
+  // 监听表单变化并自动保存
+  const handleFormChange = (formName: string, formInstance: any) => {
+    const values = formInstance.getFieldsValue();
+    saveFormData(formName, values);
+  };
 
   // 获取容器列表
   const fetchContainerList = async () => {
@@ -257,11 +287,35 @@ const PanelManager: React.FC = () => {
 
   // 初始化表单默认值
   useEffect(() => {
-    configForm.setFieldsValue({
-      ports: [],
-      mounts: [],
-      environment: []
-    });
+    // 先尝试从localStorage恢复表单数据
+    const savedConfigData = loadFormData('container_config');
+    if (savedConfigData) {
+      configForm.setFieldsValue(savedConfigData);
+    } else {
+      // 如果没有保存的数据，使用默认值
+      configForm.setFieldsValue({
+        ports: [],
+        mounts: [],
+        environment: []
+      });
+    }
+  }, []);
+
+  // 获取Docker镜像列表
+  useEffect(() => {
+    const fetchDockerImages = async () => {
+      try {
+        setDockerImagesLoading(true);
+        const images = await getDockerImages();
+        setDockerImages(images);
+      } catch (error) {
+        console.error('获取Docker镜像列表失败:', error);
+      } finally {
+        setDockerImagesLoading(false);
+      }
+    };
+
+    fetchDockerImages();
   }, []);
 
   // 端口映射表格列
@@ -492,6 +546,7 @@ const PanelManager: React.FC = () => {
                     form={configForm}
                     layout="vertical"
                     onFinish={generateDockerCommand}
+                    onValuesChange={() => handleFormChange('container_config', configForm)}
                   >
                     <Row gutter={[16, 16]}>
                       <Col span={12}>
@@ -507,9 +562,25 @@ const PanelManager: React.FC = () => {
                         <Form.Item
                           label="镜像名称"
                           name="image"
-                          rules={[{ required: true, message: '请输入镜像名称' }]}
+                          rules={[{ required: true, message: '请选择镜像名称' }]}
                         >
-                          <Input placeholder="镜像名称" />
+                          <Select
+                            placeholder="请选择Docker镜像"
+                            loading={dockerImagesLoading}
+                            showSearch
+                            allowClear
+                            optionFilterProp="children"
+                            filterOption={(input, option) =>
+                              (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                            }
+                            notFoundContent={dockerImagesLoading ? <Spin size="small" /> : '暂无镜像'}
+                          >
+                            {dockerImages.map((image) => (
+                              <Option key={image.tag} value={image.tag}>
+                                {image.tag}
+                              </Option>
+                            ))}
+                          </Select>
                         </Form.Item>
                       </Col>
                     </Row>

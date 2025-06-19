@@ -7,7 +7,7 @@ import {
 } from 'antd';
 import { 
   FileOutlined, FolderOutlined, 
-  EditOutlined, CopyOutlined, 
+  CopyOutlined, 
   ScissorOutlined, DeleteOutlined, 
   DownloadOutlined, UploadOutlined, 
   SaveOutlined, ArrowUpOutlined,
@@ -15,7 +15,7 @@ import {
   InboxOutlined, EyeOutlined, FileImageOutlined,
   ReloadOutlined, CompressOutlined, FileZipOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
-  QuestionCircleOutlined, FolderOpenOutlined,
+  QuestionCircleOutlined,
   FormOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
@@ -39,9 +39,8 @@ interface FileInfo {
   modified: string;
 }
 
-interface ClipboardItem {
-  path: string;
-  type: 'file' | 'directory';
+  interface ClipboardItem {
+  files: { path: string; type: 'file' | 'directory'; name: string }[];
   operation: 'copy' | 'cut';
 }
 
@@ -54,9 +53,10 @@ interface ContextMenuPosition {
 interface FileManagerProps {
   initialPath?: string;
   isVisible?: boolean; // New prop
+  initialFileToOpen?: string; // 直接打开指定文件进行编辑
 }
 
-const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', isVisible = true }) => {
+const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', isVisible = true, initialFileToOpen }) => {
   // 创建一个唯一的实例ID，用于识别当前组件实例
   const instanceId = useRef<string>(Math.random().toString(36).substring(2, 15));
   const isMountedRef = useRef<boolean>(false); // Initialize to false, set to true in mount effect
@@ -115,8 +115,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
   const [showSearchResults, setShowSearchResults] = useState<boolean>(false);
 
   // 创建函数引用，避免循环依赖
-  const copyToClipboardRef = useRef<(file: FileInfo) => void>();
-  const cutToClipboardRef = useRef<(file: FileInfo) => void>();
+  const copyToClipboardRef = useRef<(files?: FileInfo[]) => void>();
+  const cutToClipboardRef = useRef<(files?: FileInfo[]) => void>();
   const pasteFromClipboardRef = useRef<() => void>();
   const loadDirectoryRef = useRef<(path: string) => void>();
 
@@ -482,18 +482,38 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
       return;
     }
 
+    // 处理F2重命名快捷键
+    if (e.key === 'F2') {
+      e.preventDefault();
+      if (selectedFilesRef.current.length === 1) {
+        const fileToRename = selectedFilesRef.current[0];
+        setSelectedFile(fileToRename);
+        setNewFileName(fileToRename.name);
+        setIsRenameModalVisible(true);
+      } else if (selectedFilesRef.current.length === 0) {
+        message.info('请先选择要重命名的文件或文件夹');
+      } else {
+        message.info('请选择单个文件或文件夹进行重命名');
+      }
+      return;
+    }
+
     if (e.ctrlKey) {
       switch (e.key.toLowerCase()) {
         case 'c':
           e.preventDefault();
           if (selectedFilesRef.current.length > 0 && copyToClipboardRef.current) {
-            copyToClipboardRef.current(selectedFilesRef.current[0]);
+            copyToClipboardRef.current(selectedFilesRef.current);
+          } else {
+            message.info('请先选择要复制的文件或文件夹');
           }
           break;
         case 'x':
           e.preventDefault();
           if (selectedFilesRef.current.length > 0 && cutToClipboardRef.current) {
-            cutToClipboardRef.current(selectedFilesRef.current[0]);
+            cutToClipboardRef.current(selectedFilesRef.current);
+          } else {
+            message.info('请先选择要剪切的文件或文件夹');
           }
           break;
         case 'v':
@@ -693,59 +713,116 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
   // 更新loadDirectoryRef
   loadDirectoryRef.current = loadDirectory;
 
-  // 复制文件/文件夹到剪贴板
-  const copyToClipboard = useCallback((file: FileInfo) => {
+  // 复制文件/文件夹到剪贴板（支持多选）
+  const copyToClipboard = useCallback((files?: FileInfo[]) => {
+    const filesToCopy = files || selectedFiles;
+    if (filesToCopy.length === 0) {
+      message.info('请先选择要复制的文件或文件夹');
+      return;
+    }
+    
     setClipboard({
-      path: file.path,
-      type: file.type,
+      files: filesToCopy.map(file => ({ path: file.path, type: file.type, name: file.name })),
       operation: 'copy'
     });
-    message.success(`已复制${file.type === 'file' ? '文件' : '文件夹'} "${file.name}"`);
-  }, []);
+    
+    if (filesToCopy.length === 1) {
+      message.success(`已复制${filesToCopy[0].type === 'file' ? '文件' : '文件夹'} "${filesToCopy[0].name}"`);
+    } else {
+      message.success(`已复制 ${filesToCopy.length} 个文件/文件夹`);
+    }
+  }, [selectedFiles]);
 
   // 更新copyToClipboardRef
   copyToClipboardRef.current = copyToClipboard;
 
-  // 剪切文件/文件夹到剪贴板
-  const cutToClipboard = useCallback((file: FileInfo) => {
+  // 剪切文件/文件夹到剪贴板（支持多选）
+  const cutToClipboard = useCallback((files?: FileInfo[]) => {
+    const filesToCut = files || selectedFiles;
+    if (filesToCut.length === 0) {
+      message.info('请先选择要剪切的文件或文件夹');
+      return;
+    }
+    
     setClipboard({
-      path: file.path,
-      type: file.type,
+      files: filesToCut.map(file => ({ path: file.path, type: file.type, name: file.name })),
       operation: 'cut'
     });
-    message.success(`已剪切${file.type === 'file' ? '文件' : '文件夹'} "${file.name}"`);
-  }, []);
+    
+    if (filesToCut.length === 1) {
+      message.success(`已剪切${filesToCut[0].type === 'file' ? '文件' : '文件夹'} "${filesToCut[0].name}"`);
+    } else {
+      message.success(`已剪切 ${filesToCut.length} 个文件/文件夹`);
+    }
+  }, [selectedFiles]);
 
   // 更新cutToClipboardRef
   cutToClipboardRef.current = cutToClipboard;
 
-  // 粘贴文件/文件夹
+  // 粘贴文件/文件夹（支持多个文件）
   const pasteFromClipboard = useCallback(async () => {
-    if (!clipboard) return;
-    
-    const fileName = clipboard.path.split('/').pop() || '';
-    const destinationPath = `${currentPath}/${fileName}`;
+    if (!clipboard || clipboard.files.length === 0) {
+      message.info('剪贴板为空');
+      return;
+    }
     
     setLoading(true);
+    
     try {
-      const response = await axios.post(`/api/${clipboard.operation === 'copy' ? 'copy' : 'move'}`, {
-        sourcePath: clipboard.path,
-        destinationPath
-      });
+      let successCount = 0;
+      let failCount = 0;
+      const errors: string[] = [];
       
-      if (response.data.status === 'success') {
-        message.success(`${clipboard.type === 'file' ? '文件' : '文件夹'}已${clipboard.operation === 'copy' ? '复制' : '移动'}`);
-        
-        // 如果是剪切操作，清空剪贴板
-        if (clipboard.operation === 'cut') {
-          setClipboard(null);
+      // 逐个处理每个文件
+      for (const file of clipboard.files) {
+        try {
+          const fileName = file.name;
+          const destinationPath = `${currentPath}/${fileName}`;
+          
+          const response = await axios.post(`/api/${clipboard.operation === 'copy' ? 'copy' : 'move'}`, {
+            sourcePath: file.path,
+            destinationPath
+          });
+          
+          if (response.data.status === 'success') {
+            successCount++;
+          } else {
+            failCount++;
+            errors.push(`${fileName}: ${response.data.message || '操作失败'}`);
+          }
+        } catch (error: any) {
+          failCount++;
+          errors.push(`${file.name}: ${error.message}`);
         }
-        
-        if (loadDirectoryRef.current) {
-          loadDirectoryRef.current(currentPath);
+      }
+      
+      // 显示结果消息
+      if (successCount > 0 && failCount === 0) {
+        if (clipboard.files.length === 1) {
+          message.success(`${clipboard.files[0].type === 'file' ? '文件' : '文件夹'}已${clipboard.operation === 'copy' ? '复制' : '移动'}`);
+        } else {
+          message.success(`成功${clipboard.operation === 'copy' ? '复制' : '移动'} ${successCount} 个文件/文件夹`);
+        }
+      } else if (successCount > 0 && failCount > 0) {
+        message.warning(`${clipboard.operation === 'copy' ? '复制' : '移动'}完成: ${successCount} 个成功, ${failCount} 个失败`);
+        if (errors.length > 0) {
+          console.error('操作失败的文件:', errors);
         }
       } else {
-        message.error(response.data.message || `${clipboard.operation === 'copy' ? '复制' : '移动'}失败`);
+        message.error(`${clipboard.operation === 'copy' ? '复制' : '移动'}失败`);
+        if (errors.length > 0) {
+          console.error('操作失败的文件:', errors);
+        }
+      }
+      
+      // 如果是剪切操作且有成功的文件，清空剪贴板
+      if (clipboard.operation === 'cut' && successCount > 0) {
+        setClipboard(null);
+      }
+      
+      // 刷新目录
+      if (loadDirectoryRef.current) {
+        loadDirectoryRef.current(currentPath);
       }
     } catch (error: any) {
       message.error(`${clipboard.operation === 'copy' ? '复制' : '移动'}失败: ${error.message}`);
@@ -1149,44 +1226,33 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
       key: 'action',
       render: (_, record: FileInfo) => (
         <Space size="small">
-          {record.type === 'file' && (
-            <>
-              <Tooltip title="编辑">
-                <Button 
-                  type="text" 
-                  icon={<EditOutlined />} 
-                  onClick={() => openFileForEdit(record)} 
-                />
-              </Tooltip>
-              {isImageFile(record.name) && (
-                <Tooltip title="预览">
-                  <Button 
-                    type="text" 
-                    icon={<EyeOutlined />} 
-                    onClick={() => previewImage(record)} 
-                  />
-                </Tooltip>
-              )}
-            </>
+          {record.type === 'file' && isImageFile(record.name) && (
+            <Tooltip title="预览">
+              <Button 
+                type="text" 
+                icon={<EyeOutlined />} 
+                onClick={() => previewImage(record)} 
+              />
+            </Tooltip>
           )}
           <Tooltip title="复制">
             <Button 
               type="text" 
               icon={<CopyOutlined />} 
-              onClick={() => copyToClipboard(record)} 
+              onClick={() => copyToClipboard([record])} 
             />
           </Tooltip>
           <Tooltip title="剪切">
             <Button 
               type="text" 
               icon={<ScissorOutlined />} 
-              onClick={() => cutToClipboard(record)} 
+              onClick={() => cutToClipboard([record])} 
             />
           </Tooltip>
           <Tooltip title="重命名">
             <Button 
               type="text" 
-              icon={<EditOutlined />} 
+              icon={<FormOutlined />} 
               onClick={() => {
                 setSelectedFile(record);
                 setNewFileName(record.name);
@@ -1597,6 +1663,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
         max-width: 280px;
         animation: contextMenuFadeIn 0.15s ease-in-out;
       }
+
       @keyframes contextMenuFadeIn {
         from { opacity: 0; transform: translateY(-10px); }
         to { opacity: 1; transform: translateY(0); }
@@ -1609,6 +1676,22 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
       document.head.removeChild(styleElement);
     };
   }, []);
+
+  // 处理初始文件打开
+  useEffect(() => {
+    if (initialFileToOpen && isVisible) {
+      // 创建一个文件对象来打开编辑器
+      const fileToOpen = {
+        name: initialFileToOpen.split('/').pop() || '',
+        path: initialFileToOpen,
+        type: 'file' as const,
+        size: 0,
+        modified: '',
+        permissions: ''
+      };
+      openFileForEdit(fileToOpen);
+    }
+  }, [initialFileToOpen, isVisible]);
 
   // 添加帮助弹窗状态
   const [helpModalVisible, setHelpModalVisible] = useState<boolean>(false);
@@ -1688,7 +1771,18 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 </Button>
                 <Button 
                   icon={<CompressOutlined />} 
-                  onClick={compressFiles}
+                  onClick={() => {
+                    if (selectedFiles.length > 0) {
+                      // 默认压缩文件名
+                      const defaultName = selectedFiles.length === 1 
+                        ? `${selectedFiles[0].name}.zip` 
+                        : `archive_${new Date().getTime()}.zip`;
+                      setCompressName(defaultName);
+                      setIsCompressModalVisible(true);
+                    } else {
+                      message.warning('请选择要压缩的文件或文件夹');
+                    }
+                  }}
                   disabled={selectedFiles.length === 0}
                 >
                   压缩
@@ -1895,8 +1989,6 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                   onDoubleClick: () => {
                     if (record.type === 'directory') {
                       navigateToDirectory(record.path);
-                    } else {
-                      openFileForEdit(record);
                     }
                   },
                   onContextMenu: (e) => handleContextMenu(e, record),
@@ -1995,7 +2087,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
             transform: translateY(-1px);
           }
           .file-manager-hover .ant-btn:hover {
-            transform: translateY(-2px);
+            transform: translateY(-1px);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
           }
           .file-manager-content {
@@ -2086,12 +2178,6 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
             <Menu>
               {contextMenuFile.type === 'directory' ? (
                 <>
-                  <Menu.Item key="open" onClick={() => {
-                    navigateToDirectory(contextMenuFile.path);
-                    hideAllContextMenus();
-                  }} icon={<FolderOpenOutlined />}>
-                    打开文件夹
-                  </Menu.Item>
                   <Menu.Item key="download-folder" onClick={() => {
                     // 下载文件夹（先压缩再下载）
                     setLoading(true);
@@ -2140,12 +2226,7 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 </>
               ) : (
                 <>
-                  <Menu.Item key="edit" onClick={() => {
-                    openFileForEdit(contextMenuFile);
-                    hideAllContextMenus();
-                  }} icon={<EditOutlined />}>
-                    编辑
-                  </Menu.Item>
+
                   {isImageFile(contextMenuFile.name) && (
                     <Menu.Item key="preview" onClick={() => {
                       previewImage(contextMenuFile);
@@ -2184,16 +2265,65 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
               )}
               <Menu.Divider />
               <Menu.Item key="copy" onClick={() => {
-                copyToClipboard(contextMenuFile);
+                // 如果右键点击的文件在选中列表中，则复制所有选中的文件；否则只复制当前文件
+                const filesToCopy = selectedFiles.some(f => f.path === contextMenuFile.path) 
+                  ? selectedFiles 
+                  : [contextMenuFile];
+                copyToClipboard(filesToCopy);
                 hideAllContextMenus();
               }} icon={<CopyOutlined />}>
-                复制
+                {selectedFiles.some(f => f.path === contextMenuFile.path) && selectedFiles.length > 1 
+                  ? `复制 (${selectedFiles.length} 项)` 
+                  : '复制'}
               </Menu.Item>
               <Menu.Item key="cut" onClick={() => {
-                cutToClipboard(contextMenuFile);
+                // 如果右键点击的文件在选中列表中，则剪切所有选中的文件；否则只剪切当前文件
+                const filesToCut = selectedFiles.some(f => f.path === contextMenuFile.path) 
+                  ? selectedFiles 
+                  : [contextMenuFile];
+                cutToClipboard(filesToCut);
                 hideAllContextMenus();
               }} icon={<ScissorOutlined />}>
-                剪切
+                {selectedFiles.some(f => f.path === contextMenuFile.path) && selectedFiles.length > 1 
+                  ? `剪切 (${selectedFiles.length} 项)` 
+                  : '剪切'}
+              </Menu.Item>
+              <Menu.Item key="copy-path" onClick={() => {
+                // 复制文件路径到系统剪贴板
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(contextMenuFile.path).then(() => {
+                    message.success(`已复制路径: ${contextMenuFile.path}`);
+                  }).catch(() => {
+                    // 降级到传统方法
+                    const textArea = document.createElement('textarea');
+                    textArea.value = contextMenuFile.path;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                      document.execCommand('copy');
+                      message.success(`已复制路径: ${contextMenuFile.path}`);
+                    } catch (err) {
+                      message.error('复制路径失败');
+                    }
+                    document.body.removeChild(textArea);
+                  });
+                } else {
+                  // 降级到传统方法
+                  const textArea = document.createElement('textarea');
+                  textArea.value = contextMenuFile.path;
+                  document.body.appendChild(textArea);
+                  textArea.select();
+                  try {
+                    document.execCommand('copy');
+                    message.success(`已复制路径: ${contextMenuFile.path}`);
+                  } catch (err) {
+                    message.error('复制路径失败');
+                  }
+                  document.body.removeChild(textArea);
+                }
+                hideAllContextMenus();
+              }} icon={<CopyOutlined />}>
+                复制路径
               </Menu.Item>
               <Menu.Item key="rename" onClick={() => {
                 setSelectedFile(contextMenuFile);

@@ -60,7 +60,6 @@ class PTYProcess:
         # 其他状态
         self.final_message = None
         self.sent_complete = False
-        self.steam_guard_handled = False
     
     def start(self):
         """启动PTY进程"""
@@ -420,30 +419,7 @@ class PTYProcess:
                                 # 添加到队列以供实时传输
                                 self.output_queue.put(line)
                                 
-                                # 检测验证码/令牌提示
-                                if any(key in line for key in ["Steam Guard", "令牌", "验证码", "code", "Code"]) and not self.steam_guard_handled:
-                                    # 标记已处理过Steam Guard验证码
-                                    self.steam_guard_handled = True
-                                    # 推送prompt消息
-                                    self.output_queue.put({'prompt': '请输入Steam令牌/验证码，如果您的Steam开启了令牌验证，可以点击取消'})
-                                    # 等待前端输入
-                                    logger.info(f"等待前端输入验证码: {self.process_id}")
-                                    self.input_event.clear()
-                                    self.input_event.wait(timeout=300)  # 最多等5分钟
-                                    input_value = self.input_value
-                                    if input_value:
-                                        # 先发送回车进入命令模式
-                                        logger.info(f"先发送回车进入命令模式")
-                                        os.write(self.master_fd, '\n'.encode('utf-8'))
-                                        time.sleep(0.5)  # 短暂等待
-                                        # 再发送验证码命令
-                                        send_str = f"set_steam_guard_code {input_value}\n"
-                                        os.write(self.master_fd, send_str.encode('utf-8'))
-                                        logger.info(f"收到前端输入，已写入pty: {repr(send_str)}")
-                                        self.input_value = None
-                                    else:
-                                        logger.warning(f"验证码输入超时或为空: {self.process_id}")
-                                        self.output_queue.put({'line': '验证码输入超时或未输入，安装可能失败'})
+
                     
                     # 检查进程是否结束
                     if self.process and self.process.poll() is not None:

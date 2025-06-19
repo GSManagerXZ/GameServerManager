@@ -1,0 +1,483 @@
+meta:
+  game_name: "我的世界_paper_global"
+  config_file: "config/paper-global.yml"
+  parser: "ruamel.yaml"
+
+sections:
+  - key: "anticheat"
+    fields:
+      # 反作弊设置
+      - name: "obfuscation.items.enable-item-obfuscation"
+        display: "启用物品混淆"
+        default: false
+        type: "boolean"
+        description: "是否启用物品混淆以防止X-Ray"
+      - name: "obfuscation.items.all-models.sanitize-count"
+        display: "清理物品数量"
+        default: true
+        type: "boolean"
+        description: "是否清理物品数量信息"
+  
+  - key: "block-updates"
+    fields:
+      # 方块更新设置
+      - name: "disable-chorus-plant-updates"
+        display: "禁用紫颂植物更新"
+        default: false
+        type: "boolean"
+        description: "是否禁用紫颂植物的方块更新"
+      - name: "disable-mushroom-block-updates"
+        display: "禁用蘑菇方块更新"
+        default: false
+        type: "boolean"
+        description: "是否禁用蘑菇方块的更新"
+      - name: "disable-noteblock-updates"
+        display: "禁用音符盒更新"
+        default: false
+        type: "boolean"
+        description: "是否禁用音符盒的方块更新"
+      - name: "disable-tripwire-updates"
+        display: "禁用绊线更新"
+        default: false
+        type: "boolean"
+        description: "是否禁用绊线的方块更新"
+  
+  - key: "chunk-loading-advanced"
+    fields:
+      # 高级区块加载设置
+      - name: "auto-config-send-distance"
+        display: "自动配置发送距离"
+        default: true
+        type: "boolean"
+        description: "是否自动配置区块发送距离"
+      - name: "player-max-concurrent-chunk-generates"
+        display: "玩家最大并发区块生成数【0到100】"
+        default: 0
+        type: "number"
+        description: "每个玩家最大并发生成的区块数，0表示无限制"
+      - name: "player-max-concurrent-chunk-loads"
+        display: "玩家最大并发区块加载数【0到100】"
+        default: 0
+        type: "number"
+        description: "每个玩家最大并发加载的区块数，0表示无限制"
+  
+  - key: "chunk-loading-basic"
+    fields:
+      # 基础区块加载设置
+      - name: "player-max-chunk-generate-rate"
+        display: "玩家最大区块生成速率【-1到1000】"
+        default: -1.0
+        type: "number"
+        description: "每个玩家每秒最大区块生成数，-1表示无限制"
+      - name: "player-max-chunk-load-rate"
+        display: "玩家最大区块加载速率【1到1000】"
+        default: 100.0
+        type: "number"
+        description: "每个玩家每秒最大区块加载数"
+      - name: "player-max-chunk-send-rate"
+        display: "玩家最大区块发送速率【1到1000】"
+        default: 75.0
+        type: "number"
+        description: "每个玩家每秒最大区块发送数"
+  
+  - key: "chunk-system"
+    fields:
+      # 区块系统设置
+      - name: "gen-parallelism"
+        display: "生成并行度"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "1"
+            label: "1线程"
+          - value: "2"
+            label: "2线程"
+          - value: "4"
+            label: "4线程"
+        description: "区块生成的并行线程数"
+      - name: "io-threads"
+        display: "IO线程数【-1到32】"
+        default: -1
+        type: "number"
+        description: "IO操作的线程数，-1表示自动"
+      - name: "worker-threads"
+        display: "工作线程数【-1到32】"
+        default: -1
+        type: "number"
+        description: "工作线程数，-1表示自动"
+  
+  - key: "collisions"
+    fields:
+      # 碰撞设置
+      - name: "enable-player-collisions"
+        display: "启用玩家碰撞"
+        default: true
+        type: "boolean"
+        description: "是否启用玩家之间的碰撞"
+      - name: "send-full-pos-for-hard-colliding-entities"
+        display: "发送硬碰撞实体完整位置"
+        default: true
+        type: "boolean"
+        description: "是否为硬碰撞实体发送完整位置信息"
+  
+  - key: "commands"
+    fields:
+      # 命令设置
+      - name: "ride-command-allow-player-as-vehicle"
+        display: "骑乘命令允许玩家作为载具"
+        default: false
+        type: "boolean"
+        description: "是否允许在骑乘命令中使用玩家作为载具"
+      - name: "suggest-player-names-when-null-tab-completions"
+        display: "空Tab补全时建议玩家名"
+        default: true
+        type: "boolean"
+        description: "当Tab补全为空时是否建议玩家名称"
+      - name: "time-command-affects-all-worlds"
+        display: "时间命令影响所有世界"
+        default: false
+        type: "boolean"
+        description: "时间命令是否影响所有世界"
+  
+  - key: "console"
+    fields:
+      # 控制台设置
+      - name: "enable-brigadier-completions"
+        display: "启用Brigadier补全"
+        default: true
+        type: "boolean"
+        description: "是否启用Brigadier命令补全"
+      - name: "enable-brigadier-highlighting"
+        display: "启用Brigadier高亮"
+        default: true
+        type: "boolean"
+        description: "是否启用Brigadier语法高亮"
+      - name: "has-all-permissions"
+        display: "拥有所有权限"
+        default: false
+        type: "boolean"
+        description: "控制台是否拥有所有权限"
+  
+  - key: "item-validation"
+    fields:
+      # 物品验证设置
+      - name: "book.author"
+        display: "书籍作者字符限制【1到65535】"
+        default: 8192
+        type: "number"
+        description: "书籍作者名称的最大字符数"
+      - name: "book.page"
+        display: "书籍页面字符限制【1到65535】"
+        default: 16384
+        type: "number"
+        description: "书籍每页的最大字符数"
+      - name: "book.title"
+        display: "书籍标题字符限制【1到65535】"
+        default: 8192
+        type: "number"
+        description: "书籍标题的最大字符数"
+      - name: "book-size.page-max"
+        display: "书籍最大页数【1到10000】"
+        default: 2560
+        type: "number"
+        description: "书籍的最大页数"
+      - name: "book-size.total-multiplier"
+        display: "书籍总大小倍数【0.1到2.0】"
+        default: 0.98
+        type: "number"
+        description: "书籍总大小的倍数限制"
+      - name: "display-name"
+        display: "显示名称字符限制【1到65535】"
+        default: 8192
+        type: "number"
+        description: "物品显示名称的最大字符数"
+      - name: "lore-line"
+        display: "描述行字符限制【1到65535】"
+        default: 8192
+        type: "number"
+        description: "物品描述每行的最大字符数"
+      - name: "resolve-selectors-in-books"
+        display: "解析书籍中的选择器"
+        default: false
+        type: "boolean"
+        description: "是否解析书籍中的目标选择器"
+  
+  - key: "logging"
+    fields:
+      # 日志设置
+      - name: "deobfuscate-stacktraces"
+        display: "反混淆堆栈跟踪"
+        default: true
+        type: "boolean"
+        description: "是否反混淆错误堆栈跟踪"
+  
+  - key: "messages"
+    fields:
+      # 消息设置
+      - name: "kick.connection-throttle"
+        display: "连接限制踢出消息"
+        default: "Connection throttled! Please wait before reconnecting."
+        type: "string"
+        description: "连接被限制时的踢出消息"
+      - name: "no-permission"
+        display: "无权限消息"
+        default: "<red>I'm sorry, but you do not have permission to perform this command. Please contact the server administrators if you believe that this is in error."
+        type: "string"
+        description: "玩家无权限时显示的消息"
+      - name: "use-display-name-in-quit-message"
+        display: "退出消息使用显示名称"
+        default: false
+        type: "boolean"
+        description: "退出消息是否使用玩家的显示名称"
+  
+  - key: "misc"
+    fields:
+      # 杂项设置
+      - name: "chat-threads.chat-executor-core-size"
+        display: "聊天执行器核心大小【-1到100】"
+        default: -1
+        type: "number"
+        description: "聊天线程池的核心大小，-1表示自动"
+      - name: "chat-threads.chat-executor-max-size"
+        display: "聊天执行器最大大小【-1到100】"
+        default: -1
+        type: "number"
+        description: "聊天线程池的最大大小，-1表示自动"
+      - name: "compression-level"
+        display: "压缩级别"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "1"
+            label: "最快"
+          - value: "6"
+            label: "平衡"
+          - value: "9"
+            label: "最佳"
+        description: "网络数据包的压缩级别"
+      - name: "fix-entity-position-desync"
+        display: "修复实体位置不同步"
+        default: true
+        type: "boolean"
+        description: "是否修复实体位置不同步问题"
+      - name: "load-permissions-yml-before-plugins"
+        display: "插件前加载权限文件"
+        default: true
+        type: "boolean"
+        description: "是否在插件加载前加载permissions.yml"
+      - name: "max-joins-per-tick"
+        display: "每tick最大加入数【1到100】"
+        default: 5
+        type: "number"
+        description: "每个tick允许的最大玩家加入数"
+      - name: "region-file-cache-size"
+        display: "区域文件缓存大小【1到1000】"
+        default: 256
+        type: "number"
+        description: "区域文件的缓存大小"
+      - name: "strict-advancement-dimension-check"
+        display: "严格进度维度检查"
+        default: false
+        type: "boolean"
+        description: "是否严格检查进度的维度要求"
+      - name: "use-alternative-luck-formula"
+        display: "使用替代幸运公式"
+        default: false
+        type: "boolean"
+        description: "是否使用替代的幸运值计算公式"
+      - name: "use-dimension-type-for-custom-spawners"
+        display: "自定义刷怪笼使用维度类型"
+        default: false
+        type: "boolean"
+        description: "自定义刷怪笼是否使用维度类型"
+  
+  - key: "packet-limiter"
+    fields:
+      # 数据包限制设置
+      - name: "all-packets.action"
+        display: "所有数据包动作"
+        default: "KICK"
+        type: "select"
+        options:
+          - value: "KICK"
+            label: "踢出"
+          - value: "DROP"
+            label: "丢弃"
+        description: "超过数据包限制时的动作"
+      - name: "all-packets.interval"
+        display: "所有数据包检查间隔【1到60】"
+        default: 7.0
+        type: "number"
+        description: "数据包速率检查的时间间隔（秒）"
+      - name: "all-packets.max-packet-rate"
+        display: "最大数据包速率【1到10000】"
+        default: 500.0
+        type: "number"
+        description: "每秒允许的最大数据包数"
+      - name: "kick-message"
+        display: "踢出消息"
+        default: "<red><lang:disconnect.exceeded_packet_rate>"
+        type: "string"
+        description: "超过数据包限制时的踢出消息"
+  
+  - key: "player-auto-save"
+    fields:
+      # 玩家自动保存设置
+      - name: "max-per-tick"
+        display: "每tick最大保存数【-1到100】"
+        default: -1
+        type: "number"
+        description: "每个tick最大保存的玩家数，-1表示无限制"
+      - name: "rate"
+        display: "保存频率【-1到6000】"
+        default: -1
+        type: "number"
+        description: "玩家数据保存的频率（tick），-1表示使用默认值"
+  
+  - key: "proxies"
+    fields:
+      # 代理设置
+      - name: "bungee-cord.online-mode"
+        display: "BungeeCord在线模式"
+        default: true
+        type: "boolean"
+        description: "BungeeCord代理的在线模式"
+      - name: "proxy-protocol"
+        display: "代理协议"
+        default: false
+        type: "boolean"
+        description: "是否启用代理协议支持"
+      - name: "velocity.enabled"
+        display: "启用Velocity"
+        default: false
+        type: "boolean"
+        description: "是否启用Velocity代理支持"
+      - name: "velocity.online-mode"
+        display: "Velocity在线模式"
+        default: true
+        type: "boolean"
+        description: "Velocity代理的在线模式"
+      - name: "velocity.secret"
+        display: "Velocity密钥"
+        default: ""
+        type: "string"
+        description: "Velocity代理的验证密钥"
+  
+  - key: "scoreboards"
+    fields:
+      # 计分板设置
+      - name: "save-empty-scoreboard-teams"
+        display: "保存空计分板队伍"
+        default: true
+        type: "boolean"
+        description: "是否保存空的计分板队伍"
+      - name: "track-plugin-scoreboards"
+        display: "跟踪插件计分板"
+        default: false
+        type: "boolean"
+        description: "是否跟踪插件创建的计分板"
+  
+  - key: "spam-limiter"
+    fields:
+      # 垃圾信息限制设置
+      - name: "incoming-packet-threshold"
+        display: "传入数据包阈值【1到10000】"
+        default: 300
+        type: "number"
+        description: "触发垃圾信息检测的传入数据包阈值"
+      - name: "recipe-spam-increment"
+        display: "配方垃圾信息增量【1到100】"
+        default: 1
+        type: "number"
+        description: "配方垃圾信息的增量值"
+      - name: "recipe-spam-limit"
+        display: "配方垃圾信息限制【1到1000】"
+        default: 20
+        type: "number"
+        description: "配方垃圾信息的限制值"
+      - name: "tab-spam-increment"
+        display: "Tab垃圾信息增量【1到100】"
+        default: 1
+        type: "number"
+        description: "Tab补全垃圾信息的增量值"
+      - name: "tab-spam-limit"
+        display: "Tab垃圾信息限制【1到10000】"
+        default: 500
+        type: "number"
+        description: "Tab补全垃圾信息的限制值"
+  
+  - key: "spark"
+    fields:
+      # Spark性能分析设置
+      - name: "enable-immediately"
+        display: "立即启用"
+        default: false
+        type: "boolean"
+        description: "是否在服务器启动时立即启用Spark"
+      - name: "enabled"
+        display: "启用Spark"
+        default: true
+        type: "boolean"
+        description: "是否启用Spark性能分析工具"
+  
+  - key: "unsupported-settings"
+    fields:
+      # 不支持的设置（实验性）
+      - name: "allow-headless-pistons"
+        display: "允许无头活塞"
+        default: false
+        type: "boolean"
+        description: "是否允许无头活塞（可能导致问题）"
+      - name: "allow-permanent-block-break-exploits"
+        display: "允许永久方块破坏漏洞"
+        default: false
+        type: "boolean"
+        description: "是否允许永久方块破坏漏洞"
+      - name: "allow-piston-duplication"
+        display: "允许活塞复制"
+        default: false
+        type: "boolean"
+        description: "是否允许活塞复制物品"
+      - name: "allow-unsafe-end-portal-teleportation"
+        display: "允许不安全的末地传送门传送"
+        default: false
+        type: "boolean"
+        description: "是否允许不安全的末地传送门传送"
+      - name: "compression-format"
+        display: "压缩格式"
+        default: "ZLIB"
+        type: "select"
+        options:
+          - value: "ZLIB"
+            label: "ZLIB"
+          - value: "GZIP"
+            label: "GZIP"
+        description: "数据压缩格式"
+      - name: "perform-username-validation"
+        display: "执行用户名验证"
+        default: true
+        type: "boolean"
+        description: "是否执行用户名验证"
+      - name: "skip-vanilla-damage-tick-when-shield-blocked"
+        display: "盾牌格挡时跳过原版伤害tick"
+        default: false
+        type: "boolean"
+        description: "盾牌格挡时是否跳过原版伤害tick"
+  
+  - key: "watchdog"
+    fields:
+      # 看门狗设置
+      - name: "early-warning-delay"
+        display: "早期警告延迟【1000到60000】"
+        default: 10000
+        type: "number"
+        description: "看门狗早期警告的延迟时间（毫秒）"
+      - name: "early-warning-every"
+        display: "早期警告间隔【1000到30000】"
+        default: 5000
+        type: "number"
+        description: "看门狗早期警告的间隔时间（毫秒）"

@@ -19,7 +19,10 @@ import Terminal from './components/Terminal';
 import SimpleServerTerminal from './components/SimpleServerTerminal';
 import ContainerInfo from './components/ContainerInfo';
 import FileManager from './components/FileManager';
+import GameConfigManager from './components/GameConfigManager'; // 导入游戏配置文件管理组件
+import DirectoryPicker from './components/DirectoryPicker';
 import Register from './components/Register'; // 导入注册组件
+import GlobalMusicPlayer from './components/GlobalMusicPlayer'; // 导入全局音乐播放器
 import FrpManager from './components/FrpManager'; // 导入内网穿透组件
 import FrpDocModal from './components/FrpDocModal'; // 导入内网穿透文档弹窗组件
 import OnlineDeploy from './components/OnlineDeploy'; // 导入在线部署组件
@@ -28,6 +31,7 @@ import Settings from './pages/Settings'; // 导入设置页面
 import Environment from './pages/Environment'; // 导入环境安装页面
 import ServerGuide from './pages/ServerGuide'; // 导入开服指南页面
 import PanelManager from './components/PanelManager'; // 导入面板管理组件
+import MinecraftModpackDeploy from './components/MinecraftModpackDeploy'; // 导入Minecraft整合包部署组件
 import { fetchGames, installGame, terminateInstall, installByAppId, openGameFolder, checkVersionUpdate, downloadDockerImage } from './api';
 import { GameInfo } from './types';
 import terminalService from './services/terminalService';
@@ -330,6 +334,9 @@ const MinecraftDeploy: React.FC = () => {
   const [deploying, setDeploying] = useState<boolean>(false);
   const [installedJdks, setInstalledJdks] = useState<any[]>([]);
   const [selectedJdk, setSelectedJdk] = useState<string>('');
+  const [deployMode, setDeployMode] = useState<string>('new'); // 新增部署模式状态
+  const [installedGames, setInstalledGames] = useState<any[]>([]); // 已安装游戏列表
+  const [selectedExistingServer, setSelectedExistingServer] = useState<string>(''); // 选择的现有服务端
 
   // 获取MC服务端列表
   const fetchMcServers = async () => {
@@ -402,6 +409,22 @@ const MinecraftDeploy: React.FC = () => {
     }
   };
 
+  // 获取已安装游戏列表
+  const fetchInstalledGames = async () => {
+    try {
+      const response = await axios.get('/api/installed_games');
+      if (response.data.status === 'success') {
+        // 合并已安装游戏和外部游戏
+        const allGames = [...(response.data.installed || []), ...(response.data.external || [])];
+        setInstalledGames(allGames);
+      } else {
+        message.error(response.data.message || '获取已安装游戏列表失败');
+      }
+    } catch (error: any) {
+      message.error('获取已安装游戏列表失败: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
   // 部署服务器
   const deployServer = async () => {
     if (!selectedServer || !selectedMcVersion || !selectedBuild) {
@@ -409,20 +432,29 @@ const MinecraftDeploy: React.FC = () => {
       return;
     }
 
-    if (!customName.trim()) {
-      message.error('请输入服务器名称');
+    // 根据部署模式验证服务器名称
+    const serverName = deployMode === 'existing' ? selectedExistingServer : customName;
+    if (!serverName || !serverName.trim()) {
+      message.error(deployMode === 'existing' ? '请选择现有服务端' : '请输入服务器名称');
       return;
     }
 
     try {
       setDeploying(true);
-      const response = await axios.post('/api/minecraft/deploy', {
+      const deployData: any = {
         server_name: selectedServer,
         mc_version: selectedMcVersion,
         core_version: selectedBuild,
-        custom_name: customName.trim(),
-        selected_jdk: selectedJdk
-      });
+        custom_name: serverName.trim(),
+        deploy_mode: deployMode
+      };
+      
+      // 只有在新建服务端模式下才传递JDK参数
+      if (deployMode === 'new') {
+        deployData.selected_jdk = selectedJdk;
+      }
+      
+      const response = await axios.post('/api/minecraft/deploy', deployData);
 
       if (response.data.status === 'success') {
         message.success('Minecraft服务器部署成功!');
@@ -441,6 +473,7 @@ const MinecraftDeploy: React.FC = () => {
         setSelectedMcVersion('');
         setSelectedBuild('');
         setCustomName('');
+        setSelectedExistingServer('');
         setMcVersions([]);
         setBuilds([]);
       } else {
@@ -468,15 +501,41 @@ const MinecraftDeploy: React.FC = () => {
     }
   };
 
-  // 组件挂载时获取服务端列表和JDK列表
+  // 组件挂载时获取服务端列表、JDK列表和已安装游戏列表
   React.useEffect(() => {
     fetchMcServers();
     fetchInstalledJdks();
+    fetchInstalledGames();
   }, []);
+
+  // 当部署模式改变时，重置相关状态
+  React.useEffect(() => {
+    if (deployMode === 'existing') {
+      setCustomName('');
+    } else {
+      setSelectedExistingServer('');
+    }
+  }, [deployMode]);
 
   return (
     <div>
       <Row gutter={[16, 16]}>
+        <Col span={24}>
+          <Title level={4}>部署模式</Title>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="请选择部署模式"
+            value={deployMode}
+            onChange={setDeployMode}
+          >
+            <Option value="new">新建服务端</Option>
+            <Option value="existing">部署到现有服务端中</Option>
+          </Select>
+          <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+            {deployMode === 'new' ? '创建新的服务端实例，包含完整的启动配置' : '仅下载服务端核心文件到现有目录，不生成启动脚本'}
+          </div>
+        </Col>
+        
         <Col span={24}>
           <Title level={4}>选择服务端类型</Title>
           <Select
@@ -545,19 +604,46 @@ const MinecraftDeploy: React.FC = () => {
 
         {selectedBuild && (
           <Col span={24}>
-            <Title level={4} style={{ padding: '50px' }}>服务器名称</Title>
-            <Input
-              placeholder="请输入服务器名称（将作为目录名）"
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-            />
-            <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
-              服务器将部署到: /home/steam/games/{customName || '服务器名称'}
-            </div>
+            {deployMode === 'new' ? (
+              <>
+                <Title level={4}>服务器名称</Title>
+                <Input
+                  placeholder="请输入服务器名称（将作为目录名）"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                />
+                <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+                  服务器将部署到: /home/steam/games/{customName || '服务器名称'}
+                </div>
+              </>
+            ) : (
+              <>
+                <Title level={4}>选择现有服务端</Title>
+                <Select
+                  style={{ width: '100%' }}
+                  placeholder="请选择要部署到的现有服务端"
+                  value={selectedExistingServer}
+                  onChange={setSelectedExistingServer}
+                  loading={loading}
+                >
+                  {installedGames.map(game => (
+                    <Option key={game.id || game} value={game.id || game}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{game.name || game}</span>
+                        {game.external && <Tag color="orange">外部游戏</Tag>}
+                      </div>
+                    </Option>
+                  ))}
+                </Select>
+                <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
+                  核心文件将下载到: /home/steam/games/{selectedExistingServer || '选择的服务端'}
+                </div>
+              </>
+            )}
           </Col>
         )}
 
-        {customName && (
+        {deployMode === 'new' && customName && (
           <Col span={24}>
             <Title level={4}>Java环境选择</Title>
             <Select
@@ -586,11 +672,14 @@ const MinecraftDeploy: React.FC = () => {
           </Col>
         )}
 
-        {selectedServer && selectedMcVersion && selectedBuild && customName && (
+        {selectedServer && selectedMcVersion && selectedBuild && ((deployMode === 'new' && customName) || (deployMode === 'existing' && selectedExistingServer)) && (
           <Col span={24}>
             <Card style={{ backgroundColor: '#f6f8fa', border: '1px solid #d1d9e0' }}>
               <Title level={5}>部署信息确认</Title>
               <Row gutter={[16, 8]}>
+                <Col span={12}>
+                  <strong>部署模式:</strong> {deployMode === 'new' ? '新建服务端' : '部署到现有服务端中'}
+                </Col>
                 <Col span={12}>
                   <strong>服务端类型:</strong> {selectedServer}
                 </Col>
@@ -601,11 +690,13 @@ const MinecraftDeploy: React.FC = () => {
                   <strong>构建版本:</strong> {selectedBuild}
                 </Col>
                 <Col span={12}>
-                  <strong>服务器名称:</strong> {customName}
+                  <strong>服务器名称:</strong> {deployMode === 'new' ? customName : selectedExistingServer}
                 </Col>
-                <Col span={12}>
-                  <strong>Java环境:</strong> {selectedJdk ? installedJdks.find(jdk => jdk.id === selectedJdk)?.name || selectedJdk : '系统默认Java'}
-                </Col>
+                {deployMode === 'new' && (
+                  <Col span={12}>
+                    <strong>Java环境:</strong> {selectedJdk ? installedJdks.find(jdk => jdk.id === selectedJdk)?.name || selectedJdk : '系统默认Java'}
+                  </Col>
+                )}
               </Row>
               <div style={{ marginTop: '16px', textAlign: 'center' }}>
                 <Button
@@ -1049,6 +1140,15 @@ const App: React.FC = () => {
   const [editingBackupTask, setEditingBackupTask] = useState<any>(null);
   const [backupForm] = Form.useForm();
   
+  // 文件收藏相关状态
+  const [favoriteFiles, setFavoriteFiles] = useState<any[]>([]);
+  const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
+  const [editingFavorite, setEditingFavorite] = useState<any>(null);
+  const [favoriteForm] = Form.useForm();
+  // 目录选择器状态
+  const [directoryPickerVisible, setDirectoryPickerVisible] = useState(false);
+  const [backupDirectoryPickerVisible, setBackupDirectoryPickerVisible] = useState(false);
+  
   // 保存不活动效果设置到localStorage
   useEffect(() => {
     localStorage.setItem('enableInactiveEffect', enableInactiveEffect.toString());
@@ -1139,6 +1239,7 @@ const App: React.FC = () => {
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [fileManagerVisible, setFileManagerVisible_orig] = useState<boolean>(false);
   const [fileManagerPath, setFileManagerPath_orig] = useState<string>('/home/steam');
+  const [initialFileToOpen, setInitialFileToOpen] = useState<string | undefined>(undefined);
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
 
   // Wrapped state setters with logging
@@ -2759,6 +2860,122 @@ const App: React.FC = () => {
     }
   };
 
+  // 文件收藏相关处理函数
+  const refreshFavoriteFiles = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/settings/favorite-files');
+      if (response.data.status === 'success') {
+        setFavoriteFiles(response.data.favorite_files || []);
+      } else {
+        console.error('获取收藏文件失败:', response.data.message);
+        message.error('获取收藏文件失败');
+      }
+    } catch (error) {
+      console.error('获取收藏文件失败:', error);
+      message.error('获取收藏文件失败');
+    }
+  }, []);
+
+  const handleAddFavoriteFile = () => {
+    setEditingFavorite(null);
+    favoriteForm.resetFields();
+    setFavoriteModalVisible(true);
+  };
+
+  const handleEditFavoriteFile = (favorite: any) => {
+    setEditingFavorite(favorite);
+    favoriteForm.setFieldsValue({
+      name: favorite.name,
+      filePath: favorite.filePath,
+      description: favorite.description
+    });
+    setFavoriteModalVisible(true);
+  };
+
+  const handleDeleteFavoriteFile = async (favoriteId: string) => {
+    try {
+      const updatedFavorites = favoriteFiles.filter(f => f.id !== favoriteId);
+      
+      const response = await axios.post('/api/settings/favorite-files', {
+        favorite_files: updatedFavorites
+      });
+      
+      if (response.data.status === 'success') {
+        setFavoriteFiles(updatedFavorites);
+        message.success('收藏文件已删除');
+      } else {
+        console.error('删除收藏文件失败:', response.data.message);
+        message.error('删除收藏文件失败');
+      }
+    } catch (error) {
+      console.error('删除收藏文件失败:', error);
+      message.error('删除收藏文件失败');
+    }
+  };
+
+  const handleFavoriteFormSubmit = async (values: any) => {
+    try {
+      // 验证必填字段
+      if (!values.name || !values.name.trim()) {
+        message.error('请输入文件备注');
+        return;
+      }
+      if (!values.filePath || !values.filePath.trim()) {
+        message.error('请输入文件路径');
+        return;
+      }
+
+      const favoriteData = {
+        id: editingFavorite ? editingFavorite.id : Date.now().toString(),
+        name: values.name.trim(),
+        filePath: values.filePath.trim(),
+        description: values.description ? values.description.trim() : '',
+        createdAt: editingFavorite ? editingFavorite.createdAt : new Date().toISOString()
+      };
+
+      let updatedFavorites;
+      if (editingFavorite) {
+        updatedFavorites = favoriteFiles.map(f => f.id === editingFavorite.id ? favoriteData : f);
+      } else {
+        updatedFavorites = [...favoriteFiles, favoriteData];
+      }
+
+      const response = await axios.post('/api/settings/favorite-files', {
+        favorite_files: updatedFavorites
+      });
+      
+      if (response.data.status === 'success') {
+        setFavoriteFiles(updatedFavorites);
+        message.success(editingFavorite ? '收藏文件已更新' : '收藏文件已添加');
+        setFavoriteModalVisible(false);
+        setEditingFavorite(null);
+        favoriteForm.resetFields();
+      } else {
+        console.error('保存收藏文件失败:', response.data.message);
+        message.error('保存收藏文件失败');
+      }
+    } catch (error) {
+      console.error('保存收藏文件失败:', error);
+      message.error('保存收藏文件失败');
+    }
+  };
+
+  const handleOpenFavoriteFile = (favorite: any) => {
+    // 提取目录路径
+    const dirPath = favorite.filePath.substring(0, favorite.filePath.lastIndexOf('/'));
+    setFileManagerPath(dirPath || '/home/steam');
+    setInitialFileToOpen(favorite.filePath);
+    setFileManagerVisible(true);
+    message.success(`正在打开文件: ${favorite.name}`);
+  };
+
+  // 清除initialFileToOpen状态，确保文件打开后状态被重置
+  useEffect(() => {
+    if (!fileManagerVisible && initialFileToOpen) {
+      setInitialFileToOpen(undefined);
+    }
+  }, [fileManagerVisible, initialFileToOpen]);
+
   // 初始化
   useEffect(() => {
     // 如果已登录，加载游戏列表
@@ -2810,8 +3027,11 @@ const App: React.FC = () => {
       };
       
       loadGames();
+      
+      // 加载收藏文件
+      refreshFavoriteFiles();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, refreshFavoriteFiles]);
 
   // 加载自启动服务器列表
   const loadAutoRestartServers = async () => {
@@ -2931,7 +3151,7 @@ const App: React.FC = () => {
   const [versionUpdateModalVisible, setVersionUpdateModalVisible] = useState<boolean>(false);
   const [latestVersionInfo, setLatestVersionInfo] = useState<{version: string, description: any} | null>(null);
   const [downloadingImage, setDownloadingImage] = useState<boolean>(false);
-  const currentVersion = '2.2.0'; // 当前版本号
+  const currentVersion = '2.4.0'; // 当前版本号
   
   // 版本检查功能
   const checkForUpdates = async () => {
@@ -3157,7 +3377,7 @@ const App: React.FC = () => {
               style={{ fontSize: '16px', padding: '0 8px' }}
             />
             <div className="header-title">
-              GameServerManager
+              <img src="/logo/logo.png" alt="GameServerManager" style={{ height: '32px', objectFit: 'contain' }} />
             </div>
             <div className="user-info">
               <Tooltip title={enableRandomBackground ? "关闭随机背景" : "开启随机背景"}>
@@ -3205,7 +3425,7 @@ const App: React.FC = () => {
             bodyStyle={{ padding: 0 }}
           >
             <div className="logo">
-              <CloudServerOutlined /> <span>GSManager</span>
+              <img src="/logo/logo2.png" alt="GSManager" style={{ height: '50px', objectFit: 'contain' }} />
             </div>
             <Menu
               theme="light"
@@ -3239,6 +3459,11 @@ const App: React.FC = () => {
                   key: 'servers',
                   icon: <PlayCircleOutlined />,
                   label: '服务端管理'
+                },
+                {
+                  key: 'game-config',
+                  icon: <SettingOutlined />,
+                  label: '游戏配置文件'
                 },
                 {
                   key: 'frp',
@@ -3281,7 +3506,7 @@ const App: React.FC = () => {
         collapsedWidth="var(--sider-collapsed-width)"
       >
         <div className="logo">
-          <CloudServerOutlined /> {!collapsed && <span>GSManager</span>}
+          <img src="/logo/logo2.png" alt="GSManager" style={{ height: '50px', objectFit: 'contain' }} />
         </div>
         <Menu
           theme="light"
@@ -3314,6 +3539,11 @@ const App: React.FC = () => {
               key: 'servers',
               icon: <PlayCircleOutlined />,
               label: '服务端管理'
+            },
+            {
+              key: 'game-config',
+              icon: <ToolOutlined />,
+              label: '游戏配置文件'
             },
             {
               key: 'frp',
@@ -3351,7 +3581,7 @@ const App: React.FC = () => {
         {!isMobile && (
         <Header className="site-header">
           <div className="header-title">
-            GameServerManager
+            <img src="/logo/logo.png" alt="GameServerManager" style={{ height: '60px', width: '200px', objectFit: 'contain' }} />
           </div>
           <div className="user-info">
             <Tooltip title={enableRandomBackground ? "关闭随机背景" : "开启随机背景"}>
@@ -3562,6 +3792,11 @@ const App: React.FC = () => {
                     </Card>
                   </div>
                 </TabPane>
+                <TabPane tab="Minecraft整合包部署" key="minecraft-modpack-deploy">
+                  <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 0' }}>
+                    <MinecraftModpackDeploy />
+                  </div>
+                </TabPane>
                 <TabPane tab="半自动部署" key="semi-auto-deploy">
                   <div style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 0' }}>
                     <Card title="半自动部署">
@@ -3574,6 +3809,7 @@ const App: React.FC = () => {
                     <OnlineDeploy />
                   </div>
                 </TabPane>
+
               </Tabs>
               </div>
             </div>
@@ -4124,6 +4360,74 @@ const App: React.FC = () => {
                     </Row>
                   </div>
                 </TabPane>
+                <TabPane tab="文件收藏" key="favorites">
+                  <div className="favorite-files-management">
+                    <div className="favorite-controls">
+                      <Button onClick={handleAddFavoriteFile} type="primary" style={{marginRight: 8}}>添加收藏文件</Button>
+                      <Button onClick={refreshFavoriteFiles} icon={<ReloadOutlined />}>刷新列表</Button>
+                    </div>
+                    <Row gutter={[16, 16]} style={{marginTop: 16}}>
+                      {favoriteFiles.map(favorite => (
+                        <Col key={favorite.id} xs={24} sm={12} md={8} lg={6}>
+                          <Card
+                            title={favorite.name}
+                            extra={
+                              <Tag color="blue">收藏</Tag>
+                            }
+                            style={{ borderRadius: '8px', overflow: 'hidden' }}
+                          >
+                            <div style={{marginBottom: 8}}>
+                              <strong>文件路径:</strong>
+                              <div style={{wordBreak: 'break-all', fontSize: '12px', color: '#666'}}>
+                                {favorite.filePath}
+                              </div>
+                            </div>
+                            {favorite.description && (
+                              <div style={{marginBottom: 12}}>
+                                <strong>描述:</strong>
+                                <div style={{fontSize: '12px', color: '#666'}}>
+                                  {favorite.description}
+                                </div>
+                              </div>
+                            )}
+                            <div style={{marginBottom: 8, fontSize: '12px', color: '#999'}}>
+                              创建时间: {new Date(favorite.createdAt).toLocaleString()}
+                            </div>
+                            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+                              <Button 
+                                type="primary"
+                                size="small"
+                                onClick={() => handleOpenFavoriteFile(favorite)}
+                              >
+                                打开编辑
+                              </Button>
+                              <Button 
+                                size="small"
+                                onClick={() => handleEditFavoriteFile(favorite)}
+                              >
+                                编辑
+                              </Button>
+                              <Button 
+                                danger
+                                size="small"
+                                onClick={() => handleDeleteFavoriteFile(favorite.id)}
+                              >
+                                删除
+                              </Button>
+                            </div>
+                          </Card>
+                        </Col>
+                      ))}
+                      {favoriteFiles.length === 0 && (
+                        <Col span={24}>
+                          <div className="empty-favorite-files">
+                            <p>暂无收藏文件，点击"添加收藏文件"创建新收藏</p>
+                          </div>
+                        </Col>
+                      )}
+                    </Row>
+                  </div>
+                </TabPane>
               </Tabs>
               </div>
             </div>
@@ -4139,6 +4443,14 @@ const App: React.FC = () => {
                   // Its visibility is tied to whether 'files' is the currentNav.
                   isVisible={currentNav === 'files'} 
                 />
+              </div>
+            </div>
+          )}
+
+          {currentNav === 'game-config' && (
+            <div className={`nav-content ${isTransitioning ? 'fade-out' : ''}`}>
+              <div className="game-config-management">
+                <GameConfigManager />
               </div>
             </div>
           )}
@@ -4182,7 +4494,7 @@ const App: React.FC = () => {
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.13</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.19</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
@@ -4384,35 +4696,6 @@ const App: React.FC = () => {
           setAccountModalVisible(false);
           setPendingInstallGame(null);
         }}
-        confirmLoading={accountModalLoading}
-      >
-        <Form form={accountForm}>
-          <Form.Item
-            name="username"
-            label="Steam用户名"
-            rules={[{ required: true, message: '请输入Steam用户名!' }]}
-          >
-            <Input placeholder="请输入Steam用户名" />
-          </Form.Item>
-          <Form.Item
-            name="password"
-            label="Steam密码"
-            rules={[{ required: true, message: '请输入Steam密码!' }]}
-          >
-            <Input.Password placeholder="请输入Steam密码" />
-           </Form.Item>
-         </Form>
-       </Modal>
-
-      {/* 账号输入Modal */}
-      <Modal
-        title="输入Steam账号"
-        open={accountModalVisible}
-        onOk={onAccountModalOk}
-        onCancel={() => {
-          setAccountModalVisible(false);
-          setPendingInstallGame(null);
-        }}
         okText="安装"
         cancelText="取消"
       >
@@ -4516,7 +4799,20 @@ const App: React.FC = () => {
             label="备份目录"
             rules={[{ required: true, message: '请输入要备份的目录路径' }]}
           >
-            <Input placeholder="例如：/home/steam/games/minecraft" />
+            <Input.Group compact>
+              <Form.Item name="directory" noStyle>
+                <Input 
+                  style={{ width: 'calc(100% - 80px)' }}
+                  placeholder="例如：/home/steam/games/minecraft" 
+                />
+              </Form.Item>
+              <Button 
+                style={{ width: 80 }}
+                onClick={() => setBackupDirectoryPickerVisible(true)}
+              >
+                浏览
+              </Button>
+            </Input.Group>
           </Form.Item>
           
           <Form.Item label="备份间隔">
@@ -4628,6 +4924,91 @@ const App: React.FC = () => {
         </div>
       </Modal>
       
+      {/* 文件收藏Modal */}
+      <Modal
+        title={editingFavorite ? '编辑收藏文件' : '添加收藏文件'}
+        open={favoriteModalVisible}
+        onCancel={() => {
+          setFavoriteModalVisible(false);
+          setEditingFavorite(null);
+          favoriteForm.resetFields();
+        }}
+        footer={null}
+        width={isMobile ? "95%" : 600}
+      >
+        <Form
+          form={favoriteForm}
+          layout="vertical"
+          onFinish={handleFavoriteFormSubmit}
+          style={{ marginTop: 20 }}
+        >
+          <Form.Item
+            name="name"
+            label="文件备注"
+            rules={[{ required: true, message: '请输入文件备注' }]}
+          >
+            <Input placeholder="例如：服务器配置文件" />
+          </Form.Item>
+          
+          <Form.Item
+            name="filePath"
+            label="文件路径"
+            rules={[{ required: true, message: '请输入文件路径' }]}
+          >
+            <Input.Group compact>
+              <Form.Item name="filePath" noStyle>
+                <Input 
+                  style={{ width: 'calc(100% - 80px)' }}
+                  placeholder="例如：/home/steam/games/minecraft/server.properties" 
+                />
+              </Form.Item>
+              <Button 
+                style={{ width: 80 }}
+                onClick={() => setDirectoryPickerVisible(true)}
+              >
+                浏览
+              </Button>
+            </Input.Group>
+          </Form.Item>
+          
+          <Form.Item
+            name="description"
+            label="描述（可选）"
+          >
+            <Input.TextArea 
+              placeholder="例如：Minecraft服务器的主要配置文件，包含端口、游戏模式等设置" 
+              rows={3}
+            />
+          </Form.Item>
+          
+          <div style={{ textAlign: 'center', marginTop: 24 }}>
+            <Button 
+              type="default" 
+              style={{ marginRight: 8 }}
+              onClick={() => {
+                setFavoriteModalVisible(false);
+                setEditingFavorite(null);
+                favoriteForm.resetFields();
+              }}
+            >
+              取消
+            </Button>
+            <Button type="primary" htmlType="submit">
+              {editingFavorite ? '更新收藏' : '添加收藏'}
+            </Button>
+          </div>
+        </Form>
+        
+        <div style={{ marginTop: 20, padding: 16, backgroundColor: '#f6f8fa', borderRadius: 6 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+            <strong>说明：</strong><br/>
+            • 文件路径为容器内的绝对路径，也就是文件管理中显示的路径<br/>
+            • 点击"打开编辑"将跳转到文件管理页面并定位到该文件<br/>
+            • 文件备注和文件路径为必填项，描述为可选项
+          </p>
+        </div>
+      </Modal>
+      
       {/* 文件管理器Modal - THIS IS THE NESTED WINDOW */}
       <Modal
         title={`游戏文件管理 - ${fileManagerPath.split('/').pop() || ''}`} // Dynamic title based on path
@@ -4657,6 +5038,7 @@ const App: React.FC = () => {
           <FileManager 
             initialPath={fileManagerPath} 
             isVisible={fileManagerVisible} // Pass the modal's visibility state
+            initialFileToOpen={initialFileToOpen}
           />
         )}
       </Modal>
@@ -4756,6 +5138,32 @@ const App: React.FC = () => {
           )}
         </div>
       </Modal>
+      
+      {/* 目录选择器 - 收藏文件 */}
+      <DirectoryPicker
+        visible={directoryPickerVisible}
+        onCancel={() => setDirectoryPickerVisible(false)}
+        onSelect={(path) => {
+          favoriteForm.setFieldsValue({ filePath: path });
+          setDirectoryPickerVisible(false);
+        }}
+        title="选择文件路径"
+        allowFileSelection={true}
+      />
+      
+      {/* 目录选择器 - 定时备份 */}
+      <DirectoryPicker
+        visible={backupDirectoryPickerVisible}
+        onCancel={() => setBackupDirectoryPickerVisible(false)}
+        onSelect={(path) => {
+          backupForm.setFieldsValue({ directory: path });
+          setBackupDirectoryPickerVisible(false);
+        }}
+        title="选择备份目录"
+      />
+      
+      {/* 全局音乐播放器 */}
+      <GlobalMusicPlayer />
     </Layout>
   );
 };

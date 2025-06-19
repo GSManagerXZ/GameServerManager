@@ -1,0 +1,753 @@
+meta:
+  game_name: "我的世界_paper_world_defaults"
+  config_file: "config/paper-world-defaults.yml"
+  parser: "ruamel.yaml"
+
+sections:
+  - key: "anticheat"
+    fields:
+      # 反作弊设置
+      - name: "anti-xray.enabled"
+        display: "启用反X-Ray"
+        default: false
+        type: "boolean"
+        description: "是否启用反X-Ray功能"
+      - name: "anti-xray.engine-mode"
+        display: "反X-Ray引擎模式"
+        default: 1
+        type: "select"
+        options:
+          - value: 1
+            label: "模式1（隐藏矿物）"
+          - value: 2
+            label: "模式2（替换矿物）"
+        description: "反X-Ray引擎的工作模式"
+      - name: "anti-xray.lava-obscures"
+        display: "岩浆遮挡"
+        default: false
+        type: "boolean"
+        description: "岩浆是否遮挡矿物"
+      - name: "anti-xray.max-block-height"
+        display: "最大方块高度【1到320】"
+        default: 64
+        type: "number"
+        description: "反X-Ray生效的最大方块高度"
+      - name: "anti-xray.update-radius"
+        display: "更新半径【1到10】"
+        default: 2
+        type: "number"
+        description: "方块更新的半径范围"
+      - name: "anti-xray.use-permission"
+        display: "使用权限"
+        default: false
+        type: "boolean"
+        description: "是否使用权限控制反X-Ray"
+  
+  - key: "chunks"
+    fields:
+      # 区块设置
+      - name: "auto-save-interval"
+        display: "自动保存间隔"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "60"
+            label: "60秒"
+          - value: "300"
+            label: "5分钟"
+          - value: "600"
+            label: "10分钟"
+        description: "区块自动保存的时间间隔"
+      - name: "delay-chunk-unloads-by"
+        display: "延迟区块卸载【1到600】"
+        default: "10s"
+        type: "string"
+        description: "延迟区块卸载的时间（如10s）"
+      - name: "fixed-chunk-inhabited-time"
+        display: "固定区块居住时间【-1到86400】"
+        default: -1
+        type: "number"
+        description: "固定区块的居住时间，-1表示使用默认值"
+      - name: "flush-regions-on-save"
+        display: "保存时刷新区域"
+        default: false
+        type: "boolean"
+        description: "保存时是否刷新区域文件"
+      - name: "max-auto-save-chunks-per-tick"
+        display: "每tick最大自动保存区块数【1到100】"
+        default: 24
+        type: "number"
+        description: "每个tick最大自动保存的区块数量"
+      - name: "prevent-moving-into-unloaded-chunks"
+        display: "阻止移动到未加载区块"
+        default: false
+        type: "boolean"
+        description: "是否阻止玩家移动到未加载的区块"
+  
+  - key: "collisions"
+    fields:
+      # 碰撞设置
+      - name: "allow-player-cramming-damage"
+        display: "允许玩家挤压伤害"
+        default: false
+        type: "boolean"
+        description: "是否允许玩家因挤压受到伤害"
+      - name: "allow-vehicle-collisions"
+        display: "允许载具碰撞"
+        default: true
+        type: "boolean"
+        description: "是否允许载具之间的碰撞"
+      - name: "fix-climbing-bypassing-cramming-rule"
+        display: "修复攀爬绕过挤压规则"
+        default: false
+        type: "boolean"
+        description: "是否修复攀爬时绕过挤压规则的问题"
+      - name: "max-entity-collisions"
+        display: "最大实体碰撞数【1到100】"
+        default: 8
+        type: "number"
+        description: "单个实体的最大碰撞检测数量"
+      - name: "only-players-collide"
+        display: "仅玩家碰撞"
+        default: false
+        type: "boolean"
+        description: "是否只有玩家之间才会发生碰撞"
+  
+  - key: "command-blocks"
+    fields:
+      # 命令方块设置
+      - name: "force-follow-perm-level"
+        display: "强制遵循权限等级"
+        default: true
+        type: "boolean"
+        description: "命令方块是否强制遵循权限等级"
+      - name: "permissions-level"
+        display: "权限等级【1到4】"
+        default: 2
+        type: "number"
+        description: "命令方块的权限等级"
+  
+  - key: "entities"
+    fields:
+      # 实体设置
+      - name: "armor-stands.do-collision-entity-lookups"
+        display: "盔甲架碰撞实体查找"
+        default: true
+        type: "boolean"
+        description: "盔甲架是否进行碰撞实体查找"
+      - name: "armor-stands.tick"
+        display: "盔甲架tick"
+        default: true
+        type: "boolean"
+        description: "盔甲架是否进行tick更新"
+      - name: "markers.tick"
+        display: "标记实体tick"
+        default: true
+        type: "boolean"
+        description: "标记实体是否进行tick更新"
+      - name: "behavior.allow-spider-world-border-climbing"
+        display: "允许蜘蛛攀爬世界边界"
+        default: true
+        type: "boolean"
+        description: "是否允许蜘蛛攀爬世界边界"
+      - name: "behavior.baby-zombie-movement-modifier"
+        display: "小僵尸移动修正【0.1到2.0】"
+        default: 0.5
+        type: "number"
+        description: "小僵尸的移动速度修正值"
+      - name: "behavior.disable-chest-cat-detection"
+        display: "禁用箱子猫咪检测"
+        default: false
+        type: "boolean"
+        description: "是否禁用箱子上方的猫咪检测"
+      - name: "behavior.disable-creeper-lingering-effect"
+        display: "禁用苦力怕滞留效果"
+        default: false
+        type: "boolean"
+        description: "是否禁用苦力怕爆炸的滞留效果"
+      - name: "behavior.disable-player-crits"
+        display: "禁用玩家暴击"
+        default: false
+        type: "boolean"
+        description: "是否禁用玩家的暴击攻击"
+      - name: "behavior.ender-dragons-death-always-places-dragon-egg"
+        display: "末影龙死亡总是放置龙蛋"
+        default: false
+        type: "boolean"
+        description: "末影龙死亡时是否总是放置龙蛋"
+      - name: "behavior.experience-merge-max-value"
+        display: "经验合并最大值【-1到10000】"
+        default: -1
+        type: "number"
+        description: "经验球合并的最大值，-1表示无限制"
+      - name: "behavior.nerf-pigmen-from-nether-portals"
+        display: "削弱地狱门猪人"
+        default: false
+        type: "boolean"
+        description: "是否削弱从地狱门生成的猪人"
+      - name: "behavior.phantoms-do-not-spawn-on-creative-players"
+        display: "幻翼不在创造模式玩家身上生成"
+        default: true
+        type: "boolean"
+        description: "幻翼是否不在创造模式玩家身上生成"
+      - name: "behavior.phantoms-only-attack-insomniacs"
+        display: "幻翼只攻击失眠者"
+        default: true
+        type: "boolean"
+        description: "幻翼是否只攻击失眠的玩家"
+      - name: "behavior.phantoms-spawn-attempt-max-seconds"
+        display: "幻翼生成尝试最大秒数【60到600】"
+        default: 119
+        type: "number"
+        description: "幻翼生成尝试的最大时间间隔"
+      - name: "behavior.phantoms-spawn-attempt-min-seconds"
+        display: "幻翼生成尝试最小秒数【30到300】"
+        default: 60
+        type: "number"
+        description: "幻翼生成尝试的最小时间间隔"
+      - name: "behavior.piglins-guard-chests"
+        display: "猪灵守护箱子"
+        default: true
+        type: "boolean"
+        description: "猪灵是否守护箱子"
+      - name: "behavior.player-insomnia-start-ticks"
+        display: "玩家失眠开始tick数【1000到144000】"
+        default: 72000
+        type: "number"
+        description: "玩家开始失眠的tick数"
+      - name: "behavior.should-remove-dragon"
+        display: "应该移除末影龙"
+        default: false
+        type: "boolean"
+        description: "是否应该移除末影龙"
+      - name: "behavior.spawner-nerfed-mobs-should-jump"
+        display: "刷怪笼削弱生物应该跳跃"
+        default: false
+        type: "boolean"
+        description: "刷怪笼生成的削弱生物是否应该跳跃"
+      - name: "behavior.zombie-villager-infection-chance"
+        display: "僵尸村民感染几率"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "0.0"
+            label: "0%"
+          - value: "0.5"
+            label: "50%"
+          - value: "1.0"
+            label: "100%"
+        description: "村民被僵尸感染的几率"
+      - name: "behavior.zombies-target-turtle-eggs"
+        display: "僵尸攻击海龟蛋"
+        default: true
+        type: "boolean"
+        description: "僵尸是否会攻击海龟蛋"
+      - name: "spawning.all-chunks-are-slime-chunks"
+        display: "所有区块都是史莱姆区块"
+        default: false
+        type: "boolean"
+        description: "是否将所有区块视为史莱姆区块"
+      - name: "spawning.count-all-mobs-for-spawning"
+        display: "计算所有生物用于生成"
+        default: false
+        type: "boolean"
+        description: "生成计算时是否计算所有生物"
+      - name: "spawning.creative-arrow-despawn-rate"
+        display: "创造模式箭矢消失速率"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "20"
+            label: "1秒"
+          - value: "100"
+            label: "5秒"
+          - value: "200"
+            label: "10秒"
+        description: "创造模式下箭矢的消失速率"
+      - name: "spawning.despawn-range-shape"
+        display: "消失范围形状"
+        default: "ELLIPSOID"
+        type: "select"
+        options:
+          - value: "ELLIPSOID"
+            label: "椭圆形"
+          - value: "SPHERE"
+            label: "球形"
+        description: "生物消失范围的形状"
+      - name: "spawning.disable-mob-spawner-spawn-egg-transformation"
+        display: "禁用刷怪笼生成蛋转换"
+        default: false
+        type: "boolean"
+        description: "是否禁用刷怪笼的生成蛋转换"
+      - name: "spawning.filter-bad-tile-entity-nbt-from-falling-blocks"
+        display: "过滤下落方块的坏瓦片实体NBT"
+        default: true
+        type: "boolean"
+        description: "是否过滤下落方块中的坏瓦片实体NBT"
+      - name: "spawning.iron-golems-can-spawn-in-air"
+        display: "铁傀儡可在空中生成"
+        default: false
+        type: "boolean"
+        description: "铁傀儡是否可以在空中生成"
+      - name: "spawning.monster-spawn-max-light-level"
+        display: "怪物生成最大光照等级"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "0"
+            label: "0级"
+          - value: "7"
+            label: "7级"
+          - value: "15"
+            label: "15级"
+        description: "怪物可以生成的最大光照等级"
+      - name: "spawning.non-player-arrow-despawn-rate"
+        display: "非玩家箭矢消失速率"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "20"
+            label: "1秒"
+          - value: "100"
+            label: "5秒"
+          - value: "200"
+            label: "10秒"
+        description: "非玩家射出的箭矢消失速率"
+      - name: "spawning.per-player-mob-spawns"
+        display: "每玩家生物生成"
+        default: true
+        type: "boolean"
+        description: "是否启用每玩家的生物生成机制"
+      - name: "spawning.scan-for-legacy-ender-dragon"
+        display: "扫描遗留末影龙"
+        default: true
+        type: "boolean"
+        description: "是否扫描遗留的末影龙"
+      - name: "spawning.skeleton-horse-thunder-spawn-chance"
+        display: "骷髅马雷电生成几率"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "0.0"
+            label: "0%"
+          - value: "0.01"
+            label: "1%"
+          - value: "0.05"
+            label: "5%"
+        description: "雷电时骷髅马的生成几率"
+  
+  - key: "environment"
+    fields:
+      # 环境设置
+      - name: "disable-explosion-knockback"
+        display: "禁用爆炸击退"
+        default: false
+        type: "boolean"
+        description: "是否禁用爆炸的击退效果"
+      - name: "disable-ice-and-snow"
+        display: "禁用冰雪"
+        default: false
+        type: "boolean"
+        description: "是否禁用冰雪的形成"
+      - name: "disable-thunder"
+        display: "禁用雷电"
+        default: false
+        type: "boolean"
+        description: "是否禁用雷电天气"
+      - name: "fire-tick-delay"
+        display: "火焰tick延迟【1到100】"
+        default: 30
+        type: "number"
+        description: "火焰蔓延的tick延迟"
+      - name: "frosted-ice.enabled"
+        display: "启用霜冰"
+        default: true
+        type: "boolean"
+        description: "是否启用霜冰机制"
+      - name: "generate-flat-bedrock"
+        display: "生成平坦基岩"
+        default: false
+        type: "boolean"
+        description: "是否生成平坦的基岩层"
+      - name: "locate-structures-outside-world-border"
+        display: "在世界边界外定位结构"
+        default: false
+        type: "boolean"
+        description: "是否允许在世界边界外定位结构"
+      - name: "max-block-ticks"
+        display: "最大方块tick数【1000到100000】"
+        default: 65536
+        type: "number"
+        description: "每个区块的最大方块tick数"
+      - name: "max-fluid-ticks"
+        display: "最大流体tick数【1000到100000】"
+        default: 65536
+        type: "number"
+        description: "每个区块的最大流体tick数"
+      - name: "nether-ceiling-void-damage-height"
+        display: "地狱天花板虚空伤害高度"
+        default: "disabled"
+        type: "select"
+        options:
+          - value: "disabled"
+            label: "禁用"
+          - value: "127"
+            label: "127格"
+          - value: "255"
+            label: "255格"
+        description: "地狱天花板虚空伤害的高度"
+      - name: "optimize-explosions"
+        display: "优化爆炸"
+        default: false
+        type: "boolean"
+        description: "是否优化爆炸计算"
+      - name: "portal-create-radius"
+        display: "传送门创建半径【1到32】"
+        default: 16
+        type: "number"
+        description: "传送门创建的搜索半径"
+      - name: "portal-search-radius"
+        display: "传送门搜索半径【16到256】"
+        default: 128
+        type: "number"
+        description: "传送门搜索的半径范围"
+      - name: "portal-search-vanilla-dimension-scaling"
+        display: "传送门搜索原版维度缩放"
+        default: true
+        type: "boolean"
+        description: "传送门搜索是否使用原版维度缩放"
+      - name: "treasure-maps.enabled"
+        display: "启用藏宝图"
+        default: true
+        type: "boolean"
+        description: "是否启用藏宝图功能"
+      - name: "void-damage-amount"
+        display: "虚空伤害量【1.0到20.0】"
+        default: 4.0
+        type: "number"
+        description: "虚空造成的伤害量"
+      - name: "void-damage-min-build-height-offset"
+        display: "虚空伤害最小建造高度偏移【-320到0】"
+        default: -64.0
+        type: "number"
+        description: "虚空伤害的最小建造高度偏移"
+      - name: "water-over-lava-flow-speed"
+        display: "水流过岩浆流速【1到20】"
+        default: 5
+        type: "number"
+        description: "水流过岩浆时的流动速度"
+  
+  - key: "feature-seeds"
+    fields:
+      # 特征种子设置
+      - name: "generate-random-seeds-for-all"
+        display: "为所有特征生成随机种子"
+        default: false
+        type: "boolean"
+        description: "是否为所有世界特征生成随机种子"
+  
+  - key: "fishing-time-range"
+    fields:
+      # 钓鱼时间范围设置
+      - name: "maximum"
+        display: "最大钓鱼时间【100到1200】"
+        default: 600
+        type: "number"
+        description: "钓鱼的最大等待时间（tick）"
+      - name: "minimum"
+        display: "最小钓鱼时间【20到600】"
+        default: 100
+        type: "number"
+        description: "钓鱼的最小等待时间（tick）"
+  
+  - key: "fixes"
+    fields:
+      # 修复设置
+      - name: "disable-unloaded-chunk-enderpearl-exploit"
+        display: "禁用未加载区块末影珍珠漏洞"
+        default: false
+        type: "boolean"
+        description: "是否禁用未加载区块的末影珍珠漏洞"
+      - name: "falling-block-height-nerf"
+        display: "下落方块高度削弱"
+        default: "disabled"
+        type: "select"
+        options:
+          - value: "disabled"
+            label: "禁用"
+          - value: "100"
+            label: "100格"
+          - value: "200"
+            label: "200格"
+        description: "下落方块的高度削弱设置"
+      - name: "fix-items-merging-through-walls"
+        display: "修复物品穿墙合并"
+        default: false
+        type: "boolean"
+        description: "是否修复物品穿墙合并的问题"
+      - name: "prevent-tnt-from-moving-in-water"
+        display: "阻止TNT在水中移动"
+        default: false
+        type: "boolean"
+        description: "是否阻止TNT在水中移动"
+      - name: "split-overstacked-loot"
+        display: "分割过度堆叠的战利品"
+        default: true
+        type: "boolean"
+        description: "是否分割过度堆叠的战利品"
+      - name: "tnt-entity-height-nerf"
+        display: "TNT实体高度削弱"
+        default: "disabled"
+        type: "select"
+        options:
+          - value: "disabled"
+            label: "禁用"
+          - value: "100"
+            label: "100格"
+          - value: "200"
+            label: "200格"
+        description: "TNT实体的高度削弱设置"
+  
+  - key: "hopper"
+    fields:
+      # 漏斗设置
+      - name: "cooldown-when-full"
+        display: "满时冷却"
+        default: true
+        type: "boolean"
+        description: "漏斗满时是否进入冷却"
+      - name: "disable-move-event"
+        display: "禁用移动事件"
+        default: false
+        type: "boolean"
+        description: "是否禁用漏斗的移动事件"
+      - name: "ignore-occluding-blocks"
+        display: "忽略遮挡方块"
+        default: false
+        type: "boolean"
+        description: "漏斗是否忽略遮挡方块"
+  
+  - key: "lootables"
+    fields:
+      # 战利品设置
+      - name: "auto-replenish"
+        display: "自动补充"
+        default: false
+        type: "boolean"
+        description: "战利品容器是否自动补充"
+      - name: "max-refills"
+        display: "最大补充次数【-1到100】"
+        default: -1
+        type: "number"
+        description: "战利品容器的最大补充次数，-1表示无限制"
+      - name: "refresh-max"
+        display: "刷新最大时间"
+        default: "2d"
+        type: "string"
+        description: "战利品刷新的最大时间间隔"
+      - name: "refresh-min"
+        display: "刷新最小时间"
+        default: "12h"
+        type: "string"
+        description: "战利品刷新的最小时间间隔"
+      - name: "reset-seed-on-fill"
+        display: "填充时重置种子"
+        default: true
+        type: "boolean"
+        description: "填充战利品时是否重置随机种子"
+      - name: "restrict-player-reloot"
+        display: "限制玩家重复掠夺"
+        default: true
+        type: "boolean"
+        description: "是否限制玩家重复掠夺同一容器"
+  
+  - key: "maps"
+    fields:
+      # 地图设置
+      - name: "item-frame-cursor-limit"
+        display: "物品展示框光标限制【1到1000】"
+        default: 128
+        type: "number"
+        description: "物品展示框中地图光标的数量限制"
+      - name: "item-frame-cursor-update-interval"
+        display: "物品展示框光标更新间隔【1到100】"
+        default: 10
+        type: "number"
+        description: "物品展示框中地图光标的更新间隔"
+  
+  - key: "max-growth-height"
+    fields:
+      # 最大生长高度设置
+      - name: "bamboo.max"
+        display: "竹子最大高度【10到30】"
+        default: 16
+        type: "number"
+        description: "竹子的最大生长高度"
+      - name: "bamboo.min"
+        display: "竹子最小高度【5到20】"
+        default: 11
+        type: "number"
+        description: "竹子的最小生长高度"
+      - name: "cactus"
+        display: "仙人掌最大高度【1到10】"
+        default: 3
+        type: "number"
+        description: "仙人掌的最大生长高度"
+      - name: "reeds"
+        display: "甘蔗最大高度【1到10】"
+        default: 3
+        type: "number"
+        description: "甘蔗的最大生长高度"
+  
+  - key: "misc"
+    fields:
+      # 杂项设置
+      - name: "disable-end-credits"
+        display: "禁用终末诗"
+        default: false
+        type: "boolean"
+        description: "是否禁用击败末影龙后的终末诗"
+      - name: "disable-relative-projectile-velocity"
+        display: "禁用相对抛射物速度"
+        default: false
+        type: "boolean"
+        description: "是否禁用相对抛射物速度计算"
+      - name: "disable-sprint-interruption-on-attack"
+        display: "禁用攻击时冲刺中断"
+        default: false
+        type: "boolean"
+        description: "攻击时是否禁用冲刺中断"
+      - name: "legacy-ender-pearl-behavior"
+        display: "遗留末影珍珠行为"
+        default: false
+        type: "boolean"
+        description: "是否使用遗留的末影珍珠行为"
+      - name: "max-leash-distance"
+        display: "最大拴绳距离"
+        default: "default"
+        type: "select"
+        options:
+          - value: "default"
+            label: "默认"
+          - value: "10"
+            label: "10格"
+          - value: "20"
+            label: "20格"
+          - value: "50"
+            label: "50格"
+        description: "拴绳的最大距离"
+      - name: "redstone-implementation"
+        display: "红石实现"
+        default: "VANILLA"
+        type: "select"
+        options:
+          - value: "VANILLA"
+            label: "原版"
+          - value: "EIGENCRAFT"
+            label: "Eigencraft"
+          - value: "ALTERNATE_CURRENT"
+            label: "交替电流"
+        description: "红石电路的实现方式"
+      - name: "shield-blocking-delay"
+        display: "盾牌格挡延迟【0到20】"
+        default: 5
+        type: "number"
+        description: "盾牌格挡的延迟时间（tick）"
+      - name: "show-sign-click-command-failure-msgs-to-player"
+        display: "向玩家显示告示牌点击命令失败消息"
+        default: false
+        type: "boolean"
+        description: "是否向玩家显示告示牌点击命令失败的消息"
+      - name: "update-pathfinding-on-block-update"
+        display: "方块更新时更新寻路"
+        default: true
+        type: "boolean"
+        description: "方块更新时是否更新生物寻路"
+  
+  - key: "scoreboards"
+    fields:
+      # 计分板设置
+      - name: "allow-non-player-entities-on-scoreboards"
+        display: "允许非玩家实体在计分板上"
+        default: true
+        type: "boolean"
+        description: "是否允许非玩家实体出现在计分板上"
+      - name: "use-vanilla-world-scoreboard-name-coloring"
+        display: "使用原版世界计分板名称着色"
+        default: false
+        type: "boolean"
+        description: "是否使用原版的世界计分板名称着色"
+  
+  - key: "spawn"
+    fields:
+      # 出生点设置
+      - name: "allow-using-signs-inside-spawn-protection"
+        display: "允许在出生点保护区使用告示牌"
+        default: false
+        type: "boolean"
+        description: "是否允许在出生点保护区内使用告示牌"
+  
+  - key: "tick-rates"
+    fields:
+      # Tick速率设置
+      - name: "behavior.villager.validatenearbypoi"
+        display: "村民验证附近POI【-1到100】"
+        default: -1
+        type: "number"
+        description: "村民验证附近兴趣点的tick间隔，-1表示默认"
+      - name: "container-update"
+        display: "容器更新【1到20】"
+        default: 1
+        type: "number"
+        description: "容器更新的tick间隔"
+      - name: "dry-farmland"
+        display: "干燥农田【1到20】"
+        default: 1
+        type: "number"
+        description: "干燥农田的tick间隔"
+      - name: "grass-spread"
+        display: "草方块蔓延【1到20】"
+        default: 1
+        type: "number"
+        description: "草方块蔓延的tick间隔"
+      - name: "mob-spawner"
+        display: "刷怪笼【1到20】"
+        default: 1
+        type: "number"
+        description: "刷怪笼的tick间隔"
+      - name: "sensor.villager.secondarypoisensor"
+        display: "村民次要POI传感器【1到100】"
+        default: 40
+        type: "number"
+        description: "村民次要兴趣点传感器的tick间隔"
+      - name: "wet-farmland"
+        display: "湿润农田【1到20】"
+        default: 1
+        type: "number"
+        description: "湿润农田的tick间隔"
+  
+  - key: "unsupported-settings"
+    fields:
+      # 不支持的设置（实验性）
+      - name: "disable-world-ticking-when-empty"
+        display: "世界为空时禁用tick"
+        default: false
+        type: "boolean"
+        description: "世界为空时是否禁用tick（实验性功能）"
+      - name: "fix-invulnerable-end-crystal-exploit"
+        display: "修复无敌末地水晶漏洞"
+        default: true
+        type: "boolean"
+        description: "是否修复无敌末地水晶的漏洞"

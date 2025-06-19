@@ -1,0 +1,72 @@
+meta:
+  game_name: "我的世界_Forge"
+  config_file: "config/fml.toml"
+  parser: "toml"
+
+sections:
+  - fields:
+      - name: "earlyWindowHeight"
+        display: "早期窗口高度"
+        default: 480
+        type: "number"
+        description: "Forge启动时窗口的高度像素值"
+      - name: "versionCheck"
+        display: "版本检查"
+        default: true
+        type: "boolean"
+        description: "是否启用Forge全局版本检查"
+      - name: "earlyWindowControl"
+        display: "早期窗口控制"
+        default: true
+        type: "boolean"
+        description: "是否控制窗口。禁用此选项会禁用新的GL功能，可能对依赖它们的模组不利"
+      - name: "earlyWindowFBScale"
+        display: "早期窗口帧缓冲缩放"
+        default: 1
+        type: "number"
+        description: "早期窗口的帧缓冲缩放比例"
+      - name: "earlyWindowProvider"
+        display: "早期窗口提供者"
+        default: "fmlearlywindow"
+        type: "string"
+        description: "早期窗口的提供者类型"
+      - name: "earlyWindowWidth"
+        display: "早期窗口宽度"
+        default: 854
+        type: "number"
+        description: "Forge启动时窗口的宽度像素值"
+      - name: "earlyWindowMaximized"
+        display: "早期窗口最大化"
+        default: false
+        type: "boolean"
+        description: "早期窗口是否以最大化状态启动"
+      - name: "defaultConfigPath"
+        display: "默认配置路径"
+        default: "defaultconfigs"
+        type: "string"
+        description: "服务器的默认配置文件路径"
+      - name: "disableOptimizedDFU"
+        display: "禁用优化DFU"
+        default: true
+        type: "boolean"
+        description: "禁用客户端优化DFU - 服务器上已默认禁用"
+      - name: "earlyWindowLogHelpMessage"
+        display: "早期窗口日志帮助信息"
+        default: true
+        type: "boolean"
+        description: "是否在首次尝试时记录帮助信息，以协助故障排除。此设置在成功启动后应自动禁用"
+      - name: "maxThreads"
+        display: "最大线程数"
+        default: -1
+        type: "number"
+        description: "早期初始化并行处理的最大线程数，-1表示基于处理器核心数"
+      - name: "earlyWindowSquir"
+        display: "早期窗口Squir"
+        default: false
+        type: "boolean"
+        description: "Squir功能开关"
+      - name: "earlyWindowShowCPU"
+        display: "早期窗口显示CPU"
+        default: false
+        type: "boolean"
+        description: "是否在早期窗口中显示CPU使用统计信息"

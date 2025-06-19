@@ -351,7 +351,7 @@ body {
   backdrop-filter: blur(15px) !important;
   opacity: 0.95 !important;
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-  transform: translateY(-4px) !important;
+  transform: translateY(-2px) !important;
   box-shadow: 0 -4px 20px rgba(22, 119, 255, 0.3) !important;
 }
 
@@ -384,6 +384,18 @@ body {
   font-size: 20px;
   font-weight: bold;
   color: #1677ff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.header-title img {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.header-title:hover img {
+  transform: scale(1.05);
+  filter: drop-shadow(0 0 4px rgba(22, 119, 255, 0.4));
 }
 
 .logo {
@@ -402,6 +414,10 @@ body {
   margin: 8px;
   position: relative;
   overflow: hidden;
+}
+
+.logo img {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .logo:hover {
@@ -432,6 +448,16 @@ body {
 .logo:active .anticon {
   transform: scale(0.9) rotate(-5deg);
   color: #0958d9;
+  filter: drop-shadow(0 0 6px rgba(22, 119, 255, 0.6));
+}
+
+.logo:hover img {
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 4px rgba(22, 119, 255, 0.4));
+}
+
+.logo:active img {
+  transform: scale(0.9);
   filter: drop-shadow(0 0 6px rgba(22, 119, 255, 0.6));
 }
 
@@ -724,6 +750,9 @@ body {
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     text-overflow: ellipsis;
   }
   
@@ -1285,7 +1314,7 @@ body {
 }
 
 .custom-game-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(22,119,255,0.15);
 }
 
@@ -1543,7 +1572,7 @@ body {
   backdrop-filter: blur(15px);
   background-color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
-  transform: translateY(-5px);
+  transform: translateY(-2px);
 }
 
 .login-card .ant-card-head {
@@ -1710,7 +1739,7 @@ body {
   backdrop-filter: blur(15px);
   background-color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
-  transform: translateY(-5px);
+  transform: translateY(-2px);
 }
 
 .register-card .ant-card-head {
@@ -1993,7 +2022,7 @@ body {
     transform: translateY(0);
   }
   100% {
-    transform: translateY(-6px);
+    transform: translateY(-2px);
   }
 }
 
@@ -2010,7 +2039,7 @@ body {
 }
 
 .ant-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(22,119,255,0.15);
   backdrop-filter: blur(15px);
   background-color: rgba(255, 255, 255, 0.9) !important;
@@ -2047,7 +2076,7 @@ body {
 }
 
 .game-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(22,119,255,0.15);
 }
 
@@ -2068,7 +2097,7 @@ body {
 }
 
 .custom-game-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(22,119,255,0.15);
 }
 
@@ -2193,7 +2222,6 @@ body {
 }
 
 /* 补充下拉菜单、通知、输入框等组件的毛玻璃效果 */
-.ant-dropdown-menu,
 /* 消息通知样式 - 现代化右上角通知 */
 .ant-message {
     position: fixed !important;
@@ -2712,7 +2740,7 @@ body {
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2) !important;
   transition: all 0.05s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
   animation: none !important;
-  transform: translateY(-3px) !important;
+  transform: translateY(-1px) !important;
   z-index: 10 !important;
 }
 
@@ -3123,7 +3151,7 @@ body {
 }
 
 .sponsor-option:hover {
-  transform: translateY(-5px);
+  transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
@@ -3292,7 +3320,7 @@ body {
 }
 
 .sponsor-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-1px);
   box-shadow: 0 8px 24px rgba(255, 215, 0, 0.3);
 }
 
@@ -3367,7 +3395,7 @@ input#sponsorKey.ant-input {
 }
 
 .server-management .ant-col .ant-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
@@ -3490,7 +3518,7 @@ input#sponsorKey.ant-input {
 }
 
 .server-guide-container .site-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
@@ -3581,7 +3609,7 @@ input#sponsorKey.ant-input {
 }
 
 .server-guide-container .site-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 

@@ -34,7 +34,10 @@ def is_public_route(path):
     public_routes = [
         '/api/auth/login',
         '/api/auth/register',
-        '/api/auth/check_first_use'
+        '/api/auth/check_first_use',
+        '/api/auth/register_biometric',
+        '/api/auth/biometric_challenge',
+        '/api/auth/verify_biometric'
     ]
     return path in public_routes
 
