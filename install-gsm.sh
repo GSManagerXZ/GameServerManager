@@ -9,6 +9,8 @@ cat <<EOF
     GSManager一键安装脚本 By tzdtwsj
 
 官网地址: http://blogpage.xiaozhuhouses.asia/html5/index.html
+GitHub地址: https://github.com/yxsj245/GameServerManager
+
 本项目依赖docker，请确认你的系统安装了docker
 ========================================
 EOF
@@ -55,12 +57,14 @@ while true;do
 echo "你想要从哪拉取镜像？"
 echo "1.从dockerhub拉取，在国内需要配置dockerhub镜像地址(xiaozhu674/gameservermanager:latest)"
 echo "2.从github容器仓库拉取，国内可以拉取(ghcr.io/yxsj245/gameservermanager:latest)"
-echo "3.暂不拉取，你可稍后拉取或手动导入（导入后你可能需要编辑docker-compose.yml来修改镜像名称）"
+echo "3.从http://langlangy.server.xiaozhuhouses.asia:8082/disk1/Docker/GSM%e9%9d%a2%e6%9d%bf/gameservermanager.tar.xz下载"
+echo "4.暂不拉取，你可稍后拉取或手动导入（导入后你可能需要编辑docker-compose.yml来修改镜像名称）"
 read -p "(回车默认从dockerhub拉取):" input
 case $input in
 	1|dockerhub|"")DOCKER_IMAGE="dh";;
 	2|github|ghcr)DOCKER_IMAGE="gh";;
-	3)DOCKER_IMAGE="no";;
+	3)if test "$(command -v curl)" = ""; then echo -e "\033[31m系统没有安装curl, 不能使用该选项!!!\033[0m"; continue; fi; DOCKER_IMAGE="xz";;
+	4)DOCKER_IMAGE="no";;
 	*)continue ;;
 esac
 break
@@ -81,6 +85,9 @@ elif test "$DOCKER_IMAGE" = "dh"; then
 elif test "$DOCKER_IMAGE" = "gh"; then
 	echo "$DOCKER_IMAGE_GH"
 	DOCKER_IMAGE_REAL="$DOCKER_IMAGE_GH"
+elif test "$DOCKER_IMAGE" = "xz"; then
+	echo "http://langlangy.server.xiaozhuhouses.asia:8082/disk1/Docker/GSM%e9%9d%a2%e6%9d%bf/gameservermanager.tar.xz"
+	DOCKER_IMAGE_REAL="gameservermanager:latest"
 fi
 echo -e "\n"
 echo "如果没有任何问题请直接按下回车安装，不要输入任何内容(或等15s)，否则请执行^C"
@@ -122,17 +129,32 @@ services:
     tty: true
 EOF
 echo "已生成docker-compose.yml"
-if test "$DOCKER_IMAGE" != "no"; then
+if test "$DOCKER_IMAGE" = "dh" || test "$DOCKER_IMAGE" = "gh"; then
 	echo "正在拉取docker镜像"
 	echo -e "\033[32mdocker pull $DOCKER_IMAGE_REAL\033[0m"
-	docker pull $DOCKER_IMAGE_REAL
+	docker pull "$DOCKER_IMAGE_REAL"
 	if test "$?" != "0"; then echo -e "\033[31m镜像拉取失败\033[0m"; exit 1; fi
 	echo "正在启动GSManager"
 	cd "$DATADIR"
 	echo -e "\033[32mdocker compose up -d\033[0m"
 	docker compose up -d
 	if test "$?" != "0"; then echo -e "\033[31m容器启动失败！\033[0m"; exit 1; fi
-	echo "容器成功启动，现你可以访问本机器ip地址加上端口$PORT来访问GSManager"
-else
+	chown -R 1000:1000 "$DATADIR"
+	echo "容器成功启动，现你可以访问本机器ip地址加上端口 $PORT来访问GSManager"
+	echo -e "下次你可使用该命令启动GSManager: \033[33mcd '$DATADIR'; docker compose up -d\033[0m"
+elif test "$DOCKER_IMAGE" = "no"; then
 	echo -e "接下来，你可手动导入docker镜像(如果需要，编辑\033[32m$DATADIR/docker-compose.yml\033[0m更改docker镜像名),然后运行以下命令启动gsm:\n\033[33mcd '$DATADIR'; docker compose up -d\033[0m"
+elif test "$DOCKER_IMAGE" = "xz"; then
+	echo "正在下载docker镜像"
+	echo -e "\033[32mcurl -L http://langlangy.server.xiaozhuhouses.asia:8082/disk1/Docker/GSM%e9%9d%a2%e6%9d%bf/gameservermanager.tar.xz|docker load\033[0m"
+	curl -L "http://langlangy.server.xiaozhuhouses.asia:8082/disk1/Docker/GSM%e9%9d%a2%e6%9d%bf/gameservermanager.tar.xz"|docker load
+	if test "$?" != "0"; then echo -e "\033[31m镜像下载失败！\033[0m"; exit 1; fi
+	echo "正在启动GSManager"
+	cd "$DATADIR"
+	echo -e "\033[32mdocker compose up -d\033[0m"
+	docker compose up -d
+	if test "$?" != "0"; then echo -e "\033[31m容器启动失败！\033[0m"; exit 1; fi
+	chown -R 1000:1000 "$DATADIR"
+	echo "容器成功启动，现你可以访问本机器ip地址加上端口 $PORT来访问GSManager"
+	echo -e "下次你可使用该命令启动GSManager: \033[33mcd '$DATADIR'; docker compose up -d\033[0m"
 fi
