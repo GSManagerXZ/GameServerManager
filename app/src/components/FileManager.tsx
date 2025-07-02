@@ -2486,20 +2486,22 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
           width={1000}
           okText="保存"
           cancelText="取消"
+          size="small"
           bodyStyle={{ 
-            maxHeight: '80vh',
-            overflow: 'hidden',
+            maxHeight: '75vh',
+            overflowY: 'auto',
             padding: '12px'
           }}
         >
-          <div style={{ height: 'calc(80vh - 130px)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(65vh - 80px)' }}>
             {/* 添加文件修改状态指示器和编码选择器 */}
             <div style={{ 
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center', 
               marginBottom: '8px',
-              padding: '0 4px'
+              padding: '0 4px',
+              flexShrink: 0
             }}>
               <div style={{ flex: 1 }}>
                 {selectedFile?.path}
@@ -2547,31 +2549,75 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 </div>
               </div>
             </div>
-            <Editor
-              height="100%"
-              defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
-              value={fileContent}
-              onMount={handleEditorDidMount}
-              theme="vs-dark"
-              options={{
-                fontSize: 14,
-                minimap: { enabled: true },
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                lineNumbers: 'on',
-                folding: true,
-                foldingHighlight: true,
-                foldingStrategy: 'auto',
-                showFoldingControls: 'always',
-                matchBrackets: 'always',
-                autoClosingBrackets: 'always',
-                autoClosingQuotes: 'always',
-                formatOnPaste: true,
-                formatOnType: true,
-                wordWrap: 'on',
-                wrappingIndent: 'same'
-              }}
-            />
+            <div style={{ flex: 1, position: 'relative' }}>
+              <Editor
+                height="100%"
+                defaultLanguage={selectedFile ? getFileLanguage(selectedFile.name) : 'plaintext'}
+                value={fileContent}
+                onMount={handleEditorDidMount}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: true },
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  lineNumbers: 'on',
+                  folding: true,
+                  foldingHighlight: true,
+                  foldingStrategy: 'auto',
+                  showFoldingControls: 'always',
+                  matchBrackets: 'always',
+                  autoClosingBrackets: 'always',
+                  autoClosingQuotes: 'always',
+                  formatOnPaste: true,
+                  formatOnType: true,
+                  wordWrap: 'on',
+                  wrappingIndent: 'same',
+                  suggest: {
+                    showIcons: true,
+                    showSnippets: true,
+                    showWords: true,
+                    showColors: true,
+                    showFiles: true,
+                    showReferences: true,
+                    showFolders: true,
+                    showTypeParameters: true,
+                    showIssues: true,
+                    showUsers: true,
+                    showValues: true,
+                    showMethods: true,
+                    showFunctions: true,
+                    showConstructors: true,
+                    showFields: true,
+                    showVariables: true,
+                    showClasses: true,
+                    showStructs: true,
+                    showInterfaces: true,
+                    showModules: true,
+                    showProperties: true,
+                    showEvents: true,
+                    showOperators: true,
+                    showUnits: true,
+                    showKeywords: true,
+                    insertMode: 'insert',
+                    filterGraceful: true,
+                    snippetsPreventQuickSuggestions: false
+                  },
+                  quickSuggestions: {
+                    other: true,
+                    comments: true,
+                    strings: true
+                  },
+                  parameterHints: {
+                    enabled: true,
+                    cycle: true
+                  },
+                  acceptSuggestionOnCommitCharacter: true,
+                  acceptSuggestionOnEnter: 'on',
+                  tabCompletion: 'on'
+                }}
+              />
+            </div>
             {syntaxErrors.length > 0 && (
               <div style={{ 
                 backgroundColor: '#FFF2F0', 
@@ -2581,7 +2627,8 @@ const FileManager: React.FC<FileManagerProps> = ({ initialPath = '/home/steam', 
                 borderRadius: '4px',
                 color: '#CF1322',
                 maxHeight: '120px',
-                overflowY: 'auto'
+                overflowY: 'auto',
+                flexShrink: 0
               }}>
                 <div style={{ marginBottom: '5px', fontWeight: 'bold' }}>
                   检测到 {syntaxErrors.length} 个语法错误:

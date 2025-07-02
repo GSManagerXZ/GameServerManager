@@ -6287,7 +6287,7 @@ def get_gold_sponsors():
     """获取金牌赞助商信息（代理请求解决CORS问题）"""
     try:
         # 代理请求到外部API
-        response = requests.get('http://82.156.35.55:5001/sponsor', timeout=10)
+        response = requests.get('http://gsm.server.xiaozhuhouses.asia:10000/sponsor', timeout=10)
         
         if response.status_code == 200:
             return jsonify(response.json())
@@ -6370,7 +6370,7 @@ def get_online_games():
         # 请求在线游戏列表
         import requests
         headers = {'key': sponsor_key}
-        response = requests.get('http://82.156.35.55:5001/OnlineInstall', headers=headers, timeout=10)
+        response = requests.get('http://gsm.server.xiaozhuhouses.asia:10000/OnlineInstall', headers=headers, timeout=10)
         
         if response.status_code == 200:
             games_data = response.json()
@@ -7653,7 +7653,7 @@ def verify_sponsor_for_java() -> tuple[bool, str]:
             return False, "未找到赞助者密钥"
         
         # 验证赞助者密钥
-        url = "http://82.156.35.55:5001/verify"
+        url = "http://gsm.server.xiaozhuhouses.asia:10000/verify"
         headers = {
             'key': sponsor_key,
             'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',

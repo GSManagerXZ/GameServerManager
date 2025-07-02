@@ -25,8 +25,8 @@ class SponsorValidator:
             config_path: 配置文件路径
         """
         self.config_path = config_path
-        self.cloud_api_url = "http://82.156.35.55:5001/games"
-        self.version_api_url = "http://82.156.35.55:5001/version"
+        self.cloud_api_url = "http://gsm.server.xiaozhuhouses.asia:10000/games"
+        self.version_api_url = "http://gsm.server.xiaozhuhouses.asia:10000/version"
         self.request_timeout = 5
     
     def load_config(self) -> Dict[str, Any]:
