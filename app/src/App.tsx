@@ -3151,7 +3151,7 @@ const App: React.FC = () => {
   const [versionUpdateModalVisible, setVersionUpdateModalVisible] = useState<boolean>(false);
   const [latestVersionInfo, setLatestVersionInfo] = useState<{version: string, description: any} | null>(null);
   const [downloadingImage, setDownloadingImage] = useState<boolean>(false);
-  const currentVersion = '2.4.0'; // 当前版本号
+  const currentVersion = '2.4.1'; // 当前版本号
   
   // 版本检查功能
   const checkForUpdates = async () => {
@@ -4494,7 +4494,7 @@ const App: React.FC = () => {
             </div>
           )}
         </Content>
-        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.6.19</Footer>
+        <Footer style={{ textAlign: 'center' }}>GameServerManager ©2025 又菜又爱玩的小朱 最后更新日期2025.7.2</Footer>
       </Layout>
 
       {/* 安装终端Modal */}
