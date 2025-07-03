@@ -1,3 +1,34 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="right">
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=en">English</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=zh-CN">简体中文</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=zh-TW">繁體中文</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=ja">日本語</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=ko">한국어</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=hi">हिन्दी</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=th">ไทย</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=fr">Français</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=de">Deutsch</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=es">Español</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=it">Itapano</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=ru">Русский</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=pt">Português</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=nl">Nederlands</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=pl">Polski</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=ar">العربية</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=fa">فارسی</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=tr">Türkçe</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=vi">Tiếng Việt</a></p>
+        <p><a href="https://openaitx.github.io/view.html?user=yxsj245&project=GameServerManager&lang=id">Bahasa Indonesia</a></p>
+      </div>
+    </div>
+  </details>
+</div>
+
 # 项目介绍
 <div align="center">
 
