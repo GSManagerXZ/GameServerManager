@@ -13,10 +13,7 @@ export const useDefaultGamePath = (): DefaultGamePathData => {
   const [path, setPath] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetchDefaultGamePath()
-  }, [])
+}}}}}}
 
   const fetchDefaultGamePath = async () => {
     try {

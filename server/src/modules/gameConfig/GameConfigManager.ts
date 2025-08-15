@@ -48,7 +48,7 @@ export class GameConfigManager {
 
   constructor() {
     // 确保路径指向正确的配置目录
-    // 使用 process.cwd() 作为基础路径，这样在打包后也能正确工作
+    // 使用 process.cwd() 作为基础路径，这样在打12121212包后也能正确工作
     const baseDir = process.cwd()
     
     // 尝试多个可能的路径位置
@@ -71,7 +71,7 @@ export class GameConfigManager {
       }
     }
     
-    logger.info(`GameConfigManager 配置目录: ${this.configSchemasDir}`)
+    logger.info(`GameConfigManager 配置目录1: ${this.configSchemasDir}`)
     this.supportedParsers = new Map([
       ['properties', this.parseWithProperties.bind(this)],
       ['configobj', this.parseWithConfigObj.bind(this)],
