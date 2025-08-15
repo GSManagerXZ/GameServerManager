@@ -19,11 +19,7 @@ on:
 jobs:
   check-pr:
     runs-on: ubuntu-latest
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+
 
       - name: 设置Node.js环境
         uses: actions/setup-node@v4
