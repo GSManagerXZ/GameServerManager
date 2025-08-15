@@ -226,6 +226,7 @@ jobs:
           # 创建feature分支名称（基于PR编号）
           FEATURE_BRANCH="feature/pr-${{ github.event.number }}"
           echo "FEATURE_BRANCH=$FEATURE_BRANCH" >> $GITHUB_ENV
+          echo "准备创建feature分支: $FEATURE_BRANCH"
 
           # 检查feature分支是否已存在
           if git ls-remote --heads origin $FEATURE_BRANCH | grep -q $FEATURE_BRANCH; then
@@ -241,33 +242,86 @@ jobs:
       - name: 推送到feature分支（仅主分支PR）
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
         run: |
-          git push origin $FEATURE_BRANCH
+          echo "尝试推送到feature分支..."
+          if git push origin $FEATURE_BRANCH; then
+            echo "✅ 成功推送到feature分支"
+            echo "push_success=true" >> $GITHUB_ENV
+          else
+            echo "❌ 推送失败，可能是权限问题"
+            echo "push_success=false" >> $GITHUB_ENV
+            echo "请手动创建feature分支: $FEATURE_BRANCH"
+          fi
+
+      - name: 输出检查结果（主分支PR）
+        if: always() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
+        run: |
+          echo "=== TypeScript检查结果 ==="
+          echo "客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
+          echo "服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
+          echo "Feature分支: ${{ env.FEATURE_BRANCH || '未创建' }}"
+          echo "推送状态: ${{ env.push_success || '未推送' }}"
+
+          if [[ "${{ steps.tsc-check-client.outputs.client_check }}" == "success" && "${{ steps.tsc-check-server.outputs.server_check }}" == "success" ]]; then
+            echo "✅ TypeScript语法检查通过"
+            if [[ "${{ env.push_success }}" == "true" ]]; then
+              echo "✅ 代码已成功合并到feature分支"
+            else
+              echo "⚠️  由于权限限制，无法自动创建feature分支"
+              echo "请维护者手动创建分支: ${{ env.FEATURE_BRANCH }}"
+            fi
+          else
+            echo "❌ TypeScript语法检查失败"
+          fi
 
       - name: 回复PR - 检查通过（主分支PR）
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
+        if: always() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { owner, repo, number } = context.issue;
-            const featureBranch = process.env.FEATURE_BRANCH;
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
-              body: `## ✅ 自动化检查通过
+            try {
+              const { owner, repo, number } = context.issue;
+              const featureBranch = process.env.FEATURE_BRANCH || 'feature/pr-' + number;
+              const pushSuccess = process.env.push_success === 'true';
+              const clientCheck = '${{ steps.tsc-check-client.outputs.client_check }}';
+              const serverCheck = '${{ steps.tsc-check-server.outputs.server_check }}';
 
-              您的PR已通过自动化检查，代码已合并到专属测试分支 \`${featureBranch}\`。
+              let statusIcon = '✅';
+              let statusText = '自动化检查通过';
+              let branchInfo = '';
 
-              ### 检查结果：
-              - ✅ 客户端TypeScript语法检查通过
-              - ✅ 服务端TypeScript语法检查通过
-              - ✅ 代码已合并到feature分支
+              if (clientCheck !== 'success' || serverCheck !== 'success') {
+                statusIcon = '❌';
+                statusText = '自动化检查失败';
+              }
 
-              接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。
+              if (pushSuccess) {
+                branchInfo = `代码已合并到专属测试分支 \`${featureBranch}\`。`;
+              } else {
+                branchInfo = `由于权限限制，无法自动创建feature分支。请维护者手动创建分支 \`${featureBranch}\`。`;
+              }
 
-              感谢您的贡献！ 🎉`
-            });
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: number,
+                body: `## ${statusIcon} ${statusText}
+
+                ${branchInfo}
+
+                ### 检查结果：
+                - ${clientCheck === 'success' ? '✅' : '❌'} 客户端TypeScript语法检查${clientCheck === 'success' ? '通过' : '失败'}
+                - ${serverCheck === 'success' ? '✅' : '❌'} 服务端TypeScript语法检查${serverCheck === 'success' ? '通过' : '失败'}
+                - ${pushSuccess ? '✅ 代码已合并到测试分支' : '⚠️ 需要手动创建测试分支'}
+
+                ${clientCheck === 'success' && serverCheck === 'success' ?
+                  '接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。\n\n感谢您的贡献！ 🎉' :
+                  '请修复语法错误后重新提交。'}
+                `
+              });
+            } catch (error) {
+              console.log('无法创建评论:', error.message);
+            }
 
       - name: 回复PR - 检查通过（feature分支PR）
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false'
