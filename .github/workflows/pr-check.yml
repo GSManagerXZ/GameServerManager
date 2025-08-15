@@ -72,7 +72,7 @@ jobs:
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
         run: |
           cd server
-          npm ci
+          npm ci --ignore-scripts
 
       - name: TypeScript 语法检查（server）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
@@ -84,7 +84,7 @@ jobs:
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
         run: |
           cd client
-          npm ci
+          npm ci --ignore-scripts
 
       - name: TypeScript 语法检查（client）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
@@ -107,6 +107,7 @@ jobs:
         if: ${{ success() && steps.flags.outputs.docs_only != 'true' }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.ACTIONS_PAT }}
           script: |
             const { owner, repo } = context.issue;
             async function ensureFeature() {
@@ -127,6 +128,7 @@ jobs:
         if: ${{ success() && steps.flags.outputs.docs_only != 'true' && github.event.pull_request.base.ref == 'main' }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.ACTIONS_PAT }}
           script: |
             const { owner, repo, number } = context.issue;
             await github.rest.pulls.update({ owner, repo, pull_number: number, base: 'feature' });
@@ -135,6 +137,7 @@ jobs:
         if: ${{ success() && steps.flags.outputs.docs_only != 'true' }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.ACTIONS_PAT }}
           script: |
             const { owner, repo, number } = context.issue;
             try {
