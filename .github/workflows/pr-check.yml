@@ -68,6 +68,17 @@ jobs:
       - name: 检查PR目标分支和文件变更类型
         id: check-files
         run: |
+          # 检查是否为手动运行
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "这是手动运行，跳过PR检查，直接进行语法检查"
+            echo "target_branch=manual" >> $GITHUB_OUTPUT
+            echo "is_main_branch=false" >> $GITHUB_OUTPUT
+            echo "doc_only=false" >> $GITHUB_OUTPUT
+            echo "has_code_files=true" >> $GITHUB_OUTPUT
+            echo "手动运行模式，将检查所有TypeScript文件"
+            exit 0
+          fi
+
           # 获取PR目标分支
           TARGET_BRANCH="${{ github.base_ref }}"
           echo "PR目标分支: $TARGET_BRANCH"
@@ -106,8 +117,8 @@ jobs:
           echo "变更的文件:"
           cat changed_files.txt
 
-      - name: 安装依赖（仅当有代码文件时）
-        if: steps.check-files.outputs.has_code_files == 'true'
+      - name: 安装依赖（仅当有代码文件时或手动运行）
+        if: steps.check-files.outputs.has_code_files == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           echo "安装根目录依赖..."
           npm install
@@ -121,7 +132,7 @@ jobs:
           cd ..
 
       - name: TypeScript语法检查 - 客户端
-        if: steps.check-files.outputs.has_code_files == 'true'
+        if: steps.check-files.outputs.has_code_files == 'true' || github.event_name == 'workflow_dispatch'
         id: tsc-check-client
         run: |
           echo "检查客户端TypeScript语法..."
@@ -136,7 +147,7 @@ jobs:
           fi
 
       - name: TypeScript语法检查 - 服务端
-        if: steps.check-files.outputs.has_code_files == 'true'
+        if: steps.check-files.outputs.has_code_files == 'true' || github.event_name == 'workflow_dispatch'
         id: tsc-check-server
         run: |
           echo "检查服务端TypeScript语法..."
@@ -283,3 +294,17 @@ jobs:
 
               感谢您的贡献！ 🎉`
             });
+
+      - name: 手动运行结果输出
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "=== 手动运行TypeScript检查完成 ==="
+          echo "客户端检查结果: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
+          echo "服务端检查结果: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
+
+          if [[ "${{ steps.tsc-check-client.outputs.client_check }}" == "success" && "${{ steps.tsc-check-server.outputs.server_check }}" == "success" ]]; then
+            echo "✅ 所有TypeScript语法检查通过！"
+          else
+            echo "❌ 存在TypeScript语法错误，请检查上面的输出"
+            exit 1
+          fi
