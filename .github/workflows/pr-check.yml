@@ -1,11 +1,12 @@
 name: PR自动检查与合并
 
-# 权限配置
+# 权限配置 - 需要更多权限来执行合并操作
 permissions:
   contents: write
   pull-requests: write
   issues: write
   actions: read
+  checks: write
 
 on:
   pull_request:
@@ -15,6 +16,42 @@ jobs:
   pr-check:
     runs-on: ubuntu-latest
     steps:
+      - name: 调试权限和环境信息
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('🔍 调试信息:');
+            console.log('Repository:', context.repo);
+            console.log('Event:', context.eventName);
+            console.log('Actor:', context.actor);
+            console.log('PR Number:', context.issue.number);
+
+            // 检查权限
+            try {
+              const repo = await github.rest.repos.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              console.log('✅ 仓库访问权限正常');
+              console.log('仓库权限:', repo.data.permissions);
+            } catch (error) {
+              console.log('❌ 仓库访问权限检查失败:', error.message);
+            }
+
+            // 测试评论权限
+            try {
+              const testComment = await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '🤖 权限测试：GitHub Actions 可以正常创建评论'
+              });
+              console.log('✅ 评论权限正常');
+            } catch (error) {
+              console.log('❌ 评论权限检查失败:', error.message);
+              console.log('错误详情:', error);
+            }
+
       - name: 检出代码
         uses: actions/checkout@v4
         with:
@@ -105,30 +142,44 @@ jobs:
         with:
           script: |
             const comment = `## ❌ TypeScript类型检查失败
-            
+
             您的PR包含TypeScript类型错误，请修复后重新提交。
-            
+
             ### 检查结果：
             - Server端检查：${{ steps.type-check.outputs.server_check == 'success' && '✅ 通过' || '❌ 失败' }}
             - Client端检查：${{ steps.type-check.outputs.client_check == 'success' && '✅ 通过' || '❌ 失败' }}
-            
-            请运行以下命令进行本地检查：
+
+            ### 本地检查命令：
             \`\`\`bash
-            # 检查server端
+            # 安装依赖
+            npm run install:all
+
+            # 运行完整检查
+            npm run check-types
+
+            # 或者分别检查
             cd server && npx tsc --noEmit
-            
-            # 检查client端  
             cd client && npx tsc --noEmit
             \`\`\`
-            
+
+            ### 常见问题：
+            - 检查类型定义是否正确
+            - 确保所有导入路径正确
+            - 移除未使用的变量和导入
+
             修复所有类型错误后，请重新推送代码。`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
+
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+              console.log('✅ 已创建错误提示评论');
+            } catch (error) {
+              console.log('❌ 创建评论失败，但检查结果已记录:', error.message);
+            }
 
       - name: 处理纯文档变更
         if: steps.check-files.outputs.only_docs == 'true'
@@ -139,16 +190,66 @@ jobs:
 
             检测到您的PR仅包含文档文件变更，无需进行代码检查。
 
-            此PR正在等待项目维护者的最终审核。感谢您对文档的贡献！ 🎉`;
+            此PR正在等待项目维护者的最终审核。感谢您对文档的贡献！ 🎉
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
+            ### 变更类型：
+            - 📄 文档文件更新
+            - ✅ 跳过代码检查
+            - ⏳ 等待人工审核`;
 
-      - name: 自动合并到feature分支
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+              console.log('✅ 已创建文档变更提示评论');
+            } catch (error) {
+              console.log('❌ 创建评论失败，但文档变更已检测:', error.message);
+            }
+
+      - name: 检查合并权限
+        if: steps.check-files.outputs.only_docs == 'false' && steps.type-check.outputs.type_check_result == 'success'
+        id: check-permissions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.issue.number;
+
+            try {
+              // 检查PR详情
+              const pr = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: prNumber
+              });
+
+              console.log('PR状态:', pr.data.state);
+              console.log('可合并状态:', pr.data.mergeable);
+              console.log('合并状态检查:', pr.data.mergeable_state);
+
+              // 检查是否可以合并
+              if (pr.data.state !== 'open') {
+                console.log('❌ PR不是开放状态');
+                return { canMerge: false, reason: 'PR不是开放状态' };
+              }
+
+              if (pr.data.mergeable === false) {
+                console.log('❌ PR存在合并冲突');
+                return { canMerge: false, reason: '存在合并冲突' };
+              }
+
+              console.log('✅ PR可以合并');
+              return { canMerge: true, pr: pr.data };
+
+            } catch (error) {
+              console.log('❌ 权限检查失败:', error.message);
+              return { canMerge: false, reason: error.message };
+            }
+
+      - name: 创建成功评论（无自动合并）
         if: steps.check-files.outputs.only_docs == 'false' && steps.type-check.outputs.type_check_result == 'success'
         uses: actions/github-script@v7
         with:
@@ -156,107 +257,47 @@ jobs:
             const { owner, repo } = context.repo;
             const prNumber = context.issue.number;
             const baseBranch = '${{ steps.pr-info.outputs.base_branch }}';
-            const headBranch = '${{ steps.pr-info.outputs.head_branch }}';
 
-            // 确定目标分支
+            // 确定目标分支逻辑
             let targetBranch = 'feature';
-            if (baseBranch === 'feature') {
-              targetBranch = 'feature';
-            } else if (baseBranch === 'main') {
-              targetBranch = 'feature';
+            let branchMessage = '';
+
+            if (baseBranch === 'main') {
+              branchMessage = '\n⚠️ **注意**: 您的PR目标是main分支，建议项目维护者将其合并到feature分支进行测试。';
+            } else if (baseBranch === 'feature') {
+              branchMessage = '\n✅ **目标分支**: 您的PR正确地指向了feature分支。';
             }
 
+            const comment = `## ✅ 自动化检查通过
+
+            您的PR已通过所有自动化检查！
+
+            ### 检查结果：
+            - TypeScript类型检查：✅ 通过
+            - Server端检查：✅ 通过
+            - Client端检查：✅ 通过
+            ${branchMessage}
+
+            ### 下一步：
+            项目维护者将审核您的代码并决定合并策略：
+            - 如果目标是main分支，将先合并到feature分支进行测试
+            - 测试通过后会合并到主分支并在下个版本发布时加入
+
+            感谢您的贡献！ 🎉
+
+            ---
+            *注：由于GitHub权限限制，暂时无法自动合并，需要维护者手动操作。*`;
+
             try {
-              // 检查feature分支是否存在
-              try {
-                await github.rest.repos.getBranch({
-                  owner,
-                  repo,
-                  branch: 'feature'
-                });
-              } catch (error) {
-                if (error.status === 404) {
-                  // 如果feature分支不存在，从main分支创建
-                  const mainBranch = await github.rest.repos.getBranch({
-                    owner,
-                    repo,
-                    branch: 'main'
-                  });
-
-                  await github.rest.git.createRef({
-                    owner,
-                    repo,
-                    ref: 'refs/heads/feature',
-                    sha: mainBranch.data.commit.sha
-                  });
-
-                  console.log('✅ 已创建feature分支');
-                }
-              }
-
-              // 如果原目标是main分支，需要修改PR的目标分支为feature
-              if (baseBranch === 'main') {
-                await github.rest.pulls.update({
-                  owner,
-                  repo,
-                  pull_number: prNumber,
-                  base: 'feature'
-                });
-                console.log('✅ 已将PR目标分支修改为feature');
-              }
-
-              // 合并PR到feature分支
-              const mergeResult = await github.rest.pulls.merge({
-                owner,
-                repo,
-                pull_number: prNumber,
-                commit_title: `自动合并: ${{ steps.pr-info.outputs.pr_title }}`,
-                commit_message: `通过自动化检查，合并到${targetBranch}分支进行测试`,
-                merge_method: 'squash'
-              });
-
-              if (mergeResult.data.merged) {
-                const comment = `## ✅ 自动化检查通过
-
-                您的PR已通过所有自动化检查，已成功合并到 \`${targetBranch}\` 分支进行测试。
-
-                ### 检查结果：
-                - TypeScript类型检查：✅ 通过
-                - Server端检查：✅ 通过
-                - Client端检查：✅ 通过
-
-                您的代码现在在专属测试分支中，项目维护者将进行最终检查。如果没有问题，将会合并到主分支并在下个版本发布时加入。
-
-                感谢您的贡献！ 🎉`;
-
-                await github.rest.issues.createComment({
-                  issue_number: prNumber,
-                  owner,
-                  repo,
-                  body: comment
-                });
-
-                console.log('✅ PR已成功合并到feature分支');
-              }
-
-            } catch (error) {
-              console.error('合并过程中出现错误:', error);
-
-              const errorComment = `## ⚠️ 自动合并失败
-
-              虽然代码检查通过，但自动合并过程中遇到问题。可能的原因：
-              - 存在合并冲突
-              - 分支保护规则限制
-              - 权限不足
-
-              请联系项目维护者手动处理此PR。
-
-              错误信息：\`${error.message}\``;
-
               await github.rest.issues.createComment({
                 issue_number: prNumber,
                 owner,
                 repo,
-                body: errorComment
+                body: comment
               });
+              console.log('✅ 成功创建评论');
+            } catch (error) {
+              console.log('❌ 创建评论失败:', error.message);
+              // 如果评论失败，至少在日志中记录成功信息
+              console.log('🎉 TypeScript检查通过，但无法创建评论');
             }
