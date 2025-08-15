@@ -1,305 +1,262 @@
-name: PR自动检查和合并
+name: PR自动检查与合并
 
-# 权限配置 - 使用最大权限
-permissions: write-all
+# 权限配置
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - master
-      - develop
-      - 'feature/**'
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR编号（用于手动调试）'
-        required: true
-        type: string
 
 jobs:
-  check-pr:
+  pr-check:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 获取PR信息
+        id: pr-info
+        run: |
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "base_branch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          echo "head_branch=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          echo "pr_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+
+      - name: 检查文件变更
+        id: check-files
+        run: |
+          # 获取变更的文件列表
+          git fetch origin ${{ steps.pr-info.outputs.base_branch }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ steps.pr-info.outputs.base_branch }}...HEAD)
+          echo "变更的文件："
+          echo "$CHANGED_FILES"
+          
+          # 检查是否只有文档文件变更
+          NON_DOC_FILES=$(echo "$CHANGED_FILES" | grep -v -E '\.(md|txt|rst|doc|docx|pdf)$' | grep -v '^docs/' | grep -v '^README' | grep -v '^CHANGELOG' | grep -v '^LICENSE' || true)
+          
+          if [ -z "$NON_DOC_FILES" ]; then
+            echo "only_docs=true" >> $GITHUB_OUTPUT
+            echo "检测到仅有文档文件变更"
+          else
+            echo "only_docs=false" >> $GITHUB_OUTPUT
+            echo "检测到非文档文件变更："
+            echo "$NON_DOC_FILES"
+          fi
 
       - name: 设置Node.js环境
+        if: steps.check-files.outputs.only_docs == 'false'
         uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
           cache: 'npm'
 
-      - name: 初始回复PR
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
+      - name: 安装依赖
+        if: steps.check-files.outputs.only_docs == 'false'
         run: |
-          echo "=== PR自动检查开始 ==="
-          echo "PR编号: ${{ github.event.pull_request.number }}"
-          echo "提交者: ${{ github.event.pull_request.user.login }}"
-          echo "目标分支: ${{ github.base_ref }}"
-          echo "源分支: ${{ github.head_ref }}"
-          echo ""
-
-          # 检查是否为有效的PR（源分支和目标分支不能相同）
-          if [[ "${{ github.base_ref }}" == "${{ github.head_ref }}" ]]; then
-            echo "⚠️ 警告: 源分支和目标分支相同，这可能是一个无效的PR"
-            echo "请检查PR设置是否正确"
-          else
-            echo "🔄 您的PR我们已经收到，正在运行自动化审查..."
-            echo "稍后您将会收到具体审核报告，请耐心等待。"
-          fi
-
-      - name: 检查PR目标分支和文件变更类型
-        id: check-files
-        run: |
-          # 检查是否为手动运行
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "这是手动运行，跳过PR检查，直接进行语法检查"
-            echo "target_branch=manual" >> $GITHUB_OUTPUT
-            echo "is_main_branch=false" >> $GITHUB_OUTPUT
-            echo "doc_only=false" >> $GITHUB_OUTPUT
-            echo "has_code_files=true" >> $GITHUB_OUTPUT
-            echo "手动运行模式，将检查所有TypeScript文件"
-            exit 0
-          fi
-
-          # 获取PR目标分支
-          TARGET_BRANCH="${{ github.base_ref }}"
-          echo "PR目标分支: $TARGET_BRANCH"
-          echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
-
-          # 判断是否为主分支
-          if [[ "$TARGET_BRANCH" == "main" || "$TARGET_BRANCH" == "master" || "$TARGET_BRANCH" == "develop" ]]; then
-            echo "is_main_branch=true" >> $GITHUB_OUTPUT
-            echo "这是向主分支提交的PR"
-          else
-            echo "is_main_branch=false" >> $GITHUB_OUTPUT
-            echo "这是向非主分支提交的PR"
-          fi
-
-          # 获取PR中变更的文件列表
-          git diff --name-only origin/${{ github.base_ref }}...HEAD > changed_files.txt
-
-          # 检查是否只包含文档文件
-          doc_only=true
-          has_code_files=false
-
-          while IFS= read -r file; do
-            echo "检查文件: $file"
-            # 检查是否为文档文件（.md, .txt, .rst, .doc, .docx, .pdf等）
-            if [[ ! "$file" =~ \.(md|txt|rst|doc|docx|pdf|LICENSE|README)$ ]] && [[ ! "$file" =~ ^docs/ ]] && [[ ! "$file" =~ ^\.github/ ]]; then
-              doc_only=false
-              has_code_files=true
-              echo "发现代码文件: $file"
-            fi
-          done < changed_files.txt
-
-          echo "doc_only=$doc_only" >> $GITHUB_OUTPUT
-          echo "has_code_files=$has_code_files" >> $GITHUB_OUTPUT
-
-          # 输出变更文件列表用于调试
-          echo "变更的文件:"
-          cat changed_files.txt
-
-      - name: 安装依赖（仅当有代码文件时或手动运行）
-        if: steps.check-files.outputs.has_code_files == 'true' || github.event_name == 'workflow_dispatch'
-        run: |
-          echo "安装根目录依赖..."
           npm install
-          
-          echo "安装客户端依赖..."
           cd client && npm install
-          cd ..
+          cd ../server && npm install
+
+      - name: TypeScript类型检查
+        if: steps.check-files.outputs.only_docs == 'false'
+        id: type-check
+        run: |
+          echo "开始TypeScript类型检查..."
           
-          echo "安装服务端依赖..."
-          cd server && npm install
-          cd ..
-
-      - name: TypeScript语法检查 - 客户端
-        if: steps.check-files.outputs.has_code_files == 'true' || github.event_name == 'workflow_dispatch'
-        id: tsc-check-client
-        run: |
-          echo "检查客户端TypeScript语法..."
-          cd client
-          if npx tsc --noEmit; then
-            echo "client_check=success" >> $GITHUB_OUTPUT
-            echo "✅ 客户端TypeScript语法检查通过"
-          else
-            echo "client_check=failed" >> $GITHUB_OUTPUT
-            echo "❌ 客户端TypeScript语法检查失败"
-            exit 1
-          fi
-
-      - name: TypeScript语法检查 - 服务端
-        if: steps.check-files.outputs.has_code_files == 'true' || github.event_name == 'workflow_dispatch'
-        id: tsc-check-server
-        run: |
-          echo "检查服务端TypeScript语法..."
+          # 检查server端
+          echo "检查server端TypeScript..."
           cd server
           if npx tsc --noEmit; then
             echo "server_check=success" >> $GITHUB_OUTPUT
-            echo "✅ 服务端TypeScript语法检查通过"
+            echo "✅ Server端TypeScript检查通过"
           else
             echo "server_check=failed" >> $GITHUB_OUTPUT
-            echo "❌ 服务端TypeScript语法检查失败"
+            echo "❌ Server端TypeScript检查失败"
             exit 1
           fi
-
-      - name: 输出语法检查失败信息
-        if: failure() && steps.check-files.outputs.has_code_files == 'true'
-        run: |
-          echo "=== ❌ 自动检查失败 ==="
-          echo ""
-          echo "您的PR包含TypeScript语法错误，请修复后重新提交。"
-          echo ""
-          echo "### 检查结果："
-          echo "- 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
-          echo "- 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
-          echo ""
-          echo "请运行以下命令在本地检查语法错误："
-          echo "# 检查客户端"
-          echo "cd client && npx tsc --noEmit"
-          echo ""
-          echo "# 检查服务端"
-          echo "cd server && npx tsc --noEmit"
-          echo ""
-          echo "修复所有错误后，请重新推送代码。"
-
-      - name: 输出文档变更信息
-        if: steps.check-files.outputs.doc_only == 'true'
-        run: |
-          echo "=== 📝 文档变更检测 ==="
-          echo ""
-          echo "检测到您的PR仅包含文档文件的变更，无需进行代码语法检查。"
-          echo ""
-          echo "此PR将等待项目维护者进行最终审核。感谢您对文档的贡献！ 🎉"
-
-      - name: 创建或切换到feature分支（仅主分支PR）
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
-        run: |
-          # 配置git用户信息
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-          # 创建feature分支名称（基于PR编号）
-          FEATURE_BRANCH="feature/pr-${{ github.event.number }}"
-          echo "FEATURE_BRANCH=$FEATURE_BRANCH" >> $GITHUB_ENV
-          echo "准备创建feature分支: $FEATURE_BRANCH"
-
-          # 检查feature分支是否已存在
-          if git ls-remote --heads origin $FEATURE_BRANCH | grep -q $FEATURE_BRANCH; then
-            echo "Feature分支已存在，切换到该分支"
-            git fetch origin $FEATURE_BRANCH
-            git checkout $FEATURE_BRANCH
-            git merge origin/${{ github.head_ref }} --no-ff -m "Merge latest changes from PR #${{ github.event.number }}"
+          
+          cd ..
+          
+          # 检查client端
+          echo "检查client端TypeScript..."
+          cd client
+          if npx tsc --noEmit; then
+            echo "client_check=success" >> $GITHUB_OUTPUT
+            echo "✅ Client端TypeScript检查通过"
           else
-            echo "创建新的feature分支"
-            git checkout -b $FEATURE_BRANCH
+            echo "client_check=failed" >> $GITHUB_OUTPUT
+            echo "❌ Client端TypeScript检查失败"
+            exit 1
           fi
-
-      - name: 推送到feature分支（仅主分支PR）
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
+          
+          echo "type_check_result=success" >> $GITHUB_OUTPUT
         continue-on-error: true
-        run: |
-          echo "尝试推送到feature分支: $FEATURE_BRANCH"
 
-          # 尝试推送，不管成功失败都继续
-          if git push origin $FEATURE_BRANCH 2>/dev/null; then
-            echo "✅ 成功推送到feature分支"
-            echo "push_success=true" >> $GITHUB_ENV
-            echo "branch_status=已创建并推送" >> $GITHUB_ENV
-          else
-            echo "⚠️ 推送失败，可能是权限问题或分支已存在"
-            echo "push_success=false" >> $GITHUB_ENV
+      - name: 处理TypeScript检查失败
+        if: steps.check-files.outputs.only_docs == 'false' && steps.type-check.outputs.type_check_result != 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## ❌ TypeScript类型检查失败
+            
+            您的PR包含TypeScript类型错误，请修复后重新提交。
+            
+            ### 检查结果：
+            - Server端检查：${{ steps.type-check.outputs.server_check == 'success' && '✅ 通过' || '❌ 失败' }}
+            - Client端检查：${{ steps.type-check.outputs.client_check == 'success' && '✅ 通过' || '❌ 失败' }}
+            
+            请运行以下命令进行本地检查：
+            \`\`\`bash
+            # 检查server端
+            cd server && npx tsc --noEmit
+            
+            # 检查client端  
+            cd client && npx tsc --noEmit
+            \`\`\`
+            
+            修复所有类型错误后，请重新推送代码。`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
 
-            # 检查分支是否已存在
-            if git ls-remote --heads origin $FEATURE_BRANCH | grep -q $FEATURE_BRANCH; then
-              echo "ℹ️ Feature分支已存在: $FEATURE_BRANCH"
-              echo "branch_status=分支已存在" >> $GITHUB_ENV
-            else
-              echo "❌ 分支不存在且无法创建，请手动创建: $FEATURE_BRANCH"
-              echo "branch_status=需要手动创建" >> $GITHUB_ENV
-            fi
-          fi
+      - name: 处理纯文档变更
+        if: steps.check-files.outputs.only_docs == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## 📝 文档变更检测
 
-      - name: 输出检查结果（主分支PR）
-        if: always() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
-        run: |
-          echo "=== TypeScript检查结果 ==="
-          echo "客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
-          echo "服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
-          echo "Feature分支: ${FEATURE_BRANCH:-未创建}"
-          echo "分支状态: ${{ env.branch_status || '未处理' }}"
+            检测到您的PR仅包含文档文件变更，无需进行代码检查。
 
-          if [[ "${{ steps.tsc-check-client.outputs.client_check }}" == "success" && "${{ steps.tsc-check-server.outputs.server_check }}" == "success" ]]; then
-            echo "✅ TypeScript语法检查通过"
+            此PR正在等待项目维护者的最终审核。感谢您对文档的贡献！ 🎉`;
 
-            case "${{ env.branch_status }}" in
-              "已创建并推送")
-                echo "✅ 代码已成功合并到feature分支: ${FEATURE_BRANCH}"
-                ;;
-              "分支已存在")
-                echo "ℹ️ Feature分支已存在: ${FEATURE_BRANCH}"
-                echo "✅ 代码检查完成，分支可供维护者查看"
-                ;;
-              "需要手动创建")
-                echo "⚠️ 由于权限限制，无法自动创建feature分支"
-                echo "请维护者手动创建分支: ${FEATURE_BRANCH}"
-                ;;
-              *)
-                echo "ℹ️ 分支处理状态未知"
-                ;;
-            esac
-          else
-            echo "❌ TypeScript语法检查失败"
-          fi
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
 
-      - name: 输出主分支PR检查通过信息
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
-        run: |
-          echo "=== ✅ 自动化检查通过（主分支PR） ==="
-          echo ""
-          echo "您的PR已通过自动化检查！"
-          echo ""
-          echo "### 检查结果："
-          echo "- ✅ 客户端TypeScript语法检查通过"
-          echo "- ✅ 服务端TypeScript语法检查通过"
-          echo "- ✅ 代码语法验证完成"
-          echo ""
-          echo "接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。"
-          echo ""
-          echo "感谢您的贡献！ 🎉"
+      - name: 自动合并到feature分支
+        if: steps.check-files.outputs.only_docs == 'false' && steps.type-check.outputs.type_check_result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.issue.number;
+            const baseBranch = '${{ steps.pr-info.outputs.base_branch }}';
+            const headBranch = '${{ steps.pr-info.outputs.head_branch }}';
 
-      - name: 输出feature分支PR检查通过信息
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false'
-        run: |
-          echo "=== ✅ 自动化检查通过（feature分支PR） ==="
-          echo ""
-          echo "您的PR已通过自动化检查，目标分支为: ${{ steps.check-files.outputs.target_branch }}"
-          echo ""
-          echo "### 检查结果："
-          echo "- ✅ 客户端TypeScript语法检查通过"
-          echo "- ✅ 服务端TypeScript语法检查通过"
-          echo "- ✅ 代码语法验证完成"
-          echo ""
-          echo "由于您的PR目标是feature分支，将等待项目维护者进行审核和合并。"
-          echo ""
-          echo "感谢您的贡献！ 🎉"
+            // 确定目标分支
+            let targetBranch = 'feature';
+            if (baseBranch === 'feature') {
+              targetBranch = 'feature';
+            } else if (baseBranch === 'main') {
+              targetBranch = 'feature';
+            }
 
-      - name: 手动运行结果输出
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "=== 手动运行TypeScript检查完成 ==="
-          echo "客户端检查结果: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
-          echo "服务端检查结果: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
+            try {
+              // 检查feature分支是否存在
+              try {
+                await github.rest.repos.getBranch({
+                  owner,
+                  repo,
+                  branch: 'feature'
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  // 如果feature分支不存在，从main分支创建
+                  const mainBranch = await github.rest.repos.getBranch({
+                    owner,
+                    repo,
+                    branch: 'main'
+                  });
 
-          if [[ "${{ steps.tsc-check-client.outputs.client_check }}" == "success" && "${{ steps.tsc-check-server.outputs.server_check }}" == "success" ]]; then
-            echo "✅ 所有TypeScript语法检查通过！"
-          else
-            echo "❌ 存在TypeScript语法错误，请检查上面的输出"
-            exit 1
-          fi
+                  await github.rest.git.createRef({
+                    owner,
+                    repo,
+                    ref: 'refs/heads/feature',
+                    sha: mainBranch.data.commit.sha
+                  });
+
+                  console.log('✅ 已创建feature分支');
+                }
+              }
+
+              // 如果原目标是main分支，需要修改PR的目标分支为feature
+              if (baseBranch === 'main') {
+                await github.rest.pulls.update({
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  base: 'feature'
+                });
+                console.log('✅ 已将PR目标分支修改为feature');
+              }
+
+              // 合并PR到feature分支
+              const mergeResult = await github.rest.pulls.merge({
+                owner,
+                repo,
+                pull_number: prNumber,
+                commit_title: `自动合并: ${{ steps.pr-info.outputs.pr_title }}`,
+                commit_message: `通过自动化检查，合并到${targetBranch}分支进行测试`,
+                merge_method: 'squash'
+              });
+
+              if (mergeResult.data.merged) {
+                const comment = `## ✅ 自动化检查通过
+
+                您的PR已通过所有自动化检查，已成功合并到 \`${targetBranch}\` 分支进行测试。
+
+                ### 检查结果：
+                - TypeScript类型检查：✅ 通过
+                - Server端检查：✅ 通过
+                - Client端检查：✅ 通过
+
+                您的代码现在在专属测试分支中，项目维护者将进行最终检查。如果没有问题，将会合并到主分支并在下个版本发布时加入。
+
+                感谢您的贡献！ 🎉`;
+
+                await github.rest.issues.createComment({
+                  issue_number: prNumber,
+                  owner,
+                  repo,
+                  body: comment
+                });
+
+                console.log('✅ PR已成功合并到feature分支');
+              }
+
+            } catch (error) {
+              console.error('合并过程中出现错误:', error);
+
+              const errorComment = `## ⚠️ 自动合并失败
+
+              虽然代码检查通过，但自动合并过程中遇到问题。可能的原因：
+              - 存在合并冲突
+              - 分支保护规则限制
+              - 权限不足
+
+              请联系项目维护者手动处理此PR。
+
+              错误信息：\`${error.message}\``;
+
+              await github.rest.issues.createComment({
+                issue_number: prNumber,
+                owner,
+                repo,
+                body: errorComment
+              });
+            }
