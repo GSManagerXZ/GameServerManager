@@ -71,7 +71,7 @@ export class GameConfigManager {
       }
     }
     
-    logger.info(`GameConfigManager 配置目录: ${this.configSchemasDir}`)
+    logger.info(`GameConfigManager 配置目录1: ${this.configSchemasDir}`)
     this.supportedParsers = new Map([
       ['properties', this.parseWithProperties.bind(this)],
       ['configobj', this.parseWithConfigObj.bind(this)],
