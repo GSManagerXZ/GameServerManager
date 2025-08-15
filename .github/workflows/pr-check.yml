@@ -1,345 +1,155 @@
-name: PR自动检查
+name: PR 自动审查与分流
 
-# 最高权限配置 - 确保所有功能正常工作
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
 permissions:
   contents: write
   pull-requests: write
-  issues: write
-  actions: write
-  checks: write
-  repository-projects: write
-  statuses: write
-  deployments: write
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
-  pr-check:
+  pr-flow:
+    name: PR 自动化流程
     runs-on: ubuntu-latest
+
     steps:
-      - name: 权限测试
+      - name: 初始评论 - 正在进行自动化审查
         uses: actions/github-script@v7
-        continue-on-error: true
         with:
           script: |
-            console.log('🔍 测试GitHub Actions权限...');
+            const { owner, repo, number } = context.issue;
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: number,
+              body: '👋 本 PR 已进入自动化审查流程，正在进行变更识别与类型检查，请稍候～'
+            });
 
-            try {
-              // 测试基本仓库访问
-              const repo = await github.rest.repos.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo
-              });
-              console.log('✅ 仓库访问权限正常');
-
-              // 测试PR访问
-              const pr = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number
-              });
-              console.log('✅ PR访问权限正常');
-
-              // 测试评论权限（创建测试评论）
-              const testComment = await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: '🤖 **权限测试成功** - GitHub Actions 具有完整的评论权限，将在检查完成后提供详细反馈。'
-              });
-              console.log('✅ 评论权限正常 - 测试评论已创建');
-
-            } catch (error) {
-              console.log('❌ 权限测试失败:', error.message);
-              console.log('将使用控制台输出模式');
-            }
-
-      - name: 显示PR信息
-        run: |
-          echo "🔍 PR检查开始"
-          echo "===================="
-          echo "PR编号: ${{ github.event.pull_request.number }}"
-          echo "作者: ${{ github.event.pull_request.user.login }}"
-          echo "标题: ${{ github.event.pull_request.title }}"
-          echo "目标分支: ${{ github.event.pull_request.base.ref }}"
-          echo "源分支: ${{ github.event.pull_request.head.ref }}"
-          echo "===================="
-
-      - name: 检出代码
+      - name: 检出 PR 提交代码
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 获取PR信息
-        id: pr-info
-        run: |
-          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-          echo "base_branch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
-          echo "head_branch=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
-          echo "pr_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+      - name: 识别是否仅修改文档
+        id: flags
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo, number } = context.issue;
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
+            const isDoc = (f) => {
+              const n = f.filename.toLowerCase();
+              return n.endsWith('.md') || n.endsWith('.mdx') || n.endsWith('.txt') || n.startsWith('docs/');
+            };
+            const docsOnly = files.length > 0 && files.every(isDoc);
+            core.setOutput('docs_only', String(docsOnly));
 
-      - name: 检查文件变更
-        id: check-files
-        run: |
-          # 获取变更的文件列表
-          git fetch origin ${{ steps.pr-info.outputs.base_branch }}
-          CHANGED_FILES=$(git diff --name-only origin/${{ steps.pr-info.outputs.base_branch }}...HEAD)
-          echo "变更的文件："
-          echo "$CHANGED_FILES"
-          
-          # 检查是否只有文档文件变更
-          NON_DOC_FILES=$(echo "$CHANGED_FILES" | grep -v -E '\.(md|txt|rst|doc|docx|pdf)$' | grep -v '^docs/' | grep -v '^README' | grep -v '^CHANGELOG' | grep -v '^LICENSE' || true)
-          
-          if [ -z "$NON_DOC_FILES" ]; then
-            echo "only_docs=true" >> $GITHUB_OUTPUT
-            echo "检测到仅有文档文件变更"
-          else
-            echo "only_docs=false" >> $GITHUB_OUTPUT
-            echo "检测到非文档文件变更："
-            echo "$NON_DOC_FILES"
-          fi
+      - name: 仅文档变更 - 回复
+        if: ${{ steps.flags.outputs.docs_only == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo, number } = context.issue;
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: number,
+              body: '📝 检测到本次提交仅为纯文档/文本变更。已进入文档类审核流程，等待作者最终审核。'
+            });
 
-      - name: 设置Node.js环境
-        if: steps.check-files.outputs.only_docs == 'false'
+
+
+      - name: 设置 Node 版本
+        if: ${{ steps.flags.outputs.docs_only != 'true' }}
         uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
-          cache: 'npm'
+          node-version: '20'
 
-      - name: 安装依赖
-        if: steps.check-files.outputs.only_docs == 'false'
+      - name: 安装依赖（server）
+        if: ${{ steps.flags.outputs.docs_only != 'true' }}
         run: |
-          npm install
-          cd client && npm install
-          cd ../server && npm install
-
-      - name: TypeScript类型检查
-        if: steps.check-files.outputs.only_docs == 'false'
-        id: type-check
-        run: |
-          echo "开始TypeScript类型检查..."
-          
-          # 检查server端
-          echo "检查server端TypeScript..."
           cd server
-          if npx tsc --noEmit; then
-            echo "server_check=success" >> $GITHUB_OUTPUT
-            echo "✅ Server端TypeScript检查通过"
-          else
-            echo "server_check=failed" >> $GITHUB_OUTPUT
-            echo "❌ Server端TypeScript检查失败"
-            exit 1
-          fi
-          
-          cd ..
-          
-          # 检查client端
-          echo "检查client端TypeScript..."
+          npm ci
+
+      - name: TypeScript 语法检查（server）
+        if: ${{ steps.flags.outputs.docs_only != 'true' }}
+        run: |
+          cd server
+          npx tsc --noEmit
+
+      - name: 安装依赖（client）
+        if: ${{ steps.flags.outputs.docs_only != 'true' }}
+        run: |
           cd client
-          if npx tsc --noEmit; then
-            echo "client_check=success" >> $GITHUB_OUTPUT
-            echo "✅ Client端TypeScript检查通过"
-          else
-            echo "client_check=failed" >> $GITHUB_OUTPUT
-            echo "❌ Client端TypeScript检查失败"
-            exit 1
-          fi
-          
-          echo "type_check_result=success" >> $GITHUB_OUTPUT
-        continue-on-error: true
+          npm ci
 
-      - name: 处理TypeScript检查失败
-        if: steps.check-files.outputs.only_docs == 'false' && steps.type-check.outputs.type_check_result != 'success'
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          script: |
-            const comment = `## ❌ TypeScript类型检查失败
-
-            您的PR包含TypeScript类型错误，请修复后重新提交。
-
-            ### 检查结果：
-            - Server端检查：${{ steps.type-check.outputs.server_check == 'success' && '✅ 通过' || '❌ 失败' }}
-            - Client端检查：${{ steps.type-check.outputs.client_check == 'success' && '✅ 通过' || '❌ 失败' }}
-
-            ### 本地检查命令：
-            \`\`\`bash
-            # 安装依赖
-            npm run install:all
-
-            # 运行完整检查
-            npm run check-types
-
-            # 或者分别检查
-            cd server && npx tsc --noEmit
-            cd client && npx tsc --noEmit
-            \`\`\`
-
-            ### 常见问题：
-            - 检查类型定义是否正确
-            - 确保所有导入路径正确
-            - 移除未使用的变量和导入
-
-            修复所有类型错误后，请重新推送代码。`;
-
-            try {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-              console.log('✅ 已创建错误提示评论');
-            } catch (error) {
-              console.log('❌ 创建评论失败:', error.message);
-              console.log('检查结果已在控制台输出');
-            }
-
-      - name: 处理纯文档变更
-        if: steps.check-files.outputs.only_docs == 'true'
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          script: |
-            const comment = `## 📝 文档变更检测
-
-            检测到您的PR仅包含文档文件变更，无需进行代码检查。
-
-            ### 变更类型：
-            - 📄 文档文件更新
-            - ✅ 跳过代码检查
-            - ⏳ 等待人工审核
-
-            此PR正在等待项目维护者的最终审核。感谢您对文档的贡献！ 🎉`;
-
-            try {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-              console.log('✅ 已创建文档变更提示评论');
-            } catch (error) {
-              console.log('❌ 创建评论失败:', error.message);
-              console.log('文档变更检测结果已在控制台输出');
-            }
-
-      - name: 处理检查成功
-        if: steps.check-files.outputs.only_docs == 'false' && steps.type-check.outputs.type_check_result == 'success'
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          script: |
-            const baseBranch = '${{ steps.pr-info.outputs.base_branch }}';
-
-            let branchMessage = '';
-            if (baseBranch === 'main') {
-              branchMessage = '\n⚠️ **注意**: 您的PR目标是main分支，建议项目维护者将其合并到feature分支进行测试。';
-            } else if (baseBranch === 'feature') {
-              branchMessage = '\n✅ **目标分支**: 您的PR正确地指向了feature分支。';
-            }
-
-            const comment = `## ✅ 自动化检查通过
-
-            您的PR已通过所有自动化检查！
-
-            ### 检查结果：
-            - TypeScript类型检查：✅ 通过
-            - Server端检查：✅ 通过
-            - Client端检查：✅ 通过
-            ${branchMessage}
-
-            ### 下一步：
-            项目维护者将审核您的代码并决定合并策略：
-            - 如果目标是main分支，将先合并到feature分支进行测试
-            - 测试通过后会合并到主分支并在下个版本发布时加入
-
-            感谢您的贡献！ 🎉
-
-            ---
-            *注：需要维护者手动合并操作。*`;
-
-            try {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-              console.log('✅ 成功创建成功提示评论');
-            } catch (error) {
-              console.log('❌ 创建评论失败:', error.message);
-              console.log('🎉 TypeScript检查通过，结果已在控制台输出');
-            }
-
-      - name: 输出最终结果摘要
-        if: always()
+      - name: TypeScript 语法检查（client）
+        if: ${{ steps.flags.outputs.docs_only != 'true' }}
         run: |
-          echo ""
-          echo "📊 PR检查结果摘要"
-          echo "===================="
-          echo "PR编号: ${{ github.event.pull_request.number }}"
-          echo "作者: ${{ github.event.pull_request.user.login }}"
-          echo "目标分支: ${{ steps.pr-info.outputs.base_branch }}"
-          echo "源分支: ${{ steps.pr-info.outputs.head_branch }}"
-          echo ""
+          cd client
+          npx tsc --noEmit
 
-          if [ "${{ steps.check-files.outputs.only_docs }}" = "true" ]; then
-            echo "📝 变更类型: 仅文档文件"
-            echo "✅ 状态: 等待人工审核"
-            echo ""
-            echo "💡 维护者操作建议:"
-            echo "- 可以直接审核并合并此PR"
-            echo "- 无需代码检查"
-          else
-            echo "🔍 变更类型: 包含代码文件"
-            echo "Server端检查: ${{ steps.type-check.outputs.server_check }}"
-            echo "Client端检查: ${{ steps.type-check.outputs.client_check }}"
-            echo "总体结果: ${{ steps.type-check.outputs.type_check_result }}"
-            echo ""
+      - name: 类型检查失败时回复 PR
+        if: ${{ failure() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo, number } = context.issue;
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: number,
+              body: '❌ 自动化类型检查未通过。命令：`npx tsc --noEmit`。\n请根据日志修复类型错误后再次提交，系统会重新审查～\n\n参考：仓库内 `./.github/workflows/(49 封私信 _ 99+ 条消息) 使用 Github Action 来做自动化 - 知乎.html`'
+            });
 
-            if [ "${{ steps.type-check.outputs.type_check_result }}" = "success" ]; then
-              echo "🎉 状态: 所有检查通过"
-              echo ""
-              echo "💡 维护者操作建议:"
-              if [ "${{ steps.pr-info.outputs.base_branch }}" = "main" ]; then
-                echo "- 建议先合并到feature分支进行测试"
-                echo "- 测试通过后再合并到main分支"
-              else
-                echo "- 可以合并到${{ steps.pr-info.outputs.base_branch }}分支"
-              fi
-            else
-              echo "❌ 状态: 检查失败"
-              echo ""
-              echo "💡 需要修复:"
-              if [ "${{ steps.type-check.outputs.server_check }}" = "failed" ]; then
-                echo "- 修复server端TypeScript错误"
-              fi
-              if [ "${{ steps.type-check.outputs.client_check }}" = "failed" ]; then
-                echo "- 修复client端TypeScript错误"
-              fi
-              echo ""
-              echo "🔧 本地检查命令:"
-              echo "npm run check-types"
-            fi
-          fi
-          echo "===================="
+      - name: 确保 base 仓库存在 feature 分支
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.issue;
+            async function ensureFeature() {
+              try {
+                await github.rest.git.getRef({ owner, repo, ref: 'heads/feature' });
+              } catch (err) {
+                if (err.status === 404) {
+                  const baseRef = await github.rest.git.getRef({ owner, repo, ref: 'heads/main' });
+                  await github.rest.git.createRef({ owner, repo, ref: 'refs/heads/feature', sha: baseRef.data.object.sha });
+                } else {
+                  throw err;
+                }
+              }
+            }
+            await ensureFeature();
 
-      - name: 设置检查状态
-        if: always()
-        run: |
-          # 根据检查结果设置退出码
-          if [ "${{ steps.check-files.outputs.only_docs }}" = "true" ]; then
-            echo "📝 文档变更，检查通过"
-            exit 0
-          elif [ "${{ steps.type-check.outputs.type_check_result }}" = "success" ]; then
-            echo "✅ 代码检查通过"
-            exit 0
-          else
-            echo "❌ 代码检查失败"
-            exit 1
-          fi
+      - name: 如目标为 main，则将 PR 目标分支切换为 feature
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && github.event.pull_request.base.ref == 'main' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo, number } = context.issue;
+            await github.rest.pulls.update({ owner, repo, pull_number: number, base: 'feature' });
+
+      - name: 合并 PR（目标为 feature 时直接合并）
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo, number } = context.issue;
+            try {
+              const pr = await github.rest.pulls.get({ owner, repo, pull_number: number });
+              if (pr.data.state !== 'open') {
+                return await github.rest.issues.createComment({ owner, repo, issue_number: number, body: '⚠️ PR 当前非 open 状态，自动合并已跳过。' });
+              }
+              await github.rest.pulls.merge({ owner, repo, pull_number: number, merge_method: 'merge' });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: '✅ 您的 PR 已通过自动化检查，并已合并至 feature（专属测试）分支。\n维护者将进行最终检查，若无问题会合入 main 并在下个版本发布时包含。感谢贡献！\n\n参考：仓库内 `./.github/workflows/(49 封私信 _ 99+ 条消息) 使用 Github Action 来做自动化 - 知乎.html`'
+              });
+            } catch (e) {
+              const msg = (e && e.message) ? e.message : String(e);
+              await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `⚠️ 自动合并失败，请维护者查看：\n\n\`\`\`\n${msg}\n\`\`\`` });
+              core.setFailed('Auto merge failed');
+            }
+
