@@ -4,6 +4,7 @@ name: PR自动检查和合并
 permissions:
   contents: write
   pull-requests: write
+  issues: write
   actions: read
 
 on:
@@ -33,6 +34,7 @@ jobs:
       - name: 初始回复PR
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo, number } = context.issue;
             await github.rest.issues.createComment({
@@ -136,6 +138,7 @@ jobs:
         if: failure() && steps.check-files.outputs.has_code_files == 'true'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo, number } = context.issue;
             await github.rest.issues.createComment({
@@ -166,6 +169,7 @@ jobs:
         if: steps.check-files.outputs.doc_only == 'true'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo, number } = context.issue;
             await github.rest.issues.createComment({
@@ -208,6 +212,7 @@ jobs:
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo, number } = context.issue;
             const featureBranch = process.env.FEATURE_BRANCH;
@@ -233,6 +238,7 @@ jobs:
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo, number } = context.issue;
             const targetBranch = '${{ steps.check-files.outputs.target_branch }}';
