@@ -43,8 +43,15 @@ jobs:
           echo "目标分支: ${{ github.base_ref }}"
           echo "源分支: ${{ github.head_ref }}"
           echo ""
-          echo "🔄 您的PR我们已经收到，正在运行自动化审查..."
-          echo "稍后您将会收到具体审核报告，请耐心等待。"
+
+          # 检查是否为有效的PR（源分支和目标分支不能相同）
+          if [[ "${{ github.base_ref }}" == "${{ github.head_ref }}" ]]; then
+            echo "⚠️ 警告: 源分支和目标分支相同，这可能是一个无效的PR"
+            echo "请检查PR设置是否正确"
+          else
+            echo "🔄 您的PR我们已经收到，正在运行自动化审查..."
+            echo "稍后您将会收到具体审核报告，请耐心等待。"
+          fi
 
       - name: 检查PR目标分支和文件变更类型
         id: check-files
@@ -196,15 +203,27 @@ jobs:
 
       - name: 推送到feature分支（仅主分支PR）
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
+        continue-on-error: true
         run: |
-          echo "尝试推送到feature分支..."
-          if git push origin $FEATURE_BRANCH; then
+          echo "尝试推送到feature分支: $FEATURE_BRANCH"
+
+          # 尝试推送，不管成功失败都继续
+          if git push origin $FEATURE_BRANCH 2>/dev/null; then
             echo "✅ 成功推送到feature分支"
             echo "push_success=true" >> $GITHUB_ENV
+            echo "branch_status=已创建并推送" >> $GITHUB_ENV
           else
-            echo "❌ 推送失败，可能是权限问题"
+            echo "⚠️ 推送失败，可能是权限问题或分支已存在"
             echo "push_success=false" >> $GITHUB_ENV
-            echo "请手动创建feature分支: $FEATURE_BRANCH"
+
+            # 检查分支是否已存在
+            if git ls-remote --heads origin $FEATURE_BRANCH | grep -q $FEATURE_BRANCH; then
+              echo "ℹ️ Feature分支已存在: $FEATURE_BRANCH"
+              echo "branch_status=分支已存在" >> $GITHUB_ENV
+            else
+              echo "❌ 分支不存在且无法创建，请手动创建: $FEATURE_BRANCH"
+              echo "branch_status=需要手动创建" >> $GITHUB_ENV
+            fi
           fi
 
       - name: 输出检查结果（主分支PR）
@@ -213,17 +232,28 @@ jobs:
           echo "=== TypeScript检查结果 ==="
           echo "客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
           echo "服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
-          echo "Feature分支: ${{ env.FEATURE_BRANCH || '未创建' }}"
-          echo "推送状态: ${{ env.push_success || '未推送' }}"
+          echo "Feature分支: ${FEATURE_BRANCH:-未创建}"
+          echo "分支状态: ${{ env.branch_status || '未处理' }}"
 
           if [[ "${{ steps.tsc-check-client.outputs.client_check }}" == "success" && "${{ steps.tsc-check-server.outputs.server_check }}" == "success" ]]; then
             echo "✅ TypeScript语法检查通过"
-            if [[ "${{ env.push_success }}" == "true" ]]; then
-              echo "✅ 代码已成功合并到feature分支"
-            else
-              echo "⚠️  由于权限限制，无法自动创建feature分支"
-              echo "请维护者手动创建分支: ${{ env.FEATURE_BRANCH }}"
-            fi
+
+            case "${{ env.branch_status }}" in
+              "已创建并推送")
+                echo "✅ 代码已成功合并到feature分支: ${FEATURE_BRANCH}"
+                ;;
+              "分支已存在")
+                echo "ℹ️ Feature分支已存在: ${FEATURE_BRANCH}"
+                echo "✅ 代码检查完成，分支可供维护者查看"
+                ;;
+              "需要手动创建")
+                echo "⚠️ 由于权限限制，无法自动创建feature分支"
+                echo "请维护者手动创建分支: ${FEATURE_BRANCH}"
+                ;;
+              *)
+                echo "ℹ️ 分支处理状态未知"
+                ;;
+            esac
           else
             echo "❌ TypeScript语法检查失败"
           fi
