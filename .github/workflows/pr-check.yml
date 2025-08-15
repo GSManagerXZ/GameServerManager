@@ -1,13 +1,7 @@
 name: PR自动检查和合并
 
-# 权限配置
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
-  checks: write
-  statuses: write
+# 权限配置 - 使用最大权限
+permissions: write-all
 
 on:
   pull_request:
@@ -41,18 +35,16 @@ jobs:
 
       - name: 初始回复PR
         if: github.event_name == 'pull_request'
-        uses: actions-cool/issues-helper@v3
-        with:
-          actions: 'create-comment'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## 🔄 自动化审查开始
-
-            您的PR我们已经收到，正在运行自动化审查，稍后您将会收到具体审核报告，请耐心等待。
-
-            ---
-            *此消息由自动化系统发送*
+        continue-on-error: true
+        run: |
+          echo "=== PR自动检查开始 ==="
+          echo "PR编号: ${{ github.event.pull_request.number }}"
+          echo "提交者: ${{ github.event.pull_request.user.login }}"
+          echo "目标分支: ${{ github.base_ref }}"
+          echo "源分支: ${{ github.head_ref }}"
+          echo ""
+          echo "🔄 您的PR我们已经收到，正在运行自动化审查..."
+          echo "稍后您将会收到具体审核报告，请耐心等待。"
 
       - name: 检查PR目标分支和文件变更类型
         id: check-files
@@ -150,46 +142,34 @@ jobs:
             exit 1
           fi
 
-      - name: 回复PR - 语法检查失败
-        if: failure() && steps.check-files.outputs.has_code_files == 'true' && github.event_name == 'pull_request'
-        uses: actions-cool/issues-helper@v3
-        with:
-          actions: 'create-comment'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## ❌ 自动检查失败
+      - name: 输出语法检查失败信息
+        if: failure() && steps.check-files.outputs.has_code_files == 'true'
+        run: |
+          echo "=== ❌ 自动检查失败 ==="
+          echo ""
+          echo "您的PR包含TypeScript语法错误，请修复后重新提交。"
+          echo ""
+          echo "### 检查结果："
+          echo "- 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}"
+          echo "- 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}"
+          echo ""
+          echo "请运行以下命令在本地检查语法错误："
+          echo "# 检查客户端"
+          echo "cd client && npx tsc --noEmit"
+          echo ""
+          echo "# 检查服务端"
+          echo "cd server && npx tsc --noEmit"
+          echo ""
+          echo "修复所有错误后，请重新推送代码。"
 
-            您的PR包含TypeScript语法错误，请修复后重新提交。
-
-            ### 检查结果：
-            - 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}
-            - 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}
-
-            请运行以下命令在本地检查语法错误：
-            ```bash
-            # 检查客户端
-            cd client && npx tsc --noEmit
-
-            # 检查服务端
-            cd server && npx tsc --noEmit
-            ```
-
-            修复所有错误后，请重新推送代码。
-
-      - name: 回复PR - 纯文档变更
-        if: steps.check-files.outputs.doc_only == 'true' && github.event_name == 'pull_request'
-        uses: actions-cool/issues-helper@v3
-        with:
-          actions: 'create-comment'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## 📝 文档变更检测
-
-            检测到您的PR仅包含文档文件的变更，无需进行代码语法检查。
-
-            此PR将等待项目维护者进行最终审核。感谢您对文档的贡献！ 🎉
+      - name: 输出文档变更信息
+        if: steps.check-files.outputs.doc_only == 'true'
+        run: |
+          echo "=== 📝 文档变更检测 ==="
+          echo ""
+          echo "检测到您的PR仅包含文档文件的变更，无需进行代码语法检查。"
+          echo ""
+          echo "此PR将等待项目维护者进行最终审核。感谢您对文档的贡献！ 🎉"
 
       - name: 创建或切换到feature分支（仅主分支PR）
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
@@ -248,47 +228,37 @@ jobs:
             echo "❌ TypeScript语法检查失败"
           fi
 
-      - name: 回复PR - 检查通过（主分支PR）
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true' && github.event_name == 'pull_request'
-        uses: actions-cool/issues-helper@v3
-        with:
-          actions: 'create-comment'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## ✅ 自动化检查通过
+      - name: 输出主分支PR检查通过信息
+        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
+        run: |
+          echo "=== ✅ 自动化检查通过（主分支PR） ==="
+          echo ""
+          echo "您的PR已通过自动化检查！"
+          echo ""
+          echo "### 检查结果："
+          echo "- ✅ 客户端TypeScript语法检查通过"
+          echo "- ✅ 服务端TypeScript语法检查通过"
+          echo "- ✅ 代码语法验证完成"
+          echo ""
+          echo "接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。"
+          echo ""
+          echo "感谢您的贡献！ 🎉"
 
-            您的PR已通过自动化检查！
-
-            ### 检查结果：
-            - ✅ 客户端TypeScript语法检查通过
-            - ✅ 服务端TypeScript语法检查通过
-            - ✅ 代码语法验证完成
-
-            接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。
-
-            感谢您的贡献！ 🎉
-
-      - name: 回复PR - 检查通过（feature分支PR）
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false' && github.event_name == 'pull_request'
-        uses: actions-cool/issues-helper@v3
-        with:
-          actions: 'create-comment'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## ✅ 自动化检查通过
-
-            您的PR已通过自动化检查，目标分支为 `${{ steps.check-files.outputs.target_branch }}`。
-
-            ### 检查结果：
-            - ✅ 客户端TypeScript语法检查通过
-            - ✅ 服务端TypeScript语法检查通过
-            - ✅ 代码语法验证完成
-
-            由于您的PR目标是feature分支，将等待项目维护者进行审核和合并。
-
-            感谢您的贡献！ 🎉
+      - name: 输出feature分支PR检查通过信息
+        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false'
+        run: |
+          echo "=== ✅ 自动化检查通过（feature分支PR） ==="
+          echo ""
+          echo "您的PR已通过自动化检查，目标分支为: ${{ steps.check-files.outputs.target_branch }}"
+          echo ""
+          echo "### 检查结果："
+          echo "- ✅ 客户端TypeScript语法检查通过"
+          echo "- ✅ 服务端TypeScript语法检查通过"
+          echo "- ✅ 代码语法验证完成"
+          echo ""
+          echo "由于您的PR目标是feature分支，将等待项目维护者进行审核和合并。"
+          echo ""
+          echo "感谢您的贡献！ 🎉"
 
       - name: 手动运行结果输出
         if: github.event_name == 'workflow_dispatch'
