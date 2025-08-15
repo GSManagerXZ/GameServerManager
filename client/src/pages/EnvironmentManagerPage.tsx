@@ -715,6 +715,7 @@ const EnvironmentManagerPage: React.FC = () => {
           title: '成功',
           message: `${version} 卸载成功`
         })
+        setTabDataLoaded(prev => ({ ...prev, java: false }))
         await fetchJavaEnvironments()
       } else {
         addNotification({
