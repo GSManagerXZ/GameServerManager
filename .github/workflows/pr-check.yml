@@ -1,11 +1,15 @@
 name: PR自动检查
 
-# 权限配置 - 需要写权限来创建评论
+# 最高权限配置 - 确保所有功能正常工作
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
+  checks: write
+  repository-projects: write
+  statuses: write
+  deployments: write
 
 on:
   pull_request:
@@ -15,6 +19,43 @@ jobs:
   pr-check:
     runs-on: ubuntu-latest
     steps:
+      - name: 权限测试
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            console.log('🔍 测试GitHub Actions权限...');
+
+            try {
+              // 测试基本仓库访问
+              const repo = await github.rest.repos.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              console.log('✅ 仓库访问权限正常');
+
+              // 测试PR访问
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number
+              });
+              console.log('✅ PR访问权限正常');
+
+              // 测试评论权限（创建测试评论）
+              const testComment = await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '🤖 **权限测试成功** - GitHub Actions 具有完整的评论权限，将在检查完成后提供详细反馈。'
+              });
+              console.log('✅ 评论权限正常 - 测试评论已创建');
+
+            } catch (error) {
+              console.log('❌ 权限测试失败:', error.message);
+              console.log('将使用控制台输出模式');
+            }
+
       - name: 显示PR信息
         run: |
           echo "🔍 PR检查开始"
