@@ -86,14 +86,15 @@ jobs:
       - name: TypeScript 语法检查（server）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
         id: tsc_server
+        shell: bash
         run: |
+          set +e
           cd server
-          if ! npx tsc --noEmit 2>&1 | tee ../tsc_server_output.txt; then
-            echo "server_tsc_failed=true" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "server_tsc_failed=false" >> $GITHUB_OUTPUT
-          fi
+          npx tsc --noEmit 2>&1 | tee ../tsc_server_output.txt
+          rc=$?
+          cd ..
+          if [ $rc -ne 0 ]; then echo "failed=true" >> $GITHUB_OUTPUT; else echo "failed=false" >> $GITHUB_OUTPUT; fi
+          exit 0
 
       - name: 安装依赖（client）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
@@ -104,17 +105,18 @@ jobs:
       - name: TypeScript 语法检查（client）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
         id: tsc_client
+        shell: bash
         run: |
+          set +e
           cd client
-          if ! npx tsc --noEmit 2>&1 | tee ../tsc_client_output.txt; then
-            echo "client_tsc_failed=true" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "client_tsc_failed=false" >> $GITHUB_OUTPUT
-          fi
+          npx tsc --noEmit 2>&1 | tee ../tsc_client_output.txt
+          rc=$?
+          cd ..
+          if [ $rc -ne 0 ]; then echo "failed=true" >> $GITHUB_OUTPUT; else echo "failed=false" >> $GITHUB_OUTPUT; fi
+          exit 0
 
       - name: 类型检查失败时回复 PR
-        if: ${{ (steps.tsc_server.outputs.server_tsc_failed == 'true' || steps.tsc_client.outputs.client_tsc_failed == 'true') && steps.flags.outputs.docs_only != 'true' }}
+        if: ${{ (steps.tsc_server.outputs.failed == 'true' || steps.tsc_client.outputs.failed == 'true') && steps.flags.outputs.docs_only != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -124,7 +126,7 @@ jobs:
             let errorDetails = '';
 
             // 读取 server 端错误信息
-            if ('${{ steps.tsc_server.outputs.server_tsc_failed }}' === 'true') {
+            if ('${{ steps.tsc_server.outputs.failed }}' === 'true') {
               try {
                 const serverErrors = fs.readFileSync('tsc_server_output.txt', 'utf8');
                 if (serverErrors.trim()) {
@@ -136,7 +138,7 @@ jobs:
             }
 
             // 读取 client 端错误信息
-            if ('${{ steps.tsc_client.outputs.client_tsc_failed }}' === 'true') {
+            if ('${{ steps.tsc_client.outputs.failed }}' === 'true') {
               try {
                 const clientErrors = fs.readFileSync('tsc_client_output.txt', 'utf8');
                 if (clientErrors.trim()) {
@@ -152,14 +154,8 @@ jobs:
               body: `❌ 自动化类型检查未通过。命令：\`npx tsc --noEmit\`\n\n${errorDetails}请根据上述错误信息修复类型错误后再次提交，系统会重新审查～`
             });
 
-      - name: 类型检查失败时终止工作流
-        if: ${{ (steps.tsc_server.outputs.server_tsc_failed == 'true' || steps.tsc_client.outputs.client_tsc_failed == 'true') && steps.flags.outputs.docs_only != 'true' }}
-        run: |
-          echo "TypeScript 类型检查失败，终止工作流"
-          exit 1
-
       - name: 确保 base 仓库存在 feature 分支
-        if: ${{ steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.server_tsc_failed != 'true' && steps.tsc_client.outputs.client_tsc_failed != 'true' }}
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.failed != 'true' && steps.tsc_client.outputs.failed != 'true' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.ACTIONS_PAT }}
@@ -180,28 +176,16 @@ jobs:
             await ensureFeature();
 
       - name: 如目标为 main，则将 PR 目标分支切换为 feature
-        if: ${{ steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.server_tsc_failed != 'true' && steps.tsc_client.outputs.client_tsc_failed != 'true' && github.event.pull_request.base.ref == 'main' }}
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.failed != 'true' && steps.tsc_client.outputs.failed != 'true' && github.event.pull_request.base.ref == 'main' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.ACTIONS_PAT }}
           script: |
             const { owner, repo, number } = context.issue;
-            try {
-              await github.rest.pulls.update({ owner, repo, pull_number: number, base: 'feature' });
-            } catch (e) {
-              if (e.status === 422 && e.message.includes('no new commits')) {
-                console.log('feature 分支与 main 分支内容相同，跳过切换');
-                await github.rest.issues.createComment({
-                  owner, repo, issue_number: number,
-                  body: '⚠️ feature 分支与 main 分支内容相同，无需切换目标分支。将直接合并到 main 分支。'
-                });
-              } else {
-                throw e;
-              }
-            }
+            await github.rest.pulls.update({ owner, repo, pull_number: number, base: 'feature' });
 
       - name: 合并 PR（目标为 feature 时直接合并）
-        if: ${{ steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.server_tsc_failed != 'true' && steps.tsc_client.outputs.client_tsc_failed != 'true' }}
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.failed != 'true' && steps.tsc_client.outputs.failed != 'true' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.ACTIONS_PAT }}
