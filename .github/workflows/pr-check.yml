@@ -23,9 +23,18 @@ jobs:
         with:
           script: |
             const { owner, repo, number } = context.issue;
+
+            // 获取 PR 变更的文件列表
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: number, per_page: 100
+            });
+
+            const fileList = files.map(f => `- \`${f.filename}\` (${f.status})`).join('\n');
+            const fileCount = files.length;
+
             await github.rest.issues.createComment({
               owner, repo, issue_number: number,
-              body: '👋 本 PR 已进入自动化审查流程，正在进行变更识别与类型检查，请稍候～'
+              body: `⚠ 本 PR 已进入自动化审查流程，正在进行代码审查，请稍后\n\n**本次变更文件 (${fileCount} 个):**\n${fileList}\n\n正在进行变更类型识别与 TypeScript 语法检查...`
             });
 
       - name: 检出 PR 提交代码
@@ -57,7 +66,7 @@ jobs:
             const { owner, repo, number } = context.issue;
             await github.rest.issues.createComment({
               owner, repo, issue_number: number,
-              body: '📝 检测到本次提交仅为纯文档/文本变更。已进入文档类审核流程，等待作者最终审核。'
+              body: '📝 本次提交仅为纯文档/文本变更。请等待作者最终审核。'
             });
 
 
@@ -76,9 +85,11 @@ jobs:
 
       - name: TypeScript 语法检查（server）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
+        id: tsc_server
         run: |
           cd server
-          npx tsc --noEmit
+          npx tsc --noEmit 2>&1 | tee ../tsc_server_output.txt
+        continue-on-error: true
 
       - name: 安装依赖（client）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
@@ -88,23 +99,53 @@ jobs:
 
       - name: TypeScript 语法检查（client）
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
+        id: tsc_client
         run: |
           cd client
-          npx tsc --noEmit
+          npx tsc --noEmit 2>&1 | tee ../tsc_client_output.txt
+        continue-on-error: true
 
       - name: 类型检查失败时回复 PR
-        if: ${{ failure() }}
+        if: ${{ (steps.tsc_server.outcome == 'failure' || steps.tsc_client.outcome == 'failure') && steps.flags.outputs.docs_only != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo, number } = context.issue;
+            const fs = require('fs');
+
+            let errorDetails = '';
+
+            // 读取 server 端错误信息
+            if ('${{ steps.tsc_server.outcome }}' === 'failure') {
+              try {
+                const serverErrors = fs.readFileSync('tsc_server_output.txt', 'utf8');
+                if (serverErrors.trim()) {
+                  errorDetails += '**Server 端类型错误:**\n```\n' + serverErrors.trim() + '\n```\n\n';
+                }
+              } catch (e) {
+                errorDetails += '**Server 端类型检查失败**（无法读取详细错误信息）\n\n';
+              }
+            }
+
+            // 读取 client 端错误信息
+            if ('${{ steps.tsc_client.outcome }}' === 'failure') {
+              try {
+                const clientErrors = fs.readFileSync('tsc_client_output.txt', 'utf8');
+                if (clientErrors.trim()) {
+                  errorDetails += '**Client 端类型错误:**\n```\n' + clientErrors.trim() + '\n```\n\n';
+                }
+              } catch (e) {
+                errorDetails += '**Client 端类型检查失败**（无法读取详细错误信息）\n\n';
+              }
+            }
+
             await github.rest.issues.createComment({
               owner, repo, issue_number: number,
-              body: '❌ 自动化类型检查未通过。命令：`npx tsc --noEmit`。\n请根据日志修复类型错误后再次提交，系统会重新审查～\n\n参考：仓库内 `./.github/workflows/(49 封私信 _ 99+ 条消息) 使用 Github Action 来做自动化 - 知乎.html`'
+              body: `❌ 自动化类型检查未通过。命令：\`npx tsc --noEmit\`\n\n${errorDetails}请根据上述错误信息修复类型错误后再次提交，系统会重新审查～`
             });
 
       - name: 确保 base 仓库存在 feature 分支
-        if: ${{ success() && steps.flags.outputs.docs_only != 'true' }}
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outcome != 'failure' && steps.tsc_client.outcome != 'failure' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.ACTIONS_PAT }}
@@ -125,7 +166,7 @@ jobs:
             await ensureFeature();
 
       - name: 如目标为 main，则将 PR 目标分支切换为 feature
-        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && github.event.pull_request.base.ref == 'main' }}
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outcome != 'failure' && steps.tsc_client.outcome != 'failure' && github.event.pull_request.base.ref == 'main' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.ACTIONS_PAT }}
@@ -134,7 +175,7 @@ jobs:
             await github.rest.pulls.update({ owner, repo, pull_number: number, base: 'feature' });
 
       - name: 合并 PR（目标为 feature 时直接合并）
-        if: ${{ success() && steps.flags.outputs.docs_only != 'true' }}
+        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outcome != 'failure' && steps.tsc_client.outcome != 'failure' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.ACTIONS_PAT }}
@@ -148,7 +189,7 @@ jobs:
               await github.rest.pulls.merge({ owner, repo, pull_number: number, merge_method: 'merge' });
               await github.rest.issues.createComment({
                 owner, repo, issue_number: number,
-                body: '✅ 您的 PR 已通过自动化检查，并已合并至 feature（专属测试）分支。\n维护者将进行最终检查，若无问题会合入 main 并在下个版本发布时包含。感谢贡献！\n\n参考：仓库内 `./.github/workflows/(49 封私信 _ 99+ 条消息) 使用 Github Action 来做自动化 - 知乎.html`'
+                body: '✅ 您的 PR 已通过自动化检查，现已合并至 feature测试分支。\n维护者将进行最终检查，若无问题会合并到 main 分支并在下个版本发布时包含。感谢贡献！❤'
               });
             } catch (e) {
               const msg = (e && e.message) ? e.message : String(e);
