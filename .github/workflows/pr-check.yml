@@ -6,6 +6,8 @@ permissions:
   pull-requests: write
   issues: write
   actions: read
+  checks: write
+  statuses: write
 
 on:
   pull_request:
@@ -15,6 +17,12 @@ on:
       - master
       - develop
       - 'feature/**'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR编号（用于手动调试）'
+        required: true
+        type: string
 
 jobs:
   check-pr:
@@ -32,22 +40,30 @@ jobs:
           cache: 'npm'
 
       - name: 初始回复PR
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { owner, repo, number } = context.issue;
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
-              body: `## 🔄 自动化审查开始
+            try {
+              const { owner, repo } = context.repo;
+              const pull_number = context.payload.pull_request.number;
 
-              您的PR我们已经收到，正在运行自动化审查，稍后您将会收到具体审核报告，请耐心等待。
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `## 🔄 自动化审查开始
 
-              ---
-              *此消息由自动化系统发送*`
-            });
+                您的PR我们已经收到，正在运行自动化审查，稍后您将会收到具体审核报告，请耐心等待。
+
+                ---
+                *此消息由自动化系统发送*`
+              });
+            } catch (error) {
+              console.log('无法创建评论，可能是权限问题:', error.message);
+              console.log('继续执行其他检查步骤...');
+            }
 
       - name: 检查PR目标分支和文件变更类型
         id: check-files
@@ -135,35 +151,43 @@ jobs:
           fi
 
       - name: 回复PR - 语法检查失败
-        if: failure() && steps.check-files.outputs.has_code_files == 'true'
+        if: failure() && steps.check-files.outputs.has_code_files == 'true' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { owner, repo, number } = context.issue;
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
-              body: `## ❌ 自动检查失败
-              
-              您的PR包含TypeScript语法错误，请修复后重新提交。
-              
-              ### 检查结果：
-              - 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}
-              - 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}
-              
-              请运行以下命令在本地检查语法错误：
-              \`\`\`bash
-              # 检查客户端
-              cd client && npx tsc --noEmit
-              
-              # 检查服务端  
-              cd server && npx tsc --noEmit
-              \`\`\`
-              
-              修复所有错误后，请重新推送代码。`
-            });
+            try {
+              const { owner, repo } = context.repo;
+              const pull_number = context.payload.pull_request.number;
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body: `## ❌ 自动检查失败
+
+                您的PR包含TypeScript语法错误，请修复后重新提交。
+
+                ### 检查结果：
+                - 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}
+                - 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}
+
+                请运行以下命令在本地检查语法错误：
+                \`\`\`bash
+                # 检查客户端
+                cd client && npx tsc --noEmit
+
+                # 检查服务端
+                cd server && npx tsc --noEmit
+                \`\`\`
+
+                修复所有错误后，请重新推送代码。`
+              });
+            } catch (error) {
+              console.log('无法创建评论:', error.message);
+              // 设置工作流状态为失败，即使评论失败
+              core.setFailed('TypeScript语法检查失败');
+            }
 
       - name: 回复PR - 纯文档变更
         if: steps.check-files.outputs.doc_only == 'true'
