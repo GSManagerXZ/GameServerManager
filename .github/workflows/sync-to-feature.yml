@@ -1,0 +1,42 @@
+name: 同步main分支到feature分支
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync-to-feature:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整的git历史
+          token: ${{ secrets.ACTIONS_PAT }}
+      
+      - name: 配置Git用户信息
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+      
+      - name: 强制推送到feature分支
+        run: |
+          # 检查feature分支是否存在
+          if git ls-remote --heads origin feature | grep -q feature; then
+            echo "feature分支存在，准备强制推送"
+            git push origin main:feature --force
+          else
+            echo "feature分支不存在，创建并推送"
+            git checkout -b feature
+            git push origin feature --set-upstream
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTIONS_PAT }}
+      
+      - name: 输出同步结果
+        run: |
+          echo "✅ 成功将main分支的最新代码强制推送到feature分支"
+          echo "📝 推送的提交: ${{ github.sha }}"
+          echo "👤 推送者: ${{ github.actor }}"
