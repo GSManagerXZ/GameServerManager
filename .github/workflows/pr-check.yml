@@ -41,29 +41,18 @@ jobs:
 
       - name: 初始回复PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions-cool/issues-helper@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            try {
-              const { owner, repo } = context.repo;
-              const pull_number = context.payload.pull_request.number;
+          actions: 'create-comment'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## 🔄 自动化审查开始
 
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: pull_number,
-                body: `## 🔄 自动化审查开始
+            您的PR我们已经收到，正在运行自动化审查，稍后您将会收到具体审核报告，请耐心等待。
 
-                您的PR我们已经收到，正在运行自动化审查，稍后您将会收到具体审核报告，请耐心等待。
-
-                ---
-                *此消息由自动化系统发送*`
-              });
-            } catch (error) {
-              console.log('无法创建评论，可能是权限问题:', error.message);
-              console.log('继续执行其他检查步骤...');
-            }
+            ---
+            *此消息由自动化系统发送*
 
       - name: 检查PR目标分支和文件变更类型
         id: check-files
@@ -163,58 +152,44 @@ jobs:
 
       - name: 回复PR - 语法检查失败
         if: failure() && steps.check-files.outputs.has_code_files == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions-cool/issues-helper@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            try {
-              const { owner, repo } = context.repo;
-              const pull_number = context.payload.pull_request.number;
+          actions: 'create-comment'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## ❌ 自动检查失败
 
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: pull_number,
-                body: `## ❌ 自动检查失败
+            您的PR包含TypeScript语法错误，请修复后重新提交。
 
-                您的PR包含TypeScript语法错误，请修复后重新提交。
+            ### 检查结果：
+            - 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}
+            - 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}
 
-                ### 检查结果：
-                - 客户端检查: ${{ steps.tsc-check-client.outputs.client_check || '未执行' }}
-                - 服务端检查: ${{ steps.tsc-check-server.outputs.server_check || '未执行' }}
+            请运行以下命令在本地检查语法错误：
+            ```bash
+            # 检查客户端
+            cd client && npx tsc --noEmit
 
-                请运行以下命令在本地检查语法错误：
-                \`\`\`bash
-                # 检查客户端
-                cd client && npx tsc --noEmit
+            # 检查服务端
+            cd server && npx tsc --noEmit
+            ```
 
-                # 检查服务端
-                cd server && npx tsc --noEmit
-                \`\`\`
-
-                修复所有错误后，请重新推送代码。`
-              });
-            } catch (error) {
-              console.log('无法创建评论:', error.message);
-              // 设置工作流状态为失败，即使评论失败
-              core.setFailed('TypeScript语法检查失败');
-            }
+            修复所有错误后，请重新推送代码。
 
       - name: 回复PR - 纯文档变更
-        if: steps.check-files.outputs.doc_only == 'true'
-        uses: actions/github-script@v7
+        if: steps.check-files.outputs.doc_only == 'true' && github.event_name == 'pull_request'
+        uses: actions-cool/issues-helper@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo, number } = context.issue;
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
-              body: `## 📝 文档变更检测
-              
-              此PR将等待项目维护者进行最终审核。感谢您对文档的贡献！ 🎉`
-            });
+          actions: 'create-comment'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## 📝 文档变更检测
+
+            检测到您的PR仅包含文档文件的变更，无需进行代码语法检查。
+
+            此PR将等待项目维护者进行最终审核。感谢您对文档的贡献！ 🎉
 
       - name: 创建或切换到feature分支（仅主分支PR）
         if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true'
@@ -274,80 +249,46 @@ jobs:
           fi
 
       - name: 回复PR - 检查通过（主分支PR）
-        if: always() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'true' && github.event_name == 'pull_request'
+        uses: actions-cool/issues-helper@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            try {
-              const { owner, repo, number } = context.issue;
-              const featureBranch = process.env.FEATURE_BRANCH || 'feature/pr-' + number;
-              const pushSuccess = process.env.push_success === 'true';
-              const clientCheck = '${{ steps.tsc-check-client.outputs.client_check }}';
-              const serverCheck = '${{ steps.tsc-check-server.outputs.server_check }}';
+          actions: 'create-comment'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## ✅ 自动化检查通过
 
-              let statusIcon = '✅';
-              let statusText = '自动化检查通过';
-              let branchInfo = '';
+            您的PR已通过自动化检查！
 
-              if (clientCheck !== 'success' || serverCheck !== 'success') {
-                statusIcon = '❌';
-                statusText = '自动化检查失败';
-              }
+            ### 检查结果：
+            - ✅ 客户端TypeScript语法检查通过
+            - ✅ 服务端TypeScript语法检查通过
+            - ✅ 代码语法验证完成
 
-              if (pushSuccess) {
-                branchInfo = `代码已合并到专属测试分支 \`${featureBranch}\`。`;
-              } else {
-                branchInfo = `由于权限限制，无法自动创建feature分支。请维护者手动创建分支 \`${featureBranch}\`。`;
-              }
+            接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。
 
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: number,
-                body: `## ${statusIcon} ${statusText}
-
-                ${branchInfo}
-
-                ### 检查结果：
-                - ${clientCheck === 'success' ? '✅' : '❌'} 客户端TypeScript语法检查${clientCheck === 'success' ? '通过' : '失败'}
-                - ${serverCheck === 'success' ? '✅' : '❌'} 服务端TypeScript语法检查${serverCheck === 'success' ? '通过' : '失败'}
-                - ${pushSuccess ? '✅ 代码已合并到测试分支' : '⚠️ 需要手动创建测试分支'}
-
-                ${clientCheck === 'success' && serverCheck === 'success' ?
-                  '接下来将等待项目维护者进行最终检查，如果没有问题将会合并到主分支并在下个版本发布时加入。\n\n感谢您的贡献！ 🎉' :
-                  '请修复语法错误后重新提交。'}
-                `
-              });
-            } catch (error) {
-              console.log('无法创建评论:', error.message);
-            }
+            感谢您的贡献！ 🎉
 
       - name: 回复PR - 检查通过（feature分支PR）
-        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false'
-        uses: actions/github-script@v7
+        if: success() && steps.check-files.outputs.has_code_files == 'true' && steps.check-files.outputs.is_main_branch == 'false' && github.event_name == 'pull_request'
+        uses: actions-cool/issues-helper@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo, number } = context.issue;
-            const targetBranch = '${{ steps.check-files.outputs.target_branch }}';
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: number,
-              body: `## ✅ 自动化检查通过
+          actions: 'create-comment'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## ✅ 自动化检查通过
 
-              您的PR已通过自动化检查，目标分支为 \`${targetBranch}\`。
+            您的PR已通过自动化检查，目标分支为 `${{ steps.check-files.outputs.target_branch }}`。
 
-              ### 检查结果：
-              - ✅ 客户端TypeScript语法检查通过
-              - ✅ 服务端TypeScript语法检查通过
-              - ✅ 代码语法验证完成
+            ### 检查结果：
+            - ✅ 客户端TypeScript语法检查通过
+            - ✅ 服务端TypeScript语法检查通过
+            - ✅ 代码语法验证完成
 
-              由于您的PR目标是feature分支，将等待项目维护者进行审核和合并。
+            由于您的PR目标是feature分支，将等待项目维护者进行审核和合并。
 
-              感谢您的贡献！ 🎉`
-            });
+            感谢您的贡献！ 🎉
 
       - name: 手动运行结果输出
         if: github.event_name == 'workflow_dispatch'
