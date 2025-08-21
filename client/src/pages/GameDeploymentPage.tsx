@@ -173,6 +173,10 @@ const GameDeploymentPage: React.FC = () => {
   const [mrpackDeployProgress, setMrpackDeployProgress] = useState<any>(null)
   const [mrpackDeployLogs, setMrpackDeployLogs] = useState<string[]>([])
   const [mrpackDeployComplete, setMrpackDeployComplete] = useState(false)
+  const [mrpackApiSource, setMrpackApiSource] = useState<'official' | 'mirror'>(() => {
+    // 从localStorage读取保存的选择
+    return (localStorage.getItem('mrpackApiSource') as 'official' | 'mirror') || 'official'
+  })
   
   // 整合包悬停详情状态
   const [hoveredMrpack, setHoveredMrpack] = useState<string | null>(null)
@@ -530,6 +534,12 @@ const GameDeploymentPage: React.FC = () => {
     }
   }
 
+  // 保存整合包API源选择到localStorage
+  const handleMrpackApiSourceChange = (apiSource: 'official' | 'mirror') => {
+    setMrpackApiSource(apiSource)
+    localStorage.setItem('mrpackApiSource', apiSource)
+  }
+
   // 搜索Minecraft整合包
   const searchMrpackModpacks = async () => {
     if (!mrpackSearchQuery.trim()) {
@@ -545,7 +555,8 @@ const GameDeploymentPage: React.FC = () => {
       setMrpackSearchLoading(true)
       const response = await apiClient.searchMrpackModpacks({
         query: mrpackSearchQuery,
-        limit: 20
+        limit: 20,
+        apiSource: mrpackApiSource
       })
       
       if (response.success) {
@@ -569,7 +580,7 @@ const GameDeploymentPage: React.FC = () => {
   const fetchMrpackVersions = async (projectId: string) => {
     try {
       setMrpackVersionsLoading(true)
-      const response = await apiClient.getMrpackProjectVersions(projectId)
+      const response = await apiClient.getMrpackProjectVersions(projectId, mrpackApiSource)
       
       if (response.success) {
         setMrpackVersions(response.data || [])
@@ -643,7 +654,8 @@ const GameDeploymentPage: React.FC = () => {
         projectId: selectedMrpack.project_id,
         versionId: selectedMrpackVersion.id,
         installPath: mrpackInstallPath,
-        socketId
+        socketId,
+        apiSource: mrpackApiSource
       })
       
       if (response.success) {
@@ -3314,7 +3326,25 @@ const GameDeploymentPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               搜索Minecraft整合包
             </h3>
-            
+
+            {/* API源选择 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                API源选择
+              </label>
+              <select
+                value={mrpackApiSource}
+                onChange={(e) => handleMrpackApiSourceChange(e.target.value as 'official' | 'mirror')}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option value="official">官方源 (api.modrinth.com)</option>
+                <option value="mirror">镜像源 (mod.mcimirror.top)</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                镜像源可能提供更快的访问速度，但内容可能略有延迟
+              </p>
+            </div>
+
             <div className="flex space-x-4 mb-4">
               <input
                 type="text"

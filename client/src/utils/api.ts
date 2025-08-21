@@ -628,6 +628,7 @@ class ApiClient {
     categories?: string[]
     versions?: string[]
     loaders?: string[]
+    apiSource?: 'official' | 'mirror'
   } = {}) {
     const params = new URLSearchParams()
     if (options.query) params.append('query', options.query)
@@ -636,12 +637,17 @@ class ApiClient {
     if (options.categories) params.append('categories', options.categories.join(','))
     if (options.versions) params.append('versions', options.versions.join(','))
     if (options.loaders) params.append('loaders', options.loaders.join(','))
-    
+    if (options.apiSource) params.append('apiSource', options.apiSource)
+
     return this.get(`/more-games/mrpack/search?${params.toString()}`)
   }
 
-  async getMrpackProjectVersions(projectId: string) {
-    return this.get(`/more-games/mrpack/project/${projectId}/versions`)
+  async getMrpackProjectVersions(projectId: string, apiSource?: 'official' | 'mirror') {
+    const params = new URLSearchParams()
+    if (apiSource) params.append('apiSource', apiSource)
+
+    const url = `/more-games/mrpack/project/${projectId}/versions${params.toString() ? `?${params.toString()}` : ''}`
+    return this.get(url)
   }
 
   async deployMrpack(data: {
@@ -654,6 +660,7 @@ class ApiClient {
       minMemory?: string
     }
     socketId?: string
+    apiSource?: 'official' | 'mirror'
   }) {
     return this.post('/more-games/deploy/mrpack', data)
   }
