@@ -413,7 +413,7 @@ class ApiClient {
 
   // 文件管理API
   async getFiles(path: string) {
-    return this.get('/files', { params: { path } })
+    return this.get('/files/list', { params: { path } })
   }
 
   async uploadFile(file: File, path: string) {

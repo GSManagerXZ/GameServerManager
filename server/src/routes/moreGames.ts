@@ -570,8 +570,8 @@ router.get('/version/:gameId', authenticateToken, async (req: Request, res: Resp
 // 搜索Minecraft整合包
 router.get('/mrpack/search', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { query, limit = 20, offset = 0, categories, versions, loaders } = req.query
-    
+    const { query, limit = 20, offset = 0, categories, versions, loaders, apiSource = 'official' } = req.query
+
     const searchOptions = {
       query: query as string,
       limit: parseInt(limit as string),
@@ -580,8 +580,8 @@ router.get('/mrpack/search', authenticateToken, async (req: Request, res: Respon
       versions: versions ? (versions as string).split(',') : undefined,
       loaders: loaders ? (loaders as string).split(',') : undefined
     }
-    
-    const result = await searchMrpackModpacks(searchOptions)
+
+    const result = await searchMrpackModpacks(searchOptions, apiSource as 'official' | 'mirror')
     
     res.json({
       success: true,
@@ -603,7 +603,8 @@ router.get('/mrpack/search', authenticateToken, async (req: Request, res: Respon
 router.get('/mrpack/project/:projectId/versions', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { projectId } = req.params
-    
+    const { apiSource = 'official' } = req.query
+
     if (!projectId) {
       return res.status(400).json({
         success: false,
@@ -611,8 +612,8 @@ router.get('/mrpack/project/:projectId/versions', authenticateToken, async (req:
         message: '项目ID为必填项'
       })
     }
-    
-    const versions = await getMrpackProjectVersions(projectId)
+
+    const versions = await getMrpackProjectVersions(projectId, apiSource as 'official' | 'mirror')
     
     res.json({
       success: true,
@@ -633,7 +634,7 @@ router.get('/mrpack/project/:projectId/versions', authenticateToken, async (req:
 // 部署Minecraft整合包
 router.post('/deploy/mrpack', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { projectId, versionId, installPath, options = {}, socketId } = req.body
+    const { projectId, versionId, installPath, options = {}, socketId, apiSource = 'official' } = req.body
     
     if (!projectId || !versionId || !installPath) {
       return res.status(400).json({
@@ -684,6 +685,8 @@ router.post('/deploy/mrpack', authenticateToken, async (req: Request, res: Respo
           targetDirectory: installPath,
           deploymentId,
           options,
+          apiSource: apiSource as 'official' | 'mirror',
+          apiSource: apiSource as 'official' | 'mirror',
           onProgress: (message, type = 'info') => {
             if (io && socketId) {
               io.to(socketId).emit('more-games-deploy-log', {

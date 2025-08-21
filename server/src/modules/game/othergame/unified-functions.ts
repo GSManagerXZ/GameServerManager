@@ -180,6 +180,7 @@ export interface MrpackDeployOptions {
   deploymentId?: string;
   options?: any;
   onProgress?: LogCallback;
+  apiSource?: 'official' | 'mirror';
 }
 
 export interface MrpackIndex {
@@ -1134,13 +1135,13 @@ async function findFactorioExecutable(extractPath: string): Promise<string | und
 /**
  * 搜索Mrpack整合包
  */
-export async function searchMrpackModpacks(options: MrpackSearchOptions = {}): Promise<MrpackSearchResponse> {
-  const mrpackAPI = new MrpackServerAPI();
+export async function searchMrpackModpacks(options: MrpackSearchOptions = {}, apiSource: 'official' | 'mirror' = 'official'): Promise<MrpackSearchResponse> {
+  const mrpackAPI = new MrpackServerAPI(undefined, apiSource);
   return await mrpackAPI.searchModpacks(options);
 }
 
-export async function getMrpackProjectVersions(projectId: string): Promise<any[]> {
-  const mrpackAPI = new MrpackServerAPI();
+export async function getMrpackProjectVersions(projectId: string, apiSource: 'official' | 'mirror' = 'official'): Promise<any[]> {
+  const mrpackAPI = new MrpackServerAPI(undefined, apiSource);
   return await mrpackAPI.getProjectVersions(projectId);
 }
 
@@ -1148,8 +1149,8 @@ export async function getMrpackProjectVersions(projectId: string): Promise<any[]
  * 下载并解析Mrpack文件
  * @deprecated 请使用 MrpackServerAPI.downloadAndParseMrpack 方法
  */
-export async function downloadAndParseMrpack(mrpackUrl: string): Promise<MrpackIndex> {
-  const mrpackAPI = new MrpackServerAPI();
+export async function downloadAndParseMrpack(mrpackUrl: string, apiSource: 'official' | 'mirror' = 'official'): Promise<MrpackIndex> {
+  const mrpackAPI = new MrpackServerAPI(undefined, apiSource);
   return await mrpackAPI.downloadAndParseMrpack(mrpackUrl);
 }
 
@@ -1157,7 +1158,7 @@ export async function downloadAndParseMrpack(mrpackUrl: string): Promise<MrpackI
  * 部署Mrpack整合包
  */
 export async function deployMrpackServer(options: MrpackDeployOptions): Promise<DeploymentResult> {
-  const { projectId, versionId, mrpackUrl, targetDirectory, onProgress } = options;
+  const { projectId, versionId, mrpackUrl, targetDirectory, onProgress, apiSource = 'official' } = options;
   
   // 创建部署实例
   const deployment = globalDeploymentManager.createDeployment('mrpack', targetDirectory, onProgress, options.deploymentId);
@@ -1191,7 +1192,9 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
           onProgress(`正在请求版本信息: ${versionId}`, 'info');
         }
         
-        const versionResponse = await axios.get(`https://api.modrinth.com/v2/version/${versionId}`, {
+        // 根据选择的API源构建URL
+        const apiBaseUrl = apiSource === 'mirror' ? 'https://mod.mcimirror.top/modrinth/v2' : 'https://api.modrinth.com/v2';
+        const versionResponse = await axios.get(`${apiBaseUrl}/version/${versionId}`, {
           headers: {
             'User-Agent': 'GSM3/1.0.0'
           },
@@ -1233,7 +1236,7 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
     }
     
     // 使用 MrpackServerAPI 进行部署
-    const mrpackAPI = new MrpackServerAPI();
+    const mrpackAPI = new MrpackServerAPI(undefined, apiSource);
     
     // 设置取消监听
     deployment.cancellationToken.onCancelled(() => {

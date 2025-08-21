@@ -101,14 +101,40 @@ export interface ModpackDeployResult {
 // ==================== Mrpack处理器类 ====================
 
 export class MrpackServerAPI {
-  private static readonly MODRINTH_API_BASE = 'https://api.modrinth.com/v2';
+  private static readonly MODRINTH_API_SOURCES = {
+    official: 'https://api.modrinth.com/v2',
+    mirror: 'https://mod.mcimirror.top/modrinth/v2'
+  };
   private static readonly SEARCH_ENDPOINT = '/search';
   private tempDir: string;
   private cancelled: boolean = false;
   private currentProcess?: ChildProcess;
+  private apiSource: 'official' | 'mirror';
 
-  constructor(tempDir?: string) {
+  constructor(tempDir?: string, apiSource: 'official' | 'mirror' = 'official') {
     this.tempDir = tempDir || path.join(process.cwd(), 'temp-mrpack');
+    this.apiSource = apiSource;
+  }
+
+  /**
+   * 获取当前使用的API基础URL
+   */
+  private getApiBaseUrl(): string {
+    return MrpackServerAPI.MODRINTH_API_SOURCES[this.apiSource];
+  }
+
+  /**
+   * 设置API源
+   */
+  setApiSource(apiSource: 'official' | 'mirror'): void {
+    this.apiSource = apiSource;
+  }
+
+  /**
+   * 获取当前API源
+   */
+  getApiSource(): 'official' | 'mirror' {
+    return this.apiSource;
   }
 
   /**
@@ -157,7 +183,7 @@ export class MrpackServerAPI {
       params.append('index', options.index || 'relevance');
       
       const response = await axios.get<ModrinthSearchResponse>(
-        `${MrpackServerAPI.MODRINTH_API_BASE}${MrpackServerAPI.SEARCH_ENDPOINT}?${params.toString()}`
+        `${this.getApiBaseUrl()}${MrpackServerAPI.SEARCH_ENDPOINT}?${params.toString()}`
       );
       
       return response.data;
@@ -175,7 +201,7 @@ export class MrpackServerAPI {
   async getProjectVersions(projectId: string): Promise<any[]> {
     try {
       const response = await axios.get(
-        `${MrpackServerAPI.MODRINTH_API_BASE}/project/${projectId}/version`,
+        `${this.getApiBaseUrl()}/project/${projectId}/version`,
         {
           headers: {
             'User-Agent': 'GSM3/1.0.0 (game server manager)'

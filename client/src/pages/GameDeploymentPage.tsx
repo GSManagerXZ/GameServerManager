@@ -84,6 +84,9 @@ const GameDeploymentPage: React.FC = () => {
   const [instanceName, setInstanceName] = useState('')
   const [instanceDescription, setInstanceDescription] = useState('')
   const [instanceStartCommand, setInstanceStartCommand] = useState('')
+  const [instanceStartFile, setInstanceStartFile] = useState('')
+  const [instanceJarArgs, setInstanceJarArgs] = useState('-Xmx2G -Xms1G')
+  const [availableStartFiles, setAvailableStartFiles] = useState<string[]>([])
   const [creatingInstance, setCreatingInstance] = useState(false)
   
   // 更多游戏部署相关状态
@@ -122,6 +125,9 @@ const GameDeploymentPage: React.FC = () => {
   const [mrpackInstanceName, setMrpackInstanceName] = useState('')
   const [mrpackInstanceDescription, setMrpackInstanceDescription] = useState('')
   const [mrpackInstanceStartCommand, setMrpackInstanceStartCommand] = useState('')
+  const [mrpackInstanceStartFile, setMrpackInstanceStartFile] = useState('')
+  const [mrpackInstanceJarArgs, setMrpackInstanceJarArgs] = useState('-Xmx2G -Xms1G')
+  const [mrpackAvailableStartFiles, setMrpackAvailableStartFiles] = useState<string[]>([])
   const [creatingMrpackInstance, setCreatingMrpackInstance] = useState(false)
   
   // 在线部署相关状态
@@ -681,12 +687,25 @@ const GameDeploymentPage: React.FC = () => {
     })
 
     // 监听Minecraft下载完成
-    socketRef.current.on('minecraft-download-complete', (data) => {
+    socketRef.current.on('minecraft-download-complete', async (data) => {
       console.log('收到下载完成事件:', data)
       if (data.downloadId === currentDownloadId.current) {
         setMinecraftDownloading(false)
         setDownloadComplete(true)
         setDownloadResult(data.data)
+        
+        // 扫描启动文件
+        if (data.data?.targetDirectory) {
+          const files = await scanStartFiles(data.data.targetDirectory)
+          setAvailableStartFiles(files)
+          if (files.length > 0) {
+            // 自动选择第一个文件
+            setInstanceStartFile(files[0])
+            // 根据文件类型生成启动命令
+            const command = generateStartCommandFromFile(files[0], instanceJarArgs)
+            setInstanceStartCommand(command)
+          }
+        }
         
         addNotification({
           type: 'success',
@@ -733,7 +752,7 @@ const GameDeploymentPage: React.FC = () => {
     })
 
     // 监听Minecraft整合包部署完成
-    socketRef.current.on('more-games-deploy-complete', (data) => {
+    socketRef.current.on('more-games-deploy-complete', async (data) => {
       // 检查是否是整合包部署的完成事件
       if (data.deploymentId && data.deploymentId.startsWith('mrpack-deploy-')) {
         setMrpackDeploying(false)
@@ -741,12 +760,25 @@ const GameDeploymentPage: React.FC = () => {
         setMrpackDeployResult(data.data)
         currentMrpackDeploymentId.current = null // 重置整合包部署ID
         
-        // 自动生成启动命令
-        if (data.data?.serverType) {
-          setMrpackInstanceStartCommand(generateStartCommand(data.data.serverType))
+        // 扫描启动文件
+        if (data.data?.targetDirectory) {
+          const files = await scanStartFiles(data.data.targetDirectory)
+          setMrpackAvailableStartFiles(files)
+          if (files.length > 0) {
+            // 自动选择第一个文件
+            setMrpackInstanceStartFile(files[0])
+            // 根据文件类型生成启动命令
+            const command = generateStartCommandFromFile(files[0], mrpackInstanceJarArgs)
+            setMrpackInstanceStartCommand(command)
+          }
         } else {
-          // 默认启动命令
-          setMrpackInstanceStartCommand(data.data?.serverJarPath ? `java -jar "${data.data.serverJarPath}"` : 'java -jar server.jar')
+          // 自动生成启动命令（备用逻辑）
+          if (data.data?.serverType) {
+            setMrpackInstanceStartCommand(generateStartCommand(data.data.serverType))
+          } else {
+            // 默认启动命令
+            setMrpackInstanceStartCommand(data.data?.serverJarPath ? `java -jar "${data.data.serverJarPath}"` : 'java -jar server.jar')
+          }
         }
         
         addNotification({
@@ -1049,7 +1081,40 @@ const GameDeploymentPage: React.FC = () => {
     setHoveredMrpack(null)
   }
 
-  // 根据服务器类型生成启动命令
+  // 扫描目录中的启动文件
+  const scanStartFiles = async (directory: string) => {
+    try {
+      const response = await apiClient.getFiles(directory)
+      if (response.success && response.data && response.data.files) {
+        const files = response.data.files.filter((file: any) => {
+          const fileName = typeof file === 'string' ? file : file.name
+          const ext = fileName.toLowerCase()
+          return ext.endsWith('.jar') || ext.endsWith('.bat') || ext.endsWith('.sh')
+        }).map((file: any) => typeof file === 'string' ? file : file.name)
+        return files
+      }
+    } catch (error) {
+      console.error('扫描启动文件失败:', error)
+    }
+    return []
+  }
+
+  // 根据选择的文件生成启动命令
+  const generateStartCommandFromFile = (fileName: string, jarArgs: string = '') => {
+    if (!fileName) return ''
+    
+    const ext = fileName.toLowerCase()
+    if (ext.endsWith('.jar')) {
+      return `java ${jarArgs} -jar ${fileName}`
+    } else if (ext.endsWith('.bat')) {
+      return fileName
+    } else if (ext.endsWith('.sh')) {
+      return `./${fileName}`
+    }
+    return fileName
+  }
+
+  // 根据服务器类型生成启动命令（保留原有逻辑作为备用）
   const generateStartCommand = (serverType: string, isWindows: boolean = process.platform === 'win32') => {
     const lowerServerType = serverType.toLowerCase()
     
@@ -1313,6 +1378,13 @@ const GameDeploymentPage: React.FC = () => {
     setCreateInstanceModalAnimating(false)
     setTimeout(() => {
       setShowCreateInstanceModal(false)
+      // 重置表单
+      setInstanceName('')
+      setInstanceDescription('')
+      setInstanceStartCommand('')
+      setInstanceStartFile('')
+      setInstanceJarArgs('')
+      setAvailableStartFiles([])
     }, 300)
   }
 
@@ -1325,6 +1397,9 @@ const GameDeploymentPage: React.FC = () => {
       setMrpackInstanceName('')
       setMrpackInstanceDescription('')
       setMrpackInstanceStartCommand('')
+      setMrpackInstanceStartFile('')
+      setMrpackInstanceJarArgs('')
+      setMrpackAvailableStartFiles([])
     }, 300)
   }
 
@@ -2348,12 +2423,24 @@ const GameDeploymentPage: React.FC = () => {
                       </label>
                       <select
                         value={selectedVersion}
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const version = e.target.value
                           setSelectedVersion(version)
                           // 自动生成启动命令
                           if (version && selectedServer) {
                             setInstanceStartCommand(generateStartCommand(selectedServer))
+                          }
+                          // 如果有下载结果，扫描启动文件
+                          if (downloadResult && downloadResult.targetDirectory) {
+                            const files = await scanStartFiles(downloadResult.targetDirectory)
+                            setAvailableStartFiles(files)
+                            if (files.length > 0) {
+                              // 自动选择第一个文件
+                              setInstanceStartFile(files[0])
+                              // 根据文件类型生成启动命令
+                              const command = generateStartCommandFromFile(files[0], instanceJarArgs)
+                              setInstanceStartCommand(command)
+                            }
                           }
                         }}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -3432,19 +3519,66 @@ const GameDeploymentPage: React.FC = () => {
                 />
               </div>
               
-              {/* 启动命令 */}
+              {/* 启动文件选择 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  启动命令
+                  启动文件
                 </label>
-                <input
-                  type="text"
-                  value={instanceStartCommand}
-                  onChange={(e) => setInstanceStartCommand(e.target.value)}
+                <select
+                  value={instanceStartFile}
+                  onChange={(e) => {
+                    const file = e.target.value
+                    setInstanceStartFile(file)
+                    // 根据文件类型生成启动命令
+                    const command = generateStartCommandFromFile(file, instanceJarArgs)
+                    setInstanceStartCommand(command)
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  placeholder="启动命令（自动生成，可手动修改）"
-                />
+                >
+                  <option value="">请选择启动文件</option>
+                  {availableStartFiles.map((file) => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
               </div>
+              
+              {/* JAR启动参数（仅当选择.jar文件时显示） */}
+              {instanceStartFile && instanceStartFile.toLowerCase().endsWith('.jar') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    JAR启动参数
+                  </label>
+                  <input
+                    type="text"
+                    value={instanceJarArgs}
+                    onChange={(e) => {
+                      setInstanceJarArgs(e.target.value)
+                      // 更新启动命令
+                      const command = generateStartCommandFromFile(instanceStartFile, e.target.value)
+                      setInstanceStartCommand(command)
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="例如: -Xmx2G -Xms1G"
+                  />
+                </div>
+              )}
+              
+              {/* 生成的启动命令（只读显示） */}
+              {instanceStartCommand && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    生成的启动命令
+                  </label>
+                  <input
+                    type="text"
+                    value={instanceStartCommand}
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-600 text-gray-900 dark:text-white cursor-not-allowed"
+                  />
+                </div>
+              )}
             </div>
             
             <div className="flex space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
@@ -3761,19 +3895,66 @@ const GameDeploymentPage: React.FC = () => {
                 />
               </div>
               
-              {/* 启动命令 */}
+              {/* 启动文件选择 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  启动命令
+                  启动文件
                 </label>
-                <input
-                  type="text"
-                  value={mrpackInstanceStartCommand}
-                  onChange={(e) => setMrpackInstanceStartCommand(e.target.value)}
+                <select
+                  value={mrpackInstanceStartFile}
+                  onChange={(e) => {
+                    const file = e.target.value
+                    setMrpackInstanceStartFile(file)
+                    // 根据文件类型生成启动命令
+                    const command = generateStartCommandFromFile(file, mrpackInstanceJarArgs)
+                    setMrpackInstanceStartCommand(command)
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  placeholder="启动命令（自动生成，可手动修改）"
-                />
+                >
+                  <option value="">请选择启动文件</option>
+                  {mrpackAvailableStartFiles.map((file) => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
               </div>
+              
+              {/* JAR启动参数（仅当选择.jar文件时显示） */}
+              {mrpackInstanceStartFile && mrpackInstanceStartFile.toLowerCase().endsWith('.jar') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    JAR启动参数
+                  </label>
+                  <input
+                    type="text"
+                    value={mrpackInstanceJarArgs}
+                    onChange={(e) => {
+                      setMrpackInstanceJarArgs(e.target.value)
+                      // 更新启动命令
+                      const command = generateStartCommandFromFile(mrpackInstanceStartFile, e.target.value)
+                      setMrpackInstanceStartCommand(command)
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="例如: -Xmx2G -Xms1G"
+                  />
+                </div>
+              )}
+              
+              {/* 生成的启动命令（只读显示） */}
+              {mrpackInstanceStartCommand && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    生成的启动命令
+                  </label>
+                  <input
+                    type="text"
+                    value={mrpackInstanceStartCommand}
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-600 text-gray-900 dark:text-white cursor-not-allowed"
+                  />
+                </div>
+              )}
             </div>
             
             <div className="flex space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
