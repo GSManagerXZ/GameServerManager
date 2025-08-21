@@ -686,7 +686,6 @@ router.post('/deploy/mrpack', authenticateToken, async (req: Request, res: Respo
           deploymentId,
           options,
           apiSource: apiSource as 'official' | 'mirror',
-          apiSource: apiSource as 'official' | 'mirror',
           onProgress: (message, type = 'info') => {
             if (io && socketId) {
               io.to(socketId).emit('more-games-deploy-log', {
