@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react'
-import { X, AlertTriangle, Folder, Trash2 } from 'lucide-react'
+import { X, AlertTriangle, Terminal, Play } from 'lucide-react'
 
-interface ConfirmDeleteDialogProps {
+interface ConfirmStartDialogProps {
   isOpen: boolean
   instanceName: string
-  workingDirectory: string
-  onConfirm: (deleteDirectory: boolean) => void
+  startCommand: string
+  onConfirm: () => void
   onCancel: () => void
 }
 
-export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
+export const ConfirmStartDialog: React.FC<ConfirmStartDialogProps> = ({
   isOpen,
   instanceName,
-  workingDirectory,
+  startCommand,
   onConfirm,
   onCancel
 }) => {
-  const [deleteDirectory, setDeleteDirectory] = React.useState(false)
   const [isVisible, setIsVisible] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -45,13 +44,14 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
     setIsAnimating(false)
     setIsClosing(true)
     setTimeout(() => {
-      onConfirm(deleteDirectory)
+      onConfirm()
     }, 300)
   }
 
   if (!isVisible) return null
 
-
+  // 检测启动命令是否为none
+  const isCommandSuspicious = startCommand === 'none'
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
@@ -78,11 +78,11 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
         {/* 标题和图标 */}
         <div className="flex items-center space-x-3 mb-4">
           <div className="flex-shrink-0">
-            <AlertTriangle className="w-8 h-8 text-red-500" />
+            <AlertTriangle className="w-8 h-8 text-yellow-500" />
           </div>
           <div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              确认删除实例
+              启动命令警告
             </h3>
           </div>
         </div>
@@ -90,41 +90,36 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
         {/* 实例信息 */}
         <div className="mb-6">
           <p className="text-gray-600 dark:text-gray-300 mb-3">
-            确定要删除实例 <span className="font-semibold text-gray-900 dark:text-white">"{instanceName}"</span> 吗？
+            实例 <span className="font-semibold text-gray-900 dark:text-white">"{instanceName}"</span> 的启动命令可能存在问题：
           </p>
           
-          {/* 工作目录信息 */}
+          {/* 启动命令信息 */}
           <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 mb-4">
             <div className="flex items-center space-x-2 mb-2">
-              <Folder className="w-4 h-4 text-gray-500" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">工作目录：</span>
+              <Terminal className="w-4 h-4 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">启动命令：</span>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 font-mono break-all">
-              {workingDirectory}
+            <p className="text-sm text-gray-600 dark:text-gray-400 font-mono break-all bg-gray-100 dark:bg-gray-600 p-2 rounded">
+              {startCommand}
             </p>
           </div>
 
-          {/* 删除目录选项 */}
+          {/* 警告信息 */}
           <div className="border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
-            <label className="flex items-start space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={deleteDirectory}
-                onChange={(e) => setDeleteDirectory(e.target.checked)}
-                className="mt-1 w-4 h-4 text-red-600 bg-gray-100 border-gray-300 rounded focus:ring-red-500 dark:focus:ring-red-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-              />
+            <div className="flex items-start space-x-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <div className="flex items-center space-x-2">
-                  <Trash2 className="w-4 h-4 text-red-500" />
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">
-                    同时删除工作目录
-                  </span>
-                </div>
-                <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
-                  ⚠️ 警告：此操作将永久删除该目录及其所有内容，无法恢复！
+                <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-1">
+                  检测到以下问题：
+                </p>
+                <ul className="text-xs text-yellow-700 dark:text-yellow-300 space-y-1">
+                  <li>• 启动命令为 "none"，则代表无启动命令，需要自行查询启动命令否则将无法启动</li>
+                </ul>
+                <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2">
+                  建议检查启动命令是否正确，或者修改实例配置后再启动。
                 </p>
               </div>
-            </label>
+            </div>
           </div>
         </div>
 
@@ -134,13 +129,14 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
             onClick={handleCancel}
             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
           >
-            取消
+            取消启动
           </button>
           <button
             onClick={handleConfirm}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-yellow-600 border border-transparent rounded-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-colors"
           >
-            确认删除
+            <Play className="w-4 h-4" />
+            <span>继续启动</span>
           </button>
         </div>
       </div>
@@ -148,4 +144,4 @@ export const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
   )
 }
 
-export default ConfirmDeleteDialog
+export default ConfirmStartDialog

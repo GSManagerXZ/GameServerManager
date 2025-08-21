@@ -6,12 +6,77 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GSManager</title>
     <meta name="description" content="GSM3 游戏服务器管理面板 - 支持Steam等游戏一键部署" />
-    
+
+    <!-- 古老浏览器兼容性检测脚本 -->
+    <script>
+      // 立即执行的浏览器兼容性检测
+      (function() {
+        var isOldBrowser = false;
+        var browserInfo = '';
+
+        try {
+          // 检测IE
+          if (navigator.userAgent.indexOf('MSIE') > -1 || navigator.userAgent.indexOf('Trident') > -1) {
+            isOldBrowser = true;
+            browserInfo = 'Internet Explorer';
+          }
+          // 检测必要的API
+          else if (typeof Promise === 'undefined' ||
+                   typeof fetch === 'undefined' ||
+                   typeof WebSocket === 'undefined' ||
+                   typeof localStorage === 'undefined') {
+            isOldBrowser = true;
+            browserInfo = '不支持现代Web标准的浏览器';
+          }
+          // 检测Chrome版本
+          else if (navigator.userAgent.indexOf('Chrome') > -1) {
+            var match = navigator.userAgent.match(/Chrome\/(\d+)/);
+            if (match && parseInt(match[1]) < 60) {
+              isOldBrowser = true;
+              browserInfo = 'Chrome ' + match[1] + ' (需要60+)';
+            }
+          }
+          // 检测Firefox版本
+          else if (navigator.userAgent.indexOf('Firefox') > -1) {
+            var match = navigator.userAgent.match(/Firefox\/(\d+)/);
+            if (match && parseInt(match[1]) < 55) {
+              isOldBrowser = true;
+              browserInfo = 'Firefox ' + match[1] + ' (需要55+)';
+            }
+          }
+        } catch (e) {
+          isOldBrowser = true;
+          browserInfo = '未知浏览器';
+        }
+
+        if (isOldBrowser) {
+          // 创建兼容性警告页面
+          document.write('<div id="browser-warning" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;">');
+          document.write('<div style="background:white;padding:30px;border-radius:10px;max-width:500px;margin:20px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.3);">');
+          document.write('<h2 style="color:#e74c3c;margin:0 0 20px 0;">⚠️ 浏览器兼容性警告</h2>');
+          document.write('<p style="margin:0 0 15px 0;color:#333;line-height:1.5;">检测到您正在使用 <strong>' + browserInfo + '</strong></p>');
+          document.write('<p style="margin:0 0 20px 0;color:#666;line-height:1.5;">此浏览器不支持现代Web标准，无法正常使用GSManager的功能。</p>');
+          document.write('<div style="margin:20px 0;padding:15px;background:#fff3cd;border:1px solid #ffeaa7;border-radius:5px;">');
+          document.write('<p style="margin:0;color:#856404;font-weight:bold;">建议下载以下现代浏览器：</p>');
+          document.write('</div>');
+          document.write('<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:20px 0;">');
+          document.write('<a href="https://www.google.com/chrome/" target="_blank" style="display:inline-block;padding:10px 15px;background:#4285f4;color:white;text-decoration:none;border-radius:5px;font-size:14px;">Chrome</a>');
+          document.write('<a href="https://www.mozilla.org/firefox/" target="_blank" style="display:inline-block;padding:10px 15px;background:#ff9500;color:white;text-decoration:none;border-radius:5px;font-size:14px;">Firefox</a>');
+          document.write('<a href="https://www.microsoft.com/edge" target="_blank" style="display:inline-block;padding:10px 15px;background:#0078d4;color:white;text-decoration:none;border-radius:5px;font-size:14px;">Edge</a>');
+          document.write('<a href="https://www.apple.com/safari/" target="_blank" style="display:inline-block;padding:10px 15px;background:#1c1c1c;color:white;text-decoration:none;border-radius:5px;font-size:14px;">Safari</a>');
+          document.write('</div>');
+          document.write('<button onclick="document.getElementById(\'browser-warning\').style.display=\'none\'" style="padding:10px 20px;background:#6c757d;color:white;border:none;border-radius:5px;cursor:pointer;margin-right:10px;">继续使用</button>');
+          document.write('<button onclick="window.location.reload()" style="padding:10px 20px;background:#28a745;color:white;border:none;border-radius:5px;cursor:pointer;">刷新页面</button>');
+          document.write('</div></div>');
+        }
+      })();
+    </script>
+
     <!-- Monaco Editor Workers 配置 -->
     <script src="/monaco-workers.js"></script>
-    
+
     <!-- 使用系统默认字体 -->
-    
+
     <style>
       /* 防止页面闪烁 */
       html {

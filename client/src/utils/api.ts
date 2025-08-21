@@ -718,6 +718,15 @@ class ApiClient {
     return this.put('/config/terminal', config)
   }
 
+  // 游戏配置API
+  async getGameConfig() {
+    return this.get('/config/game')
+  }
+
+  async updateGameConfig(config: { defaultInstallPath: string }) {
+    return this.put('/config/game', config)
+  }
+
   // Steam游戏部署清单API
   async updateSteamGameList() {
     return this.post('/game-deployment/update-game-list')
@@ -751,6 +760,103 @@ class ApiClient {
 
   async executeRconCommand(instanceId: string, command: string) {
     return this.post(`/rcon/${instanceId}/command`, { command })
+  }
+
+  // 环境管理API
+  async getEnvironmentSystemInfo() {
+    return this.get('/environment/system-info')
+  }
+
+  async getJavaEnvironments() {
+    return this.get('/environment/java')
+  }
+
+  async installJavaEnvironment(data: {
+    version: string
+    downloadUrl: string
+    platform: string
+    socketId?: string
+  }) {
+    return this.post('/environment/java/install', data)
+  }
+
+  async uninstallJavaEnvironment(version: string) {
+    return this.delete(`/environment/java/${version}`)
+  }
+
+  async verifyJavaEnvironment(version: string) {
+    return this.get(`/environment/java/${version}/verify`)
+  }
+
+  // Visual C++运行库管理API
+  async getVcRedistEnvironments() {
+    return this.get('/environment/vcredist')
+  }
+
+  async installVcRedistEnvironment(data: {
+    version: string
+    architecture: string
+    downloadUrl: string
+    socketId?: string
+  }) {
+    return this.post('/environment/vcredist/install', data)
+  }
+
+  async uninstallVcRedistEnvironment(version: string, architecture: string, socketId?: string) {
+    return this.delete(`/environment/vcredist/${version}/${architecture}`, {
+      data: { socketId }
+    })
+  }
+
+  async verifyVcRedistEnvironment(version: string, architecture: string) {
+    return this.get(`/environment/vcredist/${version}/${architecture}/verify`)
+  }
+
+  // DirectX管理API
+  async getDirectXEnvironments() {
+    return this.get('/environment/directx')
+  }
+
+  async installDirectXEnvironment(data: {
+    downloadUrl: string
+    socketId?: string
+  }) {
+    return this.post('/environment/directx/install', data)
+  }
+
+  async uninstallDirectXEnvironment() {
+    return this.delete('/environment/directx')
+  }
+
+  // 动态链接库管理API
+  async getPackageManagers() {
+    return this.get('/environment/package-managers')
+  }
+
+  async getPackageList(packageManager: string) {
+    return this.get(`/environment/packages/${packageManager}`)
+  }
+
+  async installPackages(data: {
+    packageManager: string
+    packages: string[]
+    socketId?: string
+  }) {
+    return this.post(`/environment/packages/${data.packageManager}/install`, {
+      packages: data.packages,
+      socketId: data.socketId
+    })
+  }
+
+  async uninstallPackages(data: {
+    packageManager: string
+    packages: string[]
+    socketId?: string
+  }) {
+    return this.post(`/environment/packages/${data.packageManager}/uninstall`, {
+      packages: data.packages,
+      socketId: data.socketId
+    })
   }
 }
 

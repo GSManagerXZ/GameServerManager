@@ -28,7 +28,8 @@ import {
   Crown,
   Puzzle,
   HelpCircle,
-  CheckCircle
+  CheckCircle,
+  Coffee
 } from 'lucide-react'
 
 interface LayoutProps {
@@ -57,6 +58,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: '游戏部署', href: '/game-deployment', icon: Download },
     { name: '定时任务', href: '/scheduled-tasks', icon: Clock },
     { name: '文件管理', href: '/files', icon: FolderOpen },
+    { name: '环境管理', href: '/environment', icon: Coffee },
     { name: '插件', href: '/plugins', icon: Puzzle },
     { name: '设置', href: '/settings', icon: Settings },
     { name: '关于项目', href: '/about', icon: Info },

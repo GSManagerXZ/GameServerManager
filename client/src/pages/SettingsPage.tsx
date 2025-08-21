@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useThemeStore } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useOnboardingStore } from '@/stores/onboardingStore'
 import AutoRedirectControl from '@/components/AutoRedirectControl'
 import apiClient from '@/utils/api'
 import {
@@ -30,6 +31,7 @@ const SettingsPage: React.FC = () => {
   const { theme, toggleTheme } = useThemeStore()
   const { user, changePassword, changeUsername, logout } = useAuthStore()
   const { addNotification } = useNotificationStore()
+  const { resetOnboarding, setShowOnboarding } = useOnboardingStore()
   
   // 城市选项数据
   const cityOptions = [
@@ -124,6 +126,12 @@ const SettingsPage: React.FC = () => {
     defaultUser: ''
   })
   const [terminalLoading, setTerminalLoading] = useState(false)
+
+  // 游戏设置状态
+  const [gameSettings, setGameSettings] = useState({
+    defaultInstallPath: ''
+  })
+  const [gameLoading, setGameLoading] = useState(false)
 
   // Steam游戏部署清单更新状态
   const [gameListUpdateLoading, setGameListUpdateLoading] = useState(false)
@@ -624,9 +632,36 @@ const SettingsPage: React.FC = () => {
         console.error('加载终端配置失败:', error)
       }
     }
+
+    // 从服务器加载游戏配置
+    const loadGameSettings = async () => {
+      try {
+        const response = await fetch('/api/settings/game-path', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('gsm3_token')}`
+          }
+        })
+        const result = await response.json()
+        if (result.success && result.data) {
+          setGameSettings({
+            defaultInstallPath: result.data.defaultInstallPath || ''
+          })
+        }
+      } catch (error) {
+        console.error('加载游戏配置失败:', error)
+        // 尝试从本地存储加载
+        const localPath = localStorage.getItem('gsm3_default_game_path')
+        if (localPath) {
+          setGameSettings({
+            defaultInstallPath: localPath
+          })
+        }
+      }
+    }
     
     loadSponsorKeyInfo()
     loadTerminalSettings()
+    loadGameSettings()
   }, [])
 
   // 路径变化时检查
@@ -668,6 +703,47 @@ const SettingsPage: React.FC = () => {
       })
     } finally {
       setTerminalLoading(false)
+    }
+  }
+
+  // 保存游戏设置
+  const saveGameSettings = async () => {
+    setGameLoading(true)
+    try {
+      const response = await fetch('/api/settings/game-path', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('gsm3_token')}`
+        },
+        body: JSON.stringify({ defaultGamePath: gameSettings.defaultInstallPath })
+      })
+      const result = await response.json()
+
+      if (result.success) {
+        // 同时保存到本地存储
+        localStorage.setItem('gsm3_default_game_path', gameSettings.defaultInstallPath)
+
+        addNotification({
+          type: 'success',
+          title: '游戏设置已保存',
+          message: '游戏默认安装路径已成功更新'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '保存失败',
+          message: result.message || '游戏设置保存失败'
+        })
+      }
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '保存失败',
+        message: '网络错误，请稍后重试'
+      })
+    } finally {
+      setGameLoading(false)
     }
   }
 
@@ -1288,7 +1364,63 @@ const SettingsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
+        {/* 游戏设置 */}
+        <div className="card-game p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <FolderOpen className="w-5 h-5 text-orange-500" />
+            <h2 className="text-lg font-semibold text-black dark:text-white">游戏设置</h2>
+          </div>
+
+          <div className="space-y-4">
+            {/* 默认安装路径设置 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
+                游戏默认安装路径
+              </label>
+              <input
+                type="text"
+                value={gameSettings.defaultInstallPath}
+                onChange={(e) => setGameSettings(prev => ({
+                  ...prev,
+                  defaultInstallPath: e.target.value
+                }))}
+                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="例如: D:\Games 或 /home/steam/games"
+                disabled={gameLoading}
+              />
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                • 设置后，所有游戏部署时将默认使用此路径
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                • 可以在每次部署时修改具体的安装路径
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                • 建议选择磁盘空间充足的位置
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                • 路径中避免使用特殊字符和中文字符
+              </p>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex justify-end">
+              <button
+                onClick={saveGameSettings}
+                disabled={gameLoading}
+                className="btn-game px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {gameLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>{gameLoading ? '保存中...' : '保存游戏设置'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* 账户安全 */}
         <div className="card-game p-6">
           <div className="flex items-center space-x-3 mb-6">
@@ -1471,6 +1603,22 @@ const SettingsPage: React.FC = () => {
           
           <div className="flex space-x-3">
             <button
+              onClick={() => {
+                resetOnboarding()
+                setShowOnboarding(true)
+                addNotification({
+                  type: 'info',
+                  title: '新手引导已启动',
+                  message: '新手引导界面即将显示'
+                })
+              }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>重新启动新手引导</span>
+            </button>
+
+            <button
               onClick={handleUpdateGameList}
               disabled={gameListUpdateLoading}
               className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 text-white rounded-lg transition-colors flex items-center space-x-2 disabled:cursor-not-allowed"
@@ -1482,7 +1630,7 @@ const SettingsPage: React.FC = () => {
               )}
               <span>{gameListUpdateLoading ? '更新中...' : '更新Steam游戏部署清单'}</span>
             </button>
-            
+
             <button
               onClick={resetSettings}
               className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors flex items-center space-x-2"
@@ -1490,7 +1638,7 @@ const SettingsPage: React.FC = () => {
               <RotateCcw className="w-4 h-4" />
               <span>重置设置</span>
             </button>
-            
+
             <button
               onClick={saveSettings}
               className="btn-game px-4 py-2 flex items-center space-x-2"

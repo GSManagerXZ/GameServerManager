@@ -72,7 +72,7 @@ const NotificationContainer: React.FC = () => {
   }
   
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm
+    <div className="fixed top-4 right-4 z-[60] space-y-2 max-w-sm
                    transition-all duration-300 ease-in-out">
       {notifications.map((notification, index) => {
         const isExiting = exitingNotifications.has(notification.id)

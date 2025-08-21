@@ -26,6 +26,7 @@ export default defineConfig({
   define: {
     global: 'globalThis',
     'process.env': {},
+    'process.platform': JSON.stringify(process.platform),
   },
   server: {
     host: '0.0.0.0', // 允许网络访问

@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express'
 import { GameManager } from '../modules/game/GameManager.js'
 import logger from '../utils/logger.js'
 import Joi from 'joi'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 
 const router = Router()
 
@@ -426,13 +430,11 @@ router.get('/types', (req: Request, res: Response) => {
 // 检查Java环境
 router.get('/java/check', async (req: Request, res: Response) => {
   try {
-    const { exec } = require('child_process')
-    const { promisify } = require('util')
-    const execAsync = promisify(exec)
-    
     try {
-      const { stdout } = await execAsync('java -version')
-      const versionMatch = stdout.match(/version "([^"]+)"/)
+      const { stdout, stderr } = await execAsync('java -version')
+      // Java版本信息通常输出到stderr
+      const output = stderr || stdout
+      const versionMatch = output.match(/version "([^"]+)"/) || output.match(/openjdk version "([^"]+)"/)
       const version = versionMatch ? versionMatch[1] : 'Unknown'
       
       res.json({

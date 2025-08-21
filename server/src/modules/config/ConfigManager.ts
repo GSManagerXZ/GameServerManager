@@ -28,6 +28,9 @@ export interface AppConfig {
   terminal: {
     defaultUser: string // 默认用户（仅Linux下有效）
   }
+  game: {
+    defaultInstallPath: string // 游戏默认安装路径
+  }
   sponsor?: {
     key: string
     isValid: boolean
@@ -70,6 +73,9 @@ export class ConfigManager {
       },
       terminal: {
         defaultUser: '' // 默认为空，表示不切换用户
+      },
+      game: {
+        defaultInstallPath: '' // 默认为空，用户需要设置
       }
     }
   }
@@ -136,6 +142,10 @@ export class ConfigManager {
       terminal: {
         ...defaultConfig.terminal,
         ...savedConfig.terminal
+      },
+      game: {
+        ...defaultConfig.game,
+        ...savedConfig.game
       },
       sponsor: savedConfig.sponsor ? {
         ...savedConfig.sponsor
@@ -211,6 +221,19 @@ export class ConfigManager {
     }
     await this.saveConfig()
     this.logger.info('终端配置已更新')
+  }
+
+  getGameConfig() {
+    return this.config.game
+  }
+
+  async updateGameConfig(updates: Partial<AppConfig['game']>): Promise<void> {
+    this.config.game = {
+      ...this.config.game,
+      ...updates
+    }
+    await this.saveConfig()
+    this.logger.info('游戏配置已更新')
   }
 
   getSponsorConfig() {

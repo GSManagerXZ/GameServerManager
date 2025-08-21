@@ -22,6 +22,7 @@ import apiClient from '@/utils/api'
 import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadProgress, MoreGameInfo, Platform } from '@/types'
 import { io, Socket } from 'socket.io-client'
 import config from '@/config'
+import { useDefaultGamePath, useGameInstallPath } from '@/hooks/useDefaultGamePath'
 
 interface GameInfo {
   game_nameCN: string
@@ -46,6 +47,63 @@ const GameDeploymentPage: React.FC = () => {
   const { addNotification } = useNotificationStore()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('steamcmd')
+
+  // 获取默认游戏路径
+  const { path: defaultGamePath } = useDefaultGamePath()
+
+  // 生成带游戏名称的完整路径的函数
+  const generatePath = (gameName: string) => {
+    if (!defaultGamePath || !gameName) return defaultGamePath
+
+    // 清理游戏名称，移除特殊字符
+    const cleanName = gameName.replace(/[<>:"|?*]/g, '').trim()
+
+    // 根据平台使用正确的路径分隔符
+    const isWindows = process.platform === 'win32'
+    const separator = isWindows ? '\\' : '/'
+
+    // 确保默认路径以分隔符结尾
+    const basePath = defaultGamePath.endsWith(separator) || defaultGamePath.endsWith('/') || defaultGamePath.endsWith('\\')
+      ? defaultGamePath
+      : defaultGamePath + separator
+
+    return basePath + cleanName
+  }
+
+  // 生成Minecraft服务端路径的函数
+  const generateMinecraftPath = (serverType: string, version: string) => {
+    if (!defaultGamePath || !serverType || !version) return defaultGamePath
+
+    // 清理服务端名称和版本，移除特殊字符
+    const cleanServerType = serverType.replace(/[<>:"|?*]/g, '').trim()
+    const cleanVersion = version.replace(/[<>:"|?*]/g, '').trim()
+
+    // 组合文件夹名称：服务端名称+Minecraft版本
+    const folderName = `${cleanServerType}-${cleanVersion}`
+
+    // 根据平台使用正确的路径分隔符
+    const isWindows = process.platform === 'win32'
+    const separator = isWindows ? '\\' : '/'
+
+    // 确保默认路径以分隔符结尾
+    const basePath = defaultGamePath.endsWith(separator) || defaultGamePath.endsWith('/') || defaultGamePath.endsWith('\\')
+      ? defaultGamePath
+      : defaultGamePath + separator
+
+    return basePath + folderName
+  }
+
+  // 当默认路径加载完成后，填充到各个路径字段
+  useEffect(() => {
+    if (defaultGamePath) {
+      // 使用setTimeout确保在下一个事件循环中执行，避免状态更新冲突
+      setTimeout(() => {
+        // Minecraft和整合包的路径将在用户选择后自动生成，不设置默认值
+        setMoreGameInstallPath(prev => prev || defaultGamePath)
+        setOnlineGameInstallPath(prev => prev || defaultGamePath)
+      }, 0)
+    }
+  }, [defaultGamePath])
   const [games, setGames] = useState<Games>({})
   const [loading, setLoading] = useState(true)
   const [gameListError, setGameListError] = useState<string | null>(null)
@@ -58,6 +116,7 @@ const GameDeploymentPage: React.FC = () => {
   const [useAnonymous, setUseAnonymous] = useState(true)
   const [steamUsername, setSteamUsername] = useState('')
   const [steamPassword, setSteamPassword] = useState('')
+  const [isValidateMode, setIsValidateMode] = useState(false)
   
   // 平台筛选状态
   const [platformFilter, setPlatformFilter] = useState<string>('all') // 'all', 'compatible', 'Windows', 'Linux', 'macOS'
@@ -152,7 +211,7 @@ const GameDeploymentPage: React.FC = () => {
   // 面板兼容性确认对话框状态
   const [showCompatibilityModal, setShowCompatibilityModal] = useState(false)
   const [compatibilityModalAnimating, setCompatibilityModalAnimating] = useState(false)
-  const [pendingGameInstall, setPendingGameInstall] = useState<{ key: string; info: GameInfo } | null>(null)
+  const [pendingGameInstall, setPendingGameInstall] = useState<{ key: string; info: GameInfo; validateMode?: boolean } | null>(null)
 
   // 内存警告对话框状态
   const [showMemoryWarningModal, setShowMemoryWarningModal] = useState(false)
@@ -169,6 +228,18 @@ const GameDeploymentPage: React.FC = () => {
   const [showDocsModal, setShowDocsModal] = useState(false)
   const [docsModalAnimating, setDocsModalAnimating] = useState(false)
   const [selectedGameDocs, setSelectedGameDocs] = useState<GameInfo | null>(null)
+
+  // Java环境相关状态
+  const [javaEnvironments, setJavaEnvironments] = useState<any[]>([])
+  const [javaEnvironmentsLoading, setJavaEnvironmentsLoading] = useState(false)
+  const [selectedMinecraftJava, setSelectedMinecraftJava] = useState<string>(() => {
+    // 从localStorage读取保存的选择
+    return localStorage.getItem('selectedMinecraftJava') || 'default'
+  })
+  const [selectedMrpackJava, setSelectedMrpackJava] = useState<string>(() => {
+    // 从localStorage读取保存的选择
+    return localStorage.getItem('selectedMrpackJava') || 'default'
+  })
   
   // 帮助模态框相关状态
   const [showHelpModal, setShowHelpModal] = useState(false)
@@ -625,7 +696,7 @@ const GameDeploymentPage: React.FC = () => {
     try {
       const response = await apiClient.validateJavaEnvironment()
       setJavaValidated(response.success)
-      
+
       if (!response.success) {
         addNotification({
           type: 'warning',
@@ -636,6 +707,65 @@ const GameDeploymentPage: React.FC = () => {
     } catch (error: any) {
       console.error('Java环境验证失败:', error)
       setJavaValidated(false)
+    }
+  }
+
+  // 获取Java环境列表
+  const fetchJavaEnvironments = async () => {
+    try {
+      setJavaEnvironmentsLoading(true)
+      const response = await apiClient.getJavaEnvironments()
+
+      if (response.success) {
+        setJavaEnvironments(response.data || [])
+        // 验证保存的Java版本是否仍然有效
+        setTimeout(() => validateSavedJavaVersions(), 100)
+      } else {
+        console.error('获取Java环境列表失败:', response.message)
+        addNotification({
+          type: 'error',
+          title: '错误',
+          message: '获取Java环境列表失败'
+        })
+      }
+    } catch (error) {
+      console.error('获取Java环境列表失败:', error)
+      addNotification({
+        type: 'error',
+        title: '错误',
+        message: '获取Java环境列表失败'
+      })
+    } finally {
+      setJavaEnvironmentsLoading(false)
+    }
+  }
+
+  // 保存Minecraft Java选择到localStorage
+  const handleMinecraftJavaChange = (javaVersion: string) => {
+    setSelectedMinecraftJava(javaVersion)
+    localStorage.setItem('selectedMinecraftJava', javaVersion)
+  }
+
+  // 保存整合包Java选择到localStorage
+  const handleMrpackJavaChange = (javaVersion: string) => {
+    setSelectedMrpackJava(javaVersion)
+    localStorage.setItem('selectedMrpackJava', javaVersion)
+  }
+
+  // 验证保存的Java版本是否仍然有效
+  const validateSavedJavaVersions = () => {
+    const installedVersions = javaEnvironments.filter(env => env.installed).map(env => env.version)
+
+    // 验证Minecraft Java选择
+    if (selectedMinecraftJava !== 'default' && !installedVersions.includes(selectedMinecraftJava)) {
+      console.log(`保存的Minecraft Java版本 ${selectedMinecraftJava} 不再可用，重置为默认`)
+      handleMinecraftJavaChange('default')
+    }
+
+    // 验证整合包Java选择
+    if (selectedMrpackJava !== 'default' && !installedVersions.includes(selectedMrpackJava)) {
+      console.log(`保存的整合包Java版本 ${selectedMrpackJava} 不再可用，重置为默认`)
+      handleMrpackJavaChange('default')
     }
   }
 
@@ -774,10 +904,11 @@ const GameDeploymentPage: React.FC = () => {
         } else {
           // 自动生成启动命令（备用逻辑）
           if (data.data?.serverType) {
-            setMrpackInstanceStartCommand(generateStartCommand(data.data.serverType))
+            setMrpackInstanceStartCommand(generateStartCommand(data.data.serverType, selectedMrpackJava))
           } else {
             // 默认启动命令
-            setMrpackInstanceStartCommand(data.data?.serverJarPath ? `java -jar "${data.data.serverJarPath}"` : 'java -jar server.jar')
+            const defaultCommand = data.data?.serverJarPath ? `java -jar "${data.data.serverJarPath}"` : 'java -jar server.jar'
+            setMrpackInstanceStartCommand(selectedMrpackJava !== 'default' ? replaceJavaInCommand(defaultCommand, selectedMrpackJava) : defaultCommand)
           }
         }
         
@@ -1102,7 +1233,7 @@ const GameDeploymentPage: React.FC = () => {
   // 根据选择的文件生成启动命令
   const generateStartCommandFromFile = (fileName: string, jarArgs: string = '') => {
     if (!fileName) return ''
-    
+
     const ext = fileName.toLowerCase()
     if (ext.endsWith('.jar')) {
       return `java ${jarArgs} -jar ${fileName}`
@@ -1114,20 +1245,47 @@ const GameDeploymentPage: React.FC = () => {
     return fileName
   }
 
-  // 根据服务器类型生成启动命令（保留原有逻辑作为备用）
-  const generateStartCommand = (serverType: string, isWindows: boolean = process.platform === 'win32') => {
+  // 获取选中的Java可执行文件路径
+  const getSelectedJavaExecutable = (selectedJava: string) => {
+    if (selectedJava === 'default') {
+      return 'java'
+    }
+
+    const javaEnv = javaEnvironments.find(env => env.version === selectedJava)
+    if (javaEnv && javaEnv.javaExecutable) {
+      // 如果路径包含空格，需要用引号包围
+      return javaEnv.javaExecutable.includes(' ') ? `"${javaEnv.javaExecutable}"` : javaEnv.javaExecutable
+    }
+
+    return 'java' // 回退到默认
+  }
+
+  // 根据服务器类型生成启动命令
+  const generateStartCommand = (serverType: string, selectedJava: string = 'default', isWindows: boolean = process.platform === 'win32') => {
     const lowerServerType = serverType.toLowerCase()
-    
+    const javaExecutable = getSelectedJavaExecutable(selectedJava)
+
     if (lowerServerType.includes('forge') || lowerServerType.includes('neoforge')) {
       // Forge/NeoForge 使用启动脚本
       return isWindows ? 'run.bat' : './run.sh'
     } else if (lowerServerType.includes('fabric') || lowerServerType.includes('quilt')) {
       // Fabric/Quilt 重命名为 server.jar
-      return 'java -jar server.jar'
+      return `${javaExecutable} -jar server.jar`
     } else {
       // 默认情况
-      return 'java -jar server.jar'
+      return `${javaExecutable} -jar server.jar`
     }
+  }
+
+  // 替换启动命令中的Java路径
+  const replaceJavaInCommand = (command: string, selectedJava: string) => {
+    if (selectedJava === 'default') {
+      return command
+    }
+
+    const javaExecutable = getSelectedJavaExecutable(selectedJava)
+    // 替换命令开头的java为指定的Java可执行文件路径
+    return command.replace(/^java\b/, javaExecutable)
   }
 
   // 创建Minecraft实例
@@ -1144,11 +1302,19 @@ const GameDeploymentPage: React.FC = () => {
     try {
       setCreatingInstance(true)
       
+      // 生成启动命令，考虑选中的Java版本
+      let finalStartCommand = instanceStartCommand || generateStartCommand(selectedServer, selectedMinecraftJava)
+
+      // 如果用户手动输入了启动命令且选择了特定Java版本，替换其中的java
+      if (instanceStartCommand && selectedMinecraftJava !== 'default') {
+        finalStartCommand = replaceJavaInCommand(instanceStartCommand, selectedMinecraftJava)
+      }
+
       const response = await apiClient.createInstance({
         name: instanceName.trim(),
         description: instanceDescription.trim() || `Minecraft ${selectedServer} ${selectedVersion}`,
         workingDirectory: downloadResult.targetDirectory,
-        startCommand: instanceStartCommand || generateStartCommand(selectedServer),
+        startCommand: finalStartCommand,
         autoStart: false,
         stopCommand: 'stop' as const
       })
@@ -1196,7 +1362,32 @@ const GameDeploymentPage: React.FC = () => {
     setSelectedServer(server)
     setSelectedVersion('')
     setAvailableVersions([])
+    // 重置安装路径，等待版本选择后再生成完整路径
+    setMinecraftInstallPath('')
     fetchMinecraftVersions(server)
+  }
+
+  // 处理更多游戏选择
+  const handleMoreGameSelect = (gameId: string) => {
+    setSelectedMoreGame(gameId)
+    // 自动填充默认路径
+    const selectedGame = moreGames.find(g => g.id === gameId)
+    if (selectedGame && !moreGameInstallPath) {
+      setMoreGameInstallPath(generatePath(selectedGame.name))
+    }
+  }
+
+  // 处理整合包选择
+  const handleMrpackSelect = (modpack: any) => {
+    setSelectedMrpack(modpack)
+    // 自动生成整合包路径
+    if (modpack.title) {
+      setMrpackInstallPath(generatePath(modpack.title))
+    }
+    // 获取版本列表
+    if (modpack.project_id) {
+      fetchMrpackVersions(modpack.project_id)
+    }
   }
 
   useEffect(() => {
@@ -1204,17 +1395,51 @@ const GameDeploymentPage: React.FC = () => {
     if (activeTab === 'minecraft') {
       fetchMinecraftCategories()
       validateJava()
+      fetchJavaEnvironments()
+      // Minecraft标签页的路径将在选择服务器和版本后自动生成
     }
     if (activeTab === 'more-games') {
       fetchMoreGames()
+      // 确保更多游戏标签页有默认路径
+      if (defaultGamePath && !moreGameInstallPath) {
+        setMoreGameInstallPath(defaultGamePath)
+      }
+    }
+    if (activeTab === 'mrpack') {
+      fetchJavaEnvironments()
+      // 整合包标签页的路径将在选择整合包后自动生成
     }
     if (activeTab === 'online-deploy') {
       checkSponsorKey()
       if (sponsorKeyValid) {
         fetchOnlineGames()
       }
+      // 确保在线部署标签页有默认路径
+      if (defaultGamePath && !onlineGameInstallPath) {
+        setOnlineGameInstallPath(defaultGamePath)
+      }
     }
-  }, [activeTab, sponsorKeyValid])
+  }, [activeTab, sponsorKeyValid, defaultGamePath])
+
+  // 监听Java版本选择变化，自动更新启动命令
+  useEffect(() => {
+    // 更新Minecraft实例启动命令
+    if (selectedServer && selectedVersion && selectedMinecraftJava) {
+      setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
+    }
+  }, [selectedMinecraftJava, selectedServer])
+
+  useEffect(() => {
+    // 更新整合包实例启动命令
+    if (mrpackDeployResult && selectedMrpackJava) {
+      if (mrpackDeployResult.serverType) {
+        setMrpackInstanceStartCommand(generateStartCommand(mrpackDeployResult.serverType, selectedMrpackJava))
+      } else {
+        const defaultCommand = mrpackDeployResult.serverJarPath ? `java -jar "${mrpackDeployResult.serverJarPath}"` : 'java -jar server.jar'
+        setMrpackInstanceStartCommand(selectedMrpackJava !== 'default' ? replaceJavaInCommand(defaultCommand, selectedMrpackJava) : defaultCommand)
+      }
+    }
+  }, [selectedMrpackJava, mrpackDeployResult])
 
   // 清理WebSocket连接和定时器
   useEffect(() => {
@@ -1288,11 +1513,43 @@ const GameDeploymentPage: React.FC = () => {
     openInstallModal(gameKey, gameInfo)
   }
 
+  // 校验游戏完整性
+  const handleValidateGame = async (gameKey: string, gameInfo: GameInfo) => {
+    // 检查游戏是否支持当前平台
+    if (gameInfo.supportedOnCurrentPlatform === false) {
+      addNotification({
+        type: 'error',
+        title: '平台不兼容',
+        message: `${gameInfo.game_nameCN} 不支持当前平台 (${gameInfo.currentPlatform})，无法校验`
+      })
+      return
+    }
+
+    // 检查面板是否兼容当前平台
+    if (gameInfo.panelCompatibleOnCurrentPlatform === false) {
+      // 显示兼容性确认对话框
+      setPendingGameInstall({ key: gameKey, info: gameInfo, validateMode: true })
+      setShowCompatibilityModal(true)
+      // 使用requestAnimationFrame确保DOM渲染完成后再触发动画
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setCompatibilityModalAnimating(true)
+        })
+      })
+      return
+    }
+
+    // 直接打开安装对话框，但标记为校验模式
+    openInstallModal(gameKey, gameInfo, true)
+  }
+
   // 打开安装对话框的通用函数
-  const openInstallModal = (gameKey: string, gameInfo: GameInfo) => {
+  const openInstallModal = (gameKey: string, gameInfo: GameInfo, validateMode: boolean = false) => {
     setSelectedGame({ key: gameKey, info: gameInfo })
     setInstanceName(gameInfo.game_nameCN)
-    setInstallPath('')
+    setIsValidateMode(validateMode)
+    // 自动填充默认游戏路径
+    setInstallPath(generatePath(gameInfo.game_nameCN))
     setShowInstallModal(true)
     // 使用requestAnimationFrame确保DOM渲染完成后再触发动画
     requestAnimationFrame(() => {
@@ -1307,6 +1564,7 @@ const GameDeploymentPage: React.FC = () => {
     setInstallModalAnimating(false)
     setTimeout(() => {
       setShowInstallModal(false)
+      setIsValidateMode(false) // 重置校验模式状态
     }, 300)
   }
 
@@ -1343,7 +1601,7 @@ const GameDeploymentPage: React.FC = () => {
       handleCloseCompatibilityModal()
       // 延迟一点时间等待对话框关闭动画完成
       setTimeout(() => {
-        openInstallModal(pendingGameInstall.key, pendingGameInstall.info)
+        openInstallModal(pendingGameInstall.key, pendingGameInstall.info, pendingGameInstall.validateMode)
       }, 350)
     }
   }
@@ -1430,12 +1688,23 @@ const GameDeploymentPage: React.FC = () => {
 
     try {
       setCreatingMrpackInstance(true)
-      
+
+      // 生成启动命令，考虑选中的Java版本
+      let finalStartCommand = mrpackInstanceStartCommand
+      if (!finalStartCommand) {
+        // 如果没有自定义启动命令，生成默认命令
+        const defaultCommand = mrpackDeployResult.serverJarPath ? `java -jar "${mrpackDeployResult.serverJarPath}"` : 'java -jar server.jar'
+        finalStartCommand = selectedMrpackJava !== 'default' ? replaceJavaInCommand(defaultCommand, selectedMrpackJava) : defaultCommand
+      } else if (selectedMrpackJava !== 'default') {
+        // 如果有自定义启动命令且选择了特定Java版本，替换其中的java
+        finalStartCommand = replaceJavaInCommand(mrpackInstanceStartCommand, selectedMrpackJava)
+      }
+
       const response = await apiClient.createInstance({
         name: mrpackInstanceName.trim(),
         description: mrpackInstanceDescription.trim() || `Minecraft整合包实例 - ${selectedMrpack?.title}`,
         workingDirectory: mrpackDeployResult.installPath,
-        startCommand: mrpackInstanceStartCommand || (mrpackDeployResult.serverJarPath ? `java -jar "${mrpackDeployResult.serverJarPath}"` : 'java -jar server.jar'),
+        startCommand: finalStartCommand,
         autoStart: false,
         stopCommand: 'stop' as const
       })
@@ -1490,17 +1759,19 @@ const GameDeploymentPage: React.FC = () => {
 
     try {
       // 构建SteamCMD安装命令
-      const loginCommand = useAnonymous 
+      const loginCommand = useAnonymous
         ? 'login anonymous'
         : `login ${steamUsername.trim()} ${steamPassword.trim()}`
-      
-      const installCommand = `force_install_dir "${installPath.trim()}" +app_update ${selectedGame.info.appid}`
-      
+
+      const installCommand = isValidateMode
+        ? `force_install_dir "${installPath.trim()}" +app_update ${selectedGame.info.appid} validate`
+        : `force_install_dir "${installPath.trim()}" +app_update ${selectedGame.info.appid}`
+
       const fullCommand = `steamcmd +${loginCommand} +${installCommand} +quit`
-      
+
       // 关闭对话框
       handleCloseInstallModal()
-      
+
       // 调用后端API开始游戏安装
        const response = await apiClient.installGame({
           gameKey: selectedGame.key,
@@ -1594,7 +1865,8 @@ const GameDeploymentPage: React.FC = () => {
   // 打开在线游戏安装对话框
   const handleOpenOnlineGameInstallModal = (game: any) => {
     setSelectedOnlineGame(game)
-    setOnlineGameInstallPath('')
+    // 自动填充默认路径
+    setOnlineGameInstallPath(generatePath(game.name || game.title || '游戏'))
     setShowOnlineGameInstallModal(true)
     setTimeout(() => setOnlineGameInstallModalAnimating(true), 10)
   }
@@ -2068,34 +2340,48 @@ const GameDeploymentPage: React.FC = () => {
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex space-x-2">
-                    {/* 安装游戏按钮 */}
-                    <button
-                      onClick={() => handleInstallGame(gameKey, gameInfo)}
-                      disabled={gameInfo.supportedOnCurrentPlatform === false}
-                      className={`flex-1 py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm ${
-                        gameInfo.supportedOnCurrentPlatform === false
-                          ? 'bg-gray-400 cursor-not-allowed text-gray-200'
-                          : gameInfo.panelCompatibleOnCurrentPlatform === false
-                          ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                          : 'bg-blue-600 hover:bg-blue-700 text-white'
-                      }`}
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>
-                        {gameInfo.supportedOnCurrentPlatform === false 
-                          ? '不兼容' 
-                          : gameInfo.panelCompatibleOnCurrentPlatform === false 
-                          ? '面板不兼容' 
-                          : '安装游戏'}
-                      </span>
-                    </button>
-                    
-                    {/* 开服文档按钮 */}
+                  <div className="space-y-2">
+                    {/* 第一行：安装和校验按钮 */}
+                    <div className="flex space-x-2">
+                      {/* 安装游戏按钮 */}
+                      <button
+                        onClick={() => handleInstallGame(gameKey, gameInfo)}
+                        disabled={gameInfo.supportedOnCurrentPlatform === false}
+                        className={`${gameInfo.supportedOnCurrentPlatform === false ? 'w-full' : 'flex-1'} py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm ${
+                          gameInfo.supportedOnCurrentPlatform === false
+                            ? 'bg-gray-400 cursor-not-allowed text-gray-200'
+                            : gameInfo.panelCompatibleOnCurrentPlatform === false
+                            ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>
+                          {gameInfo.supportedOnCurrentPlatform === false
+                            ? '不兼容'
+                            : gameInfo.panelCompatibleOnCurrentPlatform === false
+                            ? '面板不兼容'
+                            : '安装游戏'}
+                        </span>
+                      </button>
+
+                      {/* 校验游戏完整性按钮 - 仅在游戏支持当前平台时显示 */}
+                      {gameInfo.supportedOnCurrentPlatform !== false && (
+                        <button
+                          onClick={() => handleValidateGame(gameKey, gameInfo)}
+                          className="flex-1 py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm bg-purple-600 hover:bg-purple-700 text-white"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          <span>校验完整性</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 第二行：开服文档按钮（如果存在） */}
                     {gameInfo.docs && (
                       <button
                         onClick={() => handleOpenDocs(gameInfo)}
-                        className="flex-1 py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm bg-green-600 hover:bg-green-700 text-white"
+                        className="w-full py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm bg-green-600 hover:bg-green-700 text-white"
                       >
                         <BookOpen className="w-4 h-4" />
                         <span>开服文档</span>
@@ -2325,32 +2611,76 @@ const GameDeploymentPage: React.FC = () => {
         <div className="space-y-6">
           {/* Java环境状态 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
-            <div className="flex items-center space-x-3">
-              {javaValidated === null ? (
-                <Loader className="w-5 h-5 animate-spin text-blue-500" />
-              ) : javaValidated ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-red-500" />
-              )}
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">
-                  Java环境状态
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {javaValidated === null
-                    ? '检查中...'
-                    : javaValidated
-                    ? 'Java环境正常'
-                    : 'Java环境未找到，请安装Java并添加到PATH环境变量'}
-                </p>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3">
+                {javaValidated === null ? (
+                  <Loader className="w-5 h-5 animate-spin text-blue-500" />
+                ) : javaValidated ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                )}
+                <div className="flex-1">
+                  <h3 className="font-medium text-gray-900 dark:text-white">
+                    Java环境状态
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {javaValidated === null
+                      ? '检查中...'
+                      : javaValidated
+                      ? 'Java环境正常'
+                      : 'Java环境未找到，请安装Java并添加到PATH环境变量'}
+                  </p>
+                </div>
+                <button
+                  onClick={validateJava}
+                  className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                >
+                  重新检查
+                </button>
               </div>
-              <button
-                onClick={validateJava}
-                className="ml-auto px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-              >
-                重新检查
-              </button>
+
+              {/* Java版本选择 */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="flex items-center space-x-4">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-0 flex-shrink-0">
+                    Java版本选择:
+                  </label>
+                  <div className="flex-1">
+                    {javaEnvironmentsLoading ? (
+                      <div className="flex items-center space-x-2">
+                        <Loader className="w-4 h-4 animate-spin text-blue-500" />
+                        <span className="text-sm text-gray-600 dark:text-gray-400">加载中...</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedMinecraftJava}
+                        onChange={(e) => handleMinecraftJavaChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      >
+                        <option value="default">默认Java (系统PATH)</option>
+                        {javaEnvironments.filter(env => env.installed).map((env) => (
+                          <option key={env.version} value={env.version}>
+                            {env.version} {env.javaExecutable ? `(${env.javaExecutable})` : '(未找到可执行文件)'}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <button
+                    onClick={fetchJavaEnvironments}
+                    disabled={javaEnvironmentsLoading}
+                    className="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${javaEnvironmentsLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                {selectedMinecraftJava !== 'default' && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    已选择特定Java版本，创建实例时将使用此版本的Java运行时
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2428,7 +2758,9 @@ const GameDeploymentPage: React.FC = () => {
                           setSelectedVersion(version)
                           // 自动生成启动命令
                           if (version && selectedServer) {
-                            setInstanceStartCommand(generateStartCommand(selectedServer))
+                            setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
+                            // 自动更新安装路径
+                            setMinecraftInstallPath(generateMinecraftPath(selectedServer, version))
                           }
                           // 如果有下载结果，扫描启动文件
                           if (downloadResult && downloadResult.targetDirectory) {
@@ -2660,7 +2992,7 @@ const GameDeploymentPage: React.FC = () => {
                             : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 cursor-pointer'
                         }
                       `}
-                      onClick={() => isSupported && setSelectedMoreGame(game.id)}
+                      onClick={() => isSupported && handleMoreGameSelect(game.id)}
                     >
                       <div className="flex items-start space-x-3">
                         <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
@@ -2902,6 +3234,81 @@ const GameDeploymentPage: React.FC = () => {
       {/* Minecraft整合包部署标签页内容 */}
       {activeTab === 'mrpack' && (
         <div className="space-y-6">
+          {/* Java环境状态 */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3">
+                {javaValidated === null ? (
+                  <Loader className="w-5 h-5 animate-spin text-blue-500" />
+                ) : javaValidated ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                )}
+                <div className="flex-1">
+                  <h3 className="font-medium text-gray-900 dark:text-white">
+                    Java环境状态
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {javaValidated === null
+                      ? '检查中...'
+                      : javaValidated
+                      ? 'Java环境正常'
+                      : 'Java环境未找到，请安装Java并添加到PATH环境变量'}
+                  </p>
+                </div>
+                <button
+                  onClick={validateJava}
+                  className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                >
+                  重新检查
+                </button>
+              </div>
+
+              {/* Java版本选择 */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="flex items-center space-x-4">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-0 flex-shrink-0">
+                    Java版本选择:
+                  </label>
+                  <div className="flex-1">
+                    {javaEnvironmentsLoading ? (
+                      <div className="flex items-center space-x-2">
+                        <Loader className="w-4 h-4 animate-spin text-blue-500" />
+                        <span className="text-sm text-gray-600 dark:text-gray-400">加载中...</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedMrpackJava}
+                        onChange={(e) => handleMrpackJavaChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      >
+                        <option value="default">默认Java (系统PATH)</option>
+                        {javaEnvironments.filter(env => env.installed).map((env) => (
+                          <option key={env.version} value={env.version}>
+                            {env.version} {env.javaExecutable ? `(${env.javaExecutable})` : '(未找到可执行文件)'}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <button
+                    onClick={fetchJavaEnvironments}
+                    disabled={javaEnvironmentsLoading}
+                    className="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${javaEnvironmentsLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                {selectedMrpackJava !== 'default' && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    已选择特定Java版本，创建实例时将使用此版本的Java运行时
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* 搜索整合包 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -2953,7 +3360,7 @@ const GameDeploymentPage: React.FC = () => {
                         : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                       }
                     `}
-                    onClick={() => setSelectedMrpack(modpack)}
+                    onClick={() => handleMrpackSelect(modpack)}
                     onMouseEnter={() => handleMrpackMouseEnter(modpack.project_id)}
                     onMouseLeave={handleMrpackMouseLeave}
                   >
@@ -3323,7 +3730,7 @@ const GameDeploymentPage: React.FC = () => {
           }`}>
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                安装 {selectedGame.info.game_nameCN}
+                {isValidateMode ? '校验' : '安装'} {selectedGame.info.game_nameCN}
               </h3>
               <button
                 onClick={handleCloseInstallModal}
@@ -3443,14 +3850,18 @@ const GameDeploymentPage: React.FC = () => {
               <button
                 onClick={startInstallation}
                 disabled={
-                  !installPath.trim() || 
-                  !instanceName.trim() || 
+                  !installPath.trim() ||
+                  !instanceName.trim() ||
                   (!useAnonymous && (!steamUsername.trim() || !steamPassword.trim()))
                 }
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center space-x-2"
+                className={`px-4 py-2 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center space-x-2 ${
+                  isValidateMode
+                    ? 'bg-purple-600 hover:bg-purple-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
               >
-                <Download className="w-4 h-4" />
-                <span>开始安装</span>
+                {isValidateMode ? <CheckCircle className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+                <span>{isValidateMode ? '开始校验' : '开始安装'}</span>
               </button>
             </div>
           </div>
@@ -4043,8 +4454,8 @@ const GameDeploymentPage: React.FC = () => {
                 onClick={handleConfirmIncompatibleInstall}
                 className="flex-1 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
               >
-                <Download className="w-4 h-4" />
-                <span>继续安装</span>
+                {pendingGameInstall?.validateMode ? <CheckCircle className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+                <span>{pendingGameInstall?.validateMode ? '继续校验' : '继续安装'}</span>
               </button>
             </div>
           </div>

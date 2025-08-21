@@ -21,6 +21,7 @@ steamcmd-config.json
 terminal-sessions.json
 captchas.json
 users.json
+server/data/environment
 
 dist/
 out/

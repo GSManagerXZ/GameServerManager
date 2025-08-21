@@ -26,6 +26,7 @@ import { setupSystemRoutes } from './routes/system.js'
 import { setupAuthRoutes } from './routes/auth.js'
 import { setupScheduledTaskRoutes } from './routes/scheduledTasks.js'
 import { setupConfigRoutes } from './routes/config.js'
+import { setupSettingsRoutes } from './routes/settings.js'
 import { setAuthManager } from './middleware/auth.js'
 import filesRouter from './routes/files.js'
 import { setupInstanceRoutes } from './routes/instances.js'
@@ -40,6 +41,7 @@ import sponsorRouter, { setSponsorDependencies } from './routes/sponsor.js'
 import onlineDeployRouter from './routes/onlineDeploy.js'
 import gameConfigRouter from './routes/gameconfig.js'
 import rconRouter from './routes/rcon.js'
+import environmentRouter, { setEnvironmentSocketIO, setEnvironmentConfigManager } from './routes/environment.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -598,12 +600,13 @@ async function startServer() {
     // 设置路由
     app.use('/api/auth', setupAuthRoutes(authManager))
     app.use('/api/terminal', setupTerminalRoutes(terminalManager))
-    app.use('/api/game', setupGameRoutes(gameManager))
+    app.use('/api/games', setupGameRoutes(gameManager))
     app.use('/api/system', setupSystemRoutes(systemManager))
     app.use('/api/files', filesRouter)
     app.use('/api/instances', setupInstanceRoutes(instanceManager))
     app.use('/api/scheduled-tasks', setupScheduledTaskRoutes(schedulerManager))
     app.use('/api/config', setupConfigRoutes(configManager))
+    app.use('/api/settings', setupSettingsRoutes(configManager))
     
     // 设置SteamCMD管理器和路由
     setSteamCMDManager(steamcmdManager, logger)
@@ -648,6 +651,11 @@ async function startServer() {
 
     // 设置RCON路由
     app.use('/api/rcon', rconRouter)
+
+    // 设置环境管理路由
+    setEnvironmentSocketIO(io)
+    setEnvironmentConfigManager(configManager)
+    app.use('/api/environment', environmentRouter)
 
     // 前端路由处理（SPA支持）
     app.get('*', (req, res) => {

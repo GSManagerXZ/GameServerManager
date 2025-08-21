@@ -24,6 +24,7 @@ import { Instance, CreateInstanceRequest } from '@/types'
 import { useNotificationStore } from '@/stores/notificationStore'
 import apiClient from '@/utils/api'
 import { ConfirmDeleteDialog } from '@/components/ConfirmDeleteDialog'
+import { ConfirmStartDialog } from '@/components/ConfirmStartDialog'
 import { CreateConfigDialog } from '@/components/CreateConfigDialog'
 import SearchableSelect from '@/components/SearchableSelect'
 import RconConsole from '@/components/RconConsole'
@@ -77,6 +78,8 @@ const InstanceManagerPage: React.FC = () => {
   const [editingInstance, setEditingInstance] = useState<Instance | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [instanceToDelete, setInstanceToDelete] = useState<Instance | null>(null)
+  const [showStartConfirmDialog, setShowStartConfirmDialog] = useState(false)
+  const [instanceToStart, setInstanceToStart] = useState<Instance | null>(null)
   const [showCreateConfigDialog, setShowCreateConfigDialog] = useState(false)
   const [createConfigInfo, setCreateConfigInfo] = useState<{
     instanceId: string
@@ -607,8 +610,23 @@ const InstanceManagerPage: React.FC = () => {
     setTimeout(() => setInstallModalAnimating(true), 10)
   }
 
-  // 启动实例
-  const handleStartInstance = async (instance: Instance) => {
+  // 检查启动命令并显示确认对话框
+  const handleStartInstance = (instance: Instance) => {
+    // 检测启动命令是否为none
+    const isCommandNone = instance.startCommand === 'none'
+
+    if (isCommandNone) {
+      // 显示确认对话框
+      setInstanceToStart(instance)
+      setShowStartConfirmDialog(true)
+    } else {
+      // 直接启动
+      performStartInstance(instance)
+    }
+  }
+
+  // 实际执行启动实例的函数
+  const performStartInstance = async (instance: Instance) => {
     try {
       const response = await apiClient.startInstance(instance.id)
       if (response.success) {
@@ -617,7 +635,7 @@ const InstanceManagerPage: React.FC = () => {
           title: '启动成功',
           message: `实例 "${instance.name}" 正在启动`
         })
-        
+
         // 如果返回了终端会话ID，使用sessionId参数跳转到终端页面
         if (response.data?.terminalSessionId) {
           navigate(`/terminal?sessionId=${response.data.terminalSessionId}&instance=${instance.id}&cwd=${encodeURIComponent(instance.workingDirectory)}`)
@@ -625,12 +643,12 @@ const InstanceManagerPage: React.FC = () => {
           // 兼容旧版本，使用instance参数
           navigate(`/terminal?instance=${instance.id}&cwd=${encodeURIComponent(instance.workingDirectory)}`)
         }
-        
+
         fetchInstances()
       }
     } catch (error: any) {
       console.error('启动实例失败:', error)
-      
+
       // 获取具体的错误消息
       let errorMessage = '无法启动实例'
       if (error.message) {
@@ -638,13 +656,28 @@ const InstanceManagerPage: React.FC = () => {
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '启动失败',
         message: errorMessage
       })
     }
+  }
+
+  // 确认启动实例
+  const handleConfirmStart = () => {
+    if (instanceToStart) {
+      performStartInstance(instanceToStart)
+      setShowStartConfirmDialog(false)
+      setInstanceToStart(null)
+    }
+  }
+
+  // 取消启动实例
+  const handleCancelStart = () => {
+    setShowStartConfirmDialog(false)
+    setInstanceToStart(null)
   }
 
   // 停止实例
@@ -1933,6 +1966,15 @@ const InstanceManagerPage: React.FC = () => {
         workingDirectory={instanceToDelete?.workingDirectory || ''}
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
+      />
+
+      {/* 启动确认对话框 */}
+      <ConfirmStartDialog
+        isOpen={showStartConfirmDialog}
+        instanceName={instanceToStart?.name || ''}
+        startCommand={instanceToStart?.startCommand || ''}
+        onConfirm={handleConfirmStart}
+        onCancel={handleCancelStart}
       />
 
       {/* 启动命令帮助模态框 */}

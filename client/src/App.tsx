@@ -15,6 +15,7 @@ import ScheduledTasksPage from '@/pages/ScheduledTasksPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PluginsPage from '@/pages/PluginsPage'
 import FileManagerPage from '@/pages/FileManagerPage'
+import EnvironmentManagerPage from '@/pages/EnvironmentManagerPage'
 import AboutProjectPage from '@/pages/AboutProjectPage'
 import LoginTransition from '@/components/LoginTransition'
 import NotificationContainer from '@/components/NotificationContainer'
@@ -22,6 +23,7 @@ import GlobalMusicPlayer from '@/components/GlobalMusicPlayer'
 import GlobalSystemAlert from '@/components/GlobalSystemAlert'
 import GlobalSystemAlertManager from '@/components/GlobalSystemAlertManager'
 import BrowserCompatibilityChecker from '@/components/BrowserCompatibilityChecker'
+import OnboardingWizard from '@/components/OnboardingWizard'
 
 // GlobalMusicPlayer包装器组件 - 只在已登录时显示
 const GlobalMusicPlayerWrapper: React.FC = () => {
@@ -136,6 +138,7 @@ function App() {
                         <Route path="/game-deployment" element={<PageTransition><GameDeploymentPage /></PageTransition>} />
                         <Route path="/scheduled-tasks" element={<PageTransition><ScheduledTasksPage /></PageTransition>} />
                         <Route path="/files" element={<PageTransition><FileManagerPage /></PageTransition>} />
+                        <Route path="/environment" element={<PageTransition><EnvironmentManagerPage /></PageTransition>} />
                         <Route path="/plugins" element={<PageTransition><PluginsPage /></PageTransition>} />
                         <Route path="/settings" element={<PageTransition><SettingsPage /></PageTransition>} />
                         <Route path="/about" element={<PageTransition><AboutProjectPage /></PageTransition>} />
@@ -160,6 +163,11 @@ function App() {
             
             {/* 全局音乐播放器 - 只在已登录时显示 */}
             <GlobalMusicPlayerWrapper />
+
+            {/* 新手引导 - 只在已登录时显示 */}
+            <ProtectedRoute>
+              <OnboardingWizard />
+            </ProtectedRoute>
           </div>
         </AntdApp>
       </ConfigProvider>

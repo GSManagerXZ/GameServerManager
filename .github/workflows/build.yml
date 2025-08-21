@@ -121,7 +121,7 @@ jobs:
           context: .
           push: true
           tags: |
-            xiaozhu674/gameservermanager:3.5.2
+            xiaozhu674/gameservermanager:3.7.5
             xiaozhu674/gameservermanager:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { AuthState, User, LoginRequest } from '@/types'
 import apiClient from '@/utils/api'
 import socketClient from '@/utils/socket'
+import { useOnboardingStore } from './onboardingStore'
 
 interface AuthStore extends AuthState {
   // 控制是否在登录过期时自动跳转到登录页面
@@ -42,10 +43,23 @@ export const useAuthStore = create<AuthStore>()(
               loading: false,
               error: null,
             })
-            
+
             // 初始化Socket连接
             socketClient.initialize()
-            
+
+            // 检测是否是首次登录（没有lastLogin或者是新创建的用户）
+            const isFirstLogin = !response.user.lastLogin ||
+              (response.user.createdAt && new Date(response.user.createdAt).getTime() > Date.now() - 300000) // 5分钟内创建的用户
+
+            if (isFirstLogin) {
+              // 延迟显示引导，确保页面完全加载
+              setTimeout(() => {
+                const onboardingStore = useOnboardingStore.getState()
+                onboardingStore.setFirstLogin(true)
+                onboardingStore.setShowOnboarding(true)
+              }, 1000)
+            }
+
             return { success: true, message: response.message }
           } else {
             set({

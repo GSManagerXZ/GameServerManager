@@ -6,6 +6,7 @@ services:
   management_panel:
     build:
       context: .
+      dockerfile: Dockerfile_develop
       args:
         DEV_MODE: ${DEV_MODE:-false}  # 通过环境变量控制开发模式，默认为false
     container_name: gsm3_management_panel

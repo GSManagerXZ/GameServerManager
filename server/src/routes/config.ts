@@ -67,6 +67,60 @@ router.put('/terminal', authenticateToken, async (req: Request, res: Response) =
   }
 })
 
+// 获取游戏配置
+router.get('/game', authenticateToken, (req: Request, res: Response) => {
+  try {
+    if (!configManager) {
+      return res.status(500).json({ error: 'ConfigManager未初始化' })
+    }
+
+    const gameConfig = configManager.getGameConfig()
+    res.json({
+      success: true,
+      data: gameConfig
+    })
+  } catch (error) {
+    logger.error('获取游戏配置失败:', error)
+    res.status(500).json({
+      error: '服务器内部错误',
+      message: '获取游戏配置失败'
+    })
+  }
+})
+
+// 更新游戏配置
+router.put('/game', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    if (!configManager) {
+      return res.status(500).json({ error: 'ConfigManager未初始化' })
+    }
+
+    const { defaultInstallPath } = req.body
+
+    // 验证输入
+    if (typeof defaultInstallPath !== 'string') {
+      return res.status(400).json({
+        error: '参数错误',
+        message: 'defaultInstallPath必须是字符串类型'
+      })
+    }
+
+    // 更新配置
+    await configManager.updateGameConfig({ defaultInstallPath })
+
+    res.json({
+      success: true,
+      message: '游戏配置更新成功'
+    })
+  } catch (error) {
+    logger.error('更新游戏配置失败:', error)
+    res.status(500).json({
+      error: '服务器内部错误',
+      message: '更新游戏配置失败'
+    })
+  }
+})
+
 export function setupConfigRoutes(manager: ConfigManager) {
   setConfigManager(manager)
   return router

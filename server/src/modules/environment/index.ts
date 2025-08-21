@@ -1,0 +1,8 @@
+export { JavaManager } from './javaManager.js'
+export type { JavaEnvironment } from './javaManager.js'
+export { VcRedistManager } from './vcRedistManager.js'
+export type { VcRedistEnvironment } from './vcRedistManager.js'
+export { DirectXManager } from './directxManager.js'
+export type { DirectXEnvironment } from './directxManager.js'
+export { LinuxPackageManager } from './packageManager.js'
+export type { PackageInfo, PackageManager } from './packageManager.js'

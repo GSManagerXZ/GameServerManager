@@ -6,12 +6,12 @@
 
 **新一代游戏服务器管理平台 - 让游戏服务器的部署、管理和维护变得简单高效**
 
-[![GitHub Stars](https://badgen.net/github/stars/yxsj245/GameServerManager)](https://github.com/yxsj245/GameServerManager/stargazers)
-[![GitHub Release](https://badgen.net/github/release/yxsj245/GameServerManager)](https://github.com/yxsj245/GameServerManager/releases)
+[![GitHub Stars](https://badgen.net/github/stars/GSManagerXZ/GameServerManager)](https://github.com/GSManagerXZ/GameServerManager/stargazers)
+[![GitHub Release](https://badgen.net/github/release/GSManagerXZ/GameServerManager)](https://github.com/GSManagerXZ/GameServerManager/releases)
 [![Docker Pulls](https://badgen.net/docker/pulls/xiaozhu674/gameservermanager)](https://hub.docker.com/r/xiaozhu674/gameservermanager)
-[![License](https://badgen.net/github/license/yxsj245/GameServerManager)](https://github.com/yxsj245/GameServerManager/blob/main/LICENSE)
+[![License](https://badgen.net/github/license/GSManagerXZ/GameServerManager)](https://github.com/GSManagerXZ/GameServerManager/blob/main/LICENSE)
 
-[📖 文档站](http://docsgsm.xiaozhuhouses.asia/) • [🌐 官方网站](http://gsm.xiaozhuhouses.asia/) • [💬 QQ群](https://qm.qq.com/q/oNd4HvMj6M)
+[📖 文档站](http://docs.gsm.xiaozhuhouses.asia/) • [🌐 官方网站](http://gsm.xiaozhuhouses.asia/) • [💬 QQ群](https://qm.qq.com/q/oNd4HvMj6M)
 
 </div>
 
@@ -36,7 +36,6 @@ GameServerManager 3.0（简称GSM3）是一个基于现代化技术栈的游戏�
 - 🎮 **多游戏支持** - 支持 40+ 款 Steam 游戏服务端，持续更新
 - 💾 **数据持久化** - 游戏数据和配置文件统一管理，安全可靠
 - 🔌 **WebSocket 通信** - 实时双向通信，即时状态更新
-- 🐍 **Python 集成** - 内置 Python 环境，支持游戏配置文件可视化编辑
 - 📦 **Docker 支持** - 完整的容器化部署方案，一键启动
 - 🎨 **可视化配置** - 游戏配置文件的图形化编辑界面
 
@@ -52,7 +51,7 @@ npm run install:all
 npm run dev
 
 # 生产模式构建
-npm run build
+npm run package:<windows/linux>
 ```
 ## 🏗️ 技术架构
 
@@ -81,7 +80,6 @@ npm run build
 - **Joi** - 数据验证库
 
 ### 系统集成
-- **Python 3.x** - 游戏配置解析和脚本执行
 - **SteamCMD** - Steam 命令行工具
 - **Docker** - 容器化部署
 - **PTY** - 伪终端支持（跨平台）
@@ -122,23 +120,29 @@ GSManager3/
 └── package.json              # 项目根依赖
 ```
 
-## 🤝 贡献指南
+## 🤝 贡献流程
+### 贡献者准则
+1. 我们不限制您使用AI等辅助工具对代码进行贡献，若您使用AI参与开发请确保您的编辑器已导入项目规则，项目规则在根目录下的`.trae`文件夹内的`.md`文件中
+2. 不得提交具有后门，入侵操作系统等严重违规违法故意破坏使用者计算机的行为！
+3. 请确保您提交的代码清晰标注注释，变量请使用驼峰命名法。
+4. 代码逻辑不能采用非常简单粗暴的行为，应当评估代码在正式环境中对系统性能影响程度，始终要把性能消耗降到最低。
 
-我们欢迎所有形式的贡献！
+### 贡献流程
+1. 确保代码符合准则，没有语法错误。然后发起PR请求提交到本仓库的`main`分支。并详细说明代码功能和实现或修复的地方。
+2. 自动化审查脚本将会对您提交的代码进行基准检查，通过后将会自动合并到`feature`分支后需要等待作者进行最终功能和代码审核
+3. 审核通过后将会合并到`main`（主分支）并在您的PR告知您已通过最终审核。根据内容量和影响程度会评估最终发包时间，一般不超过7天。
 
-1. **Fork** 本项目
-2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交你的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开一个 **Pull Request**
+### 特殊情况处理
+若您代码提交后发现存在问题，届时您也没看到通过最终审核您需要确保提交的远程分支为`feature`以确保仓库的同步
+> 一般情况在自动化审核通过后此PR会自动修改为`feature`分支
 
 ---
 
 ## 📞 支持与反馈
 
-- 🐛 **问题反馈**：[GitHub Issues](https://github.com/yxsj245/GameServerManager/issues)
+- 🐛 **问题反馈**：[GitHub Issues](https://github.com/GSManagerXZ/GameServerManager/issues)
 - 💬 **QQ交流群**：1040201322
-- 📖 **详细文档**：[GSM3 文档站](http://docsgsm.xiaozhuhouses.asia/)
+- 📖 **详细文档**：[GSM3 文档站](http://docs.gsm.xiaozhuhouses.asia/)
 - 🌐 **官方网站**：[GSM3 官网](http://gsm.xiaozhuhouses.asia/)
 - 💝 **赞助支持**：[爱发电](https://afdian.net/a/xiaozhu674)
 
@@ -146,7 +150,7 @@ GSManager3/
 
 ## 📄 开源协议
 
-本项目采用 [AGPL-3.0 license](LICENSE) 开源协议。
+本项目采用 [GPL-3.0 license](LICENSE) 开源协议。
 
 ---
 
@@ -178,7 +182,7 @@ GSManager3/
 
 ## 📈 项目统计
 
-![Star History](https://api.star-history.com/svg?repos=yxsj245/GameServerManager&type=Date)
+![Star History](https://api.star-history.com/svg?repos=GSManagerXZ/GameServerManager&type=Date)
 
 ---
 
@@ -188,6 +192,6 @@ GSManager3/
 
 **GSM3.0 - 新一代游戏服务器管理平台**
 
-[🌐 官网](http://gsm.xiaozhuhouses.asia/) | [📖 文档](http://docsgsm.xiaozhuhouses.asia/) | [💬 交流群](https://qm.qq.com/q/oNd4HvMj6M)
+[🌐 官网](http://gsm.xiaozhuhouses.asia/) | [📖 文档](http://docs.gsm.xiaozhuhouses.asia/) | [💬 交流群](https://qm.qq.com/q/oNd4HvMj6M)
 
 </div>
