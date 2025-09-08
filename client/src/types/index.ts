@@ -358,6 +358,7 @@ export interface Instance {
   enableStreamForward?: boolean
   programPath?: string
   terminalSessionId?: string
+  terminalUser?: string
 }
 
 export interface CreateInstanceRequest {
@@ -369,6 +370,7 @@ export interface CreateInstanceRequest {
   stopCommand: 'ctrl+c' | 'stop' | 'exit' | 'quit'
   enableStreamForward?: boolean
   programPath?: string
+  terminalUser?: string
 }
 
 export interface InstanceState {

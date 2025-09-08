@@ -98,7 +98,8 @@ const InstanceManagerPage: React.FC = () => {
     autoStart: false,
     stopCommand: 'ctrl+c',
     enableStreamForward: false,
-    programPath: ''
+    programPath: '',
+    terminalUser: ''
   })
   
   // 停止按钮状态管理
@@ -112,6 +113,10 @@ const InstanceManagerPage: React.FC = () => {
   const [configData, setConfigData] = useState<any>({})
   const [isConfigLoading, setIsConfigLoading] = useState(false)
   const [isSavingConfig, setIsSavingConfig] = useState(false)
+
+  // 系统用户列表状态
+  const [systemUsers, setSystemUsers] = useState<string[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
 
   // 获取实例列表
   const fetchInstances = async () => {
@@ -161,6 +166,26 @@ const InstanceManagerPage: React.FC = () => {
       return null
     } finally {
       setIsConfigLoading(false)
+    }
+  }
+
+  // 获取系统用户列表
+  const fetchSystemUsers = async () => {
+    try {
+      setLoadingUsers(true)
+      const response = await apiClient.getSystemUsers()
+      if (response.success) {
+        setSystemUsers(response.data || [])
+      }
+    } catch (error) {
+      console.error('获取系统用户列表失败:', error)
+      addNotification({
+        type: 'error',
+        title: '获取失败',
+        message: '无法获取系统用户列表'
+      })
+    } finally {
+      setLoadingUsers(false)
     }
   }
 
@@ -423,6 +448,7 @@ const InstanceManagerPage: React.FC = () => {
   useEffect(() => {
     fetchInstances()
     fetchAvailableConfigs()
+    fetchSystemUsers()
   }, [])
 
   useEffect(() => {
@@ -571,7 +597,8 @@ const InstanceManagerPage: React.FC = () => {
         workingDirectory: installFormData.workingDirectory,
         startCommand: selectedMarketInstance.command,
         autoStart: false,
-        stopCommand
+        stopCommand,
+        terminalUser: ''
       }
       
       const response = await apiClient.createInstance(installData)
@@ -860,7 +887,8 @@ const InstanceManagerPage: React.FC = () => {
       autoStart: false,
       stopCommand: 'ctrl+c',
       enableStreamForward: false,
-      programPath: ''
+      programPath: '',
+      terminalUser: ''
     })
   }
 
@@ -944,7 +972,8 @@ const InstanceManagerPage: React.FC = () => {
       autoStart: instance.autoStart,
       stopCommand: instance.stopCommand,
       enableStreamForward: instance.enableStreamForward || false,
-      programPath: instance.programPath || ''
+      programPath: instance.programPath || '',
+      terminalUser: instance.terminalUser || ''
     })
     setShowCreateModal(true)
     setTimeout(() => setCreateModalAnimating(true), 10)
@@ -1836,6 +1865,41 @@ const InstanceManagerPage: React.FC = () => {
                   </p>
                 </div>
               )}
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  终端用户
+                </label>
+                <select
+                  value={formData.terminalUser}
+                  onChange={(e) => setFormData({ ...formData, terminalUser: e.target.value })}
+                  onMouseDown={(e) => {
+                    if (loadingUsers) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      addNotification({
+                        type: 'info',
+                        title: '请稍候',
+                        message: '正在加载系统用户列表...'
+                      })
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">默认用户</option>
+                  {systemUsers.map(user => (
+                    <option key={user} value={user}>{user}</option>
+                  ))}
+                </select>
+                {loadingUsers && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    正在加载用户列表...
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  选择以指定用户身份启动终端，留空则使用默认用户
+                </p>
+              </div>
             </div>
             
             <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">

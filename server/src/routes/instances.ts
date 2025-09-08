@@ -164,7 +164,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       })
     }
     
-    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath } = req.body
+    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser } = req.body
     
     // 验证必填字段
     if (!name || !workingDirectory || !startCommand) {
@@ -184,7 +184,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       })
     }
     
-    const instanceData = {
+    const instanceData: any = {
       name: name.trim(),
       description: description?.trim() || '',
       workingDirectory: workingDirectory.trim(),
@@ -193,6 +193,10 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       stopCommand: stopCommand || 'ctrl+c',
       enableStreamForward: Boolean(enableStreamForward),
       programPath: programPath?.trim() || ''
+    }
+    // 处理terminalUser字段：如果是空字符串则设为空字符串，如果有值则设置值
+    if (typeof terminalUser === 'string') {
+      instanceData.terminalUser = terminalUser.trim()
     }
     
     const instance = await instanceManager.createInstance(instanceData)
@@ -225,7 +229,7 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
     }
     
     const { id } = req.params
-    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath } = req.body
+    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser } = req.body
     
     // 验证必填字段
     if (!name || !workingDirectory || !startCommand) {
@@ -245,7 +249,7 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       })
     }
     
-    const instanceData = {
+    const instanceData: any = {
       name: name.trim(),
       description: description?.trim() || '',
       workingDirectory: workingDirectory.trim(),
@@ -254,6 +258,10 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       stopCommand: stopCommand || 'ctrl+c',
       enableStreamForward: Boolean(enableStreamForward),
       programPath: programPath?.trim() || ''
+    }
+    // 处理terminalUser字段：如果是空字符串则设为空字符串，如果有值则设置值
+    if (typeof terminalUser === 'string') {
+      instanceData.terminalUser = terminalUser.trim()
     }
     
     const instance = await instanceManager.updateInstance(id, instanceData)

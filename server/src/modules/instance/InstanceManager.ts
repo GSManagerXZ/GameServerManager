@@ -20,6 +20,7 @@ export interface Instance {
   enableStreamForward?: boolean
   programPath?: string
   terminalSessionId?: string
+  terminalUser?: string
 }
 
 export interface CreateInstanceRequest {
@@ -31,6 +32,7 @@ export interface CreateInstanceRequest {
   stopCommand: 'ctrl+c' | 'stop' | 'exit' | 'quit'
   enableStreamForward?: boolean
   programPath?: string
+  terminalUser?: string
 }
 
 export class InstanceManager extends EventEmitter {
@@ -157,7 +159,8 @@ export class InstanceManager extends EventEmitter {
           pid: undefined,
           terminalSessionId: undefined,
           enableStreamForward: instanceData.enableStreamForward ?? false,
-          programPath: instanceData.programPath ?? ''
+          programPath: instanceData.programPath ?? '',
+          terminalUser: instanceData.terminalUser ?? ''
         }
         this.instances.set(instance.id, instance)
       }
@@ -197,7 +200,8 @@ export class InstanceManager extends EventEmitter {
           lastStarted: instance.lastStarted,
           lastStopped: instance.lastStopped,
           enableStreamForward: instance.enableStreamForward,
-          programPath: instance.programPath
+          programPath: instance.programPath,
+          terminalUser: instance.terminalUser
         }))
         
         await fs.writeFile(this.configPath, JSON.stringify(instancesData, null, 2))
@@ -416,7 +420,8 @@ export class InstanceManager extends EventEmitter {
         rows: 30,
         workingDirectory: instance.workingDirectory,
         enableStreamForward: instance.enableStreamForward || false,
-        programPath: instance.programPath || ''
+        programPath: instance.programPath || '',
+        terminalUser: instance.terminalUser
       })
       
       // 等待终端创建完成

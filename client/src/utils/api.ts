@@ -373,6 +373,11 @@ class ApiClient {
     return this.get('/system/network/selected')
   }
 
+  // 获取系统用户列表
+  async getSystemUsers() {
+    return this.get('/system/users')
+  }
+
   // 终端相关API
   async getTerminalSessions() {
     return this.get('/terminal/sessions')

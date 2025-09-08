@@ -43,6 +43,7 @@ interface CreatePtyData {
   enableStreamForward?: boolean // 是否启用输出流转发
   programPath?: string // 程序启动参数的绝对路径
   autoCloseOnForwardExit?: boolean // 转发进程退出时是否自动关闭终端会话
+  terminalUser?: string // 指定的终端用户
 }
 
 interface TerminalInputData {
@@ -135,12 +136,13 @@ export class TerminalManager {
    */
   public async createPty(socket: Socket, data: CreatePtyData): Promise<void> {
     try {
-      const { sessionId, name, cols, rows, workingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false } = data
+      const { sessionId, name, cols, rows, workingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false, terminalUser } = data
       const sessionName = name || `终端会话 ${sessionId.slice(-8)}`
       
        // 获取终端配置和默认用户（提升到方法开始处）
       const terminalConfig = this.configManager.getTerminalConfig()
-      const defaultUser = terminalConfig.defaultUser
+      // 优先使用传入的terminalUser，如果没有则使用配置的defaultUser
+      const defaultUser = terminalUser || terminalConfig.defaultUser
       
       // 验证输出流转发参数
       if (enableStreamForward && os.platform() !== 'win32') {

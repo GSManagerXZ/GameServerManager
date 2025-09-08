@@ -5,6 +5,7 @@ import logger from '../utils/logger.js'
 import os from 'os'
 import fs from 'fs/promises'
 import path from 'path'
+import { execAsync } from '../utils/execAsync.js'
 
 const router = Router()
 
@@ -541,6 +542,138 @@ router.get('/ports', authenticateToken, async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : '获取活跃端口失败'
+    })
+  }
+})
+
+// 获取系统用户列表
+router.get('/users', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const platform = os.platform()
+    let users: string[] = []
+    
+    if (platform === 'linux') {
+      try {
+        // 在Linux系统中读取/etc/passwd文件获取用户列表
+        const passwdContent = await fs.readFile('/etc/passwd', 'utf-8')
+        const lines = passwdContent.split('\n').filter(line => line.trim())
+        
+        users = lines
+          .map(line => {
+            const parts = line.split(':')
+            if (parts.length >= 7) {
+              const username = parts[0]
+              const uid = parseInt(parts[2])
+              const shell = parts[6]
+              
+              // 过滤系统用户和无效shell的用户
+              if (uid >= 1000 || username === 'root') {
+                // 检查shell是否有效（不是/bin/false, /usr/sbin/nologin等）
+                if (shell && !shell.includes('false') && !shell.includes('nologin')) {
+                  return username
+                }
+              }
+            }
+            return null
+          })
+          .filter((user): user is string => user !== null)
+          .sort()
+        
+        // 确保root用户在列表开头
+        if (users.includes('root')) {
+          users = ['root', ...users.filter(u => u !== 'root')]
+        }
+      } catch (error) {
+        logger.warn('读取/etc/passwd失败，尝试使用getent命令:', error)
+        
+        try {
+          // 备用方案：使用getent命令
+          const { stdout } = await execAsync('getent passwd')
+          const lines = stdout.split('\n').filter(line => line.trim())
+          
+          users = lines
+            .map(line => {
+              const parts = line.split(':')
+              if (parts.length >= 7) {
+                const username = parts[0]
+                const uid = parseInt(parts[2])
+                const shell = parts[6]
+                
+                if (uid >= 1000 || username === 'root') {
+                  if (shell && !shell.includes('false') && !shell.includes('nologin')) {
+                    return username
+                  }
+                }
+              }
+              return null
+            })
+            .filter((user): user is string => user !== null)
+            .sort()
+          
+          if (users.includes('root')) {
+            users = ['root', ...users.filter(u => u !== 'root')]
+          }
+        } catch (getentError) {
+          logger.error('获取用户列表失败:', getentError)
+          users = ['root'] // 默认返回root用户
+        }
+      }
+    } else if (platform === 'win32') {
+      try {
+        // Windows系统使用net user命令获取用户列表
+        const { stdout } = await execAsync('net user')
+        const lines = stdout.split('\n')
+        
+        // 查找用户列表部分（通常在"User accounts for"之后）
+        let userSection = false
+        for (const line of lines) {
+          if (line.includes('User accounts for') || line.includes('用户帐户')) {
+            userSection = true
+            continue
+          }
+          
+          if (userSection && line.includes('---')) {
+            continue
+          }
+          
+          if (userSection && line.trim()) {
+            // 解析用户名（可能有多列）
+            const userNames = line.trim().split(/\s+/).filter(name => 
+              name && 
+              !name.includes('completed') && 
+              !name.includes('successfully') &&
+              !name.includes('命令成功完成')
+            )
+            users.push(...userNames)
+          }
+          
+          if (userSection && (line.includes('completed') || line.includes('命令成功完成'))) {
+            break
+          }
+        }
+        
+        users = [...new Set(users)].sort() // 去重并排序
+      } catch (error) {
+        logger.error('获取Windows用户列表失败:', error)
+        users = [] // Windows下如果失败就返回空列表
+      }
+    }
+    
+    // 如果没有获取到用户，至少返回当前用户
+    if (users.length === 0) {
+      const currentUser = os.userInfo().username
+      users = [currentUser]
+    }
+    
+    res.json({
+      success: true,
+      data: users
+    })
+  } catch (error) {
+    logger.error('获取系统用户列表失败:', error)
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : '获取系统用户列表失败'
     })
   }
 })

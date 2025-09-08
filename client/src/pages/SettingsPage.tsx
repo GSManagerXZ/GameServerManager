@@ -126,6 +126,10 @@ const SettingsPage: React.FC = () => {
     defaultUser: ''
   })
   const [terminalLoading, setTerminalLoading] = useState(false)
+  
+  // 系统用户列表状态
+  const [systemUsers, setSystemUsers] = useState<string[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
 
   // 游戏设置状态
   const [gameSettings, setGameSettings] = useState({
@@ -632,6 +636,21 @@ const SettingsPage: React.FC = () => {
         console.error('加载终端配置失败:', error)
       }
     }
+    
+    // 获取系统用户列表
+    const fetchSystemUsers = async () => {
+      setLoadingUsers(true)
+      try {
+        const result = await apiClient.getSystemUsers()
+        if (result.success && result.data) {
+          setSystemUsers(result.data)
+        }
+      } catch (error) {
+        console.error('获取系统用户列表失败:', error)
+      } finally {
+        setLoadingUsers(false)
+      }
+    }
 
     // 从服务器加载游戏配置
     const loadGameSettings = async () => {
@@ -662,6 +681,7 @@ const SettingsPage: React.FC = () => {
     loadSponsorKeyInfo()
     loadTerminalSettings()
     loadGameSettings()
+    fetchSystemUsers()
   }, [])
 
   // 路径变化时检查
@@ -1319,17 +1339,25 @@ const SettingsPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
                 默认用户 (仅Linux有效)
               </label>
-              <input
-                type="text"
+              <select
                 value={terminalSettings.defaultUser}
                 onChange={(e) => setTerminalSettings(prev => ({
                   ...prev,
                   defaultUser: e.target.value
                 }))}
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="输入默认用户名（留空使用当前用户）"
-                disabled={terminalLoading}
-              />
+                disabled={terminalLoading || loadingUsers}
+              >
+                <option value="">默认用户（留空使用当前用户）</option>
+                {systemUsers.map(user => (
+                  <option key={user} value={user}>{user}</option>
+                ))}
+              </select>
+              {loadingUsers && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  正在加载用户列表...
+                </p>
+              )}
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                 • 设置后，新建终端将自动切换到指定用户
               </p>
