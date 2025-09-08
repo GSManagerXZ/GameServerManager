@@ -1,16 +1,17 @@
 import React from 'react'
-import { 
-  Code, 
-  Shield, 
-  Package, 
-  Settings, 
-  Database, 
-  Terminal, 
-  FileText, 
+import {
+  Code,
+  Shield,
+  Package,
+  Settings,
+  Database,
+  Terminal,
+  FileText,
   Activity,
   Wrench,
   Info,
-  ChevronRight
+  ChevronRight,
+  GamepadIcon
 } from 'lucide-react'
 
 interface SidebarItem {
@@ -39,6 +40,13 @@ const DeveloperSidebar: React.FC<DeveloperSidebarProps> = ({
       label: '概览',
       icon: Info,
       description: '开发者工具概览和状态'
+    },
+    {
+      id: 'game-config',
+      label: '游戏部署配置文件编辑',
+      icon: GamepadIcon,
+      description: '编辑游戏部署配置文件',
+      disabled: !isAuthenticated
     },
     {
       id: 'panel',

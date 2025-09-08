@@ -82,3 +82,46 @@ export interface DeveloperStatusResponse extends ApiResponse<DeveloperAuth> {}
  * 正式环境封装响应
  */
 export interface ProductionPackageResponse extends ApiResponse<ProductionPackageResult> {}
+
+/**
+ * 游戏配置项
+ */
+export interface GameConfig {
+  /** 游戏英文名（作为key） */
+  key: string
+  /** 游戏中文名 */
+  game_nameCN: string
+  /** Steam应用ID */
+  appid: string
+  /** 游戏提示信息 */
+  tip: string
+  /** 游戏图片URL */
+  image: string
+  /** Steam商店URL */
+  url: string
+  /** 支持的系统 */
+  system?: string[]
+  /** 系统信息 */
+  system_info?: string[]
+  /** 内存要求（GB） */
+  memory?: number
+  /** 文档链接 */
+  docs?: string
+}
+
+/**
+ * 游戏配置文件数据
+ */
+export interface GameConfigData {
+  [key: string]: Omit<GameConfig, 'key'>
+}
+
+/**
+ * 游戏配置API响应
+ */
+export interface GameConfigResponse extends ApiResponse<GameConfigData> {}
+
+/**
+ * 游戏配置操作响应
+ */
+export interface GameConfigOperationResponse extends ApiResponse<GameConfig> {}

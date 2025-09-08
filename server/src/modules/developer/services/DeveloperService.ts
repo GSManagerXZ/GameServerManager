@@ -1,12 +1,15 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import fs from 'fs/promises'
+import fsSync from 'fs'
 import path from 'path'
 import type { ConfigManager } from '../../config/ConfigManager.js'
-import type { 
-  DeveloperAuth, 
-  DeveloperJWTPayload, 
-  ProductionPackageResult 
+import type {
+  DeveloperAuth,
+  DeveloperJWTPayload,
+  ProductionPackageResult,
+  GameConfig,
+  GameConfigData
 } from '../types/developer.js'
 import logger from '../../../utils/logger.js'
 
@@ -163,6 +166,135 @@ export class DeveloperService {
     }, 1000)
 
     return result
+  }
+
+  /**
+   * 获取installgame.json文件路径
+   */
+  private getInstallGameJsonPath(): string {
+    const baseDir = process.cwd()
+    const possiblePaths = [
+      path.join(baseDir, 'data', 'games', 'installgame.json'),           // 打包后的路径
+      path.join(baseDir, 'server', 'data', 'games', 'installgame.json'), // 开发环境路径
+    ]
+
+    for (const possiblePath of possiblePaths) {
+      try {
+        fsSync.accessSync(possiblePath, fsSync.constants.F_OK)
+        return possiblePath
+      } catch {
+        // 继续尝试下一个路径
+      }
+    }
+
+    // 如果都不存在，返回默认路径（会在后续操作中创建）
+    return possiblePaths[0]
+  }
+
+  /**
+   * 获取游戏配置列表
+   */
+  async getGameConfigs(): Promise<GameConfigData> {
+    try {
+      const filePath = this.getInstallGameJsonPath()
+      const content = await fs.readFile(filePath, 'utf-8')
+      return JSON.parse(content)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        // 文件不存在，返回空对象
+        return {}
+      }
+      throw error
+    }
+  }
+
+  /**
+   * 保存游戏配置到文件
+   */
+  private async saveGameConfigs(configs: GameConfigData): Promise<void> {
+    const filePath = this.getInstallGameJsonPath()
+
+    // 确保目录存在
+    const dir = path.dirname(filePath)
+    try {
+      await fs.access(dir)
+    } catch {
+      await fs.mkdir(dir, { recursive: true })
+    }
+
+    // 保存文件，格式化JSON
+    await fs.writeFile(filePath, JSON.stringify(configs, null, 2), 'utf-8')
+    logger.info(`游戏配置已保存到: ${filePath}`)
+  }
+
+  /**
+   * 创建游戏配置
+   */
+  async createGameConfig(config: GameConfig): Promise<GameConfig> {
+    const configs = await this.getGameConfigs()
+
+    // 检查是否已存在
+    if (configs[config.key]) {
+      throw new Error(`游戏配置 "${config.key}" 已存在`)
+    }
+
+    // 验证必填字段
+    if (!config.key || !config.game_nameCN || !config.appid) {
+      throw new Error('游戏标识、中文名和App ID为必填字段')
+    }
+
+    // 添加新配置
+    const { key, ...configData } = config
+    configs[key] = configData
+
+    await this.saveGameConfigs(configs)
+
+    logger.info(`创建游戏配置: ${config.key}`)
+    return config
+  }
+
+  /**
+   * 更新游戏配置
+   */
+  async updateGameConfig(key: string, configData: Omit<GameConfig, 'key'>): Promise<GameConfig> {
+    const configs = await this.getGameConfigs()
+
+    // 检查是否存在
+    if (!configs[key]) {
+      throw new Error(`游戏配置 "${key}" 不存在`)
+    }
+
+    // 验证必填字段
+    if (!configData.game_nameCN || !configData.appid) {
+      throw new Error('中文名和App ID为必填字段')
+    }
+
+    // 更新配置
+    configs[key] = configData
+
+    await this.saveGameConfigs(configs)
+
+    logger.info(`更新游戏配置: ${key}`)
+    return { key, ...configData }
+  }
+
+  /**
+   * 删除游戏配置
+   */
+  async deleteGameConfig(key: string): Promise<void> {
+    const configs = await this.getGameConfigs()
+
+    // 检查是否存在
+    if (!configs[key]) {
+      throw new Error(`游戏配置 "${key}" 不存在`)
+    }
+
+    // 删除配置
+    delete configs[key]
+
+    await this.saveGameConfigs(configs)
+
+    logger.info(`删除游戏配置: ${key}`)
   }
 
   /**

@@ -2,7 +2,11 @@ import type {
   DeveloperAuth,
   DeveloperAuthResponse,
   DeveloperStatusResponse,
-  ProductionPackageResponse
+  ProductionPackageResponse,
+  GameConfig,
+  GameConfigData,
+  GameConfigResponse,
+  GameConfigOperationResponse
 } from '../types/developer'
 
 /**
@@ -115,6 +119,78 @@ export class DeveloperApiService {
     }
 
     return result.data
+  }
+
+  /**
+   * 获取游戏配置列表
+   */
+  async getGameConfigs(): Promise<GameConfigData> {
+    const response = await fetch('/api/developer/game-configs', {
+      headers: this.getHeaders(true)
+    })
+
+    const result: GameConfigResponse = await response.json()
+
+    if (!result.success || !result.data) {
+      throw new Error(result.message || '获取游戏配置失败')
+    }
+
+    return result.data
+  }
+
+  /**
+   * 创建游戏配置
+   */
+  async createGameConfig(config: GameConfig): Promise<GameConfig> {
+    const { key, ...configData } = config
+    const response = await fetch('/api/developer/game-configs', {
+      method: 'POST',
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ key, config: configData })
+    })
+
+    const result: GameConfigOperationResponse = await response.json()
+
+    if (!result.success || !result.data) {
+      throw new Error(result.message || '创建游戏配置失败')
+    }
+
+    return result.data
+  }
+
+  /**
+   * 更新游戏配置
+   */
+  async updateGameConfig(key: string, config: Omit<GameConfig, 'key'>): Promise<GameConfig> {
+    const response = await fetch(`/api/developer/game-configs/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ config })
+    })
+
+    const result: GameConfigOperationResponse = await response.json()
+
+    if (!result.success || !result.data) {
+      throw new Error(result.message || '更新游戏配置失败')
+    }
+
+    return result.data
+  }
+
+  /**
+   * 删除游戏配置
+   */
+  async deleteGameConfig(key: string): Promise<void> {
+    const response = await fetch(`/api/developer/game-configs/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(true)
+    })
+
+    const result: GameConfigOperationResponse = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.message || '删除游戏配置失败')
+    }
   }
 }
 

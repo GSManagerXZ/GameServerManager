@@ -4,6 +4,7 @@ import { useDeveloperAuth } from '../hooks/useDeveloperAuth'
 import DeveloperLayout from '../components/DeveloperLayout'
 import OverviewSection from '../components/sections/OverviewSection'
 import PanelSection from '../components/sections/PanelSection'
+import GameConfigSection from '../components/sections/GameConfigSection'
 
 const DeveloperPage: React.FC = () => {
   const [activeSection, setActiveSection] = useState('overview')
@@ -32,6 +33,9 @@ const DeveloperPage: React.FC = () => {
       case 'overview':
         return <OverviewSection isAuthenticated={auth.isAuthenticated} />
 
+      case 'game-config':
+        return <GameConfigSection isAuthenticated={auth.isAuthenticated} />
+
       case 'panel':
         return (
           <PanelSection
@@ -51,6 +55,7 @@ const DeveloperPage: React.FC = () => {
   const getSectionTitle = () => {
     const titles: Record<string, string> = {
       overview: '概览',
+      'game-config': '游戏部署配置文件编辑',
       panel: '面板设置'
     }
     return titles[activeSection] || '开发者工具'
@@ -59,6 +64,7 @@ const DeveloperPage: React.FC = () => {
   const getSectionDescription = () => {
     const descriptions: Record<string, string> = {
       overview: '开发者工具概览和系统状态',
+      'game-config': '管理 installgame.json 文件中的游戏配置',
       panel: '开发者面板配置和管理'
     }
     return descriptions[activeSection] || 'GSM3 开发者工具和高级功能'

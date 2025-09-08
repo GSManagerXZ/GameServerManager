@@ -1,9 +1,12 @@
 import { Response } from 'express'
-import type { 
+import type {
   DeveloperRequest,
   DeveloperStatusResponse,
   DeveloperAuthResponse,
-  ProductionPackageResponse
+  ProductionPackageResponse,
+  GameConfigResponse,
+  GameConfigOperationResponse,
+  GameConfig
 } from '../types/developer.js'
 import { DeveloperService } from '../services/DeveloperService.js'
 import logger from '../../../utils/logger.js'
@@ -154,6 +157,145 @@ export class DeveloperController {
       res.status(500).json({
         success: false,
         message: '正式环境封装失败'
+      })
+    }
+  }
+
+  /**
+   * 获取游戏配置列表
+   */
+  getGameConfigs = async (req: DeveloperRequest, res: Response<GameConfigResponse>) => {
+    try {
+      const configs = await this.developerService.getGameConfigs()
+
+      res.json({
+        success: true,
+        data: configs
+      })
+    } catch (error) {
+      logger.error('获取游戏配置失败:', error)
+      res.status(500).json({
+        success: false,
+        message: '获取游戏配置失败'
+      })
+    }
+  }
+
+  /**
+   * 创建游戏配置
+   */
+  createGameConfig = async (req: DeveloperRequest, res: Response<GameConfigOperationResponse>) => {
+    try {
+      const { key, config } = req.body
+
+      if (!key || !config) {
+        return res.status(400).json({
+          success: false,
+          message: '缺少必要参数'
+        })
+      }
+
+      const gameConfig: GameConfig = { key, ...config }
+      const result = await this.developerService.createGameConfig(gameConfig)
+
+      res.json({
+        success: true,
+        data: result,
+        message: '游戏配置创建成功'
+      })
+    } catch (error) {
+      logger.error('创建游戏配置失败:', error)
+
+      if (error instanceof Error) {
+        if (error.message.includes('已存在') || error.message.includes('必填字段')) {
+          return res.status(400).json({
+            success: false,
+            message: error.message
+          })
+        }
+      }
+
+      res.status(500).json({
+        success: false,
+        message: '创建游戏配置失败'
+      })
+    }
+  }
+
+  /**
+   * 更新游戏配置
+   */
+  updateGameConfig = async (req: DeveloperRequest, res: Response<GameConfigOperationResponse>) => {
+    try {
+      const { key } = req.params
+      const { config } = req.body
+
+      if (!key || !config) {
+        return res.status(400).json({
+          success: false,
+          message: '缺少必要参数'
+        })
+      }
+
+      const result = await this.developerService.updateGameConfig(key, config)
+
+      res.json({
+        success: true,
+        data: result,
+        message: '游戏配置更新成功'
+      })
+    } catch (error) {
+      logger.error('更新游戏配置失败:', error)
+
+      if (error instanceof Error) {
+        if (error.message.includes('不存在') || error.message.includes('必填字段')) {
+          return res.status(400).json({
+            success: false,
+            message: error.message
+          })
+        }
+      }
+
+      res.status(500).json({
+        success: false,
+        message: '更新游戏配置失败'
+      })
+    }
+  }
+
+  /**
+   * 删除游戏配置
+   */
+  deleteGameConfig = async (req: DeveloperRequest, res: Response<GameConfigOperationResponse>) => {
+    try {
+      const { key } = req.params
+
+      if (!key) {
+        return res.status(400).json({
+          success: false,
+          message: '缺少游戏标识参数'
+        })
+      }
+
+      await this.developerService.deleteGameConfig(key)
+
+      res.json({
+        success: true,
+        message: '游戏配置删除成功'
+      })
+    } catch (error) {
+      logger.error('删除游戏配置失败:', error)
+
+      if (error instanceof Error && error.message.includes('不存在')) {
+        return res.status(404).json({
+          success: false,
+          message: error.message
+        })
+      }
+
+      res.status(500).json({
+        success: false,
+        message: '删除游戏配置失败'
       })
     }
   }

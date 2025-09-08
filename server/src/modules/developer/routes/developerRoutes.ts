@@ -34,9 +34,30 @@ export function createDeveloperRoutes(configManager: ConfigManager): Router {
   )
 
   // 需要开发者认证的路由
-  router.post('/production-package', 
-    developerAuthMiddleware.authenticate, 
+  router.post('/production-package',
+    developerAuthMiddleware.authenticate,
     developerController.executeProductionPackage
+  )
+
+  // 游戏配置管理路由
+  router.get('/game-configs',
+    developerAuthMiddleware.authenticate,
+    developerController.getGameConfigs
+  )
+
+  router.post('/game-configs',
+    developerAuthMiddleware.authenticate,
+    developerController.createGameConfig
+  )
+
+  router.put('/game-configs/:key',
+    developerAuthMiddleware.authenticate,
+    developerController.updateGameConfig
+  )
+
+  router.delete('/game-configs/:key',
+    developerAuthMiddleware.authenticate,
+    developerController.deleteGameConfig
   )
 
   return router
