@@ -142,7 +142,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             </h4>
             <ul className="text-sm text-yellow-700 dark:text-yellow-300 mt-2 space-y-1">
               <li>• 开发者密码应该足够复杂，建议包含字母、数字和特殊字符</li>
-              <li>• 不要在生产环境中启用开发者模式</li>
               <li>• 定期更换开发者密码以确保安全</li>
               <li>• 开发者功能具有高级权限，请谨慎使用</li>
             </ul>
