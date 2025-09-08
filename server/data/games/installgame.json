@@ -1,530 +1,666 @@
 {
-    "Palworld": {
-        "game_nameCN": "幻兽帕鲁",
-        "appid": "2394010",
-        "tip": "游戏端口：8211 UDP，配置文件位置：游戏根目录，存档位置：Pal/Saved/SaveGames，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1623730/44e7cf48b38e3ace008e9f49c316f8cd949f7918/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/1623730/Palworld/",
-        "system":["Windows","Linux"],
-        "memory": 4
-    },
-    "SCUM": {
-		"game_nameCN": "人渣",
-		"appid": "3792580",
-		"tip": "Windows需要开启输出流转发\\SCUM\\Binaries\\Win64\\SCUMServer.exe -Port=7777 -QueryPort=27015 -MaxPlayers=32 -log",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/513710/dc41d8c9bad51f61f618419b8e510f0b4617ad42/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/513710",
-        "system":["Windows"],
-        "memory": 6
-	},
-    "Rust": {
-        "game_nameCN": "腐蚀",
-        "appid": "258550",
-        "tip": "游戏端口：28015 UDP, 28016 TCP，配置文件位置：Serveridentity，存档位置：Serveridentity，温馨提示：服务器第一次启动时会生成地图，配置较低非固态盘可能需要很长一段时间，请确保服务器有足够的内存（推荐至少12GB）",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/252490/header.jpg",
-        "url":"https://store.steampowered.com/app/252490/Rust/",
-        "system":["Windows","Linux"],
-        "memory": 12
-    },
-    "Satisfactory": {
-        "game_nameCN": "幸福工厂",
-        "appid": "1690800",
-        "tip": "游戏端口：7777 UDP，配置文件位置：Config/Game.ini，,windows无法使用终端",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/526870/header.jpg",
-        "url":"https://store.steampowered.com/app/526870/_/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"]
-    },
-    "L4D2": {
-        "game_nameCN": "求生之路2",
-        "appid": "222860",
-
-        "tip": "游戏端口：27015 TCP，配置文件位置：server.cfg，温馨提示：需要使用正版游戏账户登录，请确保已购买游戏",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/550/header.jpg",
-        "url":"https://store.steampowered.com/app/550/Left_4_Dead_2/",
-        "system":["Windows","Linux"]
-    },
-    "7_Days_to_Die": {
-        "game_nameCN": "七日杀",
-        "appid": "294420",
-
-        "tip": "游戏端口：26900 TCP，配置文件位置：serverconfig.xml serveradmin.xml players.xml，，温馨提示：游戏启动需要2-5分钟才能彻底启动完毕，请等待提示第二遍的'服务端已运行'提示则代表服务器运行成功；此服务端需要要求较高配置，至少需要分配4G以上内存以及4核以上较高性能CPU才可以，内存过低可能无法启动",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/251570/header.jpg",
-        "url":"https://store.steampowered.com/app/251570/7_Days_to_Die/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"],
-        "docs":"https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E4%B8%83%E6%97%A5%E6%9D%80%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
-    
-    },
-    "Unturned": {
-        "game_nameCN": "未转变者",
-        "appid": "1110390",
-
-        "tip": "游戏端口：27015 UDP，存档位置：Servers 目录中，Windows请使用输出流转，启动进程设置为<路径>\\Unturned.exe  -batchmode -nographics",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/304930/header.jpg",
-        "url":"https://store.steampowered.com/app/304930/Unturned/",
-        "system":["Windows","Linux"]
-    },
-    "Dont_Starve_Together": {
-        "game_nameCN": "饥荒联机版",
-        "appid": "343050",
-
-        "tip": "请注意此服务端需要从客户端上传存档以及配置文件，需要自行编写启动脚本，详见文章https://www.bilibili.com/opus/798802812813180931",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/322330/22aa99418c3e4337aa023bd43ea3d9fe1cdc34e4/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/322330/_/",
-        "docs":"https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E9%A5%A5%E8%8D%92%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
-    },
-    "Project_Zomboid": {
-        "game_nameCN": "僵尸毁灭工程",
-        "appid": "380870",
-
-        "tip": "游戏端口：16261 16262 UDP，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/108600/header.jpg",
-        "url":"https://store.steampowered.com/app/108600/Project_Zomboid/",
-		"system_info":["Windows","Linux"]
-    },
-    "Valheim": {
-        "game_nameCN": "英灵神殿",
-        "appid": "896660",
-
-        "tip": "游戏端口：2457 UDP，配置文件位置：位于启动脚本中，存档位置：位于映射的通用游戏存档路径1目录中，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/892970/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/892970/Valheim/"
-    },
-    "Team_Fortress_2": {
-        "game_nameCN": "军团要塞2",
-        "appid": "232250",
-
-        "tip": "游戏端口：27015 UDP TCP，配置文件位置：位于tf/cfg中，存档位置：位于tf目录中，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/440/header.jpg",
-        "url":"https://store.steampowered.com/app/440/Team_Fortress_2/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"],
-        "docs":"https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E5%86%9B%E5%9B%A2%E8%A6%81%E5%A1%9E2%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
-    },
-    "Insurgency_Sandstorm": {
-        "game_nameCN": "叛乱：沙漠风暴",
-        "appid": "581330",
-
-        "tip": "游戏端口：27015 UDP TCP，配置文件位置：位于Insurgency/Saved/Config中，存档位置：位于映射的通用游戏存档路径1目录中，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/581320/header_alt_assets_3_schinese.jpg",
-        "url":"https://store.steampowered.com/app/581320/Insurgency_Sandstorm/",
-        "system":["Linux"]
-    },
-    "Killing_Floor_2": {
-        "game_nameCN": "杀戮空间2",
-        "appid": "232130",
-
-        "tip": "Windows需要开启输出流转发 Binaries\\win64\\KFServer.exe kf-bioticslab?GamePassword=?adminpassword=123?port=12345?PeerPort=7778",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/232090/header.jpg",
-        "url":"https://store.steampowered.com/app/232090/Killing_Floor_2/",
-        "system_info":["Windows","Linux"],
-        "docs":"http://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%9D%80%E6%88%AE%E7%A9%BA%E9%97%B42.html"
-
-    },
-    "ARK": {
-        "game_nameCN": "方舟：生存进化",
-        "appid": "376030",
-
-        "tip": "游戏端口：7777 7778 27015 UDP，配置文件位置：位于ShooterGame/Saved/Config/LinuxServer中，存档位置：ShooterGame/Saved，温馨提示：bash: cannot set terminal process group 警告是由于服务端控制终端问题，可以忽略，只不过会没有任何输出和输入；[S_API FAIL] SteamAPI_Init() failed 错误是由于游戏目录没有再steamcmd所以无法识别到steam，可以忽略；运行后由于终端无法输出，需以容器显示为主，当出现7777端口已开放则代表服务端已运行，可以正常使用；请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/346110/header.jpg",
-        "url":"https://store.steampowered.com/app/346110/ARK/",
-        "system":["Windows","Linux"],
-        "system_info":["Linux"]
-    },
-    "ARK: Survival Ascended": {
-        "game_nameCN": "方舟：生存飞升",
-        "appid": "2430930",
-        "tip": "",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2399830/header.jpg",
-        "url":"https://store.steampowered.com/app/2399830/",
-        "system":["Windows"],
-		"system_info":[""]
-    },
-    "Squad": {
-        "game_nameCN": "战术小队",
-        "appid": "403240",
-
-        "tip": "游戏端口：7787 27165 UDP，配置文件位置：位于SquadGame/ServerConfig中，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/393380/header.jpg",
-        "url":"https://store.steampowered.com/app/393380/Squad/",
-        "system":["Windows","Linux"]
-    },
-    "Insurgency_2014": {
-        "game_nameCN": "叛乱2",
-        "appid": "237410",
-
-        "tip": "游戏端口：27015 UDP TCP，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/581320/header_alt_assets_3_schinese.jpg",
-        "url":"https://store.steampowered.com/app/237410/Insurgency_2014/"
-    },
-    "Last_Oasis": {
-        "game_nameCN": "最后的绿洲",
-        "appid": "920720",
-
-        "tip": "配置文件位置：Engine/Saved/Config/LinuxServer，",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/903950/header.jpg",
-        "url":"https://store.steampowered.com/app/903950/Last_Oasis/",
-        "system":["Windows","Linux"]
-    },
-    "Euro_Truck_Simulator_2": {
-        "game_nameCN": "欧洲卡车模拟2",
-        "appid": "1948160",
-
-        "tip": "游戏端口：27015 UDP 100-200 UDP(查询端口可选开通)，配置文件位置：通用游戏存档路径1，存档位置：通用游戏存档路径1，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/227300/header.jpg",
-        "url":"https://store.steampowered.com/app/227300/Euro_Truck_Simulator_2/"
-    },
-    "American_Truck_Simulator": {
-        "game_nameCN": "美国卡车模拟",
-        "appid": "2239530",
-
-        "tip": "游戏端口：27015 UDP 100-200 UDP(查询端口可选开通)，配置文件位置：通用游戏存档路径1，存档位置：通用游戏存档路径1，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/270880/header.jpg",
-        "url":"https://store.steampowered.com/app/270880/American_Truck_Simulator/"
-    },
-    "ECO": {
-        "game_nameCN": "生态生存",
-        "appid": "739590",
-
-        "tip": "游戏端口：3001 TCP 3000 UDP，配置文件位置：Configs，存档位置：container/Storage，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；Windows需要手动在GUI上登陆账号。",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/382310/header.jpg",
-        "url":"https://store.steampowered.com/app/382310/ECO/"
-    },
-    "Soulmask_Linux": {
-        "game_nameCN": "灵魂面甲Linux",
-        "appid": "3017300",
-
-        "tip": "游戏端口：8777 UDP ，配置文件位置：WS/Saved/GameplaySettings/GameXishu.json，存档位置：WS/Saved/Worlds/Dedicated/;启动后卡住需要根据单核处理器性能决定，一般需要5分钟左右；请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2646460/header.jpg",
-        "url":"https://store.steampowered.com/app/2646460/Soulmask/",
-        "system":["Linux"]
-    },
-    "Soulmask_Windows": {
-        "game_nameCN": "灵魂面甲Windows",
-        "appid": "3017310",
-
-        "tip": "游戏端口：8777 UDP ，配置文件位置：WS/Saved/GameplaySettings/GameXishu.json，存档位置：WS/Saved/Worlds/Dedicated/;启动后卡住需要根据单核处理器性能决定，一般需要5分钟左右；请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2646460/header.jpg",
-        "url":"https://store.steampowered.com/app/2646460/Soulmask/",
-        "system":["Windows"]
-    },
-    "MORDHAU": {
-        "game_nameCN": "雷霆一击",
-        "appid": "629800",
-
-        "tip": "游戏端口：7777 UDP ，配置文件位置：Mordhau/Saved/Config/LinuxServer。Windows请开启输出流转发\\MordhauServer.exe /Game/Mordhau/Maps/ThePit/FFA_ThePit?MultiHome=0.0.0.0 QueryPort=27015 MaxPlayers=16 -port=7777 -PeerPort=7778 -game -server -log -servergamelog",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/629760/header.jpg",
-        "url":"https://store.steampowered.com/app/629760/MORDHAU/",
-        "system":["Windows","Linux"]
-    },
-    "No_More_Room_in_Hell": {
-        "game_nameCN": "地狱已满",
-        "appid": "317670",
-
-        "tip": "游戏端口：27015 UDP TCP 27020 UDP ，配置文件位置：nmrih/cfg，存档位置：nmrih/cfg;请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/224260/header.jpg",
-        "url":"https://store.steampowered.com/app/292000/No_More_Room_in_Hell/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"]
-    },
-    "Hurtworld": {
-        "game_nameCN": "伤害世界",
-        "appid": "405100",
-
-        "tip": "游戏端口：12881 UDP，请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/393420/header.jpg?",
-        "url":"https://store.steampowered.com/app/393420/Hurtworld/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"]
-    },
-    "Half_Life": {
-        "game_nameCN": "半条命",
-        "appid": "90",
-
-        "tip": "游戏端口：​27015 （UDP/TCP），配置文件：valve/server.cfg请将保存位置映射到容器外部，防止存档丢失",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/70/header.jpg",
-        "url":"https://store.steampowered.com/app/70/HalfLife/"
-    },
-    "Half_Life2": {
-        "game_nameCN": "半条命2",
-        "appid": "232370",
-
-        "tip": "游戏端口：​27015 （UDP/TCP），配置文件：hl2mp/cfg/server.cfg 通常不保存本地存档（死亡竞赛模式无单人进度）",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/220/header.jpg",
-        "url":"https://store.steampowered.com/app/220/HalfLife_2/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"]
-    },
-    "Starbound": {
-        "game_nameCN": "星际边界",
-        "appid": "533830",
-        "tip": "此游戏由于需要授权，没有经过验证，需自行琢磨。",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/211820/header.jpg",
-        "url":"https://store.steampowered.com/app/211820/Starbound",
-        "system":["Windows","Linux"]
-    },
-	"SCP: Containment Breach Multiplayer": {
-		"game_nameCN": "SCP:收容失效",
-		"appid": "1801280",
-		"tip": "此游戏服务端过于年老，请自行测试使用",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1801280/header.jpg",
-        "url":"https://store.steampowered.com/app/1782380/SCP_Containment_Breach_Multiplayer/",
-        "system":["Windows"]
-	},
-	"ASTRONEER Dedicated Server": {
-		"game_nameCN": "异星探险家",
-		"appid": "728470",
-		"tip": "此游戏需要具有公网服务器",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/361420/header.jpg",
-        "url":"https://store.steampowered.com/app/361420/ASTRONEER",
-        "system":["Windows"]
-	},
-	"Enshrouded": {
-		"game_nameCN": "雾锁王国",
-		"appid": "2278520",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1203620/e67cd0b0a988dd61beaf0c9f0782ba0dcc23e0fa/header.jpg",
-        "url":"https://store.steampowered.com/app/1203620/_Enshrouded/",
-        "system":["Windows"]
-	},
-	"The Forest": {
-		"game_nameCN": "森林",
-		"appid": "556450",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/242760/header.jpg",
-        "url":"https://store.steampowered.com/app/242760/The_Forest/",
-        "system":["Windows"],
-		"system_info":[""]
-	},
-	"Sons Of The Forest": {
-		"game_nameCN": "森林之子",
-		"appid": "2465200",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1326470/header.jpg",
-        "url":"https://store.steampowered.com/app/1326470/Sons_Of_The_Forest/",
-        "system":["Windows"]
-	},
-	"V Rising": {
-		"game_nameCN": "夜族崛起",
-		"appid": "1829350",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1604030/123091b358ac705c36642df5599d230825ad3cd6/header.jpg",
-        "url":"https://store.steampowered.com/app/1604030/",
-        "system":["Windows"]
-	},
-	"Conan Exiles": {
-		"game_nameCN": "流放者柯南",
-		"appid": "443030",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/440900/header.jpg",
-        "url":"https://store.steampowered.com/app/440900/Conan_Exiles/",
-        "system":["Windows"],
-		"system_info":[""]
-	},
-	"NoOneSurvived": {
-		"game_nameCN": "无人生还",
-		"appid": "2329680",
-		"tip": "Windows请开启输出流转发\\WRSHServer.exe -Port=27015 -MaxPlayers=10 -Log 开启后输出流会退回cmd属于正常现象，表示服务端已运行，具体请查看服务端终端",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1963370/header.jpg",
-        "url":"https://store.steampowered.com/app/1963370/",
-        "system":["Windows"]
-	},
-	"Space Engineers": {
-		"game_nameCN": "太空工程师",
-		"appid": "298740",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/244850/8b4024ca64963c836319bb89fab74f308f6ace05/header.jpg",
-        "url":"https://store.steampowered.com/app/244850/Space_Engineers/",
-        "system":["Windows"],
-		"system_info":[""]
-	},
-	"TerraTech Worlds": {
-		"game_nameCN": "泰拉科技世界",
-		"appid": "2533070",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2313330/header.jpg",
-        "url":"https://store.steampowered.com/app/2313330/",
-        "system":["Windows"],
-		"system_info":[""]
-	},
-	"Abiotic Factor": {
-		"game_nameCN": "非生物因素",
-		"appid": "2857200",
-		"tip": "Windows请开启输出流转发\\AbioticFactorServer.exe -Port=27015 -MaxPlayers=6 -Log",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/427410/header.jpg",
-        "url":"https://store.steampowered.com/app/427410/Abiotic_Factor/",
-        "system":["Windows"]
-	},
-	"The Isle": {
-		"game_nameCN": "恐龙岛",
-		"appid": "412680",
-		"tip": "Windows请开启输出流转发\\TheIsleServer.exe 'TheIsland?listen?SessionName=MyServer?ServerPassword=123456?ServerAdminPassword=admin123' -server -log",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/376210/header.jpg",
-        "url":"https://store.steampowered.com/app/376210/The_Isle/",
-        "system":["Windows"]
-	},
-	"Outworlder": {
-		"game_nameCN": "伤害世界",
-		"appid": "1738800",
-		"tip": "此游戏需要steam账号验证",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/3501850/d8556334690d2d49812b16fd6c12a013392cd252/header.jpg",
-        "url":"https://store.steampowered.com/app/3501850/Echoes_of_the_Outworlder/",
-        "system":["Windows"]
-	},
-	"Arma 3": {
-		"game_nameCN": "武装突袭3",
-		"appid": "233780",
-		"tip": "此游戏需要steam账号验证",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/107410/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/107410/3/",
-        "system":["Windows","Linux"]
-	},
-	"DayZ": {
-		"game_nameCN": "僵尸末日",
-		"appid": "223350",
-		"tip": "此游戏需要steam账号验证",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/221100/header.jpg",
-        "url":"https://store.steampowered.com/app/221100/DayZ/",
-        "system":["Windows"]
-	},
-	"Necesse": {
-		"game_nameCN": "奈斯启示录",
-		"appid": "1169370",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1169040/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/1169040/_Necesse/"
-	},
-	"Myth of Empires": {
-		"game_nameCN": "帝国神话",
-		"appid": "1794810",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1371580/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/1371580/",
-        "system":["Windows"]
-	},
-	"Barotrauma": {
-		"game_nameCN": "潜渊症",
-		"appid": "1026340",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/602960/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/602960/Barotrauma/",
-        "system":["Windows","Linux"]
-	},
-	"Garry's Mod": {
-		"game_nameCN": "盖瑞模组",
-		"appid": "1026340",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/4000/header.jpg",
-        "url":"https://store.steampowered.com/app/4000/Garrys_Mod/",
-        "system":["Windows","Linux"]
-	},
-	"Risk of Rain 2": {
-		"game_nameCN": "护核纪元",
-		"appid": "1963720",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1621690/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/1621690/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"]
-	},
-	"The Front": {
-		"game_nameCN": "前线",
-		"appid": "2612550",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2285150/3950b0ad3f33165d963268d631b4bc0b65ee780e/header_alt_assets_0_schinese.jpg",
-        "url":"https://store.steampowered.com/app/2285150/The_Front/",
-        "system":["Windows"]
-	},
-	"Icarus": {
-		"game_nameCN": "翼星求生",
-		"appid": "2089300",
-		"tip": "Windows需要开启输出流转发\\IcarusServer.exe -dedicated -port=17777 -maxplayers=8 -log",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1149460/header_schinese.jpg",
-        "url":"https://store.steampowered.com/app/1149460/_ICARUS/",
-        "system":["Windows"]
-	},
-	"Mindustry": {
-		"game_nameCN": "像素工厂",
-		"appid": "1183370",
-		"tip": "此游戏需要steam账号验证",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1127400/header.jpg",
-        "url":"https://store.steampowered.com/app/1127400/Mindustry/",
-        "system":["Windows","Linux"]
-	},
-	"Craftopia": {
-		"game_nameCN": "创世理想乡",
-		"appid": "1670340",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1307550/92ed05d6cc21460e00cd5671520b8969a66a3c6f/header_alt_assets_10_schinese.jpg",
-        "url":"https://store.steampowered.com/app/1307550/Craftopia/",
-        "system":["Windows","Linux"],
-        "memory": 8
-	},
-	"Night of the Dead": {
-		"game_nameCN": "死亡之夜",
-		"appid": "1420710",
-		"tip": "Windows需要开启输出流转发\\LFServer.exe -Port=25000 -MaxPlayers=16 -Log",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1377380/header.jpg",
-        "url":"https://store.steampowered.com/app/1377380/Night_of_the_Dead/",
-        "system":["Windows"]
-	},
-	"Assetto Corsa": {
-		"game_nameCN": "神力科莎",
-		"appid": "302550",
-		"tip": "此游戏需要steam账号验证",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/244210/header.jpg",
-        "url":"https://store.steampowered.com/app/244210/_Assetto_Corsa/",
-        "system":["Windows"]
-	},
-	"Black Mesa": {
-		"game_nameCN": "黑山基地",
-		"appid": "346680",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/362890/674b9a0e7b31996efd5032dc15e695dbf457d71d/header.jpg",
-        "url":"https://store.steampowered.com/app/362890/Black_Mesa/",
-        "system":["Windows","Linux"],
-		"system_info":["Linux"]
-	},
-	"FOUNDRY": {
-		"game_nameCN": "铸造厂",
-		"appid": "2915550",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/983870/0608c22323c3eb742de2c07da639c97c54bccf17/header.jpg",
-        "url":"https://store.steampowered.com/app/983870/FOUNDRY/",
-        "system":["Windows"]
-	},
-	"Avorion": {
-		"game_nameCN": "猎户座",
-		"appid": "565060",
-		"tip": "",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/445220/header.jpg",
-        "url":"https://store.steampowered.com/app/445220/Avorion/",
-        "system":["Windows","Linux"]
-	},
-	"Operation: Harsh Doorstop": {
-		"game_nameCN": "行动严峻考验",
-		"appid": "950900",
-		"tip": "Windows需要开启输出流转发\\HarshDoorstop\\Binaries\\Win64\\HarshDoorstopServer-Win64-Shipping.exe AAS-TestMap?MaxPlayers=16 -log -SteamServerName='Harsh Doorstop Dedicated Server'",
-		"image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/736590/f97103050391e071a864ddd748e3c3f32b6ebe7d/header.jpg",
-        "url":"https://store.steampowered.com/app/736590/Operation_Harsh_Doorstop/",
-        "system":["Windows","Linux"]   
-	},
-    "Counter-Strike 2":{
-        "game_nameCN": "反恐精英2",
-        "appid": "730",
-        "tip": "此服务端只提供下载安装，不提供技术服务，如有问题请自行搜索",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/730/header.jpg",
-        "url":"https://store.steampowered.com/app/730/CounterStrike_2/",
-        "system":["Windows","Linux"]
-    },
-    "Half-Life Dedicated Server":{
-        "game_nameCN": "半条命 dedicated server",
-        "appid": "90",
-        "tip": "可以使用本服务端开反恐精英1.6，搭建反恐精英1.6方法请自行查找",
-        "image":"https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/90/header.jpg",
-        "url":"https://store.steampowered.com/app/90/Half-Life_Dedicated_Server/",
-        "system":["Windows","Linux"]
-    }
-
+  "Palworld": {
+    "game_nameCN": "幻兽帕鲁",
+    "appid": "2394010",
+    "tip": "游戏端口：8211 UDP，配置文件位置：游戏根目录，存档位置：Pal/Saved/SaveGames，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1623730/44e7cf48b38e3ace008e9f49c316f8cd949f7918/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1623730/Palworld/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "memory": 4
+  },
+  "SCUM": {
+    "game_nameCN": "人渣",
+    "appid": "3792580",
+    "tip": "Windows需要开启输出流转发\\SCUM\\Binaries\\Win64\\SCUMServer.exe -Port=7777 -QueryPort=27015 -MaxPlayers=32 -log",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/513710/dc41d8c9bad51f61f618419b8e510f0b4617ad42/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/513710",
+    "system": [
+      "Windows"
+    ],
+    "memory": 6
+  },
+  "Rust": {
+    "game_nameCN": "腐蚀",
+    "appid": "258550",
+    "tip": "游戏端口：28015 UDP, 28016 TCP，配置文件位置：Serveridentity，存档位置：Serveridentity，温馨提示：服务器第一次启动时会生成地图，配置较低非固态盘可能需要很长一段时间，请确保服务器有足够的内存（推荐至少12GB）",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/252490/header.jpg",
+    "url": "https://store.steampowered.com/app/252490/Rust/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "memory": 12
+  },
+  "Satisfactory": {
+    "game_nameCN": "幸福工厂",
+    "appid": "1690800",
+    "tip": "游戏端口：7777 UDP，配置文件位置：Config/Game.ini，,windows无法使用终端",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/526870/header.jpg",
+    "url": "https://store.steampowered.com/app/526870/_/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "L4D2": {
+    "game_nameCN": "求生之路2",
+    "appid": "222860",
+    "tip": "游戏端口：27015 TCP，配置文件位置：server.cfg，温馨提示：需要使用正版游戏账户登录，请确保已购买游戏",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/550/header.jpg",
+    "url": "https://store.steampowered.com/app/550/Left_4_Dead_2/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "7_Days_to_Die": {
+    "game_nameCN": "七日杀",
+    "appid": "294420",
+    "tip": "游戏端口：26900 TCP，配置文件位置：serverconfig.xml serveradmin.xml players.xml，，温馨提示：游戏启动需要2-5分钟才能彻底启动完毕，请等待提示第二遍的'服务端已运行'提示则代表服务器运行成功；此服务端需要要求较高配置，至少需要分配4G以上内存以及4核以上较高性能CPU才可以，内存过低可能无法启动",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/251570/header.jpg",
+    "url": "https://store.steampowered.com/app/251570/7_Days_to_Die/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ],
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E4%B8%83%E6%97%A5%E6%9D%80%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
+  },
+  "Unturned": {
+    "game_nameCN": "未转变者",
+    "appid": "1110390",
+    "tip": "游戏端口：27015 UDP，存档位置：Servers 目录中，Windows请使用输出流转，启动进程设置为<路径>\\Unturned.exe  -batchmode -nographics",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/304930/header.jpg",
+    "url": "https://store.steampowered.com/app/304930/Unturned/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Dont_Starve_Together": {
+    "game_nameCN": "饥荒联机版",
+    "appid": "343050",
+    "tip": "请注意此服务端需要从客户端上传存档以及配置文件，需要自行编写启动脚本，详见文章https://www.bilibili.com/opus/798802812813180931",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/322330/22aa99418c3e4337aa023bd43ea3d9fe1cdc34e4/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/322330/_/",
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E9%A5%A5%E8%8D%92%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
+  },
+  "Project_Zomboid": {
+    "game_nameCN": "僵尸毁灭工程",
+    "appid": "380870",
+    "tip": "游戏端口：16261 16262 UDP，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/108600/header.jpg",
+    "url": "https://store.steampowered.com/app/108600/Project_Zomboid/",
+    "system_info": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Valheim": {
+    "game_nameCN": "英灵神殿",
+    "appid": "896660",
+    "tip": "游戏端口：2457 UDP，配置文件位置：位于启动脚本中，存档位置：位于映射的通用游戏存档路径1目录中，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/892970/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/892970/Valheim/"
+  },
+  "Team_Fortress_2": {
+    "game_nameCN": "军团要塞2",
+    "appid": "232250",
+    "tip": "游戏端口：27015 UDP TCP，配置文件位置：位于tf/cfg中，存档位置：位于tf目录中，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/440/header.jpg",
+    "url": "https://store.steampowered.com/app/440/Team_Fortress_2/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ],
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E5%86%9B%E5%9B%A2%E8%A6%81%E5%A1%9E2%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
+  },
+  "Insurgency_Sandstorm": {
+    "game_nameCN": "叛乱：沙漠风暴",
+    "appid": "581330",
+    "tip": "游戏端口：27015 UDP TCP，配置文件位置：位于Insurgency/Saved/Config中，存档位置：位于映射的通用游戏存档路径1目录中，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/581320/header_alt_assets_3_schinese.jpg",
+    "url": "https://store.steampowered.com/app/581320/Insurgency_Sandstorm/",
+    "system": [
+      "Linux"
+    ]
+  },
+  "Killing_Floor_2": {
+    "game_nameCN": "杀戮空间2",
+    "appid": "232130",
+    "tip": "Windows需要开启输出流转发 Binaries\\win64\\KFServer.exe kf-bioticslab?GamePassword=?adminpassword=123?port=12345?PeerPort=7778",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/232090/header.jpg",
+    "url": "https://store.steampowered.com/app/232090/Killing_Floor_2/",
+    "system_info": [
+      "Windows",
+      "Linux"
+    ],
+    "docs": "http://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%9D%80%E6%88%AE%E7%A9%BA%E9%97%B42.html"
+  },
+  "ARK": {
+    "game_nameCN": "方舟：生存进化",
+    "appid": "376030",
+    "tip": "游戏端口：7777 7778 27015 UDP，配置文件位置：位于ShooterGame/Saved/Config/LinuxServer中，存档位置：ShooterGame/Saved，温馨提示：bash: cannot set terminal process group 警告是由于服务端控制终端问题，可以忽略，只不过会没有任何输出和输入；[S_API FAIL] SteamAPI_Init() failed 错误是由于游戏目录没有再steamcmd所以无法识别到steam，可以忽略；运行后由于终端无法输出，需以容器显示为主，当出现7777端口已开放则代表服务端已运行，可以正常使用；请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/346110/header.jpg",
+    "url": "https://store.steampowered.com/app/346110/ARK/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "ARK: Survival Ascended": {
+    "game_nameCN": "方舟：生存飞升",
+    "appid": "2430930",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2399830/header.jpg",
+    "url": "https://store.steampowered.com/app/2399830/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [
+      ""
+    ]
+  },
+  "Squad": {
+    "game_nameCN": "战术小队",
+    "appid": "403240",
+    "tip": "游戏端口：7787 27165 UDP，配置文件位置：位于SquadGame/ServerConfig中，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/393380/header.jpg",
+    "url": "https://store.steampowered.com/app/393380/Squad/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Insurgency_2014": {
+    "game_nameCN": "叛乱2",
+    "appid": "237410",
+    "tip": "游戏端口：27015 UDP TCP，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/581320/header_alt_assets_3_schinese.jpg",
+    "url": "https://store.steampowered.com/app/237410/Insurgency_2014/"
+  },
+  "Last_Oasis": {
+    "game_nameCN": "最后的绿洲",
+    "appid": "920720",
+    "tip": "配置文件位置：Engine/Saved/Config/LinuxServer，",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/903950/header.jpg",
+    "url": "https://store.steampowered.com/app/903950/Last_Oasis/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Euro_Truck_Simulator_2": {
+    "game_nameCN": "欧洲卡车模拟2",
+    "appid": "1948160",
+    "tip": "游戏端口：27015 UDP 100-200 UDP(查询端口可选开通)，配置文件位置：通用游戏存档路径1，存档位置：通用游戏存档路径1，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/227300/header.jpg",
+    "url": "https://store.steampowered.com/app/227300/Euro_Truck_Simulator_2/"
+  },
+  "American_Truck_Simulator": {
+    "game_nameCN": "美国卡车模拟",
+    "appid": "2239530",
+    "tip": "游戏端口：27015 UDP 100-200 UDP(查询端口可选开通)，配置文件位置：通用游戏存档路径1，存档位置：通用游戏存档路径1，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/270880/header.jpg",
+    "url": "https://store.steampowered.com/app/270880/American_Truck_Simulator/"
+  },
+  "ECO": {
+    "game_nameCN": "生态生存",
+    "appid": "739590",
+    "tip": "游戏端口：3001 TCP 3000 UDP，配置文件位置：Configs，存档位置：container/Storage，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；Windows需要手动在GUI上登陆账号。",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/382310/header.jpg",
+    "url": "https://store.steampowered.com/app/382310/ECO/"
+  },
+  "Soulmask_Linux": {
+    "game_nameCN": "灵魂面甲Linux",
+    "appid": "3017300",
+    "tip": "游戏端口：8777 UDP ，配置文件位置：WS/Saved/GameplaySettings/GameXishu.json，存档位置：WS/Saved/Worlds/Dedicated/;启动后卡住需要根据单核处理器性能决定，一般需要5分钟左右；请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2646460/header.jpg",
+    "url": "https://store.steampowered.com/app/2646460/Soulmask/",
+    "system": [
+      "Linux"
+    ]
+  },
+  "Soulmask_Windows": {
+    "game_nameCN": "灵魂面甲Windows",
+    "appid": "3017310",
+    "tip": "游戏端口：8777 UDP ，配置文件位置：WS/Saved/GameplaySettings/GameXishu.json，存档位置：WS/Saved/Worlds/Dedicated/;启动后卡住需要根据单核处理器性能决定，一般需要5分钟左右；请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2646460/header.jpg",
+    "url": "https://store.steampowered.com/app/2646460/Soulmask/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "MORDHAU": {
+    "game_nameCN": "雷霆一击",
+    "appid": "629800",
+    "tip": "游戏端口：7777 UDP ，配置文件位置：Mordhau/Saved/Config/LinuxServer。Windows请开启输出流转发\\MordhauServer.exe /Game/Mordhau/Maps/ThePit/FFA_ThePit?MultiHome=0.0.0.0 QueryPort=27015 MaxPlayers=16 -port=7777 -PeerPort=7778 -game -server -log -servergamelog",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/629760/header.jpg",
+    "url": "https://store.steampowered.com/app/629760/MORDHAU/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "No_More_Room_in_Hell": {
+    "game_nameCN": "地狱已满",
+    "appid": "317670",
+    "tip": "游戏端口：27015 UDP TCP 27020 UDP ，配置文件位置：nmrih/cfg，存档位置：nmrih/cfg;请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/224260/header.jpg",
+    "url": "https://store.steampowered.com/app/292000/No_More_Room_in_Hell/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "Hurtworld": {
+    "game_nameCN": "伤害世界",
+    "appid": "405100",
+    "tip": "游戏端口：12881 UDP，请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/393420/header.jpg?",
+    "url": "https://store.steampowered.com/app/393420/Hurtworld/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "Half_Life": {
+    "game_nameCN": "半条命",
+    "appid": "90",
+    "tip": "游戏端口：​27015 （UDP/TCP），配置文件：valve/server.cfg请将保存位置映射到容器外部，防止存档丢失",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/70/header.jpg",
+    "url": "https://store.steampowered.com/app/70/HalfLife/"
+  },
+  "Half_Life2": {
+    "game_nameCN": "半条命2",
+    "appid": "232370",
+    "tip": "游戏端口：​27015 （UDP/TCP），配置文件：hl2mp/cfg/server.cfg 通常不保存本地存档（死亡竞赛模式无单人进度）",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/220/header.jpg",
+    "url": "https://store.steampowered.com/app/220/HalfLife_2/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "Starbound": {
+    "game_nameCN": "星际边界",
+    "appid": "533830",
+    "tip": "此游戏由于需要授权，没有经过验证，需自行琢磨。",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/211820/header.jpg",
+    "url": "https://store.steampowered.com/app/211820/Starbound",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "SCP: Containment Breach Multiplayer": {
+    "game_nameCN": "SCP:收容失效",
+    "appid": "1801280",
+    "tip": "此游戏服务端过于年老，请自行测试使用",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1801280/header.jpg",
+    "url": "https://store.steampowered.com/app/1782380/SCP_Containment_Breach_Multiplayer/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "ASTRONEER Dedicated Server": {
+    "game_nameCN": "异星探险家",
+    "appid": "728470",
+    "tip": "此游戏需要具有公网服务器",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/361420/header.jpg",
+    "url": "https://store.steampowered.com/app/361420/ASTRONEER",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Enshrouded": {
+    "game_nameCN": "雾锁王国",
+    "appid": "2278520",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1203620/e67cd0b0a988dd61beaf0c9f0782ba0dcc23e0fa/header.jpg",
+    "url": "https://store.steampowered.com/app/1203620/_Enshrouded/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "The Forest": {
+    "game_nameCN": "森林",
+    "appid": "556450",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/242760/header.jpg",
+    "url": "https://store.steampowered.com/app/242760/The_Forest/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [
+      ""
+    ]
+  },
+  "Sons Of The Forest": {
+    "game_nameCN": "森林之子",
+    "appid": "2465200",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1326470/header.jpg",
+    "url": "https://store.steampowered.com/app/1326470/Sons_Of_The_Forest/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "V Rising": {
+    "game_nameCN": "夜族崛起",
+    "appid": "1829350",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1604030/123091b358ac705c36642df5599d230825ad3cd6/header.jpg",
+    "url": "https://store.steampowered.com/app/1604030/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Conan Exiles": {
+    "game_nameCN": "流放者柯南",
+    "appid": "443030",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/440900/header.jpg",
+    "url": "https://store.steampowered.com/app/440900/Conan_Exiles/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [
+      ""
+    ]
+  },
+  "NoOneSurvived": {
+    "game_nameCN": "无人生还",
+    "appid": "2329680",
+    "tip": "Windows请开启输出流转发\\WRSHServer.exe -Port=27015 -MaxPlayers=10 -Log 开启后输出流会退回cmd属于正常现象，表示服务端已运行，具体请查看服务端终端",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1963370/header.jpg",
+    "url": "https://store.steampowered.com/app/1963370/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Space Engineers": {
+    "game_nameCN": "太空工程师",
+    "appid": "298740",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/244850/8b4024ca64963c836319bb89fab74f308f6ace05/header.jpg",
+    "url": "https://store.steampowered.com/app/244850/Space_Engineers/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [
+      ""
+    ]
+  },
+  "TerraTech Worlds": {
+    "game_nameCN": "泰拉科技世界",
+    "appid": "2533070",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2313330/header.jpg",
+    "url": "https://store.steampowered.com/app/2313330/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [
+      ""
+    ]
+  },
+  "Abiotic Factor": {
+    "game_nameCN": "非生物因素",
+    "appid": "2857200",
+    "tip": "Windows请开启输出流转发\\AbioticFactorServer.exe -Port=27015 -MaxPlayers=6 -Log",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/427410/header.jpg",
+    "url": "https://store.steampowered.com/app/427410/Abiotic_Factor/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "The Isle": {
+    "game_nameCN": "恐龙岛",
+    "appid": "412680",
+    "tip": "Windows请开启输出流转发\\TheIsleServer.exe 'TheIsland?listen?SessionName=MyServer?ServerPassword=123456?ServerAdminPassword=admin123' -server -log",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/376210/header.jpg",
+    "url": "https://store.steampowered.com/app/376210/The_Isle/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Outworlder": {
+    "game_nameCN": "伤害世界",
+    "appid": "1738800",
+    "tip": "此游戏需要steam账号验证",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/3501850/d8556334690d2d49812b16fd6c12a013392cd252/header.jpg",
+    "url": "https://store.steampowered.com/app/3501850/Echoes_of_the_Outworlder/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Arma 3": {
+    "game_nameCN": "武装突袭3",
+    "appid": "233780",
+    "tip": "此游戏需要steam账号验证",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/107410/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/107410/3/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "DayZ": {
+    "game_nameCN": "僵尸末日",
+    "appid": "223350",
+    "tip": "此游戏需要steam账号验证",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/221100/header.jpg",
+    "url": "https://store.steampowered.com/app/221100/DayZ/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Necesse": {
+    "game_nameCN": "奈斯启示录",
+    "appid": "1169370",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1169040/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1169040/_Necesse/"
+  },
+  "Myth of Empires": {
+    "game_nameCN": "帝国神话",
+    "appid": "1794810",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1371580/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1371580/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Barotrauma": {
+    "game_nameCN": "潜渊症",
+    "appid": "1026340",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/602960/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/602960/Barotrauma/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Garry's Mod": {
+    "game_nameCN": "盖瑞模组",
+    "appid": "1026340",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/4000/header.jpg",
+    "url": "https://store.steampowered.com/app/4000/Garrys_Mod/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Risk of Rain 2": {
+    "game_nameCN": "护核纪元",
+    "appid": "1963720",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1621690/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1621690/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "The Front": {
+    "game_nameCN": "前线",
+    "appid": "2612550",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2285150/3950b0ad3f33165d963268d631b4bc0b65ee780e/header_alt_assets_0_schinese.jpg",
+    "url": "https://store.steampowered.com/app/2285150/The_Front/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Icarus": {
+    "game_nameCN": "翼星求生",
+    "appid": "2089300",
+    "tip": "Windows需要开启输出流转发\\IcarusServer.exe -dedicated -port=17777 -maxplayers=8 -log",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1149460/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1149460/_ICARUS/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Mindustry": {
+    "game_nameCN": "像素工厂",
+    "appid": "1183370",
+    "tip": "此游戏需要steam账号验证",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1127400/header.jpg",
+    "url": "https://store.steampowered.com/app/1127400/Mindustry/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Craftopia": {
+    "game_nameCN": "创世理想乡",
+    "appid": "1670340",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1307550/92ed05d6cc21460e00cd5671520b8969a66a3c6f/header_alt_assets_10_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1307550/Craftopia/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "memory": 8
+  },
+  "Night of the Dead": {
+    "game_nameCN": "死亡之夜",
+    "appid": "1420710",
+    "tip": "Windows需要开启输出流转发\\LFServer.exe -Port=25000 -MaxPlayers=16 -Log",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1377380/header.jpg",
+    "url": "https://store.steampowered.com/app/1377380/Night_of_the_Dead/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Assetto Corsa": {
+    "game_nameCN": "神力科莎",
+    "appid": "302550",
+    "tip": "此游戏需要steam账号验证",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/244210/header.jpg",
+    "url": "https://store.steampowered.com/app/244210/_Assetto_Corsa/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Black Mesa": {
+    "game_nameCN": "黑山基地",
+    "appid": "346680",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/362890/674b9a0e7b31996efd5032dc15e695dbf457d71d/header.jpg",
+    "url": "https://store.steampowered.com/app/362890/Black_Mesa/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [
+      "Linux"
+    ]
+  },
+  "FOUNDRY": {
+    "game_nameCN": "铸造厂",
+    "appid": "2915550",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/983870/0608c22323c3eb742de2c07da639c97c54bccf17/header.jpg",
+    "url": "https://store.steampowered.com/app/983870/FOUNDRY/",
+    "system": [
+      "Windows"
+    ]
+  },
+  "Avorion": {
+    "game_nameCN": "猎户座",
+    "appid": "565060",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/445220/header.jpg",
+    "url": "https://store.steampowered.com/app/445220/Avorion/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Operation: Harsh Doorstop": {
+    "game_nameCN": "行动严峻考验",
+    "appid": "950900",
+    "tip": "Windows需要开启输出流转发\\HarshDoorstop\\Binaries\\Win64\\HarshDoorstopServer-Win64-Shipping.exe AAS-TestMap?MaxPlayers=16 -log -SteamServerName='Harsh Doorstop Dedicated Server'",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/736590/f97103050391e071a864ddd748e3c3f32b6ebe7d/header.jpg",
+    "url": "https://store.steampowered.com/app/736590/Operation_Harsh_Doorstop/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Counter-Strike 2": {
+    "game_nameCN": "反恐精英2",
+    "appid": "730",
+    "tip": "此服务端只提供下载安装，不提供技术服务，如有问题请自行搜索",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/730/header.jpg",
+    "url": "https://store.steampowered.com/app/730/CounterStrike_2/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  },
+  "Half-Life Dedicated Server": {
+    "game_nameCN": "半条命 dedicated server",
+    "appid": "90",
+    "tip": "可以使用本服务端开反恐精英1.6，搭建反恐精英1.6方法请自行查找",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/90/header.jpg",
+    "url": "https://store.steampowered.com/app/90/Half-Life_Dedicated_Server/",
+    "system": [
+      "Windows",
+      "Linux"
+    ]
+  }
 }
