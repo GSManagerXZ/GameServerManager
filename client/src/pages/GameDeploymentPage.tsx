@@ -1346,6 +1346,7 @@ const GameDeploymentPage: React.FC = () => {
       }
     }
     if (activeTab === 'mrpack') {
+      validateJava()
       fetchJavaEnvironments()
       // 整合包标签页的路径将在选择整合包后自动生成
     }
@@ -3224,9 +3225,12 @@ const GameDeploymentPage: React.FC = () => {
 
           {/* 搜索整合包 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
               搜索Minecraft整合包
             </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              整合包内容来源于 <a href="https://modrinth.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">Modrinth</a> 平台
+            </p>
 
             <div className="flex space-x-4 mb-4">
               <input
