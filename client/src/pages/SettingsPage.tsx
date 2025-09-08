@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useThemeStore } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -24,14 +25,18 @@ import {
   Battery,
   Moon,
   MapPin,
-  RefreshCw
+  RefreshCw,
+  Code,
+  AlertTriangle
 } from 'lucide-react'
 
 const SettingsPage: React.FC = () => {
+  const navigate = useNavigate()
   const { theme, toggleTheme } = useThemeStore()
   const { user, changePassword, changeUsername, logout } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const { resetOnboarding, setShowOnboarding } = useOnboardingStore()
+  const [showDeveloperWarning, setShowDeveloperWarning] = useState(false)
   
   // 城市选项数据
   const cityOptions = [
@@ -846,7 +851,21 @@ const SettingsPage: React.FC = () => {
       setGameListUpdateLoading(false)
     }
   }
-  
+
+  // 处理开发者页面跳转
+  const handleDeveloperPageAccess = () => {
+    setShowDeveloperWarning(true)
+  }
+
+  const confirmDeveloperAccess = () => {
+    setShowDeveloperWarning(false)
+    navigate('/developer')
+  }
+
+  const cancelDeveloperAccess = () => {
+    setShowDeveloperWarning(false)
+  }
+
   return (
     <div className="space-y-6">
       {/* 页面标题 */}
@@ -1629,7 +1648,15 @@ const SettingsPage: React.FC = () => {
             <p className="text-sm text-gray-600 dark:text-gray-400">保存或重置您的设置</p>
           </div>
           
-          <div className="flex space-x-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleDeveloperPageAccess}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+            >
+              <Code className="w-4 h-4" />
+              <span>进入开发者页面</span>
+            </button>
+
             <button
               onClick={() => {
                 resetOnboarding()
@@ -1677,6 +1704,37 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 开发者页面警告弹窗 */}
+      {showDeveloperWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertTriangle className="w-6 h-6 text-orange-500" />
+              <h3 className="text-lg font-semibold text-black dark:text-white">
+                开发者页面警告
+              </h3>
+            </div>
+            <p className="text-gray-700 dark:text-gray-300 mb-6">
+              此界面普通用户无需进入，若使用相关功能造成的一切后果需自行负责！
+            </p>
+            <div className="flex space-x-3 justify-end">
+              <button
+                onClick={cancelDeveloperAccess}
+                className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDeveloperAccess}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors"
+              >
+                确认进入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

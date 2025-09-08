@@ -37,6 +37,10 @@ export interface AppConfig {
     expiryTime?: string
     validatedAt: string
   }
+  developer?: {
+    passwordHash: string
+    salt: string
+  }
 }
 
 export class ConfigManager {
@@ -149,6 +153,9 @@ export class ConfigManager {
       },
       sponsor: savedConfig.sponsor ? {
         ...savedConfig.sponsor
+      } : undefined,
+      developer: savedConfig.developer ? {
+        ...savedConfig.developer
       } : undefined
     }
   }
@@ -257,5 +264,29 @@ export class ConfigManager {
     delete this.config.sponsor
     await this.saveConfig()
     this.logger.info('赞助者密钥配置已清除')
+  }
+
+  // 开发者配置相关方法
+  getDeveloperConfig() {
+    return this.config.developer
+  }
+
+  hasDeveloperPassword(): boolean {
+    return !!(this.config.developer?.passwordHash && this.config.developer?.salt)
+  }
+
+  async setDeveloperPassword(passwordHash: string, salt: string): Promise<void> {
+    this.config.developer = {
+      passwordHash,
+      salt
+    }
+    await this.saveConfig()
+    this.logger.info('开发者密码已设置')
+  }
+
+  async clearDeveloperConfig(): Promise<void> {
+    delete this.config.developer
+    await this.saveConfig()
+    this.logger.info('开发者配置已清除')
   }
 }

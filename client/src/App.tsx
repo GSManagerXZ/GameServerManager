@@ -17,6 +17,7 @@ import PluginsPage from '@/pages/PluginsPage'
 import FileManagerPage from '@/pages/FileManagerPage'
 import EnvironmentManagerPage from '@/pages/EnvironmentManagerPage'
 import AboutProjectPage from '@/pages/AboutProjectPage'
+import DeveloperPage from '@/pages/DeveloperPage'
 import LoginTransition from '@/components/LoginTransition'
 import NotificationContainer from '@/components/NotificationContainer'
 import GlobalMusicPlayer from '@/components/GlobalMusicPlayer'
@@ -124,7 +125,19 @@ function App() {
                   </PublicRoute>
                 }
               />
-              
+
+              {/* 开发者页面路由 - 独立布局 */}
+              <Route
+                path="/developer/*"
+                element={
+                  <ProtectedRoute>
+                    <PageTransition>
+                      <DeveloperPage />
+                    </PageTransition>
+                  </ProtectedRoute>
+                }
+              />
+
               {/* 受保护的路由 */}
               <Route
                 path="/*"
