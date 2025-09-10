@@ -2,7 +2,7 @@
   "Palworld": {
     "game_nameCN": "幻兽帕鲁",
     "appid": "2394010",
-    "tip": "游戏端口：8211 UDP，配置文件位置：游戏根目录，存档位置：Pal/Saved/SaveGames，",
+    "tip": "游戏端口：8211 UDP，配置文件位置：游戏根目录，存档位置：Pal/Saved/SaveGames。需要以非root用户运行",
     "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1623730/44e7cf48b38e3ace008e9f49c316f8cd949f7918/header_schinese.jpg",
     "url": "https://store.steampowered.com/app/1623730/Palworld/",
     "system": [
@@ -37,7 +37,7 @@
   "Satisfactory": {
     "game_nameCN": "幸福工厂",
     "appid": "1690800",
-    "tip": "游戏端口：7777 UDP，配置文件位置：Config/Game.ini，,windows无法使用终端",
+    "tip": "游戏端口：7777 UDP，配置文件位置：Config/Game.ini，,windows无法使用终端\nLinux请使用非root用户运行",
     "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/526870/header.jpg",
     "url": "https://store.steampowered.com/app/526870/_/",
     "system": [
@@ -123,8 +123,7 @@
     ],
     "system_info": [
       "Linux"
-    ],
-    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E5%86%9B%E5%9B%A2%E8%A6%81%E5%A1%9E2%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
+    ]
   },
   "Insurgency_Sandstorm": {
     "game_nameCN": "叛乱：沙漠风暴",
@@ -146,7 +145,7 @@
       "Windows",
       "Linux"
     ],
-    "docs": "http://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%9D%80%E6%88%AE%E7%A9%BA%E9%97%B42.html"
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%9D%80%E6%88%AE%E7%A9%BA%E9%97%B42.html"
   },
   "ARK": {
     "game_nameCN": "方舟：生存进化",
