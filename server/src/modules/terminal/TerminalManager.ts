@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import winston from 'winston'
 import path from 'path'
 import fs from 'fs'
+import { promises as fsPromises } from 'fs'
 import { fileURLToPath } from 'url'
 import os from 'os'
 import { promisify } from 'util'
@@ -138,11 +139,21 @@ export class TerminalManager {
     try {
       const { sessionId, name, cols, rows, workingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false, terminalUser } = data
       const sessionName = name || `终端会话 ${sessionId.slice(-8)}`
-      
+
        // 获取终端配置和默认用户（提升到方法开始处）
       const terminalConfig = this.configManager.getTerminalConfig()
       // 优先使用传入的terminalUser，如果没有则使用配置的defaultUser
       const defaultUser = terminalUser || terminalConfig.defaultUser
+
+      // 如果是Linux系统且使用非root用户，先设置工作目录权限为777
+      if (os.platform() === 'linux' && defaultUser && defaultUser.trim() !== '' && defaultUser !== 'root') {
+        try {
+          await this.setDirectoryPermissions777(workingDirectory)
+          this.logger.info(`已为非root用户 ${defaultUser} 设置工作目录权限为777: ${workingDirectory}`)
+        } catch (error) {
+          this.logger.warn(`设置工作目录权限失败: ${error}`)
+        }
+      }
       
       // 验证输出流转发参数
       if (enableStreamForward && os.platform() !== 'win32') {
@@ -1431,7 +1442,7 @@ export class TerminalManager {
       if (os.platform() !== 'linux') {
         return false
       }
-      
+
       const { stdout } = await execAsync(`id -u ${username}`)
       // 如果命令成功执行且返回了用户ID，说明用户存在
       return stdout.trim() !== ''
@@ -1439,6 +1450,35 @@ export class TerminalManager {
       // 如果命令执行失败，说明用户不存在
       this.logger.debug(`检查用户 '${username}' 是否存在时出错:`, error)
       return false
+    }
+  }
+
+  /**
+   * 为非root用户设置目录权限为777（递归）
+   */
+  private async setDirectoryPermissions777(directoryPath: string): Promise<void> {
+    try {
+      // 仅在Linux系统下执行
+      if (os.platform() !== 'linux') {
+        return
+      }
+
+      // 检查目录是否存在
+      try {
+        await fsPromises.access(directoryPath, fs.constants.F_OK)
+      } catch {
+        this.logger.warn(`目录不存在，跳过权限设置: ${directoryPath}`)
+        return
+      }
+
+      // 使用chmod命令递归设置权限为777
+      const chmodCommand = `chmod -R 777 "${directoryPath}"`
+      await execAsync(chmodCommand)
+
+      this.logger.info(`已递归设置目录权限为777: ${directoryPath}`)
+    } catch (error) {
+      this.logger.error(`设置目录权限失败: ${directoryPath}`, error)
+      throw error
     }
   }
 
