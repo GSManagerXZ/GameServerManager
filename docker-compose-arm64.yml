@@ -1,0 +1,43 @@
+volumes:
+  gsm3_data_arm:
+    driver: local
+  game_data:
+    driver: local
+
+services:
+  management_panel_arm64:
+    build: 
+      context: .
+      platforms:
+        - linux/arm64
+    container_name: GSManager3-ARM64
+    image: xiaozhu674/gameservermanager:latest-arm
+    platform: linux/arm64
+    user: root                       
+    ports:
+      # GSM3管理面板端口
+      - "3001:3001" 
+      # 注意：ARM64版本不支持游戏服务器，无需映射游戏端口
+    volumes:
+    # ARM64版本数据目录
+      - game_data:/root/.config 
+      - game_data:/root/.local   
+    # 面板数据，请勿改动
+      - gsm3_data_arm:/root/server/data 
+    environment:
+      - TZ=Asia/Shanghai              # 设置时区
+      - SERVER_PORT=3001              # GSM3服务端口
+      - ARCH=arm64                    # 架构标识
+    stdin_open: true                  # 保持STDIN打开
+    tty: true                         # 分配TTY
+    restart: unless-stopped           # 自动重启策略
+    
+    # ARM64资源限制（更轻量）
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G

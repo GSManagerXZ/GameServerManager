@@ -24,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      build_docker_arm:
+        description: "构建ARM64 Docker镜像"
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - 'v*'
@@ -114,17 +119,60 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           
-      # 第四步：构建并推送镜像（带缓存功能）
-      - name: 缓存并构建推送DockerHub
+      # 第四步：构建并推送多架构镜像（带缓存功能）
+      - name: 缓存并构建推送DockerHub多架构镜像
         uses: docker/build-push-action@v4
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             xiaozhu674/gameservermanager:3.8.1
             xiaozhu674/gameservermanager:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  build_docker_arm:
+    if: github.event.inputs.build_docker_arm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # 第一步：检出代码
+      - name: 拉取仓库代码
+        uses: actions/checkout@v4
+
+      # 第二步：设置构建环境
+      - name: 配置QEMU模拟器
+        uses: docker/setup-qemu-action@v2
+
+      - name: 配置Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: network=host
+
+      # 第三步：登录Docker仓库
+      - name: 登录Docker仓库
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 第四步：构建并推送ARM64镜像
+      - name: 构建并推送ARM64镜像
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            xiaozhu674/gameservermanager:3.8.1-arm64-beta
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 第五步：验证ARM64镜像
+      - name: 验证ARM64镜像
+        run: |
+          echo "验证ARM64镜像..."
+          docker buildx imagetools inspect xiaozhu674/gameservermanager:latest-arm64
 
   # 创建发布版本（仅在推送标签时触发）
   create_release:

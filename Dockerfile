@@ -3,10 +3,12 @@ FROM debian:trixie-slim AS dependencies
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 安装系统依赖包
+# 获取架构信息
+ARG TARGETARCH
+ARG TARGETPLATFORM
+
+# 安装基础系统依赖包（所有架构通用）
 RUN apt-get update \
-    && dpkg --add-architecture i386 \
-    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         locales \
@@ -20,74 +22,7 @@ RUN apt-get update \
         python3-pip \
         python3-dev \
         python3-venv \
-        # 游戏服务器依赖
-        libncurses6:i386 \
-        libbz2-1.0:i386 \
-        libicu-dev \
-        libxml2:i386 \
-        libstdc++6:i386 \
-        lib32gcc-s1 \
-        libc6-i386 \
-        lib32stdc++6 \
-        libcurl4-gnutls-dev:i386 \
-        libcurl4-gnutls-dev \
-        libgl1 \
-        gcc-13-base:i386 \
-        libssl3:i386 \
-        libopenal1:i386 \
-        libtinfo6:i386 \
-        libtcmalloc-minimal4:i386 \
-        # .NET和Mono相关依赖
-        libgdiplus \
-        libc6-dev \
-        libasound2 \
-        libpulse0 \
-        libnss3 \
-        libcap2 \
-        libatk1.0-0 \
-        libcairo2 \
-        libcups2 \
-        libgtk-3-0 \
-        libgdk-pixbuf-2.0-0 \
-        libpango-1.0-0 \
-        libx11-6 \
-        libxt6 \
-        # Unity游戏服务端依赖
-        libsdl2-2.0-0:i386 \
-        libsdl2-2.0-0 \
-        libpulse0:i386 \
-        libfontconfig1:i386 \
-        libfontconfig1 \
-        libudev1:i386 \
-        libudev1 \
-        libpugixml1v5 \
-        libvulkan1 \
-        libvulkan1:i386 \
-        libatk1.0-0:i386 \
-        libxcomposite1 \
-        libxcomposite1:i386 \
-        libxcursor1 \
-        libxcursor1:i386 \
-        libxrandr2 \
-        libxrandr2:i386 \
-        libxss1 \
-        libxss1:i386 \
-        libxtst6 \
-        libxtst6:i386 \
-        libxi6 \
-        libxi6:i386 \
-        libxkbfile1 \
-        libxkbfile1:i386 \
-        libasound2:i386 \
-        libgtk-3-0:i386 \
-        libdbus-1-3 \
-        libdbus-1-3:i386 \
-        # ARK服务器依赖
-        libelf1 \
-        libelf1:i386 \
-        libatomic1 \
-        libatomic1:i386 \
-        # 系统工具
+        # 基础系统工具
         nano \
         net-tools \
         netcat-openbsd \
@@ -96,16 +31,96 @@ RUN apt-get update \
         unzip \
         bzip2 \
         xz-utils \
-        zlib1g:i386 \
         fonts-wqy-zenhei \
         fonts-wqy-microhei \
         libc6 \
-        libc6:i386 \
         acl \
         sudo \
     && apt-get autoremove -y \
     && apt-get autoclean \
     && rm -rf /var/lib/apt/lists/*
+
+# 仅在AMD64架构上安装游戏服务器依赖和i386架构支持
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        echo "检测到AMD64架构，安装游戏服务器依赖..." && \
+        dpkg --add-architecture i386 && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends \
+            # 游戏服务器依赖
+            libncurses6:i386 \
+            libbz2-1.0:i386 \
+            libicu-dev \
+            libxml2:i386 \
+            libstdc++6:i386 \
+            lib32gcc-s1 \
+            libc6-i386 \
+            lib32stdc++6 \
+            libcurl4-gnutls-dev:i386 \
+            libcurl4-gnutls-dev \
+            libgl1 \
+            gcc-13-base:i386 \
+            libssl3:i386 \
+            libopenal1:i386 \
+            libtinfo6:i386 \
+            libtcmalloc-minimal4:i386 \
+            # .NET和Mono相关依赖
+            libgdiplus \
+            libc6-dev \
+            libasound2 \
+            libpulse0 \
+            libnss3 \
+            libcap2 \
+            libatk1.0-0 \
+            libcairo2 \
+            libcups2 \
+            libgtk-3-0 \
+            libgdk-pixbuf-2.0-0 \
+            libpango-1.0-0 \
+            libx11-6 \
+            libxt6 \
+            # Unity游戏服务端依赖
+            libsdl2-2.0-0:i386 \
+            libsdl2-2.0-0 \
+            libpulse0:i386 \
+            libfontconfig1:i386 \
+            libfontconfig1 \
+            libudev1:i386 \
+            libudev1 \
+            libpugixml1v5 \
+            libvulkan1 \
+            libvulkan1:i386 \
+            libatk1.0-0:i386 \
+            libxcomposite1 \
+            libxcomposite1:i386 \
+            libxcursor1 \
+            libxcursor1:i386 \
+            libxrandr2 \
+            libxrandr2:i386 \
+            libxss1 \
+            libxss1:i386 \
+            libxtst6 \
+            libxtst6:i386 \
+            libxi6 \
+            libxi6:i386 \
+            libxkbfile1 \
+            libxkbfile1:i386 \
+            libasound2:i386 \
+            libgtk-3-0:i386 \
+            libdbus-1-3 \
+            libdbus-1-3:i386 \
+            # ARK服务器依赖
+            libelf1 \
+            libelf1:i386 \
+            libatomic1 \
+            libatomic1:i386 \
+            zlib1g:i386 \
+            libc6:i386 && \
+        apt-get autoremove -y && \
+        apt-get autoclean && \
+        rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "检测到ARM64架构，跳过游戏服务器依赖安装"; \
+    fi
 
 # ---------- 开发工具安装阶段 ----------
 FROM dependencies AS tools
@@ -117,7 +132,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && npm install -g npm@latest \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装Java 21
+# 安装Java 21（支持多架构）
 RUN install -d -m 0755 /usr/share/keyrings \
     && wget -qO /usr/share/keyrings/adoptium.gpg https://packages.adoptium.net/artifactory/api/gpg/key/public \
     && echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" > /etc/apt/sources.list.d/adoptium.list \
@@ -171,12 +186,27 @@ RUN setfacl -R -m u:${STEAM_USER}:rwx /root \
     && chmod 666 /dev/tty* 2>/dev/null || true \
     && chmod 666 /dev/pts/* 2>/dev/null || true
 
-# 设置环境变量
-ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64 \
-    PATH="$JAVA_HOME/bin:$PATH" \
-    LANG=zh_CN.UTF-8 \
+# 设置环境变量（支持多架构）
+# 动态设置JAVA_HOME
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        echo "JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64" >> /etc/environment && \
+        echo "PATH=/usr/lib/jvm/temurin-21-jdk-amd64/bin:\$PATH" >> /etc/environment; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        echo "JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-arm64" >> /etc/environment && \
+        echo "PATH=/usr/lib/jvm/temurin-21-jdk-arm64/bin:\$PATH" >> /etc/environment; \
+    fi
+
+# 设置通用环境变量
+ENV LANG=zh_CN.UTF-8 \
     LANGUAGE=zh_CN:zh \
     LC_ALL=zh_CN.UTF-8
+
+# 为当前构建设置JAVA_HOME（构建时使用）
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        export JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        export JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-arm64; \
+    fi
 
 # ---------- 构建阶段 ----------
 FROM base AS builder
@@ -186,30 +216,47 @@ COPY --chown=steam:steam . /app/
 USER ${STEAM_USER}
 WORKDIR /app
 
-# 使用 npm 构建前后端产物
-RUN npm run install:all \
-    && npm run package:linux:no-zip
+# 使用 npm 构建前后端产物（针对不同架构优化）
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        echo "ARM64架构构建，使用优化配置..." && \
+        export NODE_OPTIONS="--max-old-space-size=2048" && \
+        npm config set fetch-retry-mintimeout 20000 && \
+        npm config set fetch-retry-maxtimeout 120000 && \
+        npm config set fetch-timeout 300000 && \
+        npm run install:all && \
+        npm run package:linux:no-zip; \
+    else \
+        echo "AMD64架构构建，使用标准配置..." && \
+        npm run install:all && \
+        npm run package:linux:no-zip; \
+    fi
 
 # ---------- 运行阶段（最终镜像） ----------
 FROM base AS runtime
 
-# 安装并初始化 SteamCMD
-RUN mkdir -p ${STEAMCMD_DIR} \
-    && cd ${STEAMCMD_DIR} \
-    && wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
-    || wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://media.steampowered.com/installer/steamcmd_linux.tar.gz \
-    && tar -xzvf steamcmd_linux.tar.gz \
-    && rm steamcmd_linux.tar.gz \
-    && chmod +x ${STEAMCMD_DIR}/steamcmd.sh \
-    && cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit \
-    && mkdir -p ${STEAM_HOME}/.steam/sdk32 ${STEAM_HOME}/.steam/sdk64 \
-    && ln -sf ${STEAMCMD_DIR}/linux32/steamclient.so ${STEAM_HOME}/.steam/sdk32/steamclient.so \
-    && ln -sf ${STEAMCMD_DIR}/linux64/steamclient.so ${STEAM_HOME}/.steam/sdk64/steamclient.so \
-    && mkdir -p ${STEAM_HOME}/.steam/sdk32/steamclient.so.dbg.sig ${STEAM_HOME}/.steam/sdk64/steamclient.so.dbg.sig \
-    && mkdir -p ${STEAM_HOME}/.steam/steam \
-    && ln -sf ${STEAMCMD_DIR}/linux32 ${STEAM_HOME}/.steam/steam/linux32 \
-    && ln -sf ${STEAMCMD_DIR}/linux64 ${STEAM_HOME}/.steam/steam/linux64 \
-    && ln -sf ${STEAMCMD_DIR}/steamcmd ${STEAM_HOME}/.steam/steam/steamcmd
+# 仅在AMD64架构上安装并初始化 SteamCMD
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        echo "在AMD64架构上安装SteamCMD..." && \
+        mkdir -p ${STEAMCMD_DIR} && \
+        cd ${STEAMCMD_DIR} && \
+        (wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+        || wget -t 5 --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -O steamcmd_linux.tar.gz https://media.steampowered.com/installer/steamcmd_linux.tar.gz) && \
+        tar -xzvf steamcmd_linux.tar.gz && \
+        rm steamcmd_linux.tar.gz && \
+        chmod +x ${STEAMCMD_DIR}/steamcmd.sh && \
+        cd ${STEAMCMD_DIR} && ./steamcmd.sh +quit && \
+        mkdir -p ${STEAM_HOME}/.steam/sdk32 ${STEAM_HOME}/.steam/sdk64 && \
+        ln -sf ${STEAMCMD_DIR}/linux32/steamclient.so ${STEAM_HOME}/.steam/sdk32/steamclient.so && \
+        ln -sf ${STEAMCMD_DIR}/linux64/steamclient.so ${STEAM_HOME}/.steam/sdk64/steamclient.so && \
+        mkdir -p ${STEAM_HOME}/.steam/sdk32/steamclient.so.dbg.sig ${STEAM_HOME}/.steam/sdk64/steamclient.so.dbg.sig && \
+        mkdir -p ${STEAM_HOME}/.steam/steam && \
+        ln -sf ${STEAMCMD_DIR}/linux32 ${STEAM_HOME}/.steam/steam/linux32 && \
+        ln -sf ${STEAMCMD_DIR}/linux64 ${STEAM_HOME}/.steam/steam/linux64 && \
+        ln -sf ${STEAMCMD_DIR}/steamcmd ${STEAM_HOME}/.steam/steam/steamcmd; \
+    else \
+        echo "ARM64架构，跳过SteamCMD安装" && \
+        mkdir -p ${STEAMCMD_DIR} ${GAMES_DIR}; \
+    fi
 
 # 拷贝构建产物与默认数据
 COPY --from=builder /app/dist/package/ /root/

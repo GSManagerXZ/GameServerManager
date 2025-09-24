@@ -8,7 +8,10 @@ volumes:
 
 services:
   management_panel:
-    build: .
+    build:
+      context: .
+      # 默认构建当前平台架构
+      # 如需指定架构，请使用 docker-compose-arm64.yml
     container_name: GSManager3
     image: xiaozhu674/gameservermanager:latest
     user: root                       
