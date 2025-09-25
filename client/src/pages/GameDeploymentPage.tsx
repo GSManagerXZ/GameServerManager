@@ -1366,10 +1366,13 @@ const GameDeploymentPage: React.FC = () => {
     }
   }, [activeTab, sponsorKeyValid, defaultGamePath, fetchSystemInfo])
 
-  // 当检测到ARM架构时，如果当前标签页是steamcmd，则切换到minecraft标签页
+  // 当检测到ARM架构时，如果当前标签页是不支持的标签页，则切换到minecraft标签页
   useEffect(() => {
-    if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') && activeTab === 'steamcmd') {
-      setActiveTab('minecraft')
+    if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64')) {
+      const unsupportedTabs = ['steamcmd', 'more-games', 'online-deploy']
+      if (unsupportedTabs.includes(activeTab)) {
+        setActiveTab('minecraft')
+      }
     }
   }, [systemInfo, activeTab])
 
@@ -2044,7 +2047,7 @@ const GameDeploymentPage: React.FC = () => {
   // 检查是否有任何游戏包含type信息
   const hasGameTypes = availableOnlineGameTypes.length > 0
 
-  // 检查是否为ARM架构，如果是则隐藏SteamCMD标签页
+  // 检查是否为ARM架构，如果是则隐藏SteamCMD、更多游戏部署和在线部署标签页
   const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
 
   const tabs = [
@@ -2052,8 +2055,11 @@ const GameDeploymentPage: React.FC = () => {
     ...(isArmArchitecture ? [] : [{ id: 'steamcmd', name: 'SteamCMD', icon: Download }]),
     { id: 'minecraft', name: 'Minecraft部署', icon: Pickaxe },
     { id: 'mrpack', name: 'Minecraft整合包部署', icon: Package },
-    { id: 'more-games', name: '更多游戏部署', icon: Server },
-    { id: 'online-deploy', name: '在线部署', icon: ExternalLink }
+    // 只有在非ARM架构时才显示更多游戏部署和在线部署标签页
+    ...(isArmArchitecture ? [] : [
+      { id: 'more-games', name: '更多游戏部署', icon: Server },
+      { id: 'online-deploy', name: '在线部署', icon: ExternalLink }
+    ])
   ]
 
   if (loading) {

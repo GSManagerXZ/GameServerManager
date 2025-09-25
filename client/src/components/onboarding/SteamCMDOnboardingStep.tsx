@@ -223,6 +223,50 @@ const SteamCMDOnboardingStep: React.FC = () => {
   }
 
   const isWindows = systemInfo?.platform?.toLowerCase().includes('windows')
+  const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
+
+  // ARM架构下自动完成步骤
+  useEffect(() => {
+    if (isArmArchitecture) {
+      // 延迟一下让用户看到提示信息
+      const timer = setTimeout(() => {
+        completeStep('steamcmd')
+      }, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [isArmArchitecture, completeStep])
+
+  // 如果是ARM架构，显示不支持的提示
+  if (isArmArchitecture) {
+    return (
+      <div className="space-y-6">
+        {/* ARM架构不支持提示 */}
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-6">
+          <div className="flex items-start space-x-4">
+            <div className="p-3 rounded-lg bg-orange-500/20 flex-shrink-0">
+              <Monitor className="w-8 h-8 text-orange-500" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-orange-900 dark:text-orange-100 mb-2">
+                ARM架构检测
+              </h3>
+              <p className="text-orange-800 dark:text-orange-200 mb-4">
+                检测到您当前使用的是ARM架构（{systemInfo?.arch}），SteamCMD目前不支持ARM架构。
+              </p>
+              <div className="space-y-2 text-sm text-orange-700 dark:text-orange-300">
+                <p>• SteamCMD仅支持x86_64架构</p>
+                <p>• ARM架构下将自动跳过SteamCMD配置</p>
+                <p>• 您仍可以使用其他游戏部署功能，如Minecraft服务器</p>
+              </div>
+              <div className="mt-4 text-sm text-orange-600 dark:text-orange-400">
+                正在自动跳过此步骤...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

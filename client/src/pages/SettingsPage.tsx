@@ -4,6 +4,7 @@ import { useThemeStore } from '@/stores/themeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useOnboardingStore } from '@/stores/onboardingStore'
+import { useSystemStore } from '@/stores/systemStore'
 import AutoRedirectControl from '@/components/AutoRedirectControl'
 import apiClient from '@/utils/api'
 import {
@@ -36,6 +37,7 @@ const SettingsPage: React.FC = () => {
   const { user, changePassword, changeUsername, logout } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const { resetOnboarding, setShowOnboarding } = useOnboardingStore()
+  const { systemInfo, fetchSystemInfo } = useSystemStore()
   const [showDeveloperWarning, setShowDeveloperWarning] = useState(false)
   
   // 城市选项数据
@@ -597,7 +599,8 @@ const SettingsPage: React.FC = () => {
   // 页面加载时获取SteamCMD状态和本地设置
   React.useEffect(() => {
     fetchSteamCMDStatus()
-    
+    fetchSystemInfo() // 获取系统信息以检测ARM架构
+
     // 从localStorage加载网页设置
     try {
       const savedWebSettings = localStorage.getItem('webSettings')
@@ -1053,7 +1056,8 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
         
-        {/* SteamCMD设置 */}
+        {/* SteamCMD设置 - 检测到ARM架构时隐藏 */}
+        {!(systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64') && (
         <div className="card-game p-6">
           <div className="flex items-center space-x-3 mb-6">
             <Download className="w-5 h-5 text-green-500" />
@@ -1253,7 +1257,8 @@ const SettingsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        
+        )}
+
         {/* 赞助者密钥 */}
         <div className="card-game p-6">
           <div className="flex items-center space-x-3 mb-6">

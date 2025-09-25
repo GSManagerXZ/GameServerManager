@@ -25,6 +25,7 @@ import GlobalSystemAlert from '@/components/GlobalSystemAlert'
 import GlobalSystemAlertManager from '@/components/GlobalSystemAlertManager'
 import BrowserCompatibilityChecker from '@/components/BrowserCompatibilityChecker'
 import OnboardingWizard from '@/components/OnboardingWizard'
+import ArmWarningModal from '@/components/ArmWarningModal'
 
 // GlobalMusicPlayer包装器组件 - 只在已登录时显示
 const GlobalMusicPlayerWrapper: React.FC = () => {
@@ -180,6 +181,11 @@ function App() {
             {/* 新手引导 - 只在已登录时显示 */}
             <ProtectedRoute>
               <OnboardingWizard />
+            </ProtectedRoute>
+
+            {/* ARM架构警告弹窗 - 只在已登录时显示 */}
+            <ProtectedRoute>
+              <ArmWarningModal />
             </ProtectedRoute>
           </div>
         </AntdApp>

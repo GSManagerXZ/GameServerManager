@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { SystemInfo } from '@/types'
 
 export interface OnboardingStep {
   id: string
@@ -20,27 +21,30 @@ export interface OnboardingState {
 interface OnboardingStore extends OnboardingState {
   // 设置首次登录状态
   setFirstLogin: (isFirst: boolean) => void
-  
+
   // 显示/隐藏引导
   setShowOnboarding: (show: boolean) => void
-  
+
   // 步骤导航
   nextStep: () => void
   prevStep: () => void
   goToStep: (stepIndex: number) => void
-  
+
   // 步骤状态管理
   completeStep: (stepId: string) => void
   skipStep: (stepId: string) => void
-  
+
   // 完成引导
   completeOnboarding: () => void
-  
+
   // 重置引导
   resetOnboarding: () => void
-  
+
   // 检查是否需要显示引导
   shouldShowOnboarding: () => boolean
+
+  // 根据系统信息更新步骤列表
+  updateStepsForSystem: (systemInfo: SystemInfo | null) => void
 }
 
 const defaultSteps: OnboardingStep[] = [
@@ -143,6 +147,28 @@ export const useOnboardingStore = create<OnboardingStore>()(
       shouldShowOnboarding: () => {
         const { isFirstLogin, isOnboardingComplete, showOnboarding } = get()
         return isFirstLogin && !isOnboardingComplete && showOnboarding
+      },
+
+      updateStepsForSystem: (systemInfo: SystemInfo | null) => {
+        // 检查是否为ARM架构
+        const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
+
+        let filteredSteps = [...defaultSteps]
+
+        // 如果是ARM架构，过滤掉SteamCMD步骤
+        if (isArmArchitecture) {
+          filteredSteps = defaultSteps.filter(step => step.id !== 'steamcmd')
+        }
+
+        const { currentStep } = get()
+
+        // 如果当前步骤数超过了新的步骤列表长度，调整当前步骤
+        const newCurrentStep = currentStep >= filteredSteps.length ? Math.max(0, filteredSteps.length - 1) : currentStep
+
+        set({
+          steps: filteredSteps,
+          currentStep: newCurrentStep
+        })
       }
     }),
     {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useOnboardingStore } from '@/stores/onboardingStore'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useSystemStore } from '@/stores/systemStore'
 import { X, ChevronLeft, ChevronRight, Check, SkipForward, Save, Loader2 } from 'lucide-react'
 import SteamCMDOnboardingStep from './onboarding/SteamCMDOnboardingStep'
 import GamePathOnboardingStep from './onboarding/GamePathOnboardingStep'
@@ -14,9 +15,11 @@ const OnboardingWizard: React.FC = () => {
     nextStep,
     prevStep,
     completeOnboarding,
-    setShowOnboarding
+    setShowOnboarding,
+    updateStepsForSystem
   } = useOnboardingStore()
   const { addNotification } = useNotificationStore()
+  const { systemInfo, fetchSystemInfo } = useSystemStore()
 
   // 动画状态管理
   const [isVisible, setIsVisible] = useState(false)
@@ -38,6 +41,21 @@ const OnboardingWizard: React.FC = () => {
   useEffect(() => {
     setStepContentKey(prev => prev + 1)
   }, [currentStep])
+
+  // 获取系统信息并根据架构更新步骤列表
+  useEffect(() => {
+    const initializeSteps = async () => {
+      await fetchSystemInfo()
+    }
+    initializeSteps()
+  }, [fetchSystemInfo])
+
+  // 当系统信息更新时，根据架构调整步骤列表
+  useEffect(() => {
+    if (systemInfo) {
+      updateStepsForSystem(systemInfo)
+    }
+  }, [systemInfo, updateStepsForSystem])
 
   // 如果不需要显示引导，返回null
   if (!shouldShowOnboarding() || !showOnboarding) {

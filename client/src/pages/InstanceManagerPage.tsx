@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { Instance, CreateInstanceRequest } from '@/types'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useSystemStore } from '@/stores/systemStore'
 import apiClient from '@/utils/api'
 import { ConfirmDeleteDialog } from '@/components/ConfirmDeleteDialog'
 import { ConfirmStartDialog } from '@/components/ConfirmStartDialog'
@@ -65,6 +66,7 @@ interface InstallInstanceRequest {
 const InstanceManagerPage: React.FC = () => {
   const navigate = useNavigate()
   const { addNotification } = useNotificationStore()
+  const { systemInfo, fetchSystemInfo } = useSystemStore()
   const [activeTab, setActiveTab] = useState<'instances' | 'market' | 'gameConfig' | 'rcon'>('instances')
   const [instances, setInstances] = useState<Instance[]>([])
   const [marketInstances, setMarketInstances] = useState<MarketInstance[]>([])
@@ -449,6 +451,7 @@ const InstanceManagerPage: React.FC = () => {
     fetchInstances()
     fetchAvailableConfigs()
     fetchSystemUsers()
+    fetchSystemInfo() // 获取系统信息以检测ARM架构
   }, [])
 
   useEffect(() => {
@@ -456,6 +459,13 @@ const InstanceManagerPage: React.FC = () => {
       fetchMarketInstances()
     }
   }, [activeTab])
+
+  // 当检测到ARM架构时，如果当前标签页是实例市场，则切换到我的实例标签页
+  useEffect(() => {
+    if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') && activeTab === 'market') {
+      setActiveTab('instances')
+    }
+  }, [systemInfo, activeTab])
 
   // 监听configData变化
   useEffect(() => {
@@ -1059,19 +1069,22 @@ const InstanceManagerPage: React.FC = () => {
               <span>我的实例</span>
             </div>
           </button>
-          <button
-            onClick={() => setActiveTab('market')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'market'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <div className="flex items-center space-x-2">
-              <ShoppingCart className="w-4 h-4" />
-              <span>实例市场</span>
-            </div>
-          </button>
+          {/* 实例市场标签页 - 检测到ARM架构时隐藏 */}
+          {!(systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64') && (
+            <button
+              onClick={() => setActiveTab('market')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'market'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <ShoppingCart className="w-4 h-4" />
+                <span>实例市场</span>
+              </div>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('gameConfig')}
             className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${

@@ -67,12 +67,10 @@ gh workflow run docker-multiarch.yml -f tag=latest -f platforms="linux/amd64,lin
 
 ### ARM64专用构建
 - 镜像标签：`xiaozhu674/gameservermanager:latest-arm64`
-- 镜像标签：`xiaozhu674/gameservermanager:3.8.1-arm64`
 - 平台：仅 `linux/arm64`
 
 ### 多架构构建  
 - 镜像标签：`xiaozhu674/gameservermanager:latest`
-- 镜像标签：`xiaozhu674/gameservermanager:3.8.1`
 - 平台：`linux/amd64` + `linux/arm64`
 
 ## 验证构建结果

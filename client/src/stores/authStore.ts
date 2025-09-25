@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { AuthState, User, LoginRequest } from '@/types'
+import { AuthState, LoginRequest } from '@/types'
 import apiClient from '@/utils/api'
 import socketClient from '@/utils/socket'
 import { useOnboardingStore } from './onboardingStore'
+import { useArmWarningStore } from '@/stores/armWarningStore'
 
 interface AuthStore extends AuthState {
   // 控制是否在登录过期时自动跳转到登录页面
@@ -17,6 +18,7 @@ interface AuthStore extends AuthState {
   setLoading: (loading: boolean) => void
   setAutoRedirectOnExpire: (enabled: boolean) => void
   handleTokenExpired: () => void
+  checkArmArchitecture: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -59,6 +61,11 @@ export const useAuthStore = create<AuthStore>()(
                 onboardingStore.setShowOnboarding(true)
               }, 1000)
             }
+
+            // 检测ARM架构并显示警告（仅限一次）
+            setTimeout(() => {
+              get().checkArmArchitecture()
+            }, 1500)
 
             return { success: true, message: response.message }
           } else {
@@ -246,6 +253,34 @@ export const useAuthStore = create<AuthStore>()(
         if (autoRedirectOnExpire) {
           // 使用window.location.href确保能够跳转
           window.location.href = '/login'
+        }
+      },
+
+      checkArmArchitecture: async () => {
+        try {
+          // 检查是否已经显示过ARM架构警告
+          const hasShownArmWarning = localStorage.getItem('gsm3_arm_warning_shown')
+          if (hasShownArmWarning === 'true') {
+            return
+          }
+
+          // 获取系统信息
+          const response = await apiClient.get('/environment/system-info')
+          if (response.success && response.data) {
+            const { arch } = response.data
+
+            // 检测ARM架构 (arm64, aarch64, arm)
+            if (arch && (arch.includes('arm') || arch.includes('aarch64'))) {
+              // 显示ARM架构警告
+              const armWarningStore = useArmWarningStore.getState()
+              armWarningStore.showWarning()
+
+              // 标记已显示过警告
+              localStorage.setItem('gsm3_arm_warning_shown', 'true')
+            }
+          }
+        } catch (error) {
+          console.error('检测ARM架构失败:', error)
         }
       },
     }),
