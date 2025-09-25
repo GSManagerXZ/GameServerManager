@@ -18,6 +18,7 @@ import {
   HelpCircle
 } from 'lucide-react'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useSystemStore } from '@/stores/systemStore'
 import apiClient from '@/utils/api'
 import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadProgress, MoreGameInfo, Platform } from '@/types'
 import { io, Socket } from 'socket.io-client'
@@ -45,6 +46,7 @@ interface Games {
 
 const GameDeploymentPage: React.FC = () => {
   const { addNotification } = useNotificationStore()
+  const { systemInfo, fetchSystemInfo } = useSystemStore()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('steamcmd')
 
@@ -1331,6 +1333,8 @@ const GameDeploymentPage: React.FC = () => {
   }
 
   useEffect(() => {
+    // 首次加载时获取系统信息
+    fetchSystemInfo()
     fetchGames()
     if (activeTab === 'minecraft') {
       fetchMinecraftCategories()
@@ -1360,7 +1364,14 @@ const GameDeploymentPage: React.FC = () => {
         setOnlineGameInstallPath(defaultGamePath)
       }
     }
-  }, [activeTab, sponsorKeyValid, defaultGamePath])
+  }, [activeTab, sponsorKeyValid, defaultGamePath, fetchSystemInfo])
+
+  // 当检测到ARM架构时，如果当前标签页是steamcmd，则切换到minecraft标签页
+  useEffect(() => {
+    if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') && activeTab === 'steamcmd') {
+      setActiveTab('minecraft')
+    }
+  }, [systemInfo, activeTab])
 
   // 监听Java版本选择变化，自动更新启动命令
   useEffect(() => {
@@ -2033,8 +2044,12 @@ const GameDeploymentPage: React.FC = () => {
   // 检查是否有任何游戏包含type信息
   const hasGameTypes = availableOnlineGameTypes.length > 0
 
+  // 检查是否为ARM架构，如果是则隐藏SteamCMD标签页
+  const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
+
   const tabs = [
-    { id: 'steamcmd', name: 'SteamCMD', icon: Download },
+    // 只有在非ARM架构时才显示SteamCMD标签页
+    ...(isArmArchitecture ? [] : [{ id: 'steamcmd', name: 'SteamCMD', icon: Download }]),
     { id: 'minecraft', name: 'Minecraft部署', icon: Pickaxe },
     { id: 'mrpack', name: 'Minecraft整合包部署', icon: Package },
     { id: 'more-games', name: '更多游戏部署', icon: Server },

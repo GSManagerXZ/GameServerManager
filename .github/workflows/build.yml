@@ -168,12 +168,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 第五步：验证ARM64镜像
-      - name: 验证ARM64镜像
-        run: |
-          echo "验证ARM64镜像..."
-          docker buildx imagetools inspect xiaozhu674/gameservermanager:latest-arm64
-
   # 创建发布版本（仅在推送标签时触发）
   create_release:
     if: startsWith(github.ref, 'refs/tags/v')
