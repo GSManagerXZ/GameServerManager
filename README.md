@@ -43,6 +43,8 @@ GameServerManager 3.0（简称GSM3）是一个基于现代化技术栈的游戏�
 
 ## 本地开发部署
 
+### 标准部署（x86_64）
+
 ```bash
 # 安装依赖
 npm run install:all
@@ -53,6 +55,39 @@ npm run dev
 # 生产模式构建
 npm run package:<windows/linux>
 ```
+
+### ARM64 架构部署
+
+如果您在 ARM64 架构的系统上开发，或需要在 x86_64 系统上通过 QEMU 模拟 ARM64 环境：
+
+#### 环境准备
+```bash
+# 安装 QEMU 用户模式模拟器
+sudo apt-get install qemu-user-static
+
+# 安装 ARM64 交叉编译库
+sudo apt-get install libc6-dev-arm64-cross
+
+# 确保 ARM64 Node.js v20.19.0 已安装到指定路径
+# /home/xiaozhu/qemu/Node/node-v20.19.0-linux-arm64/
+```
+
+#### 一键启动
+```bash
+# 安装所有依赖并启动双终端开发环境（推荐）
+./start-arm64.sh
+
+# 或者仅启动开发环境（假设依赖已安装）
+./dev-arm64.sh
+
+# 其他选项
+./start-arm64.sh install    # 仅安装依赖
+./start-arm64.sh dev-dual   # 双终端模式（推荐）
+./start-arm64.sh dev-simple # 后台模式
+./start-arm64.sh help       # 显示帮助信息
+```
+
+详细的 ARM64 部署说明请参考 [scripts/arm/README.md](scripts/arm/README.md)
 ## 🏗️ 技术架构
 
 ### 前端技术栈
