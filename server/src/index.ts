@@ -36,6 +36,7 @@ import { minecraftRouter, setMinecraftDependencies } from './routes/minecraft.js
 import moreGamesRouter from './routes/moreGames.js'
 import weatherRouter from './routes/weather.js'
 import pluginsRouter, { setPluginManager } from './routes/plugins.js'
+import backupRoutes from './routes/backup.js'
 import pluginApiRouter, { setPluginApiDependencies } from './routes/pluginApi.js'
 import sponsorRouter, { setSponsorDependencies } from './routes/sponsor.js'
 import onlineDeployRouter from './routes/onlineDeploy.js'
@@ -608,6 +609,7 @@ async function startServer() {
     app.use('/api/scheduled-tasks', setupScheduledTaskRoutes(schedulerManager))
     app.use('/api/config', setupConfigRoutes(configManager))
     app.use('/api/settings', setupSettingsRoutes(configManager))
+    app.use('/api/backup', backupRoutes)
     
     // 设置SteamCMD管理器和路由
     setSteamCMDManager(steamcmdManager, logger)

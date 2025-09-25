@@ -17,11 +17,16 @@ import ConfirmDeleteTaskDialog from '@/components/ConfirmDeleteTaskDialog'
 interface ScheduledTask {
   id: string
   name: string
-  type: 'power' | 'command'
+  type: 'power' | 'command' | 'backup'
   instanceId?: string
   instanceName?: string
   action?: 'start' | 'stop' | 'restart'
   command?: string
+  // 备份
+  backupSourcePath?: string
+  backupName?: string
+  maxKeep?: number
+  checkInstanceRunning?: boolean
   schedule: string
   enabled: boolean
   nextRun?: string
@@ -48,10 +53,14 @@ const ScheduledTasksPage: React.FC = () => {
   const [taskToDelete, setTaskToDelete] = useState<ScheduledTask | null>(null)
   const [formData, setFormData] = useState({
     name: '',
-    type: 'power' as 'power' | 'command',
+    type: 'power' as 'power' | 'command' | 'backup',
     instanceId: '',
     action: 'start' as 'start' | 'stop' | 'restart',
     command: '',
+    backupSourcePath: '',
+    backupName: '',
+    maxKeep: 0,
+    checkInstanceRunning: false,
     schedule: '',
     enabled: true
   })
@@ -132,10 +141,57 @@ const ScheduledTasksPage: React.FC = () => {
       return
     }
 
+    if (formData.type === 'backup') {
+      if (!formData.backupSourcePath.trim()) {
+        addNotification({
+          type: 'error',
+          title: '验证失败',
+          message: '请输入需要备份文件夹的绝对路径'
+        })
+        return
+      }
+      if (!formData.backupName.trim()) {
+        addNotification({
+          type: 'error',
+          title: '验证失败',
+          message: '请输入备份名称'
+        })
+        return
+      }
+      if (formData.checkInstanceRunning && !formData.instanceId) {
+        addNotification({
+          type: 'error',
+          title: '验证失败',
+          message: '已勾选关联实例时必须选择实例'
+        })
+        return
+      }
+    }
+
     try {
       const taskData = {
         ...formData,
         instanceName: instances.find(i => i.id === formData.instanceId)?.name
+      } as any
+
+      // 按任务类型清理无关字段，避免后端校验失败
+      if (taskData.type !== 'power') {
+        delete taskData.action
+      }
+      if (taskData.type !== 'command') {
+        delete taskData.command
+      }
+      if (taskData.type !== 'backup') {
+        delete taskData.backupSourcePath
+        delete taskData.backupName
+        delete taskData.maxKeep
+        delete taskData.checkInstanceRunning
+      } else {
+        if (!taskData.checkInstanceRunning) {
+          // 未关联实例时不发送 instanceId
+          delete taskData.instanceId
+          delete taskData.instanceName
+        }
       }
 
       if (editingTask) {
@@ -182,6 +238,10 @@ const ScheduledTasksPage: React.FC = () => {
       instanceId: task.instanceId || '',
       action: task.action || 'start',
       command: task.command || '',
+      backupSourcePath: task.backupSourcePath || '',
+      backupName: task.backupName || '',
+      maxKeep: task.maxKeep ?? 0,
+      checkInstanceRunning: task.checkInstanceRunning ?? false,
       schedule: task.schedule,
       enabled: task.enabled
     })
@@ -258,6 +318,10 @@ const ScheduledTasksPage: React.FC = () => {
       instanceId: '',
       action: 'start',
       command: '',
+      backupSourcePath: '',
+      backupName: '',
+      maxKeep: 0,
+      checkInstanceRunning: false,
       schedule: '',
       enabled: true
     })
@@ -442,31 +506,35 @@ const ScheduledTasksPage: React.FC = () => {
                   </label>
                   <select
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as 'power' | 'command' })}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value as 'power' | 'command' | 'backup' })}
                     className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="power">电源管理</option>
                     <option value="command">命令执行</option>
+                    <option value="backup">文件夹备份</option>
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-black dark:text-white mb-1">
-                    目标实例
-                  </label>
-                  <select
-                    value={formData.instanceId}
-                    onChange={(e) => setFormData({ ...formData, instanceId: e.target.value })}
-                    className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">选择实例</option>
-                    {instances.map((instance) => (
-                      <option key={instance.id} value={instance.id}>
-                        {instance.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {(formData.type === 'power' || formData.type === 'command' || formData.checkInstanceRunning) && (
+                  <div>
+                    <label className="block text-sm font-medium text-black dark:text-white mb-1">
+                      目标实例
+                    </label>
+                    <select
+                      value={formData.instanceId}
+                      onChange={(e) => setFormData({ ...formData, instanceId: e.target.value })}
+                      disabled={formData.type === 'backup' && !formData.checkInstanceRunning}
+                      className={`w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${formData.type === 'backup' && !formData.checkInstanceRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <option value="">选择实例</option>
+                      {instances.map((instance) => (
+                        <option key={instance.id} value={instance.id}>
+                          {instance.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {formData.type === 'power' && (
                   <div>
@@ -498,6 +566,62 @@ const ScheduledTasksPage: React.FC = () => {
                       placeholder="输入要执行的命令"
                     />
                   </div>
+                )}
+
+                {formData.type === 'backup' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-black dark:text-white mb-1">
+                        需要备份文件夹的绝对路径
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.backupSourcePath}
+                        onChange={(e) => setFormData({ ...formData, backupSourcePath: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="/absolute/path/to/folder"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-black dark:text-white mb-1">
+                        备份名称
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.backupName}
+                        onChange={(e) => setFormData({ ...formData, backupName: e.target.value })}
+                        className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="例如：人渣、幻兽帕鲁实例备份"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-black dark:text-white mb-1">
+                        最大保存数目
+                      </label>
+                      <input
+                        type="number"
+                        value={formData.maxKeep}
+                        onChange={(e) => setFormData({ ...formData, maxKeep: Number(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        min={0}
+                      />
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="checkInstanceRunning"
+                        checked={formData.checkInstanceRunning}
+                        onChange={(e) => setFormData({ ...formData, checkInstanceRunning: e.target.checked })}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <label htmlFor="checkInstanceRunning" className="text-sm text-black dark:text-white">
+                        关联实例（仅当实例运行时执行备份）
+                      </label>
+                    </div>
+                  </>
                 )}
 
                 <div>

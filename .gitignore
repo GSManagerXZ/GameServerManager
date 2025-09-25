@@ -12,6 +12,7 @@ panel/public/
 .augment/
 .trae/
 .windsurf/
+.cursor/
 
 config.json
 instances.json

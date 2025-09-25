@@ -12,11 +12,16 @@ import { TerminalManager } from '../terminal/TerminalManager.js'
 export interface ScheduledTask {
   id: string
   name: string
-  type: 'power' | 'command'
+  type: 'power' | 'command' | 'backup'
   instanceId?: string
   instanceName?: string
   action?: 'start' | 'stop' | 'restart'
   command?: string
+  // 备份相关
+  backupSourcePath?: string
+  backupName?: string
+  maxKeep?: number
+  checkInstanceRunning?: boolean
   schedule: string
   enabled: boolean
   nextRun?: string
@@ -160,6 +165,8 @@ export class SchedulerManager extends EventEmitter {
         await this.executePowerAction(task.instanceId, task.action)
       } else if (task.type === 'command' && task.instanceId && task.command) {
         await this.executeCommand(task.instanceId, task.command)
+      } else if (task.type === 'backup') {
+        await this.executeBackup(task)
       }
 
       // 更新最后执行时间和下次执行时间
@@ -256,6 +263,31 @@ export class SchedulerManager extends EventEmitter {
       this.logger.error(`向终端会话发送命令失败: ${instanceId}`, error)
       throw new Error(`发送命令失败: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  private async executeBackup(task: ScheduledTask): Promise<void> {
+    // 校验参数
+    if (!task.backupSourcePath || !task.backupName) {
+      throw new Error('备份任务参数不完整')
+    }
+
+    // 若需要检查实例运行状态
+    if (task.checkInstanceRunning && task.instanceId) {
+      if (!this.instanceManager) {
+        throw new Error('InstanceManager未设置')
+      }
+      const instance = this.instanceManager.getInstance(task.instanceId)
+      if (!instance) throw new Error('关联实例不存在')
+      if (instance.status !== 'running') {
+        // 不抛错，记录跳过
+        this.logger.info(`备份任务跳过（实例未运行）: ${task.name}`)
+        return
+      }
+    }
+
+    // 动态导入 BackupManager，避免循环依赖
+    const { backupManager } = await import('../backup/BackupManager.js')
+    await backupManager.createBackup(task.backupName!, task.backupSourcePath!, Number(task.maxKeep || 0))
   }
 
   private getNextRunTime(schedule: string): string {

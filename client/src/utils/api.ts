@@ -535,6 +535,27 @@ class ApiClient {
     return this.patch(`/scheduled-tasks/${id}/toggle`, { enabled })
   }
 
+  // 备份管理API
+  async listBackups() {
+    return this.get('/backup')
+  }
+
+  async createBackupNow(data: { backupName: string; sourcePath: string; maxKeep?: number }) {
+    return this.post('/backup/create', data)
+  }
+
+  async restoreBackup(data: { backupName: string; fileName: string }) {
+    return this.post('/backup/restore', data)
+  }
+
+  async deleteBackupFile(backupName: string, fileName: string) {
+    return this.delete(`/backup/file`, { params: { backupName, fileName } })
+  }
+
+  async deleteBackupFolder(backupName: string) {
+    return this.delete(`/backup/folder`, { params: { backupName } })
+  }
+
   // Minecraft服务端API
   async getMinecraftServerCategories() {
     return this.get('/minecraft/server-categories')

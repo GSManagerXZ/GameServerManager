@@ -11,6 +11,7 @@ import taskRoutes from './tasks.js'
 import gameConfigRoutes from './gameconfig.js'
 import settingsRoutes from './settings.js'
 import environmentRoutes from './environment.js'
+import backupRoutes from './backup.js'
 
 const router = Router()
 
@@ -47,5 +48,6 @@ router.use('/tasks', taskRoutes)
 router.use('/gameconfig', gameConfigRoutes)
 router.use('/settings', settingsRoutes)
 router.use('/environment', environmentRoutes)
+router.use('/backup', backupRoutes)
 
 export default router

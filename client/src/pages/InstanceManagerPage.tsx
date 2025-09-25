@@ -29,6 +29,7 @@ import { ConfirmStartDialog } from '@/components/ConfirmStartDialog'
 import { CreateConfigDialog } from '@/components/CreateConfigDialog'
 import SearchableSelect from '@/components/SearchableSelect'
 import RconConsole from '@/components/RconConsole'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 // 获取嵌套对象值的工具函数
 const getNestedValue = (obj: any, ...path: string[]): any => {
@@ -67,7 +68,11 @@ const InstanceManagerPage: React.FC = () => {
   const navigate = useNavigate()
   const { addNotification } = useNotificationStore()
   const { systemInfo, fetchSystemInfo } = useSystemStore()
-  const [activeTab, setActiveTab] = useState<'instances' | 'market' | 'gameConfig' | 'rcon'>('instances')
+  const [activeTab, setActiveTab] = useState<'instances' | 'market' | 'gameConfig' | 'rcon' | 'backup'>('instances')
+  const [backups, setBackups] = useState<Array<{ name: string; baseDir: string; files: { fileName: string; size: number; modified: string }[]; meta?: { sourcePath?: string } }>>([])
+  const [loadingBackups, setLoadingBackups] = useState(false)
+  const [expandedBackup, setExpandedBackup] = useState<string | null>(null)
+  const [restoreDialog, setRestoreDialog] = useState<{ visible: boolean; backupName: string; fileName: string; sourcePath?: string } | null>(null)
   const [instances, setInstances] = useState<Instance[]>([])
   const [marketInstances, setMarketInstances] = useState<MarketInstance[]>([])
   const [loading, setLoading] = useState(true)
@@ -458,7 +463,56 @@ const InstanceManagerPage: React.FC = () => {
     if (activeTab === 'market' && marketInstances.length === 0) {
       fetchMarketInstances()
     }
+    if (activeTab === 'backup') {
+      loadBackups()
+    }
   }, [activeTab])
+
+  const loadBackups = async () => {
+    try {
+      setLoadingBackups(true)
+      const response = await apiClient.listBackups()
+      if (response.success) {
+        setBackups(response.data || [])
+      }
+    } catch (error) {
+      console.error('获取备份列表失败:', error)
+      addNotification({
+        type: 'error',
+        title: '获取失败',
+        message: '无法获取备份列表'
+      })
+    } finally {
+      setLoadingBackups(false)
+    }
+  }
+
+  const handleRestoreBackup = async (backupName: string, fileName: string) => {
+    try {
+      const resp = await apiClient.restoreBackup({ backupName, fileName })
+      if (resp.success) {
+        addNotification({ type: 'success', title: '恢复成功', message: '备份已恢复到原路径' })
+      } else {
+        throw new Error(resp.message || '恢复失败')
+      }
+    } catch (error: any) {
+      addNotification({ type: 'error', title: '恢复失败', message: error.message || '恢复失败' })
+    }
+  }
+
+  const handleDeleteBackupFile = async (backupName: string, fileName: string) => {
+    try {
+      const resp = await apiClient.deleteBackupFile(backupName, fileName)
+      if (resp.success) {
+        addNotification({ type: 'success', title: '删除成功', message: '备份文件已删除' })
+        loadBackups()
+      } else {
+        throw new Error(resp.message || '删除失败')
+      }
+    } catch (error: any) {
+      addNotification({ type: 'error', title: '删除失败', message: error.message || '删除失败' })
+    }
+  }
 
   // 当检测到ARM架构时，如果当前标签页是实例市场，则切换到我的实例标签页
   useEffect(() => {
@@ -1111,6 +1165,19 @@ const InstanceManagerPage: React.FC = () => {
               <span>RCON控制台</span>
             </div>
           </button>
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'backup'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <Clock className="w-4 h-4" />
+              <span>备份管理</span>
+            </div>
+          </button>
         </nav>
       </div>
 
@@ -1742,7 +1809,115 @@ const InstanceManagerPage: React.FC = () => {
         </div>
       ) : activeTab === 'rcon' ? (
         <RconConsole />
+      ) : activeTab === 'backup' ? (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">备份列表</h3>
+            {loadingBackups ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader className="w-8 h-8 animate-spin text-blue-500" />
+                <span className="ml-2 text-gray-600 dark:text-gray-400">加载备份中...</span>
+              </div>
+            ) : backups.length === 0 ? (
+              <div className="text-center py-12">
+                <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">暂无备份</h3>
+                <p className="text-gray-600 dark:text-gray-400">请先通过定时任务创建文件夹备份</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {backups.map((b) => (
+                  <div key={b.name} className="bg-white dark:bg-gray-900/40 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="cursor-pointer" onClick={() => setExpandedBackup(prev => prev === b.name ? null : b.name)}>
+                        <h4 className="text-md font-semibold text-gray-900 dark:text-white">{b.name}</h4>
+                        {b.meta?.sourcePath && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400">源路径: {b.meta.sourcePath}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => setExpandedBackup(prev => prev === b.name ? null : b.name)}
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          {expandedBackup === b.name ? '收起' : '展开'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const ok = confirm('确认删除整个备份文件夹及其所有文件吗？该操作不可恢复。')
+                            if (!ok) return
+                            try {
+                              const resp = await apiClient.deleteBackupFolder(b.name)
+                              if (resp.success) {
+                                addNotification({ type: 'success', title: '删除成功', message: '备份文件夹已删除' })
+                                loadBackups()
+                              } else {
+                                throw new Error(resp.message || '删除失败')
+                              }
+                            } catch (e: any) {
+                              addNotification({ type: 'error', title: '删除失败', message: e.message || '删除失败' })
+                            }
+                          }}
+                          className="text-red-600 dark:text-red-400 hover:underline"
+                        >
+                          删除备份
+                        </button>
+                      </div>
+                    </div>
+                    {expandedBackup === b.name && (
+                      <div className="space-y-2 mt-3">
+                        {b.files.length === 0 ? (
+                          <p className="text-sm text-gray-500 dark:text-gray-400">暂无备份文件</p>
+                        ) : (
+                          b.files.map(f => (
+                            <div key={f.fileName} className="flex items-center justify-between p-2 bg-white/60 dark:bg-gray-800/60 rounded">
+                              <div>
+                                <p className="text-sm text-gray-900 dark:text-white">{f.fileName}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(f.modified).toLocaleString()} • {(f.size/1024/1024).toFixed(2)} MB</p>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  onClick={() => setRestoreDialog({ visible: true, backupName: b.name, fileName: f.fileName, sourcePath: b.meta?.sourcePath })}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                                >
+                                  恢复
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteBackupFile(b.name, f.fileName)}
+                                  className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       ) : null}
+
+      {/* 恢复备份确认弹窗 */}
+      <ConfirmDialog
+        visible={Boolean(restoreDialog?.visible)}
+        title="恢复备份确认"
+        message={`将把所选备份解压到原路径：${restoreDialog?.sourcePath || '未知路径'}。恢复过程会覆盖目标路径中的同名文件，请确认已做好重要数据的额外备份和关闭服务端释放文件。`}
+        confirmText="确认恢复"
+        cancelText="取消"
+        type="warning"
+        onConfirm={() => {
+          if (restoreDialog) {
+            handleRestoreBackup(restoreDialog.backupName, restoreDialog.fileName)
+          }
+          setRestoreDialog(null)
+        }}
+        onCancel={() => setRestoreDialog(null)}
+      />
 
       {/* 创建/编辑实例模态框 */}
       {showCreateModal && (

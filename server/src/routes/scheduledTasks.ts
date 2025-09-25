@@ -17,11 +17,15 @@ export function setSchedulerManager(manager: SchedulerManager) {
 // 定时任务验证模式
 const taskSchema = Joi.object({
   name: Joi.string().required().min(1).max(100),
-  type: Joi.string().valid('power', 'command').required(),
-  instanceId: Joi.string().when('type', {
+  type: Joi.string().valid('power', 'command', 'backup').required(),
+  instanceId: Joi.alternatives().conditional('type', {
     is: Joi.valid('power', 'command'),
-    then: Joi.required(),
-    otherwise: Joi.optional()
+    then: Joi.string().required(),
+    otherwise: Joi.when('checkInstanceRunning', {
+      is: true,
+      then: Joi.string().required(),
+      otherwise: Joi.string().optional()
+    })
   }),
   instanceName: Joi.string().optional(),
   action: Joi.string().valid('start', 'stop', 'restart').when('type', {
@@ -34,14 +38,44 @@ const taskSchema = Joi.object({
     then: Joi.string().required().min(1),
     otherwise: Joi.string().allow('').optional()
   }),
+  // 备份参数
+  backupSourcePath: Joi.when('type', {
+    is: 'backup',
+    then: Joi.string().required(),
+    otherwise: Joi.string().optional()
+  }),
+  backupName: Joi.when('type', {
+    is: 'backup',
+    then: Joi.string().required(),
+    otherwise: Joi.string().optional()
+  }),
+  maxKeep: Joi.when('type', {
+    is: 'backup',
+    then: Joi.number().integer().min(0).default(0),
+    otherwise: Joi.number().integer().optional()
+  }),
+  checkInstanceRunning: Joi.when('type', {
+    is: 'backup',
+    then: Joi.boolean().default(false),
+    otherwise: Joi.boolean().optional()
+  }),
   schedule: Joi.string().required().min(1),
   enabled: Joi.boolean().default(true)
 })
 
 const updateTaskSchema = Joi.object({
   name: Joi.string().min(1).max(100).optional(),
-  type: Joi.string().valid('power', 'command').optional(),
-  instanceId: Joi.string().optional(),
+  type: Joi.string().valid('power', 'command', 'backup').optional(),
+  // 修正：更新时的 instanceId 类型为可选字符串，并与“备份+checkInstanceRunning”联动
+  instanceId: Joi.alternatives().conditional('type', {
+    is: Joi.valid('power', 'command'),
+    then: Joi.string().optional(),
+    otherwise: Joi.when('checkInstanceRunning', {
+      is: true,
+      then: Joi.string().required(),
+      otherwise: Joi.string().optional()
+    })
+  }),
   instanceName: Joi.string().optional(),
   action: Joi.string().valid('start', 'stop', 'restart').optional(),
   command: Joi.when('type', {
@@ -49,6 +83,10 @@ const updateTaskSchema = Joi.object({
     then: Joi.string().required().min(1),
     otherwise: Joi.string().allow('').optional()
   }),
+  backupSourcePath: Joi.string().optional(),
+  backupName: Joi.string().optional(),
+  maxKeep: Joi.number().integer().min(0).optional(),
+  checkInstanceRunning: Joi.boolean().optional(),
   schedule: Joi.string().min(1).optional(),
   enabled: Joi.boolean().optional()
 })
