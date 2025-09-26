@@ -663,6 +663,12 @@ async function startServer() {
     // 设置开发者路由
     app.use('/api/developer', setupDeveloperRoutes(configManager))
 
+    // 设置安全配置路由
+    const { setSecurityConfigManager } = await import('./routes/security.js')
+    setSecurityConfigManager(configManager)
+    const securityRouter = (await import('./routes/security.js')).default
+    app.use('/api/security', securityRouter)
+
     // 前端路由处理（SPA支持）
     app.get('*', (req, res) => {
       // 如果是API请求，返回404

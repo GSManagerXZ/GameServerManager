@@ -884,6 +884,22 @@ class ApiClient {
       socketId: data.socketId
     })
   }
+
+  // 安全配置API
+  async getSecurityConfig() {
+    return this.get('/security/config')
+  }
+
+  async updateSecurityConfig(data: {
+    tokenResetRule: 'startup' | 'expire'
+    tokenExpireHours: number | null
+  }) {
+    return this.post('/security/config', data)
+  }
+
+  async resetToken() {
+    return this.post('/security/reset-token')
+  }
 }
 
 // 创建单例实例

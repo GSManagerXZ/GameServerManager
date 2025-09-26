@@ -13,6 +13,10 @@ export interface AppConfig {
     lockoutDuration: number
     sessionTimeout: number
   }
+  security: {
+    tokenResetRule: 'startup' | 'expire' // 令牌重置规则：启动时重置、过期自动重置
+    tokenExpireHours: number | null // 令牌到期时间（小时），null表示永不到期
+  }
   server: {
     port: number
     host: string
@@ -65,6 +69,10 @@ export class ConfigManager {
         lockoutDuration: 15 * 60 * 1000, // 15分钟
         sessionTimeout: 24 * 60 * 60 * 1000 // 24小时
       },
+      security: {
+        tokenResetRule: 'startup', // 默认启动时重置
+        tokenExpireHours: 24 // 默认24小时
+      },
       server: {
         port: parseInt(process.env.PORT || '3001', 10),
         host: process.env.HOST || '0.0.0.0',
@@ -96,6 +104,9 @@ export class ConfigManager {
 
       // 尝试加载现有配置
       await this.loadConfig()
+      
+      // 检查是否需要启动时重置令牌
+      await this.checkAndResetTokenOnStartup()
       
       this.logger.info('配置管理器初始化完成')
     } catch (error) {
@@ -134,6 +145,10 @@ export class ConfigManager {
       auth: {
         ...defaultConfig.auth,
         ...savedConfig.auth
+      },
+      security: {
+        ...defaultConfig.security,
+        ...savedConfig.security
       },
       server: {
         ...defaultConfig.server,
@@ -288,5 +303,69 @@ export class ConfigManager {
     delete this.config.developer
     await this.saveConfig()
     this.logger.info('开发者配置已清除')
+  }
+
+  // 安全配置相关方法
+  getSecurityConfig() {
+    return this.config.security
+  }
+
+  async updateSecurityConfig(updates: Partial<AppConfig['security']>): Promise<void> {
+    this.config.security = {
+      ...this.config.security,
+      ...updates
+    }
+    await this.saveConfig()
+    this.logger.info('安全配置已更新')
+  }
+
+  // 更新JWT配置（包括到期时间）
+  async updateJWTConfig(updates: Partial<AppConfig['jwt']>): Promise<void> {
+    this.config.jwt = {
+      ...this.config.jwt,
+      ...updates
+    }
+    await this.saveConfig()
+    this.logger.info('JWT配置已更新')
+  }
+
+  // 检查并重置令牌（启动时调用）
+  private async checkAndResetTokenOnStartup(): Promise<void> {
+    const securityConfig = this.config.security
+    
+    if (securityConfig.tokenResetRule === 'startup') {
+      // 检查是否有启动标记文件
+      const startupFlagPath = path.join(path.dirname(this.configPath), '.last_startup')
+      
+      try {
+        const lastStartup = await fs.readFile(startupFlagPath, 'utf-8')
+        const lastStartupTime = new Date(lastStartup)
+        const now = new Date()
+        
+        // 如果距离上次启动超过1分钟，则重置令牌
+        const timeDiff = now.getTime() - lastStartupTime.getTime()
+        if (timeDiff > 60000) { // 1分钟
+          await this.regenerateJWTSecret()
+          this.logger.info('启动时重置JWT密钥（距离上次启动超过1分钟）')
+        } else {
+          this.logger.info('启动时跳过JWT密钥重置（距离上次启动不足1分钟）') 
+        }
+      } catch (error: any) {
+        if (error.code === 'ENOENT') {
+          // 文件不存在，说明是首次启动或很久没启动，重置令牌
+          await this.regenerateJWTSecret()
+          this.logger.info('启动时重置JWT密钥（首次启动或启动标记文件不存在）')
+        } else {
+          this.logger.error('检查启动标记文件失败:', error)
+        }
+      }
+      
+      // 更新启动标记文件
+      try {
+        await fs.writeFile(startupFlagPath, new Date().toISOString(), 'utf-8')
+      } catch (error) {
+        this.logger.error('更新启动标记文件失败:', error)
+      }
+    }
   }
 }

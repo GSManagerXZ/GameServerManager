@@ -28,8 +28,11 @@ import {
   MapPin,
   RefreshCw,
   Code,
-  AlertTriangle
+  AlertTriangle,
+  Lock,
+  Clock
 } from 'lucide-react'
+import SecurityWarningModal from '@/components/SecurityWarningModal'
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate()
@@ -146,6 +149,18 @@ const SettingsPage: React.FC = () => {
 
   // Steam游戏部署清单更新状态
   const [gameListUpdateLoading, setGameListUpdateLoading] = useState(false)
+
+  // 安全配置状态
+  const [securityConfig, setSecurityConfig] = useState({
+    tokenResetRule: 'startup' as 'startup' | 'expire',
+    tokenExpireHours: 24 as number | null
+  })
+  const [securityLoading, setSecurityLoading] = useState(false)
+  const [showSecurityWarning, setShowSecurityWarning] = useState(false)
+  const [pendingSecurityConfig, setPendingSecurityConfig] = useState<{
+    tokenResetRule: 'startup' | 'expire'
+    tokenExpireHours: number | null
+  } | null>(null)
 
   // 处理密码修改
   const handlePasswordChange = async (e: React.FormEvent) => {
@@ -690,6 +705,7 @@ const SettingsPage: React.FC = () => {
     loadTerminalSettings()
     loadGameSettings()
     fetchSystemUsers()
+    loadSecurityConfig()
   }, [])
 
   // 路径变化时检查
@@ -867,6 +883,99 @@ const SettingsPage: React.FC = () => {
 
   const cancelDeveloperAccess = () => {
     setShowDeveloperWarning(false)
+  }
+
+  // 安全配置相关处理函数
+  const loadSecurityConfig = async () => {
+    try {
+      const result = await apiClient.getSecurityConfig()
+      if (result.success && result.data) {
+        setSecurityConfig({
+          tokenResetRule: result.data.tokenResetRule,
+          tokenExpireHours: result.data.tokenExpireHours
+        })
+      }
+    } catch (error) {
+      console.error('加载安全配置失败:', error)
+    }
+  }
+
+  const handleSecurityConfigChange = (updates: Partial<typeof securityConfig>) => {
+    const newConfig = { ...securityConfig, ...updates }
+    
+    // 检查是否设置为永不到期
+    if (updates.tokenExpireHours === null) {
+      setPendingSecurityConfig(newConfig)
+      setShowSecurityWarning(true)
+    } else {
+      setSecurityConfig(newConfig)
+    }
+  }
+
+  const confirmSecurityConfig = async () => {
+    if (!pendingSecurityConfig) return
+
+    setSecurityLoading(true)
+    try {
+      const result = await apiClient.updateSecurityConfig(pendingSecurityConfig)
+      if (result.success) {
+        setSecurityConfig(pendingSecurityConfig)
+        addNotification({
+          type: 'success',
+          title: '安全配置已更新',
+          message: '安全配置已成功保存'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '更新失败',
+          message: result.message || '安全配置更新失败'
+        })
+      }
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '更新失败',
+        message: '网络错误，请稍后重试'
+      })
+    } finally {
+      setSecurityLoading(false)
+      setShowSecurityWarning(false)
+      setPendingSecurityConfig(null)
+    }
+  }
+
+  const cancelSecurityConfig = () => {
+    setShowSecurityWarning(false)
+    setPendingSecurityConfig(null)
+  }
+
+  const handleResetToken = async () => {
+    setSecurityLoading(true)
+    try {
+      const result = await apiClient.resetToken()
+      if (result.success) {
+        addNotification({
+          type: 'success',
+          title: '令牌重置成功',
+          message: result.message || '令牌已重置，所有现有令牌将失效'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '重置失败',
+          message: result.message || '令牌重置失败'
+        })
+      }
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '重置失败',
+        message: '网络错误，请稍后重试'
+      })
+    } finally {
+      setSecurityLoading(false)
+    }
   }
 
   return (
@@ -1473,6 +1582,139 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
 
+        {/* 安全配置 */}
+        <div className="card-game p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <Lock className="w-5 h-5 text-purple-500" />
+            <h2 className="text-lg font-semibold text-black dark:text-white">安全配置</h2>
+          </div>
+          
+          <div className="space-y-6">
+            {/* 令牌重置规则 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-3">
+                令牌重置规则
+              </label>
+              <div className="space-y-3">
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="tokenResetRule"
+                    value="startup"
+                    checked={securityConfig.tokenResetRule === 'startup'}
+                    onChange={(e) => handleSecurityConfigChange({
+                      tokenResetRule: e.target.value as 'startup' | 'expire'
+                    })}
+                    className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                    disabled={securityLoading}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      启动时重置（默认）
+                    </span>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      面板启动时自动重新生成新的令牌，所有现有令牌将失效
+                    </p>
+                  </div>
+                </label>
+                
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="tokenResetRule"
+                    value="expire"
+                    checked={securityConfig.tokenResetRule === 'expire'}
+                    onChange={(e) => handleSecurityConfigChange({
+                      tokenResetRule: e.target.value as 'startup' | 'expire'
+                    })}
+                    className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                    disabled={securityLoading}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      过期自动重置
+                    </span>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      令牌过期时自动失效，需要重新登录
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+            
+            {/* 令牌到期时间 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
+                令牌到期时间
+              </label>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="8760"
+                    value={securityConfig.tokenExpireHours || ''}
+                    onChange={(e) => {
+                      const value = e.target.value ? parseInt(e.target.value) : null
+                      if (value !== null && value > 0) {
+                        handleSecurityConfigChange({ tokenExpireHours: value })
+                      }
+                    }}
+                    className="w-24 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="24"
+                    disabled={securityLoading}
+                  />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">小时</span>
+                </div>
+                
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={securityConfig.tokenExpireHours === null}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        handleSecurityConfigChange({ tokenExpireHours: null })
+                      } else {
+                        handleSecurityConfigChange({ tokenExpireHours: 24 })
+                      }
+                    }}
+                    className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                    disabled={securityLoading}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      永不到期
+                    </span>
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      ⚠️ 存在安全风险，不推荐使用
+                    </p>
+                  </div>
+                </label>
+              </div>
+              
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                当前设置: {securityConfig.tokenExpireHours === null ? '永不到期' : `${securityConfig.tokenExpireHours}小时`}
+              </p>
+            </div>
+            
+            {/* 操作按钮 */}
+            <div className="flex space-x-3">
+              <button
+                onClick={handleResetToken}
+                disabled={securityLoading}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {securityLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4" />
+                )}
+                <span>重置令牌</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* 账户安全 */}
         <div className="card-game p-6">
           <div className="flex items-center space-x-3 mb-6">
@@ -1740,6 +1982,17 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 安全警告弹窗 */}
+      <SecurityWarningModal
+        isOpen={showSecurityWarning}
+        onClose={cancelSecurityConfig}
+        onConfirm={confirmSecurityConfig}
+        title="安全警告"
+        message="您正在设置令牌为永不到期，这将带来严重的安全风险。请确认您了解相关风险并继续操作。"
+        confirmText="确认设置"
+        cancelText="取消"
+      />
     </div>
   )
 }
