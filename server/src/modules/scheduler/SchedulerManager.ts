@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { v4 as uuidv4 } from 'uuid'
 import winston from 'winston'
 import cron from 'node-cron'
@@ -9,10 +10,14 @@ import { GameManager } from '../game/GameManager.js'
 import { InstanceManager } from '../instance/InstanceManager.js'
 import { TerminalManager } from '../terminal/TerminalManager.js'
 
+// ES模块中获取__dirname的替代方案
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 export interface ScheduledTask {
   id: string
   name: string
-  type: 'power' | 'command' | 'backup'
+  type: 'power' | 'command' | 'backup' | 'system'
   instanceId?: string
   instanceName?: string
   action?: 'start' | 'stop' | 'restart'
@@ -22,12 +27,16 @@ export interface ScheduledTask {
   backupName?: string
   maxKeep?: number
   checkInstanceRunning?: boolean
+  // 系统任务相关
+  systemAction?: 'steam_update'
   schedule: string
   enabled: boolean
   nextRun?: string
   lastRun?: string
   createdAt: string
   updatedAt: string
+  // 系统任务标识，不允许删除和编辑
+  isSystemTask?: boolean
 }
 
 interface ScheduledTaskWithJob extends ScheduledTask {
@@ -46,7 +55,9 @@ export class SchedulerManager extends EventEmitter {
     super()
     this.configPath = path.join(dataDir, 'scheduled-tasks.json')
     this.logger = logger
-    this.loadTasks()
+    this.loadTasks().then(() => {
+      this.initializeSystemTasks()
+    })
   }
 
   setGameManager(gameManager: GameManager) {
@@ -59,6 +70,44 @@ export class SchedulerManager extends EventEmitter {
 
   setTerminalManager(terminalManager: TerminalManager) {
     this.terminalManager = terminalManager
+  }
+
+  private async initializeSystemTasks(): Promise<void> {
+    try {
+      // 检查是否已存在Steam更新任务
+      const existingSteamTask = Array.from(this.tasks.values()).find(
+        task => task.isSystemTask && task.systemAction === 'steam_update'
+      )
+
+      if (!existingSteamTask) {
+        // 创建Steam更新任务
+        const steamUpdateTask: ScheduledTask = {
+          id: 'system-steam-update',
+          name: '更新Steam游戏部署清单',
+          type: 'system',
+          systemAction: 'steam_update',
+          schedule: '0 0 * * *', // 每天凌晨00:00
+          enabled: true,
+          isSystemTask: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          nextRun: this.getNextRunTime('0 0 * * *')
+        }
+
+        this.tasks.set(steamUpdateTask.id, steamUpdateTask)
+        
+        if (steamUpdateTask.enabled) {
+          this.scheduleTask(steamUpdateTask.id)
+        }
+        
+        await this.saveTasks()
+        this.logger.info('已创建系统任务: 更新Steam游戏部署清单')
+      } else {
+        this.logger.info('Steam更新任务已存在，跳过创建')
+      }
+    } catch (error) {
+      this.logger.error('初始化系统任务失败:', error)
+    }
   }
 
   private async loadTasks(): Promise<void> {
@@ -158,6 +207,15 @@ export class SchedulerManager extends EventEmitter {
       return
     }
 
+    await this.executeTaskDirectly(taskId)
+  }
+
+  private async executeTaskDirectly(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId)
+    if (!task) {
+      return
+    }
+
     this.logger.info(`执行定时任务: ${task.name} (实例: ${task.instanceName || task.instanceId || '未知'})`)
     
     try {
@@ -167,6 +225,8 @@ export class SchedulerManager extends EventEmitter {
         await this.executeCommand(task.instanceId, task.command)
       } else if (task.type === 'backup') {
         await this.executeBackup(task)
+      } else if (task.type === 'system' && task.systemAction) {
+        await this.executeSystemAction(task.systemAction)
       }
 
       // 更新最后执行时间和下次执行时间
@@ -290,6 +350,95 @@ export class SchedulerManager extends EventEmitter {
     await backupManager.createBackup(task.backupName!, task.backupSourcePath!, Number(task.maxKeep || 0))
   }
 
+  private async executeSystemAction(systemAction: 'steam_update'): Promise<void> {
+    if (systemAction === 'steam_update') {
+      await this.updateSteamGameList()
+    } else {
+      throw new Error(`未知的系统操作: ${systemAction}`)
+    }
+  }
+
+  private async updateSteamGameList(): Promise<void> {
+    try {
+      const axios = (await import('axios')).default
+      const remoteUrl = 'http://gsm.server.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
+      
+      // 使用多个路径尝试
+      const baseDir = process.cwd()
+      const possiblePaths = [
+        path.join(baseDir, 'data', 'games', 'installgame.json'),           // 打包后的路径
+        path.join(baseDir, 'server', 'data', 'games', 'installgame.json'), // 开发环境路径
+        path.join(__dirname, '../data/games/installgame.json')             // 相对路径
+      ]
+      
+      let gamesFilePath = null
+      for (const filePath of possiblePaths) {
+        try {
+          await fs.access(filePath)
+          gamesFilePath = filePath
+          break
+        } catch {
+          // 文件不存在，继续尝试下一个路径
+        }
+      }
+      
+      // 如果找不到现有文件，使用第一个路径作为目标路径
+      if (!gamesFilePath) {
+        gamesFilePath = possiblePaths[0]
+      }
+      
+      this.logger.info('开始更新Steam游戏部署清单', { remoteUrl, localPath: gamesFilePath })
+      
+      // 确保目录存在
+      const gamesDir = path.dirname(gamesFilePath)
+      try {
+        await fs.access(gamesDir)
+      } catch {
+        await fs.mkdir(gamesDir, { recursive: true })
+        this.logger.info('创建games目录:', gamesDir)
+      }
+      
+      // 不备份现有文件，直接覆盖
+      
+      // 从远程URL下载最新的游戏清单
+      const response = await axios.get(remoteUrl, {
+        timeout: 30000, // 30秒超时
+        headers: {
+          'User-Agent': 'GSManager3/1.0'
+        }
+      })
+      
+      // 验证响应数据格式
+      if (typeof response.data !== 'object' || response.data === null) {
+        throw new Error('远程数据格式无效：不是有效的JSON对象')
+      }
+      
+      // 简单验证数据结构
+      const gameKeys = Object.keys(response.data)
+      if (gameKeys.length === 0) {
+        throw new Error('远程数据为空')
+      }
+      
+      // 检查第一个游戏是否有必要的字段
+      const firstGame = response.data[gameKeys[0]]
+      if (!firstGame || typeof firstGame !== 'object' || !firstGame.game_nameCN || !firstGame.appid) {
+        throw new Error('远程数据格式无效：缺少必要的游戏信息字段')
+      }
+      
+      // 将数据写入本地文件
+      await fs.writeFile(gamesFilePath, JSON.stringify(response.data, null, 2), 'utf-8')
+      
+      this.logger.info('Steam游戏部署清单更新成功', {
+        gameCount: gameKeys.length,
+        fileSize: JSON.stringify(response.data).length
+      })
+      
+    } catch (error: any) {
+      this.logger.error('更新Steam游戏部署清单失败:', error)
+      throw new Error(`更新Steam游戏部署清单失败: ${error.message}`)
+    }
+  }
+
   private getNextRunTime(schedule: string): string {
     try {
       // 使用cron-parser库精确计算下次执行时间
@@ -340,6 +489,11 @@ export class SchedulerManager extends EventEmitter {
       throw new Error('定时任务不存在')
     }
 
+    // 系统任务不允许编辑
+    if (task.isSystemTask) {
+      throw new Error('系统任务不允许编辑')
+    }
+
     // 如果更新了schedule，验证新的cron表达式
     if (updates.schedule && !cron.validate(updates.schedule)) {
       throw new Error('无效的cron表达式')
@@ -377,6 +531,11 @@ export class SchedulerManager extends EventEmitter {
     const task = this.tasks.get(taskId)
     if (!task) {
       throw new Error('定时任务不存在')
+    }
+
+    // 系统任务不允许删除
+    if (task.isSystemTask) {
+      throw new Error('系统任务不允许删除')
     }
 
     // 停止任务
@@ -428,6 +587,19 @@ export class SchedulerManager extends EventEmitter {
       return taskData
     }
     return undefined
+  }
+
+  // 立即执行任务
+  async executeTaskImmediately(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId)
+    if (!task) {
+      throw new Error('定时任务不存在')
+    }
+
+    this.logger.info(`立即执行定时任务: ${task.name}`)
+    
+    // 立即执行不受任务启用状态影响，直接调用执行逻辑
+    await this.executeTaskDirectly(taskId)
   }
 
   // 清理所有任务

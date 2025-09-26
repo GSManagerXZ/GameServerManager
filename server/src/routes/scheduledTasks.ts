@@ -17,7 +17,7 @@ export function setSchedulerManager(manager: SchedulerManager) {
 // 定时任务验证模式
 const taskSchema = Joi.object({
   name: Joi.string().required().min(1).max(100),
-  type: Joi.string().valid('power', 'command', 'backup').required(),
+  type: Joi.string().valid('power', 'command', 'backup', 'system').required(),
   instanceId: Joi.alternatives().conditional('type', {
     is: Joi.valid('power', 'command'),
     then: Joi.string().required(),
@@ -59,14 +59,20 @@ const taskSchema = Joi.object({
     then: Joi.boolean().default(false),
     otherwise: Joi.boolean().optional()
   }),
+  // 系统任务参数
+  systemAction: Joi.when('type', {
+    is: 'system',
+    then: Joi.string().valid('steam_update').required(),
+    otherwise: Joi.string().optional()
+  }),
   schedule: Joi.string().required().min(1),
   enabled: Joi.boolean().default(true)
 })
 
 const updateTaskSchema = Joi.object({
   name: Joi.string().min(1).max(100).optional(),
-  type: Joi.string().valid('power', 'command', 'backup').optional(),
-  // 修正：更新时的 instanceId 类型为可选字符串，并与“备份+checkInstanceRunning”联动
+  type: Joi.string().valid('power', 'command', 'backup', 'system').optional(),
+  // 修正：更新时的 instanceId 类型为可选字符串，并与"备份+checkInstanceRunning"联动
   instanceId: Joi.alternatives().conditional('type', {
     is: Joi.valid('power', 'command'),
     then: Joi.string().optional(),
@@ -87,6 +93,12 @@ const updateTaskSchema = Joi.object({
   backupName: Joi.string().optional(),
   maxKeep: Joi.number().integer().min(0).optional(),
   checkInstanceRunning: Joi.boolean().optional(),
+  // 系统任务参数
+  systemAction: Joi.when('type', {
+    is: 'system',
+    then: Joi.string().valid('steam_update').required(),
+    otherwise: Joi.string().optional()
+  }),
   schedule: Joi.string().min(1).optional(),
   enabled: Joi.boolean().optional()
 })
@@ -286,6 +298,38 @@ router.patch('/:id/toggle', async (req: AuthenticatedRequest, res: Response) => 
     res.status(500).json({
       success: false,
       message: error.message || '切换定时任务状态失败'
+    })
+  }
+})
+
+// 立即执行定时任务
+router.post('/:id/execute', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params
+    
+    await schedulerManager.executeTaskImmediately(id)
+    
+    const task = schedulerManager.getTask(id)
+    
+    logger.info(`用户 ${req.user?.username} 立即执行了定时任务: ${task?.name || id}`)
+    
+    res.json({
+      success: true,
+      message: '定时任务已立即执行'
+    })
+  } catch (error: any) {
+    logger.error('立即执行定时任务失败:', error)
+    
+    if (error.message === '定时任务不存在') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      })
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: error.message || '立即执行定时任务失败'
     })
   }
 })

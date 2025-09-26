@@ -9,7 +9,8 @@ import {
   RotateCcw,
   Terminal,
   Calendar,
-  Settings
+  Settings,
+  Play
 } from 'lucide-react'
 import apiClient from '@/utils/api'
 import ConfirmDeleteTaskDialog from '@/components/ConfirmDeleteTaskDialog'
@@ -17,7 +18,7 @@ import ConfirmDeleteTaskDialog from '@/components/ConfirmDeleteTaskDialog'
 interface ScheduledTask {
   id: string
   name: string
-  type: 'power' | 'command' | 'backup'
+  type: 'power' | 'command' | 'backup' | 'system'
   instanceId?: string
   instanceName?: string
   action?: 'start' | 'stop' | 'restart'
@@ -27,12 +28,16 @@ interface ScheduledTask {
   backupName?: string
   maxKeep?: number
   checkInstanceRunning?: boolean
+  // 系统任务
+  systemAction?: 'steam_update'
   schedule: string
   enabled: boolean
   nextRun?: string
   lastRun?: string
   createdAt: string
   updatedAt: string
+  // 系统任务标识
+  isSystemTask?: boolean
 }
 
 interface Instance {
@@ -311,6 +316,38 @@ const ScheduledTasksPage: React.FC = () => {
     }
   }
 
+  const handleExecuteImmediately = async (task: ScheduledTask) => {
+    try {
+      addNotification({
+        type: 'info',
+        title: '正在执行',
+        message: `正在立即执行任务: ${task.name}`
+      })
+
+      const response = await apiClient.post(`/scheduled-tasks/${task.id}/execute`)
+      if (response.success) {
+        addNotification({
+          type: 'success',
+          title: '执行成功',
+          message: `定时任务 "${task.name}" 已立即执行`
+        })
+        // 刷新任务列表以更新最后执行时间
+        setTimeout(() => {
+          fetchTasks()
+        }, 1000)
+      } else {
+        throw new Error(response.message || '立即执行失败')
+      }
+    } catch (error: any) {
+      console.error('立即执行任务失败:', error)
+      addNotification({
+        type: 'error',
+        title: '执行失败',
+        message: error.message || '立即执行任务失败'
+      })
+    }
+  }
+
   const resetForm = () => {
     setFormData({
       name: '',
@@ -359,6 +396,39 @@ const ScheduledTasksPage: React.FC = () => {
         return '重启'
       default:
         return '未知'
+    }
+  }
+
+  const getTaskTypeText = (task: ScheduledTask) => {
+    switch (task.type) {
+      case 'power':
+        return `${getActionText(task.action || '')} - ${task.instanceName}`
+      case 'command':
+        return `命令执行 - ${task.instanceName}`
+      case 'backup':
+        return `文件夹备份 - ${task.backupName}`
+      case 'system':
+        if (task.systemAction === 'steam_update') {
+          return '系统任务 - 更新Steam游戏部署清单'
+        }
+        return '系统任务'
+      default:
+        return '未知类型'
+    }
+  }
+
+  const getTaskTypeIcon = (task: ScheduledTask) => {
+    switch (task.type) {
+      case 'power':
+        return getActionIcon(task.action || '')
+      case 'command':
+        return <Terminal className="w-4 h-4 text-purple-500" />
+      case 'backup':
+        return <Settings className="w-4 h-4 text-orange-500" />
+      case 'system':
+        return <Settings className="w-4 h-4 text-blue-500" />
+      default:
+        return <Terminal className="w-4 h-4 text-gray-500" />
     }
   }
 
@@ -426,19 +496,16 @@ const ScheduledTasksPage: React.FC = () => {
                 >
                   <div className="flex items-center space-x-4">
                     <div className="flex items-center space-x-2">
-                      {task.type === 'power' ? (
-                        getActionIcon(task.action || '')
-                      ) : (
-                        <Terminal className="w-4 h-4 text-purple-500" />
-                      )}
+                      {getTaskTypeIcon(task)}
                       <span className="font-medium text-black dark:text-white">{task.name}</span>
+                      {task.isSystemTask && (
+                        <span className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded">
+                          系统任务
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm text-gray-600 dark:text-gray-400">
-                      {task.type === 'power' ? (
-                        <span>{getActionText(task.action || '')} - {task.instanceName}</span>
-                      ) : (
-                        <span>命令执行 - {task.instanceName}</span>
-                      )}
+                      {getTaskTypeText(task)}
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-500">
                       <span>下次执行: {formatNextRun(task.nextRun || '')}</span>
@@ -455,17 +522,30 @@ const ScheduledTasksPage: React.FC = () => {
                       <span className="text-sm text-gray-600 dark:text-gray-400">启用</span>
                     </label>
                     <button
-                      onClick={() => handleEdit(task)}
-                      className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                      onClick={() => handleExecuteImmediately(task)}
+                      className="p-2 text-gray-400 hover:text-green-500 transition-colors"
+                      title="立即执行"
                     >
-                      <Edit className="w-4 h-4" />
+                      <Play className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => handleDelete(task)}
-                      className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {!task.isSystemTask && (
+                      <>
+                        <button
+                          onClick={() => handleEdit(task)}
+                          className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                          title="编辑"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(task)}
+                          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                          title="删除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
