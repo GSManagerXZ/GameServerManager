@@ -900,26 +900,12 @@ const SettingsPage: React.FC = () => {
     }
   }
 
-  const handleSecurityConfigChange = (updates: Partial<typeof securityConfig>) => {
-    const newConfig = { ...securityConfig, ...updates }
-    
-    // 检查是否设置为永不到期
-    if (updates.tokenExpireHours === null) {
-      setPendingSecurityConfig(newConfig)
-      setShowSecurityWarning(true)
-    } else {
-      setSecurityConfig(newConfig)
-    }
-  }
-
-  const confirmSecurityConfig = async () => {
-    if (!pendingSecurityConfig) return
-
+  const saveSecurityConfig = async (config: typeof securityConfig) => {
     setSecurityLoading(true)
     try {
-      const result = await apiClient.updateSecurityConfig(pendingSecurityConfig)
+      const result = await apiClient.updateSecurityConfig(config)
       if (result.success) {
-        setSecurityConfig(pendingSecurityConfig)
+        setSecurityConfig(config)
         addNotification({
           type: 'success',
           title: '安全配置已更新',
@@ -940,9 +926,29 @@ const SettingsPage: React.FC = () => {
       })
     } finally {
       setSecurityLoading(false)
-      setShowSecurityWarning(false)
-      setPendingSecurityConfig(null)
     }
+  }
+
+  const handleSecurityConfigChange = (updates: Partial<typeof securityConfig>) => {
+    const newConfig = { ...securityConfig, ...updates }
+    
+    // 检查是否设置为永不到期
+    if (updates.tokenExpireHours === null) {
+      setPendingSecurityConfig(newConfig)
+      setShowSecurityWarning(true)
+    } else {
+      setSecurityConfig(newConfig)
+      // 立即保存非永不到期的配置
+      saveSecurityConfig(newConfig)
+    }
+  }
+
+  const confirmSecurityConfig = async () => {
+    if (!pendingSecurityConfig) return
+
+    await saveSecurityConfig(pendingSecurityConfig)
+    setShowSecurityWarning(false)
+    setPendingSecurityConfig(null)
   }
 
   const cancelSecurityConfig = () => {
