@@ -4,7 +4,7 @@ import { X, AlertTriangle, Clock, Trash2 } from 'lucide-react'
 interface ConfirmDeleteTaskDialogProps {
   isOpen: boolean
   taskName: string
-  taskType: 'power' | 'command' | 'backup'
+  taskType: 'power' | 'command' | 'backup' | 'system'
   instanceName?: string
   onConfirm: () => void
   onCancel: () => void
@@ -60,6 +60,8 @@ export const ConfirmDeleteTaskDialog: React.FC<ConfirmDeleteTaskDialogProps> = (
         return '命令执行'
       case 'backup':
         return '文件夹备份'
+      case 'system':
+        return '系统任务'
       default:
         return '未知类型'
     }

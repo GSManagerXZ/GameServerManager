@@ -58,7 +58,7 @@ const ScheduledTasksPage: React.FC = () => {
   const [taskToDelete, setTaskToDelete] = useState<ScheduledTask | null>(null)
   const [formData, setFormData] = useState({
     name: '',
-    type: 'power' as 'power' | 'command' | 'backup',
+    type: 'power' as 'power' | 'command' | 'backup' | 'system',
     instanceId: '',
     action: 'start' as 'start' | 'stop' | 'restart',
     command: '',
@@ -351,7 +351,7 @@ const ScheduledTasksPage: React.FC = () => {
   const resetForm = () => {
     setFormData({
       name: '',
-      type: 'power',
+      type: 'power' as 'power' | 'command' | 'backup' | 'system',
       instanceId: '',
       action: 'start',
       command: '',
@@ -586,12 +586,13 @@ const ScheduledTasksPage: React.FC = () => {
                   </label>
                   <select
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as 'power' | 'command' | 'backup' })}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value as 'power' | 'command' | 'backup' | 'system' })}
                     className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700/50 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="power">电源管理</option>
                     <option value="command">命令执行</option>
                     <option value="backup">文件夹备份</option>
+                    <option value="system">系统任务</option>
                   </select>
                 </div>
 

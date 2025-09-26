@@ -238,12 +238,17 @@ export class AuthManager {
     const securityConfig = this.configManager.getSecurityConfig()
     
     // 根据安全配置决定过期时间
-    let expiresIn: string | undefined
+    let expiresIn: string | number | undefined
     if (securityConfig.tokenExpireHours !== null) {
       expiresIn = `${securityConfig.tokenExpireHours}h`
     } else {
       // 永不到期的情况，设置为很长的过期时间
       expiresIn = '876000h' // 100年
+    }
+    
+    const signOptions: jwt.SignOptions = {}
+    if (expiresIn) {
+      signOptions.expiresIn = expiresIn as any
     }
     
     const token = jwt.sign(
@@ -253,7 +258,7 @@ export class AuthManager {
         role: user.role
       },
       jwtConfig.secret,
-      { expiresIn }
+      signOptions
     )
 
     this.logger.info(`用户 ${username} 登录成功`)

@@ -30,6 +30,7 @@ import { CreateConfigDialog } from '@/components/CreateConfigDialog'
 import SearchableSelect from '@/components/SearchableSelect'
 import RconConsole from '@/components/RconConsole'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import { formatFileSize } from '@/utils/format'
 
 // 获取嵌套对象值的工具函数
 const getNestedValue = (obj: any, ...path: string[]): any => {
@@ -1834,6 +1835,7 @@ const InstanceManagerPage: React.FC = () => {
                         {b.meta?.sourcePath && (
                           <p className="text-sm text-gray-600 dark:text-gray-400">源路径: {b.meta.sourcePath}</p>
                         )}
+                        <p className="text-sm text-gray-500 dark:text-gray-400">总大小: {formatFileSize(b.files.reduce((sum, file) => sum + file.size, 0))} • {b.files.length} 个文件</p>
                       </div>
                       <div className="flex items-center space-x-3">
                         <button
@@ -1898,6 +1900,21 @@ const InstanceManagerPage: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+          
+          {/* 备份提醒信息 */}
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-1">
+                  备份功能提醒
+                </h4>
+                <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                  面板侧备份是通过压缩方式实现，可能会受到文件读写和IO限制可能存在备份不全或备份文件损坏问题，若服务端侧有相关备份功能强烈建议通过服务端侧实现更稳妥！
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}

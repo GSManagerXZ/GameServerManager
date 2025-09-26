@@ -12,6 +12,7 @@ export interface BackupInfo {
     size: number
     modified: string
   }[]
+  totalSize: number
   meta?: {
     sourcePath?: string
   }
@@ -60,7 +61,17 @@ export class BackupManager {
         const metaRaw = await fs.readFile(path.join(backupDir, 'data.json'), 'utf-8')
         meta = JSON.parse(metaRaw)
       } catch {}
-      result.push({ name: e.name, baseDir: backupDir, files: detailed.sort((a,b)=>a.fileName.localeCompare(b.fileName)), meta })
+      
+      // 计算总大小
+      const totalSize = detailed.reduce((sum, file) => sum + file.size, 0)
+      
+      result.push({ 
+        name: e.name, 
+        baseDir: backupDir, 
+        files: detailed.sort((a,b)=>a.fileName.localeCompare(b.fileName)), 
+        totalSize,
+        meta 
+      })
     }
     return result
   }
