@@ -4,7 +4,7 @@ import { X, AlertTriangle, Clock, Trash2 } from 'lucide-react'
 interface ConfirmDeleteTaskDialogProps {
   isOpen: boolean
   taskName: string
-  taskType: 'power' | 'command'
+  taskType: 'power' | 'command' | 'backup'
   instanceName?: string
   onConfirm: () => void
   onCancel: () => void
@@ -53,7 +53,16 @@ export const ConfirmDeleteTaskDialog: React.FC<ConfirmDeleteTaskDialogProps> = (
   if (!isVisible) return null
 
   const getTaskTypeText = () => {
-    return taskType === 'power' ? '电源管理' : '命令执行'
+    switch (taskType) {
+      case 'power':
+        return '电源管理'
+      case 'command':
+        return '命令执行'
+      case 'backup':
+        return '文件夹备份'
+      default:
+        return '未知类型'
+    }
   }
 
   return (

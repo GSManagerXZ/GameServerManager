@@ -102,7 +102,11 @@
     "system_info": [
       "Windows",
       "Linux"
-    ]
+    ],
+    "cloud":
+    {
+      "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
+    }
   },
   "Valheim": {
     "game_nameCN": "英灵神殿",
@@ -121,6 +125,10 @@
       "Windows",
       "Linux"
     ],
+    "cloud":
+    {
+      "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
+    },
     "system_info": [
       "Linux"
     ]

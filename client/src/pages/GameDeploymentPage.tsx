@@ -24,6 +24,7 @@ import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadPro
 import { io, Socket } from 'socket.io-client'
 import config from '@/config'
 import { useDefaultGamePath, useGameInstallPath } from '@/hooks/useDefaultGamePath'
+import CloudProviderModal from '@/components/CloudProviderModal'
 
 interface GameInfo {
   game_nameCN: string
@@ -36,6 +37,11 @@ interface GameInfo {
   supportedOnCurrentPlatform?: boolean
   currentPlatform?: string
   panelCompatibleOnCurrentPlatform?: boolean
+  cloud?: {
+    [providerName: string]: {
+      [logoUrl: string]: string
+    }
+  }
 }
 
 interface Games {
@@ -143,6 +149,10 @@ const GameDeploymentPage: React.FC = () => {
   const [downloadResult, setDownloadResult] = useState<any>(null)
   const [showCreateInstanceModal, setShowCreateInstanceModal] = useState(false)
   const [createInstanceModalAnimating, setCreateInstanceModalAnimating] = useState(false)
+  
+  // 云服务商弹窗相关状态
+  const [showCloudProviderModal, setShowCloudProviderModal] = useState(false)
+  const [selectedGameForCloud, setSelectedGameForCloud] = useState<{ key: string; info: GameInfo } | null>(null)
   const [instanceName, setInstanceName] = useState('')
   const [instanceDescription, setInstanceDescription] = useState('')
   const [instanceStartCommand, setInstanceStartCommand] = useState('')
@@ -1598,6 +1608,18 @@ const GameDeploymentPage: React.FC = () => {
     }, 300)
   }
 
+  // 打开云服务商选择弹窗
+  const handleOpenCloudProviderModal = (gameKey: string, gameInfo: GameInfo) => {
+    setSelectedGameForCloud({ key: gameKey, info: gameInfo })
+    setShowCloudProviderModal(true)
+  }
+
+  // 关闭云服务商选择弹窗
+  const handleCloseCloudProviderModal = () => {
+    setShowCloudProviderModal(false)
+    setSelectedGameForCloud(null)
+  }
+
   // 关闭创建整合包实例对话框
   const handleCloseCreateMrpackInstanceModal = () => {
     setCreateMrpackInstanceModalAnimating(false)
@@ -2295,43 +2317,57 @@ const GameDeploymentPage: React.FC = () => {
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex space-x-2">
-                    {/* 部署游戏按钮 */}
-                    <button
-                      onClick={() => handleInstallGame(gameKey, gameInfo)}
-                      disabled={gameInfo.supportedOnCurrentPlatform === false || checkingEnvironment === gameKey}
-                      className={`${gameInfo.docs ? 'flex-1' : 'w-full'} py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm ${
-                        gameInfo.supportedOnCurrentPlatform === false || checkingEnvironment === gameKey
-                          ? 'bg-gray-400 cursor-not-allowed text-gray-200'
-                          : gameInfo.panelCompatibleOnCurrentPlatform === false
-                          ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                          : 'bg-blue-600 hover:bg-blue-700 text-white'
-                      }`}
-                    >
-                      {checkingEnvironment === gameKey ? (
-                        <Loader className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Download className="w-4 h-4" />
-                      )}
-                      <span>
-                        {checkingEnvironment === gameKey
-                          ? '正在检测运行环境'
-                          : gameInfo.supportedOnCurrentPlatform === false
-                          ? '不兼容'
-                          : gameInfo.panelCompatibleOnCurrentPlatform === false
-                          ? '面板不兼容'
-                          : '部署游戏'}
-                      </span>
-                    </button>
-
-                    {/* 开服文档按钮（如果存在） */}
-                    {gameInfo.docs && (
+                  <div className="space-y-2">
+                    {/* 第一行按钮 */}
+                    <div className="flex space-x-2">
+                      {/* 部署游戏按钮 */}
                       <button
-                        onClick={() => handleOpenDocs(gameInfo)}
-                        className="flex-1 py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => handleInstallGame(gameKey, gameInfo)}
+                        disabled={gameInfo.supportedOnCurrentPlatform === false || checkingEnvironment === gameKey}
+                        className={`${(gameInfo.docs || gameInfo.cloud) ? 'flex-1' : 'w-full'} py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm ${
+                          gameInfo.supportedOnCurrentPlatform === false || checkingEnvironment === gameKey
+                            ? 'bg-gray-400 cursor-not-allowed text-gray-200'
+                            : gameInfo.panelCompatibleOnCurrentPlatform === false
+                            ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
                       >
-                        <BookOpen className="w-4 h-4" />
-                        <span>开服文档</span>
+                        {checkingEnvironment === gameKey ? (
+                          <Loader className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                        <span>
+                          {checkingEnvironment === gameKey
+                            ? '正在检测运行环境'
+                            : gameInfo.supportedOnCurrentPlatform === false
+                            ? '不兼容'
+                            : gameInfo.panelCompatibleOnCurrentPlatform === false
+                            ? '面板不兼容'
+                            : '部署游戏'}
+                        </span>
+                      </button>
+
+                      {/* 开服文档按钮（如果存在） */}
+                      {gameInfo.docs && (
+                        <button
+                          onClick={() => handleOpenDocs(gameInfo)}
+                          className="flex-1 py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          <BookOpen className="w-4 h-4" />
+                          <span>开服文档</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 购买已预装服务器按钮（如果存在云服务商） */}
+                    {gameInfo.cloud && Object.keys(gameInfo.cloud).length > 0 && (
+                      <button
+                        onClick={() => handleOpenCloudProviderModal(gameKey, gameInfo)}
+                        className="w-full py-2 px-3 rounded-lg transition-colors flex items-center justify-center space-x-1 text-sm bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        <Server className="w-4 h-4" />
+                        <span>购买已预装服务器</span>
                       </button>
                     )}
                   </div>
@@ -4594,6 +4630,24 @@ const GameDeploymentPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 云服务商选择弹窗 */}
+      {showCloudProviderModal && selectedGameForCloud && (
+        <CloudProviderModal
+          visible={showCloudProviderModal}
+          gameName={selectedGameForCloud.info.game_nameCN}
+          providers={Object.entries(selectedGameForCloud.info.cloud || {}).map(([providerName, providerData]) => {
+            const logoUrl = Object.keys(providerData)[0]
+            const purchaseUrl = providerData[logoUrl]
+            return {
+              name: providerName,
+              logoUrl,
+              purchaseUrl
+            }
+          })}
+          onClose={handleCloseCloudProviderModal}
+        />
       )}
     </div>
   )
