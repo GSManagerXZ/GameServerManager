@@ -223,6 +223,8 @@ const FileManagerPage: React.FC = () => {
   // 滚动防抖处理
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastScrollTopRef = useRef(0)
+  const fileListContainerRef = useRef<HTMLDivElement>(null)
+  const autoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
   // 盘符选择状态
   const [drives, setDrives] = useState<Array<{ label: string; value: string; type: string }>>([])
@@ -603,14 +605,46 @@ const FileManagerPage: React.FC = () => {
     }
   }, [error, addNotification, setError])
   
+  // 检查是否需要自动加载更多文件
+  const checkAutoLoadMore = useCallback(() => {
+    if (!fileListContainerRef.current || loadingMore || !pagination.hasMore) {
+      return
+    }
+
+    const container = fileListContainerRef.current
+    const { scrollHeight, clientHeight } = container
+    
+    // 如果内容高度小于等于容器高度（没有滚动条），且还有更多文件，则自动加载
+    if (scrollHeight <= clientHeight) {
+      console.log('检测到内容高度不足以产生滚动，自动加载更多文件')
+      loadMoreFiles()
+    }
+  }, [loadingMore, pagination.hasMore, loadMoreFiles])
+
   // 清理定时器
   useEffect(() => {
     return () => {
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current)
       }
+      if (autoLoadTimeoutRef.current) {
+        clearTimeout(autoLoadTimeoutRef.current)
+      }
     }
   }, [])
+
+  // 检查是否需要自动加载更多文件
+  useEffect(() => {
+    // 清除之前的定时器
+    if (autoLoadTimeoutRef.current) {
+      clearTimeout(autoLoadTimeoutRef.current)
+    }
+
+    // 延迟检查，确保DOM已经更新
+    autoLoadTimeoutRef.current = setTimeout(() => {
+      checkAutoLoadMore()
+    }, 100)
+  }, [files, pagination.hasMore, checkAutoLoadMore])
   
   // 获取显示路径（相对于当前盘符的路径）
   const getDisplayPath = () => {
@@ -1217,6 +1251,7 @@ const FileManagerPage: React.FC = () => {
       
       {/* 主内容区 */}
       <div 
+        ref={fileListContainerRef}
         className="flex-1 p-4 overflow-auto"
         style={{ maxHeight: 'calc(100vh - 200px)' }}
         onContextMenu={(e) => {
