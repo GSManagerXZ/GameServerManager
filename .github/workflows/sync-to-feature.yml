@@ -1,12 +1,18 @@
-name: 标准同步main分支到feature分支
+name: 同步main分支到指定分支
 
 on:
   push:
     branches:
       - main
 
+# 环境变量配置 - 可以在这里修改目标分支和源分支
+env:
+  SOURCE_BRANCH: main              # 源分支名称
+  TARGET_BRANCHES: feature,#50     # 目标分支名称列表（用逗号分隔，可添加多个分支）
+  MERGE_STRATEGY: merge            # 合并策略: merge(标准合并) 或 rebase(变基合并)
+
 jobs:
-  sync-to-feature:
+  sync-branches:
     runs-on: ubuntu-latest
     
     steps:
@@ -21,34 +27,103 @@ jobs:
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
       
-      - name: 同步到feature分支
+      - name: 同步到多个分支
         run: |
-          # 检查feature分支是否存在
-          if git ls-remote --heads origin feature | grep -q feature; then
-            echo "feature分支存在，开始同步"
-            # 切换到feature分支
-            git fetch origin feature
-            git checkout -b feature origin/feature
+          echo "🚀 开始同步流程"
+          echo "📌 源分支: $SOURCE_BRANCH"
+          echo "📌 目标分支列表: $TARGET_BRANCHES"
+          echo "📌 合并策略: $MERGE_STRATEGY"
+          echo ""
+          
+          # 将逗号分隔的分支列表转换为数组
+          IFS=',' read -ra BRANCHES <<< "$TARGET_BRANCHES"
+          
+          # 记录同步结果
+          SUCCESS_BRANCHES=()
+          FAILED_BRANCHES=()
+          CREATED_BRANCHES=()
+          
+          # 遍历每个目标分支
+          for TARGET_BRANCH in "${BRANCHES[@]}"; do
+            # 去除空格
+            TARGET_BRANCH=$(echo "$TARGET_BRANCH" | xargs)
+            
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔄 开始同步到分支: $TARGET_BRANCH"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # 检查目标分支是否存在
+            if git ls-remote --heads origin $TARGET_BRANCH | grep -q $TARGET_BRANCH; then
+              echo "✓ $TARGET_BRANCH 分支存在"
+              
+              # 切换到源分支
+              git checkout $SOURCE_BRANCH
+              
+              # 获取并切换到目标分支
+              git fetch origin $TARGET_BRANCH
+              git checkout -B $TARGET_BRANCH origin/$TARGET_BRANCH
 
-            # 尝试合并main分支
-            echo "正在将main分支合并到feature分支..."
-            if git merge origin/main --no-edit; then
-              echo "✅ 合并成功，推送到远程仓库"
-              git push origin feature
+              # 根据策略进行合并或变基
+              echo "正在将 $SOURCE_BRANCH 分支同步到 $TARGET_BRANCH 分支..."
+              
+              SYNC_SUCCESS=false
+              
+              if [ "$MERGE_STRATEGY" = "rebase" ]; then
+                echo "使用 rebase 策略..."
+                if git rebase origin/$SOURCE_BRANCH; then
+                  echo "✅ Rebase 成功，推送到远程仓库"
+                  git push origin $TARGET_BRANCH --force-with-lease
+                  SYNC_SUCCESS=true
+                else
+                  echo "❌ Rebase 冲突detected！"
+                  echo "冲突文件列表："
+                  git status --porcelain | grep "^UU\|^AA\|^DD" || echo "无法确定冲突文件"
+                  git rebase --abort
+                  FAILED_BRANCHES+=("$TARGET_BRANCH")
+                fi
+              else
+                echo "使用 merge 策略..."
+                if git merge origin/$SOURCE_BRANCH --no-edit; then
+                  echo "✅ 合并成功，推送到远程仓库"
+                  git push origin $TARGET_BRANCH
+                  SYNC_SUCCESS=true
+                else
+                  echo "❌ 合并冲突detected！"
+                  echo "冲突文件列表："
+                  git status --porcelain | grep "^UU\|^AA\|^DD" || echo "无法确定冲突文件"
+                  git merge --abort
+                  FAILED_BRANCHES+=("$TARGET_BRANCH")
+                fi
+              fi
+              
+              if [ "$SYNC_SUCCESS" = true ]; then
+                SUCCESS_BRANCHES+=("$TARGET_BRANCH")
+              fi
             else
-              echo "❌ 合并冲突detected！"
-              echo "冲突文件列表："
-              git status --porcelain | grep "^UU\|^AA\|^DD" || echo "无法确定冲突文件"
-              echo ""
-              echo "请手动解决冲突后再次推送到main分支"
-              echo "或者联系仓库维护者处理冲突"
-              exit 1
+              echo "⚠️  $TARGET_BRANCH 分支不存在，从 $SOURCE_BRANCH 分支创建"
+              git checkout -B $TARGET_BRANCH $SOURCE_BRANCH
+              git push origin $TARGET_BRANCH --set-upstream
+              echo "✅ 成功创建 $TARGET_BRANCH 分支"
+              CREATED_BRANCHES+=("$TARGET_BRANCH")
+              SUCCESS_BRANCHES+=("$TARGET_BRANCH")
             fi
-          else
-            echo "feature分支不存在，从main分支创建"
-            git checkout -b feature
-            git push origin feature --set-upstream
-            echo "✅ 成功创建feature分支"
+          done
+          
+          # 输出最终汇总
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 同步结果汇总"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ 成功同步的分支 (${#SUCCESS_BRANCHES[@]}): ${SUCCESS_BRANCHES[*]}"
+          [ ${#CREATED_BRANCHES[@]} -gt 0 ] && echo "🆕 新创建的分支 (${#CREATED_BRANCHES[@]}): ${CREATED_BRANCHES[*]}"
+          [ ${#FAILED_BRANCHES[@]} -gt 0 ] && echo "❌ 失败的分支 (${#FAILED_BRANCHES[@]}): ${FAILED_BRANCHES[*]}"
+          
+          # 如果有失败的分支，退出码为1
+          if [ ${#FAILED_BRANCHES[@]} -gt 0 ]; then
+            echo ""
+            echo "⚠️  部分分支同步失败，请手动处理冲突"
+            exit 1
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.ACTIONS_PAT }}
@@ -56,19 +131,33 @@ jobs:
       - name: 输出同步结果
         if: success()
         run: |
-          echo "✅ 成功将main分支同步到feature分支"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ 所有分支同步成功！"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📌 源分支: $SOURCE_BRANCH"
+          echo "📌 目标分支列表: $TARGET_BRANCHES"
           echo "📝 同步的提交: ${{ github.sha }}"
           echo "👤 推送者: ${{ github.actor }}"
-          echo "🔄 同步方式: 标准合并（非强制推送）"
+          echo "🔄 同步方式: $MERGE_STRATEGY"
+          echo "⏰ 同步时间: $(date '+%Y-%m-%d %H:%M:%S')"
 
       - name: 冲突处理提示
         if: failure()
         run: |
-          echo "⚠️  同步失败 - 检测到合并冲突"
-          echo "🔧 解决方案："
-          echo "1. 本地克隆仓库"
-          echo "2. 切换到feature分支: git checkout feature"
-          echo "3. 合并main分支: git merge main"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  部分分支同步失败 - 检测到合并冲突"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "🔧 手动解决冲突的步骤："
+          echo "1. 本地克隆仓库: git clone <repo-url>"
+          echo "2. 切换到失败的目标分支: git checkout <target-branch>"
+          echo "3. 合并源分支: git merge $SOURCE_BRANCH"
           echo "4. 手动解决冲突文件"
-          echo "5. 提交解决结果: git commit"
-          echo "6. 推送到远程: git push origin feature"
+          echo "5. 添加解决后的文件: git add ."
+          echo "6. 提交解决结果: git commit"
+          echo "7. 推送到远程: git push origin <target-branch>"
+          echo ""
+          echo "💡 提示:"
+          echo "   - 可以修改工作流中的 MERGE_STRATEGY 环境变量来改变合并策略"
+          echo "   - 可以从 TARGET_BRANCHES 中移除经常冲突的分支，单独处理"
