@@ -23,6 +23,8 @@ terminal-sessions.json
 captchas.json
 users.json
 server/data/environment
+server/data/wallpapers/
+data/wallpapers/
 
 dist/
 out/

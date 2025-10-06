@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useOnboardingStore } from '@/stores/onboardingStore'
 import { useSystemStore } from '@/stores/systemStore'
+import { useWallpaperStore } from '@/stores/wallpaperStore'
 import AutoRedirectControl from '@/components/AutoRedirectControl'
 import apiClient from '@/utils/api'
 import {
@@ -30,7 +31,11 @@ import {
   Code,
   AlertTriangle,
   Lock,
-  Clock
+  Clock,
+  Image,
+  Upload,
+  Trash2,
+  Sun as SunIcon
 } from 'lucide-react'
 import SecurityWarningModal from '@/components/SecurityWarningModal'
 
@@ -41,6 +46,7 @@ const SettingsPage: React.FC = () => {
   const { addNotification } = useNotificationStore()
   const { resetOnboarding, setShowOnboarding } = useOnboardingStore()
   const { systemInfo, fetchSystemInfo } = useSystemStore()
+  const { settings: wallpaperSettings, setSettings: setWallpaperSettings, updateMainWallpaper, updateLoginWallpaper } = useWallpaperStore()
   const [showDeveloperWarning, setShowDeveloperWarning] = useState(false)
   
   // 城市选项数据
@@ -149,6 +155,12 @@ const SettingsPage: React.FC = () => {
 
   // Steam游戏部署清单更新状态
   const [gameListUpdateLoading, setGameListUpdateLoading] = useState(false)
+
+  // 壁纸设置状态
+  const [wallpaperUploading, setWallpaperUploading] = useState(false)
+  const [loginWallpaperUploading, setLoginWallpaperUploading] = useState(false)
+  const mainWallpaperInputRef = React.useRef<HTMLInputElement>(null)
+  const loginWallpaperInputRef = React.useRef<HTMLInputElement>(null)
 
   // 安全配置状态
   const [securityConfig, setSecurityConfig] = useState({
@@ -984,6 +996,162 @@ const SettingsPage: React.FC = () => {
     }
   }
 
+  // 壁纸处理函数
+  const handleMainWallpaperUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+      addNotification({
+        type: 'error',
+        title: '上传失败',
+        message: '请选择图片文件'
+      })
+      return
+    }
+
+    // 验证文件大小 (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      addNotification({
+        type: 'error',
+        title: '上传失败',
+        message: '图片大小不能超过10MB'
+      })
+      return
+    }
+
+    setWallpaperUploading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('wallpaper', file)
+      formData.append('type', 'main')
+
+      const response = await fetch('/api/wallpaper/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('gsm3_token')}`
+        },
+        body: formData
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        updateMainWallpaper(result.data.imageUrl)
+        addNotification({
+          type: 'success',
+          title: '壁纸上传成功',
+          message: '主面板壁纸已更新'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '上传失败',
+          message: result.message || '壁纸上传失败'
+        })
+      }
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '上传失败',
+        message: '网络错误，请稍后重试'
+      })
+    } finally {
+      setWallpaperUploading(false)
+      // 清空input以允许重新上传同一文件
+      if (mainWallpaperInputRef.current) {
+        mainWallpaperInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleLoginWallpaperUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      addNotification({
+        type: 'error',
+        title: '上传失败',
+        message: '请选择图片文件'
+      })
+      return
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      addNotification({
+        type: 'error',
+        title: '上传失败',
+        message: '图片大小不能超过10MB'
+      })
+      return
+    }
+
+    setLoginWallpaperUploading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('wallpaper', file)
+      formData.append('type', 'login')
+
+      const response = await fetch('/api/wallpaper/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('gsm3_token')}`
+        },
+        body: formData
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        updateLoginWallpaper(result.data.imageUrl)
+        addNotification({
+          type: 'success',
+          title: '壁纸上传成功',
+          message: '登录页壁纸已更新'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '上传失败',
+          message: result.message || '壁纸上传失败'
+        })
+      }
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '上传失败',
+        message: '网络错误，请稍后重试'
+      })
+    } finally {
+      setLoginWallpaperUploading(false)
+      if (loginWallpaperInputRef.current) {
+        loginWallpaperInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleRemoveMainWallpaper = () => {
+    updateMainWallpaper(null)
+    addNotification({
+      type: 'success',
+      title: '壁纸已移除',
+      message: '主面板壁纸已移除'
+    })
+  }
+
+  const handleRemoveLoginWallpaper = () => {
+    updateLoginWallpaper(null)
+    addNotification({
+      type: 'success',
+      title: '壁纸已移除',
+      message: '登录页壁纸已移除'
+    })
+  }
+
   return (
     <div className="space-y-6">
       {/* 页面标题 */}
@@ -1167,6 +1335,238 @@ const SettingsPage: React.FC = () => {
                   • 深度睡眠: {webSettings.enableDeepSleep ? '已启用' : '已禁用'}
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 壁纸设置 */}
+        <div className="card-game p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <Image className="w-5 h-5 text-pink-500" />
+            <h2 className="text-lg font-semibold text-black dark:text-white">背景壁纸</h2>
+          </div>
+
+          <div className="space-y-6">
+            {/* 主面板壁纸 */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">主面板壁纸</h3>
+              
+              {/* 壁纸预览 */}
+              {wallpaperSettings.imageUrl && (
+                <div className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-white/20">
+                  <img
+                    src={wallpaperSettings.imageUrl}
+                    alt="主面板壁纸预览"
+                    className="w-full h-full object-cover"
+                    style={{ filter: `brightness(${wallpaperSettings.brightness}%)` }}
+                  />
+                  <button
+                    onClick={handleRemoveMainWallpaper}
+                    className="absolute top-2 right-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                    title="移除壁纸"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* 上传按钮 */}
+              <div>
+                <input
+                  ref={mainWallpaperInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleMainWallpaperUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => mainWallpaperInputRef.current?.click()}
+                  disabled={wallpaperUploading}
+                  className="w-full btn-game py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {wallpaperUploading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  <span>{wallpaperUploading ? '上传中...' : wallpaperSettings.imageUrl ? '更换壁纸' : '上传壁纸'}</span>
+                </button>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                  支持 JPG、PNG、GIF（含动画）、WEBP 格式，最大 10MB
+                </p>
+              </div>
+
+              {/* 亮度设置 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2 flex items-center space-x-2">
+                  <SunIcon className="w-4 h-4 text-yellow-500" />
+                  <span>亮度调节</span>
+                </label>
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="range"
+                    min="10"
+                    max="100"
+                    value={wallpaperSettings.brightness}
+                    onChange={(e) => setWallpaperSettings({ brightness: parseInt(e.target.value) })}
+                    className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    disabled={!wallpaperSettings.imageUrl}
+                  />
+                  <span className="text-sm text-gray-800 dark:text-gray-200 w-12 text-right">
+                    {wallpaperSettings.brightness}%
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  调整壁纸亮度以获得最佳视觉效果
+                </p>
+              </div>
+
+              {/* 启用/禁用开关 */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium text-gray-800 dark:text-gray-200">启用壁纸</label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">在主面板显示背景壁纸</p>
+                </div>
+                <button
+                  onClick={() => setWallpaperSettings({ enabled: !wallpaperSettings.enabled })}
+                  disabled={!wallpaperSettings.imageUrl}
+                  className={`
+                    relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                    ${wallpaperSettings.enabled && wallpaperSettings.imageUrl ? 'bg-pink-600' : 'bg-gray-300'}
+                    ${!wallpaperSettings.imageUrl ? 'opacity-50 cursor-not-allowed' : ''}
+                  `}
+                >
+                  <span
+                    className={`
+                      inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                      ${wallpaperSettings.enabled && wallpaperSettings.imageUrl ? 'translate-x-6' : 'translate-x-1'}
+                    `}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* 分隔线 */}
+            <div className="border-t border-gray-700"></div>
+
+            {/* 登录页壁纸 */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">登录页壁纸</h3>
+
+              {/* 同步主面板壁纸开关 */}
+              <div className="flex items-center justify-between bg-blue-500/10 p-3 rounded-lg border border-blue-500/20">
+                <div>
+                  <label className="text-sm font-medium text-gray-800 dark:text-gray-200">同步主面板壁纸</label>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">登录页使用与主面板相同的壁纸</p>
+                </div>
+                <button
+                  onClick={() => setWallpaperSettings({ syncWithMain: !wallpaperSettings.syncWithMain })}
+                  className={`
+                    relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                    ${wallpaperSettings.syncWithMain ? 'bg-blue-600' : 'bg-gray-300'}
+                  `}
+                >
+                  <span
+                    className={`
+                      inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                      ${wallpaperSettings.syncWithMain ? 'translate-x-6' : 'translate-x-1'}
+                    `}
+                  />
+                </button>
+              </div>
+
+              {/* 独立登录页壁纸设置 */}
+              {!wallpaperSettings.syncWithMain && (
+                <>
+                  {/* 壁纸预览 */}
+                  {wallpaperSettings.loginImageUrl && (
+                    <div className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-white/20">
+                      <img
+                        src={wallpaperSettings.loginImageUrl}
+                        alt="登录页壁纸预览"
+                        className="w-full h-full object-cover"
+                        style={{ filter: `brightness(${wallpaperSettings.loginBrightness}%)` }}
+                      />
+                      <button
+                        onClick={handleRemoveLoginWallpaper}
+                        className="absolute top-2 right-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                        title="移除壁纸"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 上传按钮 */}
+                  <div>
+                    <input
+                      ref={loginWallpaperInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLoginWallpaperUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => loginWallpaperInputRef.current?.click()}
+                      disabled={loginWallpaperUploading}
+                      className="w-full btn-game py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                    >
+                      {loginWallpaperUploading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Upload className="w-4 h-4" />
+                      )}
+                      <span>{loginWallpaperUploading ? '上传中...' : wallpaperSettings.loginImageUrl ? '更换壁纸' : '上传壁纸'}</span>
+                    </button>
+                  </div>
+
+                  {/* 亮度设置 */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2 flex items-center space-x-2">
+                      <SunIcon className="w-4 h-4 text-yellow-500" />
+                      <span>亮度调节</span>
+                    </label>
+                    <div className="flex items-center space-x-4">
+                      <input
+                        type="range"
+                        min="10"
+                        max="100"
+                        value={wallpaperSettings.loginBrightness}
+                        onChange={(e) => setWallpaperSettings({ loginBrightness: parseInt(e.target.value) })}
+                        className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        disabled={!wallpaperSettings.loginImageUrl}
+                      />
+                      <span className="text-sm text-gray-800 dark:text-gray-200 w-12 text-right">
+                        {wallpaperSettings.loginBrightness}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 启用/禁用开关 */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-medium text-gray-800 dark:text-gray-200">启用登录页壁纸</label>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">在登录页显示背景壁纸</p>
+                    </div>
+                    <button
+                      onClick={() => setWallpaperSettings({ loginEnabled: !wallpaperSettings.loginEnabled })}
+                      disabled={!wallpaperSettings.loginImageUrl}
+                      className={`
+                        relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                        ${wallpaperSettings.loginEnabled && wallpaperSettings.loginImageUrl ? 'bg-pink-600' : 'bg-gray-300'}
+                        ${!wallpaperSettings.loginImageUrl ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      <span
+                        className={`
+                          inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                          ${wallpaperSettings.loginEnabled && wallpaperSettings.loginImageUrl ? 'translate-x-6' : 'translate-x-1'}
+                        `}
+                      />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useWallpaperStore } from '@/stores/wallpaperStore'
 import socketClient from '@/utils/socket'
 import apiClient from '@/utils/api'
 import LogoutTransition from './LogoutTransition'
+import WallpaperBackground from './WallpaperBackground'
 import {
   Home,
   Terminal,
@@ -56,6 +58,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation()
   const { user, logout } = useAuthStore()
   const { theme, toggleTheme } = useThemeStore()
+  const { settings: wallpaperSettings } = useWallpaperStore()
   
   const navigation = [
     { name: '首页', href: '/', icon: Home },
@@ -332,7 +335,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
   
   return (
-    <div className="min-h-screen bg-game-gradient">
+    <div className={`min-h-screen relative ${wallpaperSettings.enabled ? '' : 'bg-game-gradient'}`}>
+      {/* 背景壁纸 */}
+      <WallpaperBackground />
+      
       {/* 移动端侧边栏遮罩 */}
       {sidebarOpen && (
         <div
@@ -487,7 +493,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </div>
       
       {/* 主内容区域 */}
-      <div className={`transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
+      <div className={`transition-all duration-300 relative z-10 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         {/* 顶部栏 */}
         <div className="sticky top-0 z-30 flex h-16 items-center justify-between px-6 glass border-b border-gray-200 dark:border-gray-700/30">
           <button

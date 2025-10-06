@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useWallpaperStore } from '@/stores/wallpaperStore'
 import { Eye, EyeOff, Gamepad2, Sun, Moon, Loader2, RefreshCw, UserPlus, HelpCircle } from 'lucide-react'
 import apiClient from '@/utils/api'
 import { CaptchaData } from '@/types'
 import LoginTransition from '@/components/LoginTransition'
+import WallpaperBackground from '@/components/WallpaperBackground'
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('')
@@ -29,6 +31,7 @@ const LoginPage: React.FC = () => {
   const { login, loading, error } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const { theme, toggleTheme } = useThemeStore()
+  const { settings: wallpaperSettings } = useWallpaperStore()
 
   // 页面加载动画
   useEffect(() => {
@@ -283,12 +286,17 @@ const LoginPage: React.FC = () => {
           setShowLoginTransition(false)
         }}
       />
+
+      {/* 背景壁纸 */}
+      <WallpaperBackground isLoginPage={true} />
       
       <div className={`
-        min-h-screen flex items-center justify-center p-4 transition-all duration-1000
-        ${theme === 'dark' 
-          ? 'bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-background-shift' 
-          : 'bg-gradient-to-br from-blue-50 via-white to-purple-50'
+        min-h-screen flex items-center justify-center p-4 transition-all duration-1000 relative
+        ${!wallpaperSettings.syncWithMain && !wallpaperSettings.loginEnabled && !wallpaperSettings.enabled 
+          ? theme === 'dark' 
+            ? 'bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-background-shift' 
+            : 'bg-gradient-to-br from-blue-50 via-white to-purple-50'
+          : ''
         }
       `}>
       {/* 主题切换按钮 */}
@@ -296,7 +304,7 @@ const LoginPage: React.FC = () => {
         onClick={toggleTheme}
         className={`
           fixed top-4 right-4 p-3 glass rounded-full text-black dark:text-white 
-          hover:bg-white/20 transition-all duration-200 z-10
+          hover:bg-white/20 transition-all duration-200 z-20
           ${isAnimating ? 'opacity-0 translate-y-[-20px]' : 'opacity-100 translate-y-0 animate-form-field-slide-in animate-delay-500'}
         `}
       >
@@ -304,7 +312,7 @@ const LoginPage: React.FC = () => {
       </button>
       
       <div className={`
-        w-full max-w-md transition-all duration-600
+        w-full max-w-md transition-all duration-600 relative z-10
         ${isAnimating ? 'opacity-0 translate-y-10 scale-95' : 'opacity-100 translate-y-0 scale-100 animate-login-slide-in'}
         ${loginSuccess ? 'animate-page-transition-out' : ''}
       `}>

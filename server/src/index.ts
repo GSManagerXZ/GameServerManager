@@ -44,6 +44,7 @@ import gameConfigRouter from './routes/gameconfig.js'
 import rconRouter from './routes/rcon.js'
 import environmentRouter, { setEnvironmentSocketIO, setEnvironmentConfigManager } from './routes/environment.js'
 import { setupDeveloperRoutes } from './routes/developer.js'
+import wallpaperRouter from './routes/wallpaper.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -662,6 +663,9 @@ async function startServer() {
 
     // 设置开发者路由
     app.use('/api/developer', setupDeveloperRoutes(configManager))
+
+    // 壁纸路由
+    app.use('/api/wallpaper', wallpaperRouter)
 
     // 设置安全配置路由
     const { setSecurityConfigManager } = await import('./routes/security.js')
