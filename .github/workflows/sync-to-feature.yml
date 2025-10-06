@@ -8,7 +8,7 @@ on:
 # 环境变量配置 - 可以在这里修改目标分支和源分支
 env:
   SOURCE_BRANCH: main              # 源分支名称
-  TARGET_BRANCHES: feature,#50     # 目标分支名称列表（用逗号分隔，可添加多个分支）
+  TARGET_BRANCHES: feature     # 目标分支名称列表（用逗号分隔，可添加多个分支）
   MERGE_STRATEGY: merge            # 合并策略: merge(标准合并) 或 rebase(变基合并)
 
 jobs:

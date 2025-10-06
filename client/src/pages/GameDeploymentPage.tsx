@@ -25,6 +25,7 @@ import { io, Socket } from 'socket.io-client'
 import config from '@/config'
 import { useDefaultGamePath, useGameInstallPath } from '@/hooks/useDefaultGamePath'
 import CloudProviderModal from '@/components/CloudProviderModal'
+import ConfirmInstanceUpdateDialog from '@/components/ConfirmInstanceUpdateDialog'
 
 interface GameInfo {
   game_nameCN: string
@@ -126,6 +127,12 @@ const GameDeploymentPage: React.FC = () => {
   const [steamUsername, setSteamUsername] = useState('')
   const [steamPassword, setSteamPassword] = useState('')
   const [validateGameIntegrity, setValidateGameIntegrity] = useState(false)
+  
+  // 实例更新确认弹窗相关状态
+  const [showInstanceUpdateDialog, setShowInstanceUpdateDialog] = useState(false)
+  const [instanceUpdateDialogAnimating, setInstanceUpdateDialogAnimating] = useState(false)
+  const [existingInstanceId, setExistingInstanceId] = useState<string | null>(null)
+  const [updateInstanceInfo, setUpdateInstanceInfo] = useState(false)
 
   // 平台筛选状态
   const [platformFilter, setPlatformFilter] = useState<string>('all') // 'all', 'compatible', 'Windows', 'Linux', 'macOS'
@@ -1506,10 +1513,41 @@ const GameDeploymentPage: React.FC = () => {
 
 
   // 打开安装对话框的通用函数
-  const openInstallModal = (gameKey: string, gameInfo: GameInfo) => {
+  const openInstallModal = async (gameKey: string, gameInfo: GameInfo) => {
+    const defaultInstanceName = gameInfo.game_nameCN
+    
+    // 检查是否存在同名实例
+    try {
+      const instancesResponse = await apiClient.getInstances()
+      if (instancesResponse.success && instancesResponse.data) {
+        const existingInstance = instancesResponse.data.find(
+          (instance: any) => instance.name === defaultInstanceName
+        )
+        
+        if (existingInstance) {
+          // 找到同名实例，显示确认弹窗
+          setSelectedGame({ key: gameKey, info: gameInfo })
+          setInstanceName(defaultInstanceName)
+          setInstallPath(generatePath(gameKey))
+          setExistingInstanceId(existingInstance.id)
+          setShowInstanceUpdateDialog(true)
+          // 使用requestAnimationFrame确保DOM渲染完成后再触发动画
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setInstanceUpdateDialogAnimating(true)
+            })
+          })
+          return
+        }
+      }
+    } catch (error) {
+      console.error('检查实例失败:', error)
+      // 检查失败不应阻止安装流程，继续正常流程
+    }
+    
+    // 没有找到同名实例，正常打开安装对话框
     setSelectedGame({ key: gameKey, info: gameInfo })
-    setInstanceName(gameInfo.game_nameCN)
-    // 自动填充默认游戏路径
+    setInstanceName(defaultInstanceName)
     setInstallPath(generatePath(gameKey))
     setShowInstallModal(true)
     // 使用requestAnimationFrame确保DOM渲染完成后再触发动画
@@ -1528,7 +1566,43 @@ const GameDeploymentPage: React.FC = () => {
       setValidateGameIntegrity(false) // 重置校验游戏完整性状态
       setShowAdvanced(false) // 重置高级选项展开状态
       setSteamcmdCommand('') // 重置SteamCMD命令
+      setExistingInstanceId(null) // 重置实例ID
+      setUpdateInstanceInfo(false) // 重置更新实例信息标志
     }, 300)
+  }
+  
+  // 关闭实例更新确认弹窗
+  const handleCloseInstanceUpdateDialog = () => {
+    setInstanceUpdateDialogAnimating(false)
+    setTimeout(() => {
+      setShowInstanceUpdateDialog(false)
+      setExistingInstanceId(null)
+      setUpdateInstanceInfo(false)
+      setCheckingEnvironment(null) // 清除检测环境状态
+    }, 300)
+  }
+  
+  // 确认实例更新
+  const handleConfirmInstanceUpdate = (shouldUpdateInfo: boolean) => {
+    setUpdateInstanceInfo(shouldUpdateInfo)
+    // 自动勾选校验游戏完整性
+    setValidateGameIntegrity(true)
+    // 关闭确认弹窗（但不重置 existingInstanceId）
+    setInstanceUpdateDialogAnimating(false)
+    setTimeout(() => {
+      setShowInstanceUpdateDialog(false)
+      setCheckingEnvironment(null) // 清除检测环境状态
+      // 注意：不在这里重置 existingInstanceId 和 updateInstanceInfo
+    }, 300)
+    // 打开安装对话框
+    setTimeout(() => {
+      setShowInstallModal(true)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setInstallModalAnimating(true)
+        })
+      })
+    }, 350)
   }
 
   // 关闭兼容性确认对话框
@@ -1738,6 +1812,10 @@ const GameDeploymentPage: React.FC = () => {
       return
     }
 
+    // 保存实例相关状态，因为关闭对话框时会被重置
+    const currentExistingInstanceId = existingInstanceId
+    const currentUpdateInstanceInfo = updateInstanceInfo
+
     try {
       // 关闭对话框
       handleCloseInstallModal()
@@ -1752,7 +1830,9 @@ const GameDeploymentPage: React.FC = () => {
           useAnonymous,
           steamUsername: useAnonymous ? undefined : steamUsername.trim(),
           steamPassword: useAnonymous ? undefined : steamPassword.trim(),
-          steamcmdCommand: steamcmdCommand.trim()
+          steamcmdCommand: steamcmdCommand.trim(),
+          existingInstanceId: currentExistingInstanceId || undefined,
+          updateInstanceInfo: currentUpdateInstanceInfo
         })
 
       if (response.success && response.data?.terminalSessionId) {
@@ -2344,7 +2424,7 @@ const GameDeploymentPage: React.FC = () => {
                             ? '不兼容'
                             : gameInfo.panelCompatibleOnCurrentPlatform === false
                             ? '面板不兼容'
-                            : '部署游戏'}
+                            : '部署/更新 游戏'}
                         </span>
                       </button>
 
@@ -4647,6 +4727,17 @@ const GameDeploymentPage: React.FC = () => {
             }
           })}
           onClose={handleCloseCloudProviderModal}
+        />
+      )}
+      
+      {/* 实例更新确认弹窗 */}
+      {showInstanceUpdateDialog && selectedGame && (
+        <ConfirmInstanceUpdateDialog
+          isOpen={showInstanceUpdateDialog}
+          onClose={handleCloseInstanceUpdateDialog}
+          onConfirm={handleConfirmInstanceUpdate}
+          instanceName={instanceName}
+          gameName={selectedGame.info.game_nameCN}
         />
       )}
     </div>

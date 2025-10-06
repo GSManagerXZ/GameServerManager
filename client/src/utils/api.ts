@@ -510,6 +510,8 @@ class ApiClient {
     steamUsername?: string
     steamPassword?: string
     steamcmdCommand: string
+    existingInstanceId?: string
+    updateInstanceInfo?: boolean
   }) {
     return this.post('/game-deployment/install', data)
   }
