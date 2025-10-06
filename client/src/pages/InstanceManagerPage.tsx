@@ -344,7 +344,8 @@ const InstanceManagerPage: React.FC = () => {
     // 处理sections数组
     if (Array.isArray(schema.sections)) {
       schema.sections.forEach((section: any) => {
-        const sectionKey = section.key || 'default'
+        // 使用空值合并运算符，确保空字符串不会被替换成 'default'
+        const sectionKey = section.key !== undefined && section.key !== null ? section.key : 'default'
         if (!filledData[sectionKey]) {
           filledData[sectionKey] = {}
         }
@@ -1484,7 +1485,8 @@ const InstanceManagerPage: React.FC = () => {
                   {(Array.isArray(configSchema.sections) ? configSchema.sections : Object.entries(configSchema.sections || {})).map((sectionData: any, sectionIndex: number) => {
                     // 处理数组格式和对象格式的sections
                     const section = Array.isArray(configSchema.sections) ? sectionData : sectionData[1]
-                    const sectionKey = Array.isArray(configSchema.sections) ? (section.key || 'default') : sectionData[0]
+                    // 使用严格判断，确保空字符串不会被替换成 'default'
+                    const sectionKey = Array.isArray(configSchema.sections) ? (section.key !== undefined && section.key !== null ? section.key : 'default') : sectionData[0]
                     
                     return (
                     <div key={sectionKey || sectionIndex} className="space-y-4">

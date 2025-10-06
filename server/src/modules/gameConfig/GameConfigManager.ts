@@ -380,7 +380,8 @@ export class GameConfigManager {
 
       for (const section of configSchema.sections) {
         result[section.key] = {}
-        const sectionData = jsonData[section.key] || {}
+        // 如果 section.key 为空字符串，表示从 JSON 根级别读取（扁平结构）
+        const sectionData = section.key === '' ? jsonData : (jsonData[section.key] || {})
         
         for (const field of section.fields) {
           const value = sectionData[field.name]
@@ -515,7 +516,19 @@ export class GameConfigManager {
    * 保存为JSON格式
    */
   private async saveWithJson(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
-    const jsonContent = JSON.stringify(configData, null, 2)
+    // 检查是否为扁平结构（section.key 为空字符串）
+    const isFlat = configSchema.sections.length === 1 && configSchema.sections[0].key === ''
+    
+    let jsonData: any
+    if (isFlat) {
+      // 扁平结构：直接将字段写入 JSON 根级别
+      jsonData = configData[''] || {}
+    } else {
+      // 嵌套结构：保持原有结构
+      jsonData = configData
+    }
+    
+    const jsonContent = JSON.stringify(jsonData, null, 2)
     await fs.writeFile(configPath, jsonContent, 'utf-8')
   }
 
