@@ -2658,6 +2658,9 @@ const GameDeploymentPage: React.FC = () => {
               <p className="text-yellow-700 dark:text-yellow-300 mb-4">
                 在线部署功能需要有效的赞助者密钥才能使用。请前往设置页面配置您的密钥。
               </p>
+              <p className="text-yellow-700 dark:text-yellow-300 mb-4">
+                在线部署是采用GSManager官方中国大陆服务器由开发团队亲自手动配置的服务端具有一键安装和百分百的成功率保障
+              </p>
               <button
                 onClick={() => navigate('/settings')}
                 className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -3366,7 +3369,7 @@ const GameDeploymentPage: React.FC = () => {
               搜索Minecraft整合包
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              整合包内容来源于 <a href="https://modrinth.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">Modrinth</a> 平台
+              整合包内容来源于 <a href="https://modrinth.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">Modrinth</a> 平台。若您是中国大陆网路可能会受到网络影响造成的部署失败，建议使用代理后再次部署。
             </p>
 
             <div className="flex space-x-4 mb-4">
