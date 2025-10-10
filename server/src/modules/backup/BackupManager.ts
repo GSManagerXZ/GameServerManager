@@ -78,7 +78,8 @@ export class BackupManager {
 
   private formatTimestamp(date: Date): string {
     const pad = (n: number) => n.toString().padStart(2, '0')
-    return `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}_${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    // 使用连字符替代冒号，以兼容Windows文件系统
+    return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
   }
 
   async createBackup(backupName: string, sourcePath: string, maxKeep: number): Promise<{ archivePath: string }> {
