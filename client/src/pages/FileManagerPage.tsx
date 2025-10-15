@@ -64,6 +64,7 @@ import { CompressDialog } from '@/components/CompressDialog'
 import { PermissionsDialog } from '@/components/PermissionsDialog'
 import { MonacoEditor, type LineEndingType } from '@/components/MonacoEditor'
 import { ImagePreview } from '@/components/ImagePreview'
+import { EncodingConfirmDialog } from '@/components/EncodingConfirmDialog'
 import { FileItem } from '@/types/file'
 import { fileApiClient } from '@/utils/fileApi'
 import { isTextFile, isImageFile } from '@/utils/format'
@@ -83,6 +84,7 @@ const FileManagerPage: React.FC = () => {
     error,
     clipboard,
     openFiles,
+    fileEncodings,
     activeFile,
     tasks,
     activeTasks,
@@ -174,6 +176,9 @@ const FileManagerPage: React.FC = () => {
     return saved || 'LF'
   })
   
+  // 当前活动文件的编码
+  const [currentFileEncoding, setCurrentFileEncoding] = useState<string>('utf-8')
+  
   // 图片预览模态框
   const [imagePreviewVisible, setImagePreviewVisible] = useState(false)
   const [previewImagePath, setPreviewImagePath] = useState('')
@@ -181,6 +186,22 @@ const FileManagerPage: React.FC = () => {
   
   // 任务状态抽屉
   const [taskDrawerVisible, setTaskDrawerVisible] = useState(false)
+  
+  // 编码确认对话框
+  const [encodingDialog, setEncodingDialog] = useState<{
+    visible: boolean
+    filePath: string
+    fileName: string
+    detectedEncoding: string
+    confidence: number
+  }>({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
+  
+  // 监听活动文件变化，更新当前文件编码
+  React.useEffect(() => {
+    if (activeFile && fileEncodings.has(activeFile)) {
+      setCurrentFileEncoding(fileEncodings.get(activeFile) || 'utf-8')
+    }
+  }, [activeFile, fileEncodings])
   
   // 触摸适配
   const touchAdaptation = useTouchAdaptation()
@@ -309,14 +330,33 @@ const FileManagerPage: React.FC = () => {
   }, [navigateToPath])
 
   // 右键菜单处理函数
-  const handleContextMenuOpen = useCallback((file: FileItem) => {
+  const handleContextMenuOpen = useCallback(async (file: FileItem) => {
     if (file.type === 'directory') {
       navigateToPath(file.path)
     } else {
-      openFile(file.path)
-      setEditorModalVisible(true)
+      try {
+        const result = await openFile(file.path)
+        if (result.isIncompatible) {
+          // 显示编码确认对话框（不支持的编码）
+          setEncodingDialog({
+            visible: true,
+            filePath: file.path,
+            fileName: file.name,
+            detectedEncoding: result.detectedEncoding,
+            confidence: result.confidence
+          })
+        } else {
+          setEditorModalVisible(true)
+        }
+      } catch (error: any) {
+        addNotification({
+          type: 'error',
+          title: '打开文件失败',
+          message: error.message || '无法打开文件'
+        })
+      }
     }
-  }, [navigateToPath, openFile])
+  }, [navigateToPath, openFile, addNotification])
   
   const handleContextMenuRename = useCallback((file: FileItem) => {
     setRenameDialog({ visible: true, file })
@@ -408,10 +448,29 @@ const FileManagerPage: React.FC = () => {
     }
   }, [clipboard, pasteFiles, currentPath, addNotification, loadTasks])
   
-  const handleContextMenuView = useCallback((file: FileItem) => {
+  const handleContextMenuView = useCallback(async (file: FileItem) => {
     if (isTextFile(file.name)) {
-      openFile(file.path)
-      setEditorModalVisible(true)
+      try {
+        const result = await openFile(file.path)
+        if (result.isIncompatible) {
+          // 显示编码确认对话框（不支持的编码）
+          setEncodingDialog({
+            visible: true,
+            filePath: file.path,
+            fileName: file.name,
+            detectedEncoding: result.detectedEncoding,
+            confidence: result.confidence
+          })
+        } else {
+          setEditorModalVisible(true)
+        }
+      } catch (error: any) {
+        addNotification({
+          type: 'error',
+          title: '打开文件失败',
+          message: error.message || '无法打开文件'
+        })
+      }
     } else if (isImageFile(file.name)) {
       setPreviewImagePath(file.path)
       setPreviewImageName(file.name)
@@ -419,7 +478,7 @@ const FileManagerPage: React.FC = () => {
     } else {
       message.info('该文件类型不支持预览')
     }
-  }, [openFile])
+  }, [openFile, addNotification])
 
   // 压缩处理
   const handleContextMenuCompress = useCallback((files: FileItem[]) => {
@@ -750,7 +809,7 @@ const FileManagerPage: React.FC = () => {
   }
   
   // 文件双击处理
-  const handleFileDoubleClick = (file: FileItem) => {
+  const handleFileDoubleClick = async (file: FileItem) => {
     if (file.type === 'directory') {
       navigateToPath(file.path)
     } else if (isImageFile(file.name)) {
@@ -759,8 +818,27 @@ const FileManagerPage: React.FC = () => {
       setImagePreviewVisible(true)
     } else {
       // 默认使用文本编辑器打开所有非图片文件（包括无后缀文件和无标准后缀文件）
-      openFile(file.path)
-      setEditorModalVisible(true)
+      try {
+        const result = await openFile(file.path)
+        if (result.isIncompatible) {
+          // 显示编码确认对话框（不支持的编码）
+          setEncodingDialog({
+            visible: true,
+            filePath: file.path,
+            fileName: file.name,
+            detectedEncoding: result.detectedEncoding,
+            confidence: result.confidence
+          })
+        } else {
+          setEditorModalVisible(true)
+        }
+      } catch (error: any) {
+        addNotification({
+          type: 'error',
+          title: '打开文件失败',
+          message: error.message || '无法打开文件'
+        })
+      }
     }
   }
   
@@ -817,6 +895,58 @@ const FileManagerPage: React.FC = () => {
       setEditorModalVisible(true)
     }
   }
+  
+  // 编码转换确认处理
+  const handleEncodingConvert = async () => {
+    try {
+      // 关闭当前文件（如果已打开）
+      closeFile(encodingDialog.filePath)
+      
+      // 使用UTF-8编码重新打开文件（这会将原编码的内容转换为UTF-8字符串）
+      const result = await openFile(encodingDialog.filePath, 'utf-8')
+      
+      // 立即保存文件，将内容以UTF-8编码写入磁盘
+      const saveSuccess = await saveFile(encodingDialog.filePath, result.content, 'utf-8')
+      
+      if (!saveSuccess) {
+        throw new Error('保存文件失败')
+      }
+      
+      // 关闭编码确认对话框
+      setEncodingDialog({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
+      
+      // 打开编辑器
+      setEditorModalVisible(true)
+      
+      addNotification({
+        type: 'success',
+        title: '编码转换成功',
+        message: `文件已转换为 UTF-8 编码并保存`
+      })
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: '编码转换失败',
+        message: error.message || '无法转换文件编码'
+      })
+    }
+  }
+  
+  // 编码转换取消处理
+  const handleEncodingCancel = () => {
+    // 关闭文件
+    closeFile(encodingDialog.filePath)
+    
+    // 关闭编码确认对话框
+    setEncodingDialog({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
+    
+    addNotification({
+      type: 'info',
+      title: '已取消',
+      message: '建议您下载文件后使用本地编辑器编辑'
+    })
+  }
+  
   
   // 对话框处理
   const handleCreateConfirm = async (name: string) => {
@@ -947,8 +1077,10 @@ const FileManagerPage: React.FC = () => {
       return;
     }
     
-    await saveFile(activeFile, fileContent)
+    // 使用当前选择的编码保存
+    await saveFile(activeFile, fileContent, currentFileEncoding)
   }
+  
   
   // 生成面包屑
   const generateBreadcrumbs = () => {
@@ -1618,29 +1750,54 @@ const FileManagerPage: React.FC = () => {
               }))}
             />
             
-            {/* 换行符选择器 */}
+            {/* 换行符和编码选择器 */}
             <div 
-              className="flex items-center justify-start px-4 py-2"
+              className="flex items-center justify-start px-4 py-2 space-x-6"
               style={{ 
                 backgroundColor: theme === 'dark' ? '#1F1F1F' : '#FAFAFA'
               }}
             >
-              <span className={`text-sm mr-3 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-              }`}>
-                换行符类型:
-              </span>
-              <Select
-                value={lineEnding}
-                onChange={handleLineEndingChange}
-                size="small"
-                style={{ width: 80 }}
-                options={[
-                  { value: 'LF', label: 'LF' },
-                  { value: 'CRLF', label: 'CRLF' },
-                  { value: 'CR', label: 'CR' }
-                ]}
-              />
+              <div className="flex items-center">
+                <span className={`text-sm mr-3 ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  换行符:
+                </span>
+                <Select
+                  value={lineEnding}
+                  onChange={handleLineEndingChange}
+                  size="small"
+                  style={{ width: 80 }}
+                  options={[
+                    { value: 'LF', label: 'LF' },
+                    { value: 'CRLF', label: 'CRLF' },
+                    { value: 'CR', label: 'CR' }
+                  ]}
+                />
+              </div>
+              
+              <div className="flex items-center">
+                <span className={`text-sm mr-3 ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  编码:
+                </span>
+                <Select
+                  value={currentFileEncoding}
+                  disabled
+                  size="small"
+                  style={{ width: 140 }}
+                  options={[
+                    { value: 'utf-8', label: 'UTF-8' },
+                    { value: 'utf-16le', label: 'UTF-16 LE' },
+                    { value: 'utf-16be', label: 'UTF-16 BE' },
+                    { value: 'gbk', label: 'GBK' },
+                    { value: 'big5', label: 'Big5' },
+                    { value: 'windows-1252', label: 'ANSI (西欧)' },
+                    { value: 'iso-8859-1', label: 'ISO-8859-1' }
+                  ]}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -1652,6 +1809,16 @@ const FileManagerPage: React.FC = () => {
         onClose={() => setImagePreviewVisible(false)}
         imagePath={previewImagePath}
         fileName={previewImageName}
+      />
+      
+      {/* 编码确认对话框 */}
+      <EncodingConfirmDialog
+        visible={encodingDialog.visible}
+        fileName={encodingDialog.fileName}
+        detectedEncoding={encodingDialog.detectedEncoding}
+        confidence={encodingDialog.confidence}
+        onConfirm={handleEncodingConvert}
+        onCancel={handleEncodingCancel}
       />
       
       {/* 任务状态抽屉 */}

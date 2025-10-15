@@ -43,6 +43,9 @@ export interface FileSearchResult {
 export interface FileContent {
   content: string
   encoding: string
+  detectedEncoding?: string
+  confidence?: number
+  isIncompatible?: boolean
   size: number
   modified: string
 }

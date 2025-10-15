@@ -23,6 +23,7 @@ interface FileStore {
   // 编辑器相关
   openFiles: Map<string, string> // path -> content
   originalFiles: Map<string, string> // path -> original content
+  fileEncodings: Map<string, string> // path -> encoding
   activeFile: string | null
   
   // 任务相关
@@ -59,9 +60,9 @@ interface FileStore {
   extractArchive: (archivePath: string) => Promise<boolean>
   
   // 编辑器操作
-  openFile: (path: string) => Promise<void>
+  openFile: (path: string, encoding?: string) => Promise<{ isIncompatible: boolean; detectedEncoding: string; confidence: number; content: string }>
   closeFile: (path: string) => void
-  saveFile: (path: string, content: string) => Promise<boolean>
+  saveFile: (path: string, content: string, encoding?: string) => Promise<boolean>
   setActiveFile: (path: string | null) => void
   updateFileContent: (path: string, content: string) => void
   isFileModified: (path: string) => boolean
@@ -98,6 +99,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   },
   openFiles: new Map(),
   originalFiles: new Map(),
+  fileEncodings: new Map(),
   activeFile: null,
   tasks: [],
   activeTasks: [],
@@ -308,16 +310,22 @@ export const useFileStore = create<FileStore>((set, get) => ({
   },
 
   // 打开文件
-  openFile: async (path: string) => {
-    const { openFiles, originalFiles } = get()
+  openFile: async (path: string, encoding?: string) => {
+    const { openFiles, originalFiles, fileEncodings } = get()
     
     if (openFiles.has(path)) {
       set({ activeFile: path })
-      return
+      // 如果文件已打开，返回默认值
+      return { 
+        isIncompatible: false, 
+        detectedEncoding: fileEncodings.get(path) || 'utf-8', 
+        confidence: 1, 
+        content: openFiles.get(path) || '' 
+      }
     }
     
     try {
-      const fileContent = await fileApiClient.readFile(path)
+      const fileContent = await fileApiClient.readFile(path, encoding)
       
       // 检查返回的数据是否有效
       if (!fileContent || typeof fileContent.content === 'undefined') {
@@ -326,27 +334,44 @@ export const useFileStore = create<FileStore>((set, get) => ({
       
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)
+      const newFileEncodings = new Map(fileEncodings)
+      
       newOpenFiles.set(path, fileContent.content || '')
       newOriginalFiles.set(path, fileContent.content || '')
+      // 保存文件的原始编码
+      newFileEncodings.set(path, fileContent.encoding || 'utf-8')
       
       set({ 
         openFiles: newOpenFiles,
         originalFiles: newOriginalFiles,
+        fileEncodings: newFileEncodings,
         activeFile: path 
       })
+      
+      // 返回编码信息
+      return {
+        isIncompatible: fileContent.isIncompatible || false,
+        detectedEncoding: fileContent.detectedEncoding || 'utf-8',
+        confidence: fileContent.confidence || 1,
+        content: fileContent.content || ''
+      }
     } catch (error: any) {
       set({ error: error.message || '打开文件失败' })
       console.error('打开文件失败:', error)
+      throw error
     }
   },
 
   // 关闭文件
   closeFile: (path: string) => {
-    const { openFiles, originalFiles, activeFile } = get()
+    const { openFiles, originalFiles, fileEncodings, activeFile } = get()
     const newOpenFiles = new Map(openFiles)
     const newOriginalFiles = new Map(originalFiles)
+    const newFileEncodings = new Map(fileEncodings)
+    
     newOpenFiles.delete(path)
     newOriginalFiles.delete(path)
+    newFileEncodings.delete(path)
     
     const newActiveFile = activeFile === path ? 
       (newOpenFiles.size > 0 ? Array.from(newOpenFiles.keys())[0] : null) : 
@@ -355,14 +380,15 @@ export const useFileStore = create<FileStore>((set, get) => ({
     set({ 
       openFiles: newOpenFiles,
       originalFiles: newOriginalFiles,
+      fileEncodings: newFileEncodings,
       activeFile: newActiveFile 
     })
   },
 
   // 保存文件
-  saveFile: async (path: string, content: string) => {
+  saveFile: async (path: string, content: string, encoding: string = 'utf-8') => {
     try {
-      await fileApiClient.saveFile(path, content)
+      await fileApiClient.saveFile(path, content, encoding)
       const { openFiles, originalFiles } = get()
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)

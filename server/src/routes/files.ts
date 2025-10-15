@@ -11,6 +11,8 @@ import * as zlib from 'zlib'
 import mime from 'mime-types'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import jschardet from 'jschardet'
+import iconv from 'iconv-lite'
 import { authenticateToken, authenticateTokenFlexible } from '../middleware/auth.js'
 import { taskManager } from '../modules/task/taskManager.js'
 import { compressionWorker } from '../modules/task/compressionWorker.js'
@@ -286,7 +288,7 @@ router.get('/read', authenticateToken, async (req: Request, res: Response) => {
 // 读取文本文件内容（JSON格式）
 router.get('/read-content', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { path: filePath } = req.query
+    const { path: filePath, encoding: requestedEncoding } = req.query
 
     if (!isValidPath(filePath as string)) {
       return res.status(400).json({
@@ -306,14 +308,109 @@ router.get('/read-content', authenticateToken, async (req: Request, res: Respons
       })
     }
 
-    // 读取文件内容
-    const content = await fs.readFile(fixedFilePath, 'utf-8')
+    // 读取文件的原始字节
+    const buffer = await fs.readFile(fixedFilePath)
+    
+    // 检测文件编码
+    const detected = jschardet.detect(buffer)
+    let detectedEncoding = detected.encoding?.toLowerCase() || 'utf-8'
+    const confidence = detected.confidence || 0
+    
+    // 标准化编码名称
+    const normalizeEncoding = (enc: string): string => {
+      const normalized = enc.toLowerCase().replace(/[_-]/g, '')
+      if (normalized.includes('utf16') || normalized.includes('ucs2')) {
+        // 检测 BOM 来确定字节序
+        if (buffer.length >= 2) {
+          if (buffer[0] === 0xFF && buffer[1] === 0xFE) {
+            return 'utf-16le'
+          } else if (buffer[0] === 0xFE && buffer[1] === 0xFF) {
+            return 'utf-16be'
+          }
+        }
+        return 'utf-16le' // 默认使用 LE
+      }
+      if (normalized.includes('utf8')) {
+        return 'utf-8'
+      }
+      if (normalized.includes('gbk') || normalized.includes('gb2312') || normalized.includes('cp936')) {
+        return 'gbk'
+      }
+      if (normalized.includes('big5')) {
+        return 'big5'
+      }
+      if (normalized.includes('ascii')) {
+        return 'utf-8' // ASCII 是 UTF-8 的子集
+      }
+      // ANSI 编码处理（Windows代码页）
+      if (normalized.includes('windows1252') || normalized === 'cp1252') {
+        return 'windows-1252'
+      }
+      if (normalized.includes('iso88591') || normalized === 'latin1') {
+        return 'iso-8859-1'
+      }
+      return enc
+    }
+    
+    // 标准化检测到的编码
+    detectedEncoding = normalizeEncoding(detectedEncoding)
+    
+    // 定义编辑器支持的编码列表
+    const supportedEncodings = [
+      'utf-8', 
+      'utf-16le', 
+      'utf-16be', 
+      'gbk', 
+      'big5', 
+      'ascii',
+      'windows-1252',  // ANSI (西欧/英文)
+      'iso-8859-1'     // Latin-1
+    ]
+    
+    // 判断编码是否在支持列表中
+    const isIncompatible = !supportedEncodings.includes(detectedEncoding.toLowerCase())
+    
+    // 确定用于解码的编码（总是使用检测到的编码来解码）
+    const decodingEncoding = detectedEncoding
+    
+    // 解码文件内容
+    let content: string
+    let finalEncoding = decodingEncoding
+    
+    try {
+      if (iconv.encodingExists(decodingEncoding)) {
+        // 使用 iconv-lite 解码
+        content = iconv.decode(buffer, decodingEncoding)
+        
+        // 移除 BOM（如果存在）
+        if (content.charCodeAt(0) === 0xFEFF) {
+          content = content.substring(1)
+        }
+      } else {
+        // 如果不支持该编码，尝试UTF-8
+        content = buffer.toString('utf-8')
+        finalEncoding = 'utf-8'
+      }
+    } catch (decodeError: any) {
+      // 解码失败，尝试UTF-8
+      try {
+        content = buffer.toString('utf-8')
+        finalEncoding = 'utf-8'
+      } catch (utf8Error) {
+        // UTF-8 也失败，返回原始buffer的十六进制表示
+        content = buffer.toString('hex')
+        finalEncoding = 'binary'
+      }
+    }
     
     res.json({
       status: 'success',
       data: {
         content: content,
-        encoding: 'utf-8',
+        encoding: finalEncoding,
+        detectedEncoding: detectedEncoding,
+        confidence: confidence,
+        isIncompatible: isIncompatible,
         size: stats.size,
         modified: stats.mtime
       }
@@ -503,11 +600,26 @@ router.post('/save', authenticateToken, async (req: Request, res: Response) => {
     // 修复Windows路径格式
     const fixedFilePath = fixWindowsPath(filePath)
 
-    await fs.writeFile(fixedFilePath, content, encoding)
+    // 使用iconv-lite进行编码转换
+    let buffer: Buffer
+    try {
+      if (iconv.encodingExists(encoding)) {
+        buffer = iconv.encode(content, encoding)
+      } else {
+        // 如果不支持该编码，使用UTF-8
+        buffer = Buffer.from(content, 'utf-8')
+      }
+    } catch (encodeError: any) {
+      // 编码失败，使用UTF-8
+      buffer = Buffer.from(content, 'utf-8')
+    }
+    
+    await fs.writeFile(fixedFilePath, buffer)
     
     res.json({
       status: 'success',
-      message: '文件保存成功'
+      message: '文件保存成功',
+      encoding: encoding
     })
   } catch (error: any) {
     res.status(500).json({
