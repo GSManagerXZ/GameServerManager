@@ -20,6 +20,7 @@ import { InstanceManager } from './modules/instance/InstanceManager.js'
 import { SteamCMDManager } from './modules/steamcmd/SteamCMDManager.js'
 import { SchedulerManager } from './modules/scheduler/SchedulerManager.js'
 import { PluginManager } from './modules/plugin/PluginManager.js'
+import { FileWatchManager } from './modules/file/FileWatchManager.js'
 import { setupTerminalRoutes } from './routes/terminal.js'
 import { setupGameRoutes } from './routes/games.js'
 import { setupSystemRoutes } from './routes/system.js'
@@ -126,6 +127,7 @@ let instanceManager: InstanceManager
 let steamcmdManager: SteamCMDManager
 let schedulerManager: SchedulerManager
 let pluginManager: PluginManager
+let fileWatchManager: FileWatchManager
 
 // 健康检查端点
 app.get('/api/health', (req, res) => {
@@ -191,6 +193,10 @@ function gracefulShutdown(signal: string) {
     if (systemManager) {
       systemManager.cleanup()
       logger.info('SystemManager 已清理')
+    }
+    if (fileWatchManager) {
+      fileWatchManager.cleanup()
+      logger.info('FileWatchManager 已清理')
     }
     if (instanceManager) {
       instanceManager.cleanup()
@@ -571,6 +577,7 @@ async function startServer() {
     instanceManager = new InstanceManager(terminalManager, logger)
     steamcmdManager = new SteamCMDManager(logger, configManager)
     pluginManager = new PluginManager(logger)
+    fileWatchManager = new FileWatchManager(logger)
     
     // 确保data目录存在
     const dataDir = path.join(process.cwd(), 'data')
@@ -594,6 +601,9 @@ async function startServer() {
     
     // 设置 TerminalManager 的 Socket.IO 实例
     terminalManager.setSocketIO(io)
+    
+    // 设置 FileWatchManager 的 Socket.IO 实例
+    fileWatchManager.setSocketIO(io)
     
     // 设置schedulerManager与gameManager、instanceManager和terminalManager的关联
     schedulerManager.setGameManager(gameManager)
@@ -660,6 +670,9 @@ async function startServer() {
     setEnvironmentSocketIO(io)
     setEnvironmentConfigManager(configManager)
     app.use('/api/environment', environmentRouter)
+    
+    // 导出 fileWatchManager 给文件路由使用
+    ;(global as any).fileWatchManager = fileWatchManager
 
     // 设置开发者路由
     app.use('/api/developer', setupDeveloperRoutes(configManager))
@@ -816,6 +829,43 @@ async function startServer() {
         terminalManager.handleClientDisconnect()
       })
 
+      // 文件监视事件
+      socket.on('watch-file', async (data: { filePath: string }) => {
+        try {
+          const success = await fileWatchManager.watchFile(socket, data.filePath)
+          socket.emit('watch-file-response', {
+            filePath: data.filePath,
+            success,
+            message: success ? '开始监视文件' : '监视文件失败'
+          })
+        } catch (error: any) {
+          logger.error('监视文件失败:', error)
+          socket.emit('watch-file-response', {
+            filePath: data.filePath,
+            success: false,
+            message: error.message || '监视文件失败'
+          })
+        }
+      })
+
+      socket.on('unwatch-file', (data: { filePath: string }) => {
+        try {
+          fileWatchManager.unwatchFile(socket, data.filePath)
+          socket.emit('unwatch-file-response', {
+            filePath: data.filePath,
+            success: true,
+            message: '停止监视文件'
+          })
+        } catch (error: any) {
+          logger.error('取消监视文件失败:', error)
+          socket.emit('unwatch-file-response', {
+            filePath: data.filePath,
+            success: false,
+            message: error.message || '取消监视文件失败'
+          })
+        }
+      })
+
       // 断开连接处理
       socket.on('disconnect', (reason) => {
         logger.info(`客户端断开连接: ${socket.id}, 原因: ${reason}`)
@@ -828,6 +878,8 @@ async function startServer() {
         systemManager.handleClientDisconnect()
         // 通知终端管理器客户端已断开连接
         terminalManager.handleClientDisconnect()
+        // 清理文件监视
+        fileWatchManager.unwatchAllFilesForSocket(socket)
       })
       
       // 错误处理

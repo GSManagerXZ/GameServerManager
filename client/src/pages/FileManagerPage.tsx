@@ -65,7 +65,9 @@ import { PermissionsDialog } from '@/components/PermissionsDialog'
 import { MonacoEditor, type LineEndingType } from '@/components/MonacoEditor'
 import { ImagePreview } from '@/components/ImagePreview'
 import { EncodingConfirmDialog } from '@/components/EncodingConfirmDialog'
+import { FileChangedDialog } from '@/components/FileChangedDialog'
 import { FileItem } from '@/types/file'
+import socketClient from '@/utils/socket'
 import { fileApiClient } from '@/utils/fileApi'
 import { isTextFile, isImageFile } from '@/utils/format'
 import { normalizePath, getDirectoryPath, getBasename } from '@/utils/pathUtils'
@@ -90,6 +92,8 @@ const FileManagerPage: React.FC = () => {
     activeTasks,
     pagination,
     loadingMore,
+    watchedFiles,
+    fileChangedDialog,
     setCurrentPath,
     loadFiles,
     loadMoreFiles,
@@ -120,7 +124,12 @@ const FileManagerPage: React.FC = () => {
     loadTasks,
     loadActiveTasks,
     getTask,
-    deleteTask
+    deleteTask,
+    watchFile,
+    unwatchFile,
+    handleFileChanged,
+    reloadChangedFile,
+    dismissFileChangedDialog
   } = useFileStore()
   
   const { addNotification } = useNotificationStore()
@@ -202,6 +211,42 @@ const FileManagerPage: React.FC = () => {
       setCurrentFileEncoding(fileEncodings.get(activeFile) || 'utf-8')
     }
   }, [activeFile, fileEncodings])
+  
+  // WebSocket 文件变化事件监听
+  React.useEffect(() => {
+    // 监听文件变化事件
+    const handleFileChangedEvent = (data: { filePath: string; modifiedTime: number }) => {
+      console.log('收到文件变化通知:', data.filePath)
+      handleFileChanged(data.filePath)
+    }
+    
+    socketClient.on('file-changed', handleFileChangedEvent)
+    
+    return () => {
+      socketClient.off('file-changed', handleFileChangedEvent)
+    }
+  }, [handleFileChanged])
+  
+  // 自动监视打开的文件
+  React.useEffect(() => {
+    openFiles.forEach((_, filePath) => {
+      // 如果文件还没有被监视，开始监视
+      if (!watchedFiles.has(filePath)) {
+        watchFile(filePath)
+        socketClient.emit('watch-file', { filePath })
+        console.log('开始监视文件:', filePath)
+      }
+    })
+    
+    // 清理不再打开的文件的监视
+    watchedFiles.forEach(filePath => {
+      if (!openFiles.has(filePath)) {
+        unwatchFile(filePath)
+        socketClient.emit('unwatch-file', { filePath })
+        console.log('停止监视文件:', filePath)
+      }
+    })
+  }, [openFiles, watchedFiles, watchFile, unwatchFile])
   
   // 触摸适配
   const touchAdaptation = useTouchAdaptation()
@@ -1820,6 +1865,30 @@ const FileManagerPage: React.FC = () => {
         onConfirm={handleEncodingConvert}
         onCancel={handleEncodingCancel}
       />
+      
+      {/* 文件变化确认对话框 */}
+      {fileChangedDialog && (
+        <FileChangedDialog
+          visible={fileChangedDialog.visible}
+          fileName={fileChangedDialog.fileName}
+          onReload={() => {
+            reloadChangedFile(fileChangedDialog.filePath)
+            addNotification({
+              type: 'success',
+              title: '文件已重新加载',
+              message: `文件 "${fileChangedDialog.fileName}" 已从磁盘重新加载`
+            })
+          }}
+          onKeep={() => {
+            dismissFileChangedDialog()
+            addNotification({
+              type: 'info',
+              title: '保留当前修改',
+              message: '您的修改已保留，但文件在磁盘上已被修改'
+            })
+          }}
+        />
+      )}
       
       {/* 任务状态抽屉 */}
       <Drawer

@@ -26,6 +26,14 @@ interface FileStore {
   fileEncodings: Map<string, string> // path -> encoding
   activeFile: string | null
   
+  // 文件监视相关
+  watchedFiles: Set<string> // 被监视的文件路径
+  fileChangedDialog: {
+    visible: boolean
+    filePath: string
+    fileName: string
+  } | null
+  
   // 任务相关
   tasks: Task[]
   activeTasks: Task[]
@@ -67,6 +75,13 @@ interface FileStore {
   updateFileContent: (path: string, content: string) => void
   isFileModified: (path: string) => boolean
   
+  // 文件监视操作
+  watchFile: (path: string) => void
+  unwatchFile: (path: string) => void
+  handleFileChanged: (filePath: string) => void
+  reloadChangedFile: (filePath: string) => Promise<void>
+  dismissFileChangedDialog: () => void
+  
   // 任务管理
   loadTasks: () => Promise<void>
   loadActiveTasks: () => Promise<void>
@@ -101,6 +116,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
   originalFiles: new Map(),
   fileEncodings: new Map(),
   activeFile: null,
+  watchedFiles: new Set(),
+  fileChangedDialog: null,
   tasks: [],
   activeTasks: [],
 
@@ -373,6 +390,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
     newOriginalFiles.delete(path)
     newFileEncodings.delete(path)
     
+    // 停止监视该文件
+    get().unwatchFile(path)
+    
     const newActiveFile = activeFile === path ? 
       (newOpenFiles.size > 0 ? Array.from(newOpenFiles.keys())[0] : null) : 
       activeFile
@@ -582,5 +602,91 @@ export const useFileStore = create<FileStore>((set, get) => ({
         message: error.message || '删除任务失败' 
       }
     }
+  },
+
+  // 开始监视文件（通过WebSocket）
+  watchFile: (path: string) => {
+    const { watchedFiles } = get()
+    if (!watchedFiles.has(path)) {
+      const newWatchedFiles = new Set(watchedFiles)
+      newWatchedFiles.add(path)
+      set({ watchedFiles: newWatchedFiles })
+      
+      // 通过socket发送监视请求
+      // 注意：这个方法会在FileManagerPage中调用，那里会处理socket通信
+    }
+  },
+
+  // 停止监视文件
+  unwatchFile: (path: string) => {
+    const { watchedFiles } = get()
+    if (watchedFiles.has(path)) {
+      const newWatchedFiles = new Set(watchedFiles)
+      newWatchedFiles.delete(path)
+      set({ watchedFiles: newWatchedFiles })
+      
+      // 通过socket发送取消监视请求
+      // 注意：这个方法会在FileManagerPage中调用，那里会处理socket通信
+    }
+  },
+
+  // 处理文件变化通知
+  handleFileChanged: (filePath: string) => {
+    const { openFiles } = get()
+    
+    // 确保文件当前已打开
+    if (!openFiles.has(filePath)) {
+      return
+    }
+    
+    // 检查文件是否有未保存的修改
+    const isModified = get().isFileModified(filePath)
+    
+    if (isModified) {
+      // 有未保存的修改，显示确认对话框
+      const fileName = filePath.split(/[/\\]/).pop() || filePath
+      set({
+        fileChangedDialog: {
+          visible: true,
+          filePath,
+          fileName
+        }
+      })
+    } else {
+      // 没有修改，自动重新加载
+      get().reloadChangedFile(filePath)
+    }
+  },
+
+  // 重新加载已变化的文件
+  reloadChangedFile: async (filePath: string) => {
+    try {
+      const { fileEncodings } = get()
+      const encoding = fileEncodings.get(filePath)
+      
+      // 重新读取文件内容
+      const fileContent = await fileApiClient.readFile(filePath, encoding)
+      
+      const { openFiles, originalFiles } = get()
+      const newOpenFiles = new Map(openFiles)
+      const newOriginalFiles = new Map(originalFiles)
+      
+      newOpenFiles.set(filePath, fileContent.content || '')
+      newOriginalFiles.set(filePath, fileContent.content || '')
+      
+      set({ 
+        openFiles: newOpenFiles,
+        originalFiles: newOriginalFiles,
+        fileChangedDialog: null
+      })
+    } catch (error: any) {
+      set({ error: error.message || '重新加载文件失败' })
+      console.error('重新加载文件失败:', error)
+    }
+  },
+
+  // 关闭文件变化对话框
+  dismissFileChangedDialog: () => {
+    set({ fileChangedDialog: null })
   }
 }))

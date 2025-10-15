@@ -569,6 +569,12 @@ router.post('/create', authenticateToken, async (req: Request, res: Response) =>
     const parentDir = path.dirname(fixedFilePath)
     await fs.mkdir(parentDir, { recursive: true })
     
+    // 在创建文件前，通知文件监视器忽略下一次变化
+    const fileWatchManager = (global as any).fileWatchManager
+    if (fileWatchManager) {
+      fileWatchManager.ignoreNextChange(fixedFilePath)
+    }
+    
     // 创建文件
     await fs.writeFile(fixedFilePath, content, encoding)
     
@@ -599,6 +605,12 @@ router.post('/save', authenticateToken, async (req: Request, res: Response) => {
 
     // 修复Windows路径格式
     const fixedFilePath = fixWindowsPath(filePath)
+
+    // 在保存前，通知文件监视器忽略下一次变化
+    const fileWatchManager = (global as any).fileWatchManager
+    if (fileWatchManager) {
+      fileWatchManager.ignoreNextChange(fixedFilePath)
+    }
 
     // 使用iconv-lite进行编码转换
     let buffer: Buffer
