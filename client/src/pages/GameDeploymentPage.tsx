@@ -26,6 +26,7 @@ import config from '@/config'
 import { useDefaultGamePath, useGameInstallPath } from '@/hooks/useDefaultGamePath'
 import CloudProviderModal from '@/components/CloudProviderModal'
 import ConfirmInstanceUpdateDialog from '@/components/ConfirmInstanceUpdateDialog'
+import NetworkStatusBanner from '@/components/NetworkStatusBanner'
 
 interface GameInfo {
   game_nameCN: string
@@ -2222,6 +2223,9 @@ const GameDeploymentPage: React.FC = () => {
       {/* SteamCMD 标签页内容 */}
       {activeTab === 'steamcmd' && (
         <div className="space-y-6">
+          {/* Steam网络状态提示 */}
+          <NetworkStatusBanner categoryId="steam" autoCheck={true} />
+          
           {/* 游戏列表错误状态 */}
           {gameListError && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -2462,6 +2466,9 @@ const GameDeploymentPage: React.FC = () => {
       {/* 在线部署标签页内容 */}
       {activeTab === 'online-deploy' && (
         <div className="space-y-6">
+          {/* GSManager在线部署服务网络状态提示 */}
+          <NetworkStatusBanner categoryId="gsmanager" itemId="gsm-deploy" autoCheck={true} />
+          
           {/* 赞助者密钥状态 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
             <div className="flex items-center space-x-3">
@@ -2675,6 +2682,9 @@ const GameDeploymentPage: React.FC = () => {
       {/* Minecraft 标签页内容 */}
       {activeTab === 'minecraft' && (
         <div className="space-y-6">
+          {/* MSL API网络状态提示 */}
+          <NetworkStatusBanner categoryId="minecraft" itemId="msl-api" autoCheck={true} />
+          
           {/* Java环境状态 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
             <div className="space-y-4">
@@ -3288,6 +3298,9 @@ const GameDeploymentPage: React.FC = () => {
       {/* Minecraft整合包部署标签页内容 */}
       {activeTab === 'mrpack' && (
         <div className="space-y-6">
+          {/* Modrinth网络状态提示 */}
+          <NetworkStatusBanner categoryId="modrinth" autoCheck={true} />
+          
           {/* Java环境状态 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
             <div className="space-y-4">

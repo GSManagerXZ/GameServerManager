@@ -127,7 +127,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            xiaozhu674/gameservermanager:3.8.8
+            xiaozhu674/gameservermanager:3.9.0
             xiaozhu674/gameservermanager:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -164,7 +164,7 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: |
-            xiaozhu674/gameservermanager:3.8.8-arm64-beta
+            xiaozhu674/gameservermanager:3.9.0-arm64-beta
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
