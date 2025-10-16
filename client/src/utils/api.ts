@@ -902,6 +902,15 @@ class ApiClient {
   async resetToken() {
     return this.post('/security/reset-token')
   }
+
+  // 网络检测API
+  async checkNetwork() {
+    return this.get('/network/check-all')
+  }
+
+  async checkSingleNetwork(url: string) {
+    return this.post('/network/check-single', { url })
+  }
 }
 
 // 创建单例实例

@@ -487,3 +487,33 @@ export interface RconState {
     timestamp: string
   }>
 }
+
+// 网络检测相关类型
+export interface NetworkCheckItem {
+  id: string
+  name: string
+  url: string
+  status: 'pending' | 'checking' | 'success' | 'failed'
+  responseTime?: number
+  errorMessage?: string
+  lastCheckTime?: string
+}
+
+export interface NetworkCheckCategory {
+  id: string
+  name: string
+  items: NetworkCheckItem[]
+}
+
+export interface NetworkCheckState {
+  categories: NetworkCheckCategory[]
+  allChecksComplete: boolean
+  allChecksPassed: boolean
+  checking: boolean
+  lastCheckTime?: string
+  
+  // 方法
+  checkAll: () => Promise<void>
+  checkSingle: (categoryId: string, itemId: string) => Promise<void>
+  reset: () => void
+}

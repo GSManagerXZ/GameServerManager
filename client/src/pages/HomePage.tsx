@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useNetworkCheckStore } from '@/stores/networkCheckStore'
 import { SystemStats, SystemInfo, ProcessInfo, WeatherData, ActivePort, SystemAlert, DiskInfo } from '@/types'
 import socketClient from '@/utils/socket'
 import apiClient from '@/utils/api'
@@ -25,6 +26,7 @@ import {
   BarChart3
 } from 'lucide-react'
 import MusicPlayer from '@/components/MusicPlayer'
+import NetworkCheck from '@/components/NetworkCheck'
 
 // 主机名和IP地址组件
 interface HostnameWithIPProps {
@@ -229,6 +231,7 @@ const cityOptions = [
 const HomePage: React.FC = () => {
   const { user } = useAuthStore()
   const { addNotification } = useNotificationStore()
+  const { checkAll: checkNetworkAll } = useNetworkCheckStore()
   const navigate = useNavigate()
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
@@ -275,6 +278,11 @@ const HomePage: React.FC = () => {
   const [networkInterfaceList, setNetworkInterfaceList] = useState<{ name: string; displayName: string; type: string }[]>([])
   const [selectedNetworkInterface, setSelectedNetworkInterface] = useState<string>('')
   const [networkLoading, setNetworkLoading] = useState(false)
+  
+  // 网络检测（只在首次加载时执行一次）
+  useEffect(() => {
+    checkNetworkAll()
+  }, [])
   
   // 将原先的 useEffect 拆分为两个
   
@@ -1272,6 +1280,9 @@ const HomePage: React.FC = () => {
 
         </div>
       )}
+      
+      {/* 网络检测模块 */}
+      <NetworkCheck />
       
       {/* 终端占用、活跃端口、活跃进程 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
