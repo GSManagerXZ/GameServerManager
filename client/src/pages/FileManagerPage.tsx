@@ -1122,8 +1122,26 @@ const FileManagerPage: React.FC = () => {
       return;
     }
     
+    // 在保存时根据选择的换行符类型转换文本
+    let contentToSave = fileContent
+    // 先统一转换为 LF
+    let normalized = contentToSave.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    // 根据目标换行符类型转换
+    switch (lineEnding) {
+      case 'CRLF':
+        contentToSave = normalized.replace(/\n/g, '\r\n')
+        break
+      case 'CR':
+        contentToSave = normalized.replace(/\n/g, '\r')
+        break
+      case 'LF':
+      default:
+        contentToSave = normalized
+        break
+    }
+    
     // 使用当前选择的编码保存
-    await saveFile(activeFile, fileContent, currentFileEncoding)
+    await saveFile(activeFile, contentToSave, currentFileEncoding)
   }
   
   

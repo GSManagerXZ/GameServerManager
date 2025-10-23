@@ -143,9 +143,11 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   const handleEditorChange = (value: string | undefined) => {
     const newValue = value || ''
-    // 根据当前选择的换行符类型转换文本
-    const convertedValue = convertLineEndings(newValue, lineEnding)
-    onChange(convertedValue)
+    // 不在输入时转换换行符，避免光标跳转问题
+    // 换行符转换只在以下情况进行：
+    // 1. 用户主动切换换行符类型（通过 useEffect 处理）
+    // 2. 保存文件时（由调用方处理）
+    onChange(newValue)
   }
 
   // 当主题改变时更新编辑器主题
