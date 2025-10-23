@@ -96,6 +96,26 @@ const initialCategories: NetworkCheckCategory[] = [
         errorMessage: 'GSManager镜像服务器 连接失败，您将无法使用环境管理中加速下载'
       }
     ]
+  },
+  {
+    id: 'gsmanager-cloud',
+    name: 'GSManager云构建',
+    items: [
+      {
+        id: 'gsm-cloud-build',
+        name: 'GSManager 云构建服务',
+        url: 'http://api.mc.xiaozhuhouses.asia:10003',
+        status: 'pending',
+        errorMessage: 'GSManager 云构建服务 连接失败，您将无法使用云构建部署功能'
+      },
+      {
+        id: 'gsm-cloud-cache',
+        name: 'GSManager 云构建缓存节点',
+        url: 'https://download.mc.xiaozhuhouses.asia:4433',
+        status: 'pending',
+        errorMessage: 'GSManager 云构建缓存节点 连接失败，云构建下载速度可能会受到影响'
+      }
+    ]
   }
 ]
 

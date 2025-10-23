@@ -911,6 +911,37 @@ class ApiClient {
   async checkSingleNetwork(url: string) {
     return this.post('/network/check-single', { url })
   }
+
+  // 云构建部署API
+  async getCloudBuildCores(type: string = 'msl_Official') {
+    return this.get(`/${type}/cores`)
+  }
+
+  async createCloudBuildTask(data: {
+    coreName: string
+    version: string
+    type?: string
+  }) {
+    return this.post('/build', data)
+  }
+
+  async getCloudBuildTaskStatus(taskId: string) {
+    return this.get(`/build/${taskId}`)
+  }
+
+  async downloadAndExtractCloudBuild(data: {
+    fileName?: string
+    taskId?: string
+    coreName: string
+    version: string
+    targetPath: string
+  }) {
+    return this.post('/download', data)
+  }
+
+  async getCloudBuildStats() {
+    return this.get('/stats')
+  }
 }
 
 // 创建单例实例

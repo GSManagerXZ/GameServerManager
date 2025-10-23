@@ -47,6 +47,7 @@ import environmentRouter, { setEnvironmentSocketIO, setEnvironmentConfigManager 
 import { setupDeveloperRoutes } from './routes/developer.js'
 import wallpaperRouter from './routes/wallpaper.js'
 import networkRouter from './routes/network.js'
+import cloudBuildRouter from './routes/cloudBuild.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -683,6 +684,9 @@ async function startServer() {
 
     // 网络检测路由
     app.use('/api/network', networkRouter)
+
+    // 云构建部署路由
+    app.use('/api', cloudBuildRouter)
 
     // 设置安全配置路由
     const { setSecurityConfigManager } = await import('./routes/security.js')

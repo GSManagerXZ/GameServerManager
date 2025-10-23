@@ -31,7 +31,9 @@ const networkCheckItems: NetworkCheckItem[] = [
   { id: 'msl-api', name: 'MSL API', url: 'https://api.mslmc.cn/v3', status: 'pending' },
   // GSManager
   { id: 'gsm-deploy', name: 'GSManager在线部署服务', url: 'http://gsm.server.xiaozhuhouses.asia:10002/', status: 'pending' },
-  { id: 'gsm-mirror', name: 'GSManager镜像服务器', url: 'http://download.server.xiaozhuhouses.asia:8082/', status: 'pending' }
+  { id: 'gsm-mirror', name: 'GSManager镜像服务器', url: 'http://download.server.xiaozhuhouses.asia:8082/', status: 'pending' },
+  { id: 'gsm-cloud-build', name: 'GSManager 云构建服务', url: 'http://api.mc.xiaozhuhouses.asia:10003', status: 'pending' },
+  { id: 'gsm-cloud-cache', name: 'GSManager 云构建缓存节点', url: 'https://download.mc.xiaozhuhouses.asia:4433', status: 'pending' }
 ]
 
 // TCP Ping 函数
