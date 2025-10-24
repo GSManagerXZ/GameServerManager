@@ -44,7 +44,9 @@ import {
   UnorderedListOutlined,
   HddOutlined,
   EyeOutlined,
-  EyeInvisibleOutlined
+  EyeInvisibleOutlined,
+  StarOutlined,
+  StarFilled
 } from '@ant-design/icons'
 import { useFileStore } from '@/stores/fileStore'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -129,7 +131,12 @@ const FileManagerPage: React.FC = () => {
     unwatchFile,
     handleFileChanged,
     reloadChangedFile,
-    dismissFileChangedDialog
+    dismissFileChangedDialog,
+    favorites,
+    loadFavorites,
+    addFavorite,
+    removeFavorite,
+    checkFavorite
   } = useFileStore()
   
   const { addNotification } = useNotificationStore()
@@ -195,6 +202,12 @@ const FileManagerPage: React.FC = () => {
   
   // 任务状态抽屉
   const [taskDrawerVisible, setTaskDrawerVisible] = useState(false)
+  
+  // 收藏抽屉
+  const [favoriteDrawerVisible, setFavoriteDrawerVisible] = useState(false)
+  
+  // 收藏状态缓存
+  const [favoriteStatusMap, setFavoriteStatusMap] = useState<Map<string, boolean>>(new Map())
   
   // 编码确认对话框
   const [encodingDialog, setEncodingDialog] = useState<{
@@ -568,6 +581,96 @@ const FileManagerPage: React.FC = () => {
       message: `已添加 ${files.length} 个文件到播放列表`
     })
   }, [addToPlaylist, addNotification])
+
+  // 切换收藏状态
+  const handleToggleFavorite = useCallback(async (file: FileItem, isFavorited: boolean) => {
+    try {
+      if (isFavorited) {
+        const success = await removeFavorite(file.path)
+        if (success) {
+          addNotification({
+            type: 'success',
+            title: '取消收藏成功',
+            message: `已取消收藏 "${file.name}"`
+          })
+          // 更新缓存
+          setFavoriteStatusMap(prev => {
+            const newMap = new Map(prev)
+            newMap.set(file.path, false)
+            return newMap
+          })
+        }
+      } else {
+        const success = await addFavorite(file.path)
+        if (success) {
+          addNotification({
+            type: 'success',
+            title: '收藏成功',
+            message: `已收藏 "${file.name}"`
+          })
+          // 更新缓存
+          setFavoriteStatusMap(prev => {
+            const newMap = new Map(prev)
+            newMap.set(file.path, true)
+            return newMap
+          })
+        }
+      }
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: '操作失败',
+        message: error.message || '收藏操作失败'
+      })
+    }
+  }, [addFavorite, removeFavorite, addNotification])
+
+  // 导航到收藏的路径
+  const handleNavigateToFavorite = useCallback((favPath: string, type: 'file' | 'directory') => {
+    if (type === 'directory') {
+      navigateToPath(favPath)
+      setFavoriteDrawerVisible(false)
+    } else {
+      // 如果是文件，打开文件
+      openFile(favPath).then((result) => {
+        if (result.isIncompatible) {
+          setEncodingDialog({
+            visible: true,
+            filePath: favPath,
+            fileName: favPath.split(/[/\\]/).pop() || '',
+            detectedEncoding: result.detectedEncoding,
+            confidence: result.confidence
+          })
+        } else {
+          setEditorModalVisible(true)
+          setFavoriteDrawerVisible(false)
+        }
+      }).catch((error: any) => {
+        addNotification({
+          type: 'error',
+          title: '打开文件失败',
+          message: error.message || '无法打开文件'
+        })
+      })
+    }
+  }, [navigateToPath, openFile, addNotification])
+
+  // 当文件列表变化时，批量检查收藏状态
+  useEffect(() => {
+    const checkFavoriteStatuses = async () => {
+      const newMap = new Map<string, boolean>()
+      for (const file of files) {
+        if (!favoriteStatusMap.has(file.path)) {
+          const isFavorited = await checkFavorite(file.path)
+          newMap.set(file.path, isFavorited)
+        }
+      }
+      if (newMap.size > 0) {
+        setFavoriteStatusMap(prev => new Map([...prev, ...newMap]))
+      }
+    }
+    checkFavoriteStatuses()
+  }, [files, checkFavorite])
   
   // 初始化
   useEffect(() => {
@@ -587,9 +690,12 @@ const FileManagerPage: React.FC = () => {
     // 加载系统盘符
     loadDrives()
     
+    // 加载收藏列表
+    loadFavorites()
+    
     // 预加载系统信息（用于右键菜单权限判断）
     fetchSystemInfo()
-  }, [searchParams, setCurrentPath, loadFiles, fetchSystemInfo])
+  }, [searchParams, setCurrentPath, loadFiles, fetchSystemInfo, loadFavorites])
   
   // 当路径变化时更新选中的盘符
   useEffect(() => {
@@ -1409,6 +1515,18 @@ const FileManagerPage: React.FC = () => {
               </div>
             )}
 
+            {/* 收藏按钮 */}
+            <Tooltip title="查看收藏">
+              <Badge count={favorites.length} size="small" showZero={false}>
+                <Button
+                  icon={<StarOutlined />}
+                  onClick={() => setFavoriteDrawerVisible(true)}
+                >
+                  {!touchAdaptation.shouldShowMobileUI && "收藏"}
+                </Button>
+              </Badge>
+            </Tooltip>
+
             {/* 任务状态按钮 */}
             <Tooltip title="查看任务状态">
               <Badge count={activeTasks.length} size="small">
@@ -1564,6 +1682,8 @@ const FileManagerPage: React.FC = () => {
                       onCreateJsonFile={handleCreateJsonFile}
                       onCreateIniFile={handleCreateIniFile}
                       onPermissions={handlePermissions}
+                      onToggleFavorite={handleToggleFavorite}
+                      isFavorited={favoriteStatusMap.get(file.path) || false}
                       // 全局菜单控制
                       globalContextMenuInfo={contextMenuInfo}
                       setGlobalContextMenuInfo={setContextMenuInfo}
@@ -1634,6 +1754,8 @@ const FileManagerPage: React.FC = () => {
                       onCreateJsonFile={handleCreateJsonFile}
                       onCreateIniFile={handleCreateIniFile}
                       onPermissions={handlePermissions}
+                      onToggleFavorite={handleToggleFavorite}
+                      isFavorited={favoriteStatusMap.get(file.path) || false}
                       // 全局菜单控制
                       globalContextMenuInfo={contextMenuInfo}
                       setGlobalContextMenuInfo={setContextMenuInfo}
@@ -1908,6 +2030,101 @@ const FileManagerPage: React.FC = () => {
         />
       )}
       
+      {/* 收藏抽屉 */}
+      <Drawer
+        title="收藏列表"
+        placement="right"
+        onClose={() => setFavoriteDrawerVisible(false)}
+        open={favoriteDrawerVisible}
+        width={400}
+      >
+        <div className="space-y-4">
+          {favorites.length === 0 ? (
+            <Empty 
+              description="暂无收藏"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            />
+          ) : (
+            <div className="space-y-2">
+              {favorites.map((fav) => (
+                <Card 
+                  key={fav.path} 
+                  size="small" 
+                  className={`cursor-pointer hover:shadow-md transition-shadow ${
+                    !fav.exists ? 'opacity-50' : ''
+                  }`}
+                  onClick={() => {
+                    if (fav.exists) {
+                      handleNavigateToFavorite(fav.path, fav.type)
+                    } else {
+                      addNotification({
+                        type: 'warning',
+                        title: '文件不存在',
+                        message: '该收藏的文件或文件夹已不存在'
+                      })
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2 flex-1 min-w-0">
+                      {fav.type === 'directory' ? (
+                        <FolderOutlined className="text-blue-500 flex-shrink-0" />
+                      ) : (
+                        <FileTextOutlined className="text-gray-500 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate" title={fav.name}>
+                          {fav.name}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate" title={fav.path}>
+                          {fav.path}
+                        </div>
+                        {!fav.exists && (
+                          <div className="text-xs text-red-500">
+                            文件不存在
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleToggleFavorite(
+                          { path: fav.path, name: fav.name, type: fav.type, size: 0, modified: '' },
+                          true
+                        )
+                      }}
+                    />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+          
+          {favorites.length > 0 && (
+            <div className="text-center pt-4">
+              <Button 
+                type="primary" 
+                onClick={() => {
+                  loadFavorites()
+                  addNotification({
+                    type: 'success',
+                    title: '刷新成功',
+                    message: '已刷新收藏列表'
+                  })
+                }}
+              >
+                刷新收藏列表
+              </Button>
+            </div>
+          )}
+        </div>
+      </Drawer>
+
       {/* 任务状态抽屉 */}
       <Drawer
         title="任务状态"

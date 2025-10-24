@@ -38,6 +38,14 @@ interface FileStore {
   tasks: Task[]
   activeTasks: Task[]
   
+  // 收藏相关
+  favorites: Array<{
+    path: string
+    name: string
+    type: 'file' | 'directory'
+    exists: boolean
+  }>
+  
   // 操作方法
   setCurrentPath: (path: string) => void
   loadFiles: (path?: string, reset?: boolean) => Promise<void>
@@ -88,6 +96,12 @@ interface FileStore {
   getTask: (taskId: string) => Promise<Task | null>
   deleteTask: (taskId: string) => Promise<FileOperationResult>
   
+  // 收藏管理
+  loadFavorites: () => Promise<void>
+  addFavorite: (path: string) => Promise<boolean>
+  removeFavorite: (path: string) => Promise<boolean>
+  checkFavorite: (path: string) => Promise<boolean>
+  
   // 工具方法
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -120,6 +134,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   fileChangedDialog: null,
   tasks: [],
   activeTasks: [],
+  favorites: [],
 
   // 设置当前路径
   setCurrentPath: (path: string) => {
@@ -688,5 +703,46 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 关闭文件变化对话框
   dismissFileChangedDialog: () => {
     set({ fileChangedDialog: null })
+  },
+
+  // 收藏管理
+  loadFavorites: async () => {
+    try {
+      const favorites = await fileApiClient.getFavorites()
+      set({ favorites })
+    } catch (error: any) {
+      set({ error: error.message || '加载收藏列表失败' })
+    }
+  },
+
+  addFavorite: async (path: string) => {
+    try {
+      await fileApiClient.addFavorite(path)
+      await get().loadFavorites()
+      return true
+    } catch (error: any) {
+      set({ error: error.message || '添加收藏失败' })
+      return false
+    }
+  },
+
+  removeFavorite: async (path: string) => {
+    try {
+      await fileApiClient.removeFavorite(path)
+      await get().loadFavorites()
+      return true
+    } catch (error: any) {
+      set({ error: error.message || '移除收藏失败' })
+      return false
+    }
+  },
+
+  checkFavorite: async (path: string) => {
+    try {
+      return await fileApiClient.checkFavorite(path)
+    } catch (error: any) {
+      set({ error: error.message || '检查收藏状态失败' })
+      return false
+    }
   }
 }))

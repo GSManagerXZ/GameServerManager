@@ -22,9 +22,11 @@ steamcmd-config.json
 terminal-sessions.json
 captchas.json
 users.json
+favorites.json
 server/data/environment
 server/data/wallpapers/
 data/wallpapers/
+
 
 dist/
 out/

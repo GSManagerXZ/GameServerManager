@@ -482,6 +482,41 @@ export class FileApiClient {
     })
     return response.data
   }
+
+  // 获取收藏列表
+  async getFavorites(): Promise<Array<{
+    path: string
+    name: string
+    type: 'file' | 'directory'
+    exists: boolean
+  }>> {
+    const response = await this.client.get(`${API_BASE}/favorites`)
+    return response.data.data
+  }
+
+  // 添加收藏
+  async addFavorite(path: string): Promise<FileOperationResult> {
+    const response = await this.client.post(`${API_BASE}/favorites`, {
+      path
+    })
+    return response.data
+  }
+
+  // 移除收藏
+  async removeFavorite(path: string): Promise<FileOperationResult> {
+    const response = await this.client.delete(`${API_BASE}/favorites`, {
+      data: { path }
+    })
+    return response.data
+  }
+
+  // 检查是否已收藏
+  async checkFavorite(path: string): Promise<boolean> {
+    const response = await this.client.get(`${API_BASE}/favorites/check`, {
+      params: { path }
+    })
+    return response.data.data.isFavorited
+  }
 }
 
 export const fileApiClient = new FileApiClient()

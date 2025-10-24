@@ -16,7 +16,9 @@ import {
   SoundOutlined,
   RightOutlined,
   PlusOutlined,
-  SafetyOutlined
+  SafetyOutlined,
+  StarOutlined,
+  StarFilled
 } from '@ant-design/icons'
 import { FileItem } from '@/types/file'
 import { copyToClipboard } from '@/utils/clipboard'
@@ -56,6 +58,8 @@ interface FileContextMenuProps {
   onCreateJsonFile?: () => void // 新增：创建JSON文件
   onCreateIniFile?: () => void // 新增：创建INI文件
   onPermissions?: (file: FileItem) => void // 新增：权限管理
+  onToggleFavorite?: (file: FileItem, isFavorited: boolean) => void // 新增：切换收藏
+  isFavorited?: boolean // 新增：是否已收藏
   // 菜单全局状态props
   setGlobalContextMenuInfo: React.Dispatch<React.SetStateAction<{
     file: FileItem | null
@@ -89,6 +93,8 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
   onCreateJsonFile,
   onCreateIniFile,
   onPermissions,
+  onToggleFavorite,
+  isFavorited = false,
   setGlobalContextMenuInfo
 }) => {
   const { addNotification } = useNotificationStore()
@@ -462,6 +468,26 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
                 >
                   <EyeOutlined className="mr-2" />
                   预览
+                </div>
+              )}
+              
+              {/* 收藏/取消收藏 */}
+              {file && onToggleFavorite && (
+                <div
+                  className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center"
+                  onClick={() => onToggleFavorite(file, isFavorited)}
+                >
+                  {isFavorited ? (
+                    <>
+                      <StarFilled className="mr-2 text-yellow-500" />
+                      取消收藏
+                    </>
+                  ) : (
+                    <>
+                      <StarOutlined className="mr-2" />
+                      收藏
+                    </>
+                  )}
                 </div>
               )}
               

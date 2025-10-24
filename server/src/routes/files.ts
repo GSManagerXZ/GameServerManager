@@ -2374,4 +2374,217 @@ router.get('/drives', authenticateToken, async (req: Request, res: Response) => 
   }
 })
 
+// ========== 收藏功能 ==========
+
+// 获取收藏数据文件路径
+const getFavoritesPath = (): string => {
+  const baseDir = process.cwd()
+  const possiblePaths = [
+    path.join(baseDir, 'data', 'favorites.json'),           // 打包后的路径
+    path.join(baseDir, 'server', 'data', 'favorites.json'), // 开发环境路径
+  ]
+  
+  for (const favPath of possiblePaths) {
+    const dir = path.dirname(favPath)
+    if (fsSync.existsSync(dir)) {
+      return favPath
+    }
+  }
+  
+  // 默认返回第一个路径
+  return possiblePaths[0]
+}
+
+// 读取收藏列表
+const readFavorites = async (): Promise<string[]> => {
+  const favPath = getFavoritesPath()
+  try {
+    const data = await fs.readFile(favPath, 'utf-8')
+    return JSON.parse(data)
+  } catch (error) {
+    // 文件不存在时返回空数组
+    return []
+  }
+}
+
+// 保存收藏列表
+const saveFavorites = async (favorites: string[]): Promise<void> => {
+  const favPath = getFavoritesPath()
+  const dir = path.dirname(favPath)
+  
+  // 确保目录存在
+  await fs.mkdir(dir, { recursive: true })
+  
+  // 保存文件
+  await fs.writeFile(favPath, JSON.stringify(favorites, null, 2), 'utf-8')
+}
+
+// 获取收藏列表
+router.get('/favorites', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const favorites = await readFavorites()
+    
+    // 验证收藏的文件/文件夹是否仍然存在
+    const validFavorites: string[] = []
+    const favoritesWithInfo: Array<{
+      path: string
+      name: string
+      type: 'file' | 'directory'
+      exists: boolean
+    }> = []
+    
+    for (const favPath of favorites) {
+      try {
+        const stats = await fs.stat(favPath)
+        validFavorites.push(favPath)
+        favoritesWithInfo.push({
+          path: favPath,
+          name: path.basename(favPath),
+          type: stats.isDirectory() ? 'directory' : 'file',
+          exists: true
+        })
+      } catch (error) {
+        // 文件不存在，但仍然保留在列表中（标记为不存在）
+        favoritesWithInfo.push({
+          path: favPath,
+          name: path.basename(favPath),
+          type: 'file', // 默认类型
+          exists: false
+        })
+      }
+    }
+    
+    res.json({
+      status: 'success',
+      data: favoritesWithInfo
+    })
+  } catch (error: any) {
+    console.error('获取收藏列表失败:', error)
+    res.status(500).json({
+      status: 'error',
+      message: error.message || '获取收藏列表失败'
+    })
+  }
+})
+
+// 添加收藏
+router.post('/favorites', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { path: filePath } = req.body
+    
+    if (!filePath) {
+      return res.status(400).json({
+        status: 'error',
+        message: '缺少文件路径参数'
+      })
+    }
+    
+    // 验证文件/文件夹是否存在
+    try {
+      await fs.access(filePath)
+    } catch (error) {
+      return res.status(404).json({
+        status: 'error',
+        message: '文件或文件夹不存在'
+      })
+    }
+    
+    // 读取当前收藏列表
+    const favorites = await readFavorites()
+    
+    // 检查是否已收藏
+    if (favorites.includes(filePath)) {
+      return res.status(400).json({
+        status: 'error',
+        message: '该路径已在收藏列表中'
+      })
+    }
+    
+    // 添加到收藏列表
+    favorites.push(filePath)
+    await saveFavorites(favorites)
+    
+    res.json({
+      status: 'success',
+      message: '添加收藏成功',
+      data: { path: filePath }
+    })
+  } catch (error: any) {
+    console.error('添加收藏失败:', error)
+    res.status(500).json({
+      status: 'error',
+      message: error.message || '添加收藏失败'
+    })
+  }
+})
+
+// 移除收藏
+router.delete('/favorites', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { path: filePath } = req.body
+    
+    if (!filePath) {
+      return res.status(400).json({
+        status: 'error',
+        message: '缺少文件路径参数'
+      })
+    }
+    
+    // 读取当前收藏列表
+    const favorites = await readFavorites()
+    
+    // 移除指定路径
+    const newFavorites = favorites.filter(fav => fav !== filePath)
+    
+    if (newFavorites.length === favorites.length) {
+      return res.status(404).json({
+        status: 'error',
+        message: '该路径不在收藏列表中'
+      })
+    }
+    
+    await saveFavorites(newFavorites)
+    
+    res.json({
+      status: 'success',
+      message: '移除收藏成功',
+      data: { path: filePath }
+    })
+  } catch (error: any) {
+    console.error('移除收藏失败:', error)
+    res.status(500).json({
+      status: 'error',
+      message: error.message || '移除收藏失败'
+    })
+  }
+})
+
+// 检查路径是否已收藏
+router.get('/favorites/check', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { path: filePath } = req.query
+    
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({
+        status: 'error',
+        message: '缺少文件路径参数'
+      })
+    }
+    
+    const favorites = await readFavorites()
+    const isFavorited = favorites.includes(filePath)
+    
+    res.json({
+      status: 'success',
+      data: { isFavorited }
+    })
+  } catch (error: any) {
+    console.error('检查收藏状态失败:', error)
+    res.status(500).json({
+      status: 'error',
+      message: error.message || '检查收藏状态失败'
+    })
+  }
+})
+
 export default router
