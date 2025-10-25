@@ -9,7 +9,11 @@
       "Windows",
       "Linux"
     ],
-    "memory": 4
+    "memory": 4,
+    "cloud":
+    {
+      "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
+    }
   },
   "SCUM": {
     "game_nameCN": "人渣",
@@ -20,7 +24,12 @@
     "system": [
       "Windows"
     ],
-    "memory": 6
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E4%BA%BA%E6%B8%A3%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
+    "memory": 6,
+    "cloud":
+    {
+      "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
+    }
   },
   "Rust": {
     "game_nameCN": "腐蚀",
@@ -32,7 +41,12 @@
       "Windows",
       "Linux"
     ],
-    "memory": 12
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E8%85%90%E8%9A%80%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
+    "memory": 12,
+    "cloud":
+    {
+      "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
+    }
   },
   "Satisfactory": {
     "game_nameCN": "幸福工厂",
@@ -83,7 +97,12 @@
     "system": [
       "Windows",
       "Linux"
-    ]
+    ],
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%9C%AA%E8%BD%AC%E5%8F%98%E8%80%85%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
+    "cloud":
+    {
+      "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
+    }
   },
   "Dont_Starve_Together": {
     "game_nameCN": "饥荒联机版",
@@ -129,6 +148,7 @@
     {
       "京东云":{"https://images.server.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png":"https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"}
     },
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E5%86%9B%E5%9B%A2%E8%A6%81%E5%A1%9E2%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
     "system_info": [
       "Linux"
     ]
