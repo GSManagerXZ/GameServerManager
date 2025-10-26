@@ -930,8 +930,8 @@ class ApiClient {
   }
 
   async downloadAndExtractCloudBuild(data: {
+    downloadUrl?: string
     fileName?: string
-    taskId?: string
     coreName: string
     version: string
     targetPath: string
@@ -941,6 +941,10 @@ class ApiClient {
 
   async getCloudBuildStats() {
     return this.get('/stats')
+  }
+
+  async getModrinthCache() {
+    return this.get('/cache/modrinth')
   }
 }
 

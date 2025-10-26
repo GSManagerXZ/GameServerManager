@@ -11,6 +11,7 @@ const router = Router()
 
 // MSL云构建服务器地址
 const MSL_BUILD_SERVER = 'https://download.mc.xiaozhuhouses.asia:4433'
+// const MSL_BUILD_SERVER = 'http://127.0.0.1:3000'
 
 // 获取核心列表
 router.get('/:type/cores', authenticateToken, async (req, res) => {
@@ -92,7 +93,7 @@ router.get('/build/:taskId', authenticateToken, async (req, res) => {
 // 下载并解压到目标目录
 router.post('/download', authenticateToken, async (req, res) => {
   try {
-    const { fileName, taskId, coreName, version, targetPath } = req.body
+    const { downloadUrl, fileName, coreName, version, targetPath } = req.body
 
     if (!targetPath) {
       return res.status(400).json({
@@ -101,22 +102,34 @@ router.post('/download', authenticateToken, async (req, res) => {
       })
     }
 
-    // 1. 生成下载链接
-    const linkResponse = await axios.post(`${MSL_BUILD_SERVER}/api/download`, {
-      fileName,
-      taskId,
-      coreName,
-      version
-    }, {
-      timeout: 30000
-    })
+    let finalDownloadUrl = downloadUrl
 
-    if (!linkResponse.data.success || !linkResponse.data.data.downloadUrl) {
-      throw new Error('生成下载链接失败')
+    // 如果提供了 fileName 而不是 downloadUrl，需要先生成下载链接
+    if (!downloadUrl && fileName) {
+      const linkResponse = await axios.post(`${MSL_BUILD_SERVER}/api/download`, {
+        fileName,
+        coreName,
+        version
+      }, {
+        timeout: 30000
+      })
+
+      if (!linkResponse.data.success || !linkResponse.data.data.downloadUrl) {
+        throw new Error('生成下载链接失败')
+      }
+
+      finalDownloadUrl = linkResponse.data.data.downloadUrl
     }
 
-    const downloadUrl = linkResponse.data.data.downloadUrl
-    const downloadFileName = linkResponse.data.data.fileName || `${coreName}-${version}.zip`
+    if (!finalDownloadUrl) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要参数：downloadUrl 或 fileName'
+      })
+    }
+
+    // 1. 使用 downloadUrl
+    const downloadFileName = fileName || `${coreName}-${version}.zip`
 
     // 2. 确保目标目录存在
     await fs.ensureDir(targetPath)
@@ -126,11 +139,9 @@ router.post('/download', authenticateToken, async (req, res) => {
     await fs.ensureDir(tempDir)
     const tempFilePath = path.join(tempDir, downloadFileName)
 
-    console.log(`正在下载文件到: ${tempFilePath}`)
-
     const downloadResponse = await axios({
       method: 'get',
-      url: `${MSL_BUILD_SERVER}${downloadUrl}`,
+      url: `${MSL_BUILD_SERVER}${finalDownloadUrl}`,
       responseType: 'stream',
       timeout: 300000 // 5分钟
     })
@@ -141,13 +152,9 @@ router.post('/download', authenticateToken, async (req, res) => {
       createWriteStream(tempFilePath)
     )
 
-    console.log(`文件下载完成，开始解压到: ${targetPath}`)
-
     // 4. 解压文件
     const zip = new AdmZip(tempFilePath)
     zip.extractAllTo(targetPath, true)
-
-    console.log('文件解压完成')
 
     // 5. 删除临时文件
     await fs.remove(tempFilePath)
@@ -250,6 +257,24 @@ router.get('/stats', authenticateToken, async (req, res) => {
     res.status(error.response?.status || 500).json({
       success: false,
       message: error.response?.data?.message || '获取统计数据失败',
+      error: error.message
+    })
+  }
+})
+
+// 获取 Modrinth 缓存列表
+router.get('/cache/modrinth', authenticateToken, async (req, res) => {
+  try {
+    const response = await axios.get(`${MSL_BUILD_SERVER}/api/cache/modrinth`, {
+      timeout: 30000
+    })
+
+    res.json(response.data)
+  } catch (error: any) {
+    console.error('获取 Modrinth 缓存列表失败:', error.message)
+    res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || '获取 Modrinth 缓存列表失败',
       error: error.message
     })
   }
