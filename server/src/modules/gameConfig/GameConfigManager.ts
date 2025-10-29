@@ -4,6 +4,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import YAML from 'yaml'
 import PropertiesReader from 'properties-reader'
+import TOML from 'smol-toml'
 import logger from '../../utils/logger.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -77,7 +78,8 @@ export class GameConfigManager {
       ['configobj', this.parseWithConfigObj.bind(this)],
       ['yaml', this.parseWithYaml.bind(this)],
       ['ruamel.yaml', this.parseWithYaml.bind(this)],
-      ['json', this.parseWithJson.bind(this)]
+      ['json', this.parseWithJson.bind(this)],
+      ['toml', this.parseWithToml.bind(this)]
     ])
   }
 
@@ -206,6 +208,9 @@ export class GameConfigManager {
           break
         case 'json':
           await this.saveWithJson(fullConfigPath, configData, configSchema)
+          break
+        case 'toml':
+          await this.saveWithToml(fullConfigPath, configData, configSchema)
           break
         default:
           throw new Error(`不支持的解析器类型: ${parserType}`)
@@ -567,5 +572,48 @@ export class GameConfigManager {
     }
     
     return String(value)
+  }
+
+  /**
+   * 使用TOML格式解析配置文件
+   */
+  private async parseWithToml(configPath: string, configSchema: GameConfigSchema): Promise<ParsedConfigData> {
+    try {
+      const content = await fs.readFile(configPath, 'utf-8')
+      const tomlData = TOML.parse(content) || {}
+      const result: ParsedConfigData = {}
+
+      for (const section of configSchema.sections) {
+        result[section.key] = {}
+        const sectionData = tomlData[section.key] || {}
+        
+        for (const field of section.fields) {
+          const value = sectionData[field.name]
+          if (value !== undefined) {
+            result[section.key][field.name] = value
+          } else {
+            result[section.key][field.name] = field.default
+          }
+        }
+      }
+
+      return result
+    } catch (error) {
+      logger.error('TOML解析失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 保存为TOML格式
+   */
+  private async saveWithToml(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
+    try {
+      const tomlContent = TOML.stringify(configData)
+      await fs.writeFile(configPath, tomlContent, 'utf-8')
+    } catch (error) {
+      logger.error('TOML保存失败:', error)
+      throw error
+    }
   }
 }

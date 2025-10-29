@@ -4,7 +4,8 @@ meta:
   parser: "toml"
 
 sections:
-  - fields:
+  - key: "fml"
+    fields:
       - name: "earlyWindowHeight"
         display: "早期窗口高度"
         default: 480
