@@ -137,6 +137,7 @@ const GameDeploymentPage: React.FC = () => {
   const [instanceUpdateDialogAnimating, setInstanceUpdateDialogAnimating] = useState(false)
   const [existingInstanceId, setExistingInstanceId] = useState<string | null>(null)
   const [updateInstanceInfo, setUpdateInstanceInfo] = useState(false)
+  const [resetSteamManifest, setResetSteamManifest] = useState(false)
 
   // 平台筛选状态
   const [platformFilter, setPlatformFilter] = useState<string>('all') // 'all', 'compatible', 'Windows', 'Linux', 'macOS'
@@ -2127,6 +2128,7 @@ const GameDeploymentPage: React.FC = () => {
       setSteamcmdCommand('') // 重置SteamCMD命令
       setExistingInstanceId(null) // 重置实例ID
       setUpdateInstanceInfo(false) // 重置更新实例信息标志
+      setResetSteamManifest(false) // 重置重置Steam游戏文件清单标志
     }, 300)
   }
   
@@ -2137,13 +2139,15 @@ const GameDeploymentPage: React.FC = () => {
       setShowInstanceUpdateDialog(false)
       setExistingInstanceId(null)
       setUpdateInstanceInfo(false)
+      setResetSteamManifest(false) // 重置重置Steam游戏文件清单标志
       setCheckingEnvironment(null) // 清除检测环境状态
     }, 300)
   }
   
   // 确认实例更新
-  const handleConfirmInstanceUpdate = (shouldUpdateInfo: boolean) => {
+  const handleConfirmInstanceUpdate = (shouldUpdateInfo: boolean, shouldResetSteamManifest: boolean) => {
     setUpdateInstanceInfo(shouldUpdateInfo)
+    setResetSteamManifest(shouldResetSteamManifest)
     // 自动勾选校验游戏完整性
     setValidateGameIntegrity(true)
     // 关闭确认弹窗（但不重置 existingInstanceId）
@@ -2374,6 +2378,7 @@ const GameDeploymentPage: React.FC = () => {
     // 保存实例相关状态，因为关闭对话框时会被重置
     const currentExistingInstanceId = existingInstanceId
     const currentUpdateInstanceInfo = updateInstanceInfo
+    const currentResetSteamManifest = resetSteamManifest
 
     try {
       // 关闭对话框
@@ -2391,7 +2396,8 @@ const GameDeploymentPage: React.FC = () => {
           steamPassword: useAnonymous ? undefined : steamPassword.trim(),
           steamcmdCommand: steamcmdCommand.trim(),
           existingInstanceId: currentExistingInstanceId || undefined,
-          updateInstanceInfo: currentUpdateInstanceInfo
+          updateInstanceInfo: currentUpdateInstanceInfo,
+          resetSteamManifest: currentResetSteamManifest
         })
 
       if (response.success && response.data?.terminalSessionId) {

@@ -302,7 +302,8 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       steamPassword, 
       steamcmdCommand,
       existingInstanceId,
-      updateInstanceInfo
+      updateInstanceInfo,
+      resetSteamManifest
     } = req.body
     
     if (!gameKey || !installPath || !instanceName || !steamcmdCommand) {
@@ -336,11 +337,58 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
         })
       }
     }
+
+    // 如果需要重置Steam游戏文件清单
+    if (resetSteamManifest) {
+      try {
+        const steamappsPath = path.join(installPath, 'steamapps')
+        logger.info(`尝试重置Steam游戏文件清单: ${steamappsPath}`)
+        
+        // 检查steamapps目录是否存在
+        try {
+          await fs.access(steamappsPath)
+          
+          // 读取目录中的所有文件
+          const files = await fs.readdir(steamappsPath)
+          
+          // 筛选出以appmanifest开头、.acf结尾的文件
+          const manifestFiles = files.filter(file => 
+            file.startsWith('appmanifest_') && file.endsWith('.acf')
+          )
+          
+          if (manifestFiles.length > 0) {
+            logger.info(`找到 ${manifestFiles.length} 个Steam清单文件，准备删除`)
+            
+            // 删除所有匹配的文件
+            for (const file of manifestFiles) {
+              const filePath = path.join(steamappsPath, file)
+              try {
+                await fs.unlink(filePath)
+                logger.info(`已删除Steam清单文件: ${file}`)
+              } catch (unlinkError: any) {
+                logger.warn(`删除Steam清单文件失败: ${file}`, unlinkError.message)
+              }
+            }
+            
+            logger.info('Steam游戏文件清单重置完成')
+          } else {
+            logger.info('未找到需要删除的Steam清单文件')
+          }
+        } catch (accessError) {
+          // steamapps目录不存在，跳过删除操作
+          logger.info('steamapps目录不存在，跳过清单文件删除')
+        }
+      } catch (error: any) {
+        logger.warn('重置Steam游戏文件清单时出错:', error.message)
+        // 不阻止安装流程，只记录警告
+      }
+    }
     
     logger.info(`开始安装游戏: ${gameName || gameKey}`, {
       installPath,
       appId,
-      command: steamcmdCommand
+      command: steamcmdCommand,
+      resetSteamManifest: resetSteamManifest || false
     })
     
     try {

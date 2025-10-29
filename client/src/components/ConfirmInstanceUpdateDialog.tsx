@@ -4,7 +4,7 @@ import { AlertTriangle, X } from 'lucide-react'
 interface ConfirmInstanceUpdateDialogProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (updateInstanceInfo: boolean) => void
+  onConfirm: (updateInstanceInfo: boolean, resetSteamManifest: boolean) => void
   instanceName: string
   gameName: string
 }
@@ -18,6 +18,7 @@ const ConfirmInstanceUpdateDialog: React.FC<ConfirmInstanceUpdateDialogProps> = 
 }) => {
   const [isAnimating, setIsAnimating] = useState(false)
   const [updateInstanceInfo, setUpdateInstanceInfo] = useState(false)
+  const [resetSteamManifest, setResetSteamManifest] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -34,7 +35,7 @@ const ConfirmInstanceUpdateDialog: React.FC<ConfirmInstanceUpdateDialogProps> = 
   if (!isOpen) return null
 
   const handleConfirm = () => {
-    onConfirm(updateInstanceInfo)
+    onConfirm(updateInstanceInfo, resetSteamManifest)
   }
 
   const handleClose = () => {
@@ -97,6 +98,24 @@ const ConfirmInstanceUpdateDialog: React.FC<ConfirmInstanceUpdateDialogProps> = 
                   <div className="text-white font-medium">更新现有实例信息</div>
                   <div className="text-sm text-gray-400 mt-1">
                     勾选后将更新实例的启动命令、停止命令等配置信息
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* 重置Steam游戏文件清单选项 */}
+            <div className="bg-gray-700/50 rounded-lg p-4">
+              <label className="flex items-start space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={resetSteamManifest}
+                  onChange={(e) => setResetSteamManifest(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+                />
+                <div className="flex-1">
+                  <div className="text-white font-medium">重置Steam游戏文件清单</div>
+                  <div className="text-sm text-gray-400 mt-1">
+                    当更新游戏报错0x6时请勾选，Steam将会校验游戏文件并重新安装游戏，耗时较长。
                   </div>
                 </div>
               </label>

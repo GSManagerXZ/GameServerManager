@@ -512,6 +512,7 @@ class ApiClient {
     steamcmdCommand: string
     existingInstanceId?: string
     updateInstanceInfo?: boolean
+    resetSteamManifest?: boolean
   }) {
     return this.post('/game-deployment/install', data)
   }
