@@ -236,7 +236,8 @@
     "appid": "1948160",
     "tip": "游戏端口：27015 UDP 100-200 UDP(查询端口可选开通)，配置文件位置：通用游戏存档路径1，存档位置：通用游戏存档路径1，温馨提示：此服务端需要自行从客户端生成配置文件上传才可以开服；请将保存位置映射到容器外部，防止存档丢失",
     "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/227300/header.jpg",
-    "url": "https://store.steampowered.com/app/227300/Euro_Truck_Simulator_2/"
+    "url": "https://store.steampowered.com/app/227300/Euro_Truck_Simulator_2/",
+    "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%AC%A7%E6%B4%B2%E5%8D%A1%E8%BD%A62%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html"
   },
   "American_Truck_Simulator": {
     "game_nameCN": "美国卡车模拟",

@@ -760,6 +760,11 @@ class ApiClient {
     return this.post('/game-deployment/update-game-list')
   }
 
+  // 扫描Minecraft目录中的启动文件
+  async scanMinecraftDirectory(directory: string) {
+    return this.post('/game-deployment/scan-minecraft-directory', { directory })
+  }
+
   // RCON API
   async getRconConfig(instanceId: string) {
     return this.get(`/rcon/${instanceId}/config`)

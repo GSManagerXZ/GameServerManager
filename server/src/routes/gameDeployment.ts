@@ -779,4 +779,108 @@ router.post('/update-game-list', authenticateToken, async (req: Request, res: Re
   }
 })
 
+// 扫描Minecraft目录中的启动文件
+router.post('/scan-minecraft-directory', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { directory } = req.body
+    
+    if (!directory) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少必填参数',
+        message: '目录路径为必填项'
+      })
+    }
+    
+    logger.info(`扫描Minecraft目录: ${directory}`)
+    
+    try {
+      // 检查目录是否存在
+      await fs.access(directory)
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: '目录不存在',
+        message: `指定的目录不存在: ${directory}`
+      })
+    }
+    
+    try {
+      const files = await fs.readdir(directory)
+      const platform = os.platform()
+      const isWindows = platform === 'win32'
+      
+      // 查找.jar文件
+      const jarFiles = files.filter(file => file.toLowerCase().endsWith('.jar'))
+      
+      // 查找启动脚本
+      const batFiles = files.filter(file => file.toLowerCase().endsWith('.bat'))
+      const shFiles = files.filter(file => file.toLowerCase().endsWith('.sh'))
+      
+      logger.info(`找到文件: jar=${jarFiles.length}, bat=${batFiles.length}, sh=${shFiles.length}`)
+      
+      // 确定推荐的启动方式
+      let recommendedStartCommand = ''
+      let startMethod = 'none'
+      
+      // 优先使用对应平台的启动脚本
+      if (isWindows && batFiles.length > 0) {
+        // Windows平台优先使用.bat脚本
+        // 优先选择run.bat，否则使用第一个找到的.bat文件
+        const runBat = batFiles.find(f => f.toLowerCase() === 'run.bat')
+        const scriptFile = runBat || batFiles[0]
+        recommendedStartCommand = scriptFile
+        startMethod = 'bat_script'
+        logger.info(`[智能检测] 推荐使用BAT脚本: ${scriptFile}`)
+      } else if (!isWindows && shFiles.length > 0) {
+        // Linux/Mac平台优先使用.sh脚本
+        // 优先选择run.sh，否则使用第一个找到的.sh文件
+        const runSh = shFiles.find(f => f.toLowerCase() === 'run.sh')
+        const scriptFile = runSh || shFiles[0]
+        recommendedStartCommand = `./${scriptFile}`
+        startMethod = 'sh_script'
+        logger.info(`[智能检测] 推荐使用SH脚本: ${scriptFile}`)
+      } else if (jarFiles.length > 0) {
+        // 如果没有对应平台的脚本，使用jar文件
+        // 优先选择server.jar，否则使用第一个找到的jar文件
+        const serverJar = jarFiles.find(f => f.toLowerCase() === 'server.jar')
+        const jarFile = serverJar || jarFiles[0]
+        recommendedStartCommand = `java -jar ${jarFile}`
+        startMethod = 'jar_file'
+        logger.info(`[智能检测] 推荐使用JAR文件: ${jarFile}, 完整命令: ${recommendedStartCommand}`)
+      } else {
+        logger.warn(`[智能检测] 未找到任何启动文件 (jar/bat/sh)`)
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          jarFiles,
+          batFiles,
+          shFiles,
+          recommendedStartCommand,
+          startMethod,
+          platform: isWindows ? 'Windows' : (platform === 'darwin' ? 'MacOS' : 'Linux')
+        }
+      })
+      
+    } catch (error: any) {
+      logger.error('读取目录文件失败:', error)
+      res.status(500).json({
+        success: false,
+        error: '读取目录失败',
+        message: error.message
+      })
+    }
+    
+  } catch (error: any) {
+    logger.error('扫描Minecraft目录失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '扫描目录失败',
+      message: error.message
+    })
+  }
+})
+
 export default router

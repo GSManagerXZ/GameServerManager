@@ -167,6 +167,7 @@ const GameDeploymentPage: React.FC = () => {
   const [instanceName, setInstanceName] = useState('')
   const [instanceDescription, setInstanceDescription] = useState('')
   const [instanceStartCommand, setInstanceStartCommand] = useState('')
+  const [startCommandEdited, setStartCommandEdited] = useState(false)
   const [creatingInstance, setCreatingInstance] = useState(false)
 
   // 更多游戏部署相关状态
@@ -1683,13 +1684,96 @@ const GameDeploymentPage: React.FC = () => {
     try {
       setCreatingInstance(true)
 
-      // 生成启动命令，考虑选中的Java版本
-      let finalStartCommand = instanceStartCommand || generateStartCommand(selectedServer, selectedMinecraftJava)
+      // 首先扫描Minecraft目录以智能检测启动文件
+      console.log('[Minecraft实例创建] 开始扫描目录:', downloadResult.targetDirectory)
+      console.log('[Minecraft实例创建] 用户输入的启动命令:', instanceStartCommand)
+      console.log('[Minecraft实例创建] 选择的Java版本:', selectedMinecraftJava)
+      
+      let finalStartCommand = ''
+      let scanSuccess = false
+      
+      try {
+        const scanResult = await apiClient.scanMinecraftDirectory(downloadResult.targetDirectory)
+        
+        console.log('[Minecraft实例创建] 扫描API响应:', scanResult)
+        
+        if (scanResult.success && scanResult.data) {
+          console.log('[Minecraft实例创建] 扫描数据:', {
+            jarFiles: scanResult.data.jarFiles,
+            batFiles: scanResult.data.batFiles,
+            shFiles: scanResult.data.shFiles,
+            recommendedStartCommand: scanResult.data.recommendedStartCommand,
+            startMethod: scanResult.data.startMethod,
+            platform: scanResult.data.platform
+          })
+          
+        if (scanResult.data.recommendedStartCommand) {
+          const recommendedCommand = scanResult.data.recommendedStartCommand
+          scanSuccess = true
+          console.log('[Minecraft实例创建] 扫描成功，推荐命令:', recommendedCommand)
+          
+          // 优先使用推荐命令，除非用户手动修改过启动命令
+          const useRecommended = !startCommandEdited || !instanceStartCommand.trim()
+          if (useRecommended) {
+            console.log('[Minecraft实例创建] 启动命令未被手动修改，使用智能检测结果')
+            
+            // 根据扫描结果的启动方式决定如何生成命令
+            if (scanResult.data.startMethod === 'jar_file' && selectedMinecraftJava !== 'default') {
+              const javaExecutable = getSelectedJavaExecutable(selectedMinecraftJava)
+              finalStartCommand = recommendedCommand.replace(/^java\b/, javaExecutable)
+              console.log('[Minecraft实例创建] 替换Java路径:', javaExecutable)
+            } else {
+              finalStartCommand = recommendedCommand
+              console.log('[Minecraft实例创建] 直接使用推荐命令')
+            }
+            
+            console.log('[Minecraft实例创建] 最终启动命令:', finalStartCommand)
+            
+            // 同步到输入框，便于用户确认
+            setInstanceStartCommand(finalStartCommand)
 
-      // 如果用户手动输入了启动命令且选择了特定Java版本，替换其中的java
-      if (instanceStartCommand && selectedMinecraftJava !== 'default') {
-        finalStartCommand = replaceJavaInCommand(instanceStartCommand, selectedMinecraftJava)
+            const startMethodText = scanResult.data.startMethod === 'bat_script' ? 'BAT脚本' : 
+                                   scanResult.data.startMethod === 'sh_script' ? 'SH脚本' : 
+                                   'JAR文件'
+          } else {
+            console.log('[Minecraft实例创建] 检测到用户已修改启动命令，保留用户输入')
+            finalStartCommand = selectedMinecraftJava !== 'default' 
+              ? replaceJavaInCommand(instanceStartCommand, selectedMinecraftJava) 
+              : instanceStartCommand
+          }
+        } else {
+            console.log('[Minecraft实例创建] 未检测到推荐的启动命令')
+          }
+        } else {
+          console.log('[Minecraft实例创建] 扫描API返回失败或无数据')
+        }
+      } catch (scanError: any) {
+        console.error('[Minecraft实例创建] 目录扫描异常:', scanError)
+        console.error('[Minecraft实例创建] 错误详情:', scanError.message, scanError.stack)
+        scanSuccess = false
       }
+
+      // 如果扫描失败或没有检测到启动文件，使用默认生成的启动命令
+      if (!scanSuccess || !finalStartCommand) {
+        console.log('[Minecraft实例创建] 使用默认启动命令生成逻辑')
+        finalStartCommand = instanceStartCommand || generateStartCommand(selectedServer, selectedMinecraftJava)
+        
+        // 如果用户手动输入了启动命令且选择了特定Java版本，替换其中的java
+        if (instanceStartCommand && selectedMinecraftJava !== 'default') {
+          finalStartCommand = replaceJavaInCommand(instanceStartCommand, selectedMinecraftJava)
+        }
+        
+        console.log('[Minecraft实例创建] 默认启动命令:', finalStartCommand)
+        
+        addNotification({
+          type: 'info',
+          title: '使用默认启动命令',
+          message: `启动命令: ${finalStartCommand}`,
+          duration: 3000
+        })
+      }
+      
+      console.log('[Minecraft实例创建] 准备创建实例，启动命令:', finalStartCommand)
 
       const response = await apiClient.createInstance({
         name: instanceName.trim(),
@@ -1720,6 +1804,7 @@ const GameDeploymentPage: React.FC = () => {
         setInstanceName('')
         setInstanceDescription('')
         setInstanceStartCommand('')
+        setStartCommandEdited(false)
 
         // 跳转到实例管理页面
         navigate('/instances')
@@ -1828,6 +1913,7 @@ const GameDeploymentPage: React.FC = () => {
     // 更新Minecraft实例启动命令
     if (selectedServer && selectedVersion && selectedMinecraftJava) {
       setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
+      setStartCommandEdited(false)
     }
   }, [selectedMinecraftJava, selectedServer])
 
@@ -3697,6 +3783,7 @@ const GameDeploymentPage: React.FC = () => {
                           // 自动生成启动命令
                           if (version && selectedServer) {
                             setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
+                            setStartCommandEdited(false)
                             // 自动更新安装路径
                             setMinecraftInstallPath(generateMinecraftPath(selectedServer, version))
                           }
@@ -3862,9 +3949,33 @@ const GameDeploymentPage: React.FC = () => {
                         {selectedServer} {selectedVersion} 已成功下载到 {downloadResult.targetDirectory}
                       </p>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           setInstanceName(`${selectedServer}-${selectedVersion}`)
                           setInstanceDescription(`Minecraft ${selectedServer} ${selectedVersion} 服务器`)
+                          
+                          // 打开弹窗前预扫描并填充启动命令
+                          try {
+                            console.log('[Minecraft实例创建] 打开弹窗前进行目录扫描:', downloadResult.targetDirectory)
+                            const scanResult = await apiClient.scanMinecraftDirectory(downloadResult.targetDirectory)
+                            if (scanResult.success && scanResult.data?.recommendedStartCommand) {
+                              let cmd = scanResult.data.recommendedStartCommand as string
+                              if (scanResult.data.startMethod === 'jar_file' && selectedMinecraftJava !== 'default') {
+                                const javaExecutable = getSelectedJavaExecutable(selectedMinecraftJava)
+                                cmd = cmd.replace(/^java\b/, javaExecutable)
+                              }
+                              setInstanceStartCommand(cmd)
+                              setStartCommandEdited(false)
+                            } else {
+                              const fallback = generateStartCommand(selectedServer, selectedMinecraftJava)
+                              setInstanceStartCommand(fallback)
+                              setStartCommandEdited(false)
+                            }
+                          } catch (e) {
+                            const fallback = generateStartCommand(selectedServer, selectedMinecraftJava)
+                            setInstanceStartCommand(fallback)
+                            setStartCommandEdited(false)
+                          }
+                          
                           setShowCreateInstanceModal(true)
                           setTimeout(() => setCreateInstanceModalAnimating(true), 10)
                         }}
@@ -5015,7 +5126,7 @@ const GameDeploymentPage: React.FC = () => {
                 <input
                   type="text"
                   value={instanceStartCommand}
-                  onChange={(e) => setInstanceStartCommand(e.target.value)}
+                  onChange={(e) => { setInstanceStartCommand(e.target.value); setStartCommandEdited(true) }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="启动命令（自动生成，可手动修改）"
                 />

@@ -384,11 +384,28 @@ export class GameConfigManager {
         const sectionData = section.key === '' ? jsonData : (jsonData[section.key] || {})
         
         for (const field of section.fields) {
-          const value = sectionData[field.name]
-          if (value !== undefined) {
-            result[section.key][field.name] = value
+          if (field.type === 'nested' && field.nested_fields) {
+            // 处理嵌套字段
+            const nestedValue = sectionData[field.name]
+            if (nestedValue !== undefined && typeof nestedValue === 'object') {
+              // JSON格式的嵌套字段本身就是对象，直接使用
+              result[section.key][field.name] = nestedValue
+            } else {
+              // 使用默认值填充嵌套字段
+              const nestedDefaults: { [key: string]: any } = {}
+              for (const nestedField of field.nested_fields) {
+                nestedDefaults[nestedField.name] = nestedField.default
+              }
+              result[section.key][field.name] = nestedDefaults
+            }
           } else {
-            result[section.key][field.name] = field.default
+            // 处理普通字段
+            const value = sectionData[field.name]
+            if (value !== undefined) {
+              result[section.key][field.name] = value
+            } else {
+              result[section.key][field.name] = field.default
+            }
           }
         }
       }
