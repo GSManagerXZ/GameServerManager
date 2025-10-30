@@ -104,6 +104,10 @@ function getSponsorDownloadUrl(version: string, platform: string): string {
       windows: 'openjdk-8u44-windows-i586.zip',
       linux: 'openjdk-8u44-linux-x64.tar.gz'
     },
+    java11: {
+      windows: 'openjdk-11.0.0.2_windows-x64.zip',
+      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz'
+    },
     java17: {
       windows: 'openjdk-17.0.0.1+2_windows-x64_bin.zip',
       linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz'

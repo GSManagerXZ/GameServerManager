@@ -84,7 +84,7 @@ export class JavaManager {
     await this.ensureInstallDir()
 
     const platform = os.platform()
-    const javaVersions = ['java8', 'java17', 'java21']
+    const javaVersions = ['java8', 'java11', 'java17', 'java21']
     const environments: JavaEnvironment[] = []
 
     for (const version of javaVersions) {
@@ -192,6 +192,64 @@ export class JavaManager {
   }
 
   /**
+   * 设置Java可执行文件权限 (Linux)
+   */
+  private async setExecutablePermissions(versionDir: string): Promise<void> {
+    const platform = os.platform()
+    
+    // 只在Linux/Unix系统上设置权限
+    if (platform !== 'linux' && platform !== 'darwin') {
+      return
+    }
+
+    logger.info(`正在设置可执行权限: ${versionDir}`)
+
+    try {
+      // 递归查找所有bin目录
+      const findBinDirs = async (dir: string): Promise<string[]> => {
+        const binDirs: string[] = []
+        const entries = await fs.readdir(dir, { withFileTypes: true })
+
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            if (entry.name === 'bin') {
+              binDirs.push(fullPath)
+            }
+            // 递归查找子目录
+            const subBinDirs = await findBinDirs(fullPath)
+            binDirs.push(...subBinDirs)
+          }
+        }
+
+        return binDirs
+      }
+
+      const binDirs = await findBinDirs(versionDir)
+
+      // 为每个bin目录中的文件设置可执行权限
+      for (const binDir of binDirs) {
+        const files = await fs.readdir(binDir)
+        for (const file of files) {
+          const filePath = path.join(binDir, file)
+          const stat = await fs.stat(filePath)
+          
+          if (stat.isFile()) {
+            // 设置为 755 权限 (rwxr-xr-x)
+            await fs.chmod(filePath, 0o755)
+            logger.info(`设置可执行权限: ${filePath}`)
+          }
+        }
+      }
+
+      logger.info(`可执行权限设置完成`)
+    } catch (error) {
+      logger.warn(`设置可执行权限失败 (非致命错误):`, error)
+      // 不抛出错误，因为这不是致命问题
+    }
+  }
+
+  /**
    * 安装Java环境
    */
   async installJava(
@@ -229,6 +287,9 @@ export class JavaManager {
 
       // 删除下载的压缩文件
       await fs.remove(downloadPath)
+
+      // Linux系统下设置可执行权限
+      await this.setExecutablePermissions(versionDir)
 
       // 验证安装
       const javaExecutable = await this.findJavaExecutable(versionDir)

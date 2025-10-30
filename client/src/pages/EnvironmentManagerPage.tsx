@@ -136,6 +136,13 @@ const EnvironmentManagerPage: React.FC = () => {
       linux: 'https://download.java.net/openjdk/jdk8u44/ri/openjdk-8u44-linux-x64.tar.gz'
     },
     {
+      version: 'Java 11',
+      key: 'java11',
+      description: 'Java 11 (OpenJDK 11.0.0.2)',
+      windows: 'https://download.java.net/openjdk/jdk11.0.0.2/ri/openjdk-11.0.0.2_windows-x64.zip',
+      linux: 'https://download.java.net/openjdk/jdk11.0.0.2/ri/openjdk-11.0.0.2_linux-x64.tar.gz'
+    },
+    {
       version: 'Java 17',
       key: 'java17',
       description: 'Java 17 (OpenJDK 17.0.0.1)',
