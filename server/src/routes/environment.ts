@@ -173,6 +173,15 @@ router.post('/java/install', authenticateToken, async (req, res) => {
       }
     })
 
+    // 发送最终进度更新，确保进度条到达100%
+    if (io && socketId) {
+      io.to(socketId).emit('java-install-progress', {
+        version,
+        stage: 'extract',
+        progress: 100
+      })
+    }
+
     // 安装完成通知
     if (io && socketId) {
       io.to(socketId).emit('java-install-complete', {
