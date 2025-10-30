@@ -471,8 +471,10 @@ const InstanceManagerPage: React.FC = () => {
         // 填充表单数据
         setFormData({
           name: pendingInstance.name || '',
+          description: '',
           workingDirectory: pendingInstance.path || '',
           startCommand: pendingInstance.startCommand || '',
+          autoStart: false,
           stopCommand: 'stop',
           enableStreamForward: false,
           programPath: '',

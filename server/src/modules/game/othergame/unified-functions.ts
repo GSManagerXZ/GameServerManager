@@ -233,6 +233,7 @@ export interface DeploymentResult {
   targetDirectory?: string;
   details?: any;
   deploymentId?: string;
+  data?: any;
 }
 
 // ==================== 取消令牌实现 ====================
@@ -1765,6 +1766,7 @@ export async function extractTarXzFileWithCancellation(filePath: string, extract
 export interface UnifiedDeployOptions {
   game: GameType;
   targetDirectory: string;
+  platform?: 'windows' | 'linux';
   
   // Minecraft特定选项
   server?: string;
