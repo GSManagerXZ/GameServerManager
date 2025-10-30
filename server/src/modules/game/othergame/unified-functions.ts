@@ -44,7 +44,7 @@ export interface DownloadProgress {
 }
 
 export type ProgressCallback = (progress: DownloadProgress) => void;
-export type GameType = 'minecraft' | 'tmodloader' | 'factorio' | 'mrpack';
+export type GameType = 'minecraft' | 'tmodloader' | 'factorio' | 'mrpack' | 'bedrock';
 
 // ==================== 取消部署相关类型 ====================
 
@@ -132,6 +132,25 @@ export interface TModLoaderDeployOptions {
 export interface FactorioDeployOptions {
   targetDirectory: string;
   tempDir?: string;
+  deploymentId?: string;
+  onProgress?: LogCallback;
+}
+
+// ==================== Minecraft Bedrock 相关类型 ====================
+
+export interface BedrockDownloadLink {
+  downloadType: string;
+  downloadUrl: string;
+}
+
+export interface BedrockVersionInfo {
+  links: BedrockDownloadLink[];
+}
+
+export interface BedrockDeployOptions {
+  targetDirectory: string;
+  platform?: 'windows' | 'linux';
+  versionType?: 'stable' | 'preview';
   deploymentId?: string;
   onProgress?: LogCallback;
 }
@@ -1831,6 +1850,14 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
         });
         break;
         
+      case 'bedrock':
+        result = await deployBedrockServer({
+          targetDirectory,
+          platform: options.platform,
+          onProgress
+        });
+        break;
+        
       default:
         throw new Error(`不支持的游戏类型: ${game}`);
     }
@@ -1849,6 +1876,301 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
     if (error instanceof Error && error.message === '操作已被取消') {
       throw new Error('统一部署操作已被取消');
     }
+    throw error;
+  }
+}
+
+/**
+ * 下载Minecraft基岩版服务端文件
+ * 专门处理Minecraft官方下载链接，支持重定向和大文件下载
+ */
+async function downloadBedrockServerFile(
+  url: string,
+  filePath: string,
+  deployment: ActiveDeployment,
+  onProgress?: LogCallback
+): Promise<void> {
+  const controller = new AbortController();
+  
+  deployment.cancellationToken.onCancelled(() => {
+    if (onProgress) onProgress('接收到取消信号，正在中止下载...', 'warn');
+    controller.abort();
+  });
+  
+  try {
+    deployment.cancellationToken.throwIfCancelled();
+    
+    if (onProgress) onProgress(`开始下载: ${url}`, 'info');
+    
+    const response = await axios({
+      method: 'GET',
+      url: url,
+      responseType: 'stream',
+      signal: controller.signal,
+      timeout: 600000, // 10分钟超时
+      maxRedirects: 10, // 允许重定向
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/octet-stream, */*',
+        'Accept-Encoding': 'identity'
+      },
+      // 验证状态码
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+    
+    const totalLength = parseInt(response.headers['content-length'] || '0', 10);
+    let downloadedLength = 0;
+    let lastLogTime = Date.now();
+    
+    if (onProgress) {
+      if (totalLength > 0) {
+        onProgress(`文件大小: ${(totalLength / 1024 / 1024).toFixed(2)}MB`, 'info');
+      }
+      onProgress('开始接收数据...', 'info');
+    }
+    
+    const writer = createWriteStream(filePath);
+    
+    response.data.on('data', (chunk: Buffer) => {
+      if (deployment.cancellationToken.isCancelled) {
+        response.data.destroy();
+        writer.end();
+        return;
+      }
+      
+      downloadedLength += chunk.length;
+      
+      // 每2秒输出一次进度
+      const now = Date.now();
+      if (onProgress && totalLength > 0 && now - lastLogTime > 2000) {
+        const percentage = ((downloadedLength / totalLength) * 100).toFixed(2);
+        const downloadedMB = (downloadedLength / 1024 / 1024).toFixed(2);
+        const totalMB = (totalLength / 1024 / 1024).toFixed(2);
+        onProgress(`下载进度: ${percentage}% (${downloadedMB}MB / ${totalMB}MB)`, 'info');
+        lastLogTime = now;
+      }
+    });
+    
+    response.data.pipe(writer);
+    
+    await new Promise<void>((resolve, reject) => {
+      writer.on('finish', () => {
+        if (onProgress) {
+          onProgress(`下载完成: ${(downloadedLength / 1024 / 1024).toFixed(2)}MB`, 'success');
+        }
+        resolve();
+      });
+      
+      writer.on('error', (err) => {
+        reject(err);
+      });
+      
+      response.data.on('error', (err: any) => {
+        if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+          reject(new Error('操作已被取消'));
+        } else {
+          reject(err);
+        }
+      });
+    });
+    
+  } catch (error: any) {
+    // 清理可能已创建的部分文件
+    try {
+      await fsPromises.unlink(filePath);
+    } catch (unlinkError) {
+      // 忽略删除文件时的错误
+    }
+    
+    if (error.name === 'AbortError' || error.code === 'ERR_CANCELED' || error.message === '操作已被取消') {
+      if (onProgress) onProgress('下载已被取消', 'warn');
+      throw new Error('操作已被取消');
+    }
+    
+    if (onProgress) onProgress(`下载失败: ${error.message}`, 'error');
+    throw new Error(`下载文件失败: ${error.message}`);
+  }
+}
+
+/**
+ * 获取Minecraft基岩版下载链接
+ */
+export async function getBedrockDownloadLinks(): Promise<BedrockVersionInfo> {
+  const url = 'https://net-secondary.web.minecraft-services.net/api/v1.0/download/links';
+  
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'identity',
+        'Origin': 'https://www.minecraft.net',
+        'Referer': 'https://www.minecraft.net/'
+      },
+      timeout: 30000
+    });
+    
+    if (response.data && response.data.result && response.data.result.links) {
+      return { links: response.data.result.links };
+    }
+    
+    throw new Error('无效的API响应格式');
+  } catch (error: any) {
+    throw new Error(`获取基岩版下载链接失败: ${error.message}`);
+  }
+}
+
+/**
+ * 部署Minecraft基岩版服务器
+ */
+export async function deployBedrockServer(options: BedrockDeployOptions): Promise<DeploymentResult> {
+  const { targetDirectory, platform, versionType = 'stable', deploymentId, onProgress } = options;
+  
+  // 在目标路径后面添加"Minecraft-bedrock-server"文件夹
+  const finalTargetDirectory = path.join(targetDirectory, 'Minecraft-bedrock-server');
+  
+  // 创建部署记录
+  const deployment = globalDeploymentManager.createDeployment(
+    'bedrock',
+    finalTargetDirectory,
+    onProgress,
+    deploymentId
+  );
+  
+  try {
+    (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
+    
+    if (onProgress) onProgress('开始部署Minecraft基岩版服务器...', 'info');
+    
+    // 检测平台 - 优先使用系统检测，忽略可能不准确的前端传参
+    const osPlatform = os.platform();
+    // 如果没有明确传递platform参数，或者传递的参数与系统不匹配，使用系统检测结果
+    const detectedPlatform = osPlatform === 'win32' ? 'windows' : 'linux';
+    const currentPlatform = platform && (platform === detectedPlatform) ? platform : detectedPlatform;
+    if (onProgress) onProgress(`检测到系统平台: ${osPlatform} (${currentPlatform})`, 'info');
+    if (onProgress) onProgress(`选择版本类型: ${versionType === 'stable' ? '正式版' : '预览版'}`, 'info');
+    
+    // 获取下载链接
+    if (onProgress) onProgress('正在获取最新版本下载链接...', 'info');
+    const versionInfo = await getBedrockDownloadLinks();
+    
+    // 打印所有可用的下载链接以便调试
+    if (onProgress) {
+      onProgress(`可用的下载链接类型: ${versionInfo.links.map(l => l.downloadType).join(', ')}`, 'info');
+    }
+    
+    // 根据平台和版本类型选择下载链接
+    let downloadLink;
+    if (currentPlatform === 'windows') {
+      if (versionType === 'preview') {
+        // Windows预览版
+        downloadLink = versionInfo.links.find(link => 
+          link.downloadType.toLowerCase().includes('preview') && 
+          (link.downloadType.toLowerCase().includes('windows') || link.downloadType.toLowerCase().includes('win'))
+        );
+      } else {
+        // Windows正式版 - 排除preview
+        downloadLink = versionInfo.links.find(link => 
+          !link.downloadType.toLowerCase().includes('preview') &&
+          (link.downloadType.toLowerCase().includes('windows') || link.downloadType.toLowerCase().includes('win'))
+        );
+      }
+    } else {
+      if (versionType === 'preview') {
+        // Linux预览版
+        downloadLink = versionInfo.links.find(link => 
+          link.downloadType.toLowerCase().includes('preview') &&
+          (link.downloadType.toLowerCase().includes('linux') || link.downloadType.toLowerCase().includes('ubuntu'))
+        );
+      } else {
+        // Linux正式版 - 排除preview
+        downloadLink = versionInfo.links.find(link => 
+          !link.downloadType.toLowerCase().includes('preview') &&
+          (link.downloadType.toLowerCase().includes('linux') || link.downloadType.toLowerCase().includes('ubuntu'))
+        );
+      }
+    }
+    
+    if (!downloadLink) {
+      const availableTypes = versionInfo.links.map(l => l.downloadType).join(', ');
+      throw new Error(`未找到${currentPlatform}平台的下载链接。可用类型: ${availableTypes}`);
+    }
+    
+    if (onProgress) onProgress(`找到下载链接: ${downloadLink.downloadUrl}`, 'success');
+    
+    // 确保目标目录存在
+    await fs.ensureDir(finalTargetDirectory);
+    if (onProgress) onProgress(`创建目标目录: ${finalTargetDirectory}`, 'info');
+    
+    // 下载文件
+    const fileName = currentPlatform === 'windows' ? 'bedrock-server.zip' : 'bedrock-server.zip';
+    const downloadPath = path.join(finalTargetDirectory, fileName);
+    
+    if (onProgress) onProgress('正在下载服务端文件...', 'info');
+    
+    // 使用特殊的下载方式处理Minecraft官方链接
+    await downloadBedrockServerFile(
+      downloadLink.downloadUrl,
+      downloadPath,
+      deployment,
+      onProgress
+    );
+    
+    if (onProgress) onProgress('下载完成，开始解压...', 'success');
+    
+    // 解压文件
+    await extractZipFileWithCancellation(downloadPath, finalTargetDirectory, deployment);
+    
+    if (onProgress) onProgress('解压完成', 'success');
+    
+    // 删除下载的压缩包
+    await fs.remove(downloadPath);
+    if (onProgress) onProgress('清理临时文件完成', 'info');
+    
+    // 根据平台设置启动命令
+    let startCommand = '';
+    if (currentPlatform === 'windows') {
+      startCommand = '.\\bedrock_server.exe';
+    } else {
+      // Linux平台需要设置可执行权限
+      const serverPath = path.join(finalTargetDirectory, 'bedrock_server');
+      try {
+        await fsPromises.chmod(serverPath, 0o755);
+        if (onProgress) onProgress('已设置服务端文件可执行权限', 'success');
+      } catch (error: any) {
+        if (onProgress) onProgress(`设置可执行权限失败: ${error.message}`, 'warn');
+      }
+      startCommand = './bedrock_server';
+    }
+    
+    if (onProgress) onProgress(`推荐启动命令: ${startCommand}`, 'info');
+    if (onProgress) onProgress('Minecraft基岩版服务端部署完成！', 'success');
+    
+    // 清理部署记录
+    await globalDeploymentManager.cleanupDeployment(deployment.id);
+    
+    return {
+      success: true,
+      message: 'Minecraft基岩版服务端部署成功',
+      data: {
+        targetDirectory: finalTargetDirectory,
+        platform: currentPlatform,
+        versionType,
+        startCommand,
+        deploymentId: deployment.id
+      }
+    };
+    
+  } catch (error: any) {
+    // 清理部署记录
+    await globalDeploymentManager.cleanupDeployment(deployment.id);
+    
+    if (error instanceof Error && error.message === '操作已被取消') {
+      if (onProgress) onProgress('部署已被取消', 'warn');
+      throw new Error('基岩版部署操作已被取消');
+    }
+    
+    if (onProgress) onProgress(`部署失败: ${error.message}`, 'error');
     throw error;
   }
 }

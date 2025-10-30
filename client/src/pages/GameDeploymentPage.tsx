@@ -181,6 +181,9 @@ const GameDeploymentPage: React.FC = () => {
   const [moreGameDeployProgress, setMoreGameDeployProgress] = useState<any>(null)
   const [moreGameDeployLogs, setMoreGameDeployLogs] = useState<string[]>([])
   const [moreGameDeployComplete, setMoreGameDeployComplete] = useState(false)
+  
+  // 基岩版相关状态
+  const [bedrockVersionType, setBedrockVersionType] = useState<'stable' | 'preview'>('stable')
 
   // Minecraft整合包部署相关状态
   const [mrpackSearchQuery, setMrpackSearchQuery] = useState('')
@@ -919,6 +922,13 @@ const GameDeploymentPage: React.FC = () => {
       } else if (selectedMoreGame === 'factorio') {
         response = await apiClient.deployFactorio({
           installPath: moreGameInstallPath,
+          socketId
+        })
+      } else if (selectedMoreGame === 'bedrock') {
+        // 不传递platform参数，让后端自动检测
+        response = await apiClient.deployBedrock({
+          installPath: moreGameInstallPath,
+          versionType: bedrockVersionType,
           socketId
         })
       } else {
@@ -4113,6 +4123,42 @@ const GameDeploymentPage: React.FC = () => {
                   />
                 </div>
 
+                {/* 基岩版版本选择 */}
+                {selectedMoreGame === 'bedrock' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      版本类型
+                    </label>
+                    <div className="flex items-center space-x-6">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          name="bedrockVersion"
+                          value="stable"
+                          checked={bedrockVersionType === 'stable'}
+                          onChange={(e) => setBedrockVersionType(e.target.value as 'stable' | 'preview')}
+                          className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                        />
+                        <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">正式版</span>
+                      </label>
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          name="bedrockVersion"
+                          value="preview"
+                          checked={bedrockVersionType === 'preview'}
+                          onChange={(e) => setBedrockVersionType(e.target.value as 'stable' | 'preview')}
+                          className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600"
+                        />
+                        <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">预览版 (Preview)</span>
+                      </label>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      正式版：稳定的官方发布版本 | 预览版：包含最新实验性功能的测试版本
+                    </p>
+                  </div>
+                )}
+
                 {/* 平台兼容性提示 */}
                 {(() => {
                   const selectedGame = moreGames.find(g => g.id === selectedMoreGame)
@@ -4244,30 +4290,73 @@ const GameDeploymentPage: React.FC = () => {
                   <CheckCircle className="w-5 h-5" />
                   <span className="font-medium">部署成功！</span>
                 </div>
-                <div className="text-sm text-green-700 dark:text-green-300 space-y-1 mb-3">
-                  <p><strong>安装路径:</strong> {moreGameDeployResult.installPath}</p>
+                <div className="text-sm text-green-700 dark:text-green-300 space-y-1 mb-4">
+                  <p><strong>安装路径:</strong> {moreGameDeployResult.targetDirectory || moreGameDeployResult.installPath}</p>
                   {moreGameDeployResult.version && (
                     <p><strong>版本:</strong> {moreGameDeployResult.version}</p>
+                  )}
+                  {moreGameDeployResult.versionType && (
+                    <p><strong>版本类型:</strong> {moreGameDeployResult.versionType === 'stable' ? '正式版' : '预览版'}</p>
+                  )}
+                  {moreGameDeployResult.platform && (
+                    <p><strong>平台:</strong> {moreGameDeployResult.platform === 'windows' ? 'Windows' : 'Linux'}</p>
+                  )}
+                  {moreGameDeployResult.startCommand && (
+                    <p><strong>启动命令:</strong> <code className="bg-white dark:bg-gray-700 px-2 py-1 rounded">{moreGameDeployResult.startCommand}</code></p>
                   )}
                   {moreGameDeployResult.serverExecutablePath && (
                     <p><strong>服务端文件:</strong> {moreGameDeployResult.serverExecutablePath}</p>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    // 重置状态
-                    setSelectedMoreGame('')
-                    setMoreGameInstallPath('')
-                    setMoreGameDeployComplete(false)
-                    setMoreGameDeployResult(null)
-                    setMoreGameDeployProgress(null)
-                    setMoreGameDeployLogs([])
-                  }}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>部署其他游戏</span>
-                </button>
+                
+                {/* 操作按钮 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => {
+                      // 创建实例 - 跳转到实例管理页面
+                      const gameName = moreGames.find(g => g.id === selectedMoreGame)?.name || '游戏服务器'
+                      const targetDirectory = moreGameDeployResult.targetDirectory || moreGameDeployResult.installPath
+                      const startCommand = moreGameDeployResult.startCommand || ''
+                      
+                      // 保存到localStorage，让实例管理页面可以读取
+                      localStorage.setItem('pendingInstance', JSON.stringify({
+                        name: gameName,
+                        path: targetDirectory,
+                        startCommand: startCommand,
+                        from: 'more-games'
+                      }))
+                      
+                      addNotification({
+                        type: 'info',
+                        title: '跳转中',
+                        message: '正在跳转到实例管理页面创建实例...'
+                      })
+                      
+                      // 跳转到实例管理页面
+                      navigate('/instances')
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <Server className="w-4 h-4" />
+                    <span>创建实例</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      // 重置状态
+                      setSelectedMoreGame('')
+                      setMoreGameInstallPath('')
+                      setMoreGameDeployComplete(false)
+                      setMoreGameDeployResult(null)
+                      setMoreGameDeployProgress(null)
+                      setMoreGameDeployLogs([])
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>部署其他游戏</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

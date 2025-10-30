@@ -637,6 +637,19 @@ class ApiClient {
     return this.post('/more-games/deploy/factorio', data)
   }
 
+  async deployBedrock(data: {
+    installPath: string
+    platform?: 'windows' | 'linux'
+    versionType?: 'stable' | 'preview'
+    socketId?: string
+  }) {
+    return this.post('/more-games/deploy/bedrock', data)
+  }
+
+  async getBedrockDownloadLinks() {
+    return this.get('/more-games/bedrock/download-links')
+  }
+
   async getMoreGameDeploymentStatus(gameId: string, installPath: string) {
     return this.get(`/more-games/status/${gameId}/${encodeURIComponent(installPath)}`)
   }

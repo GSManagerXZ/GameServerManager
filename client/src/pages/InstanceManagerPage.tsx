@@ -459,6 +459,40 @@ const InstanceManagerPage: React.FC = () => {
     fetchAvailableConfigs()
     fetchSystemUsers()
     fetchSystemInfo() // 获取系统信息以检测ARM架构
+    
+    // 检查是否有待创建的实例（从游戏部署页面跳转过来）
+    const pendingInstanceStr = localStorage.getItem('pendingInstance')
+    if (pendingInstanceStr) {
+      try {
+        const pendingInstance = JSON.parse(pendingInstanceStr)
+        // 清除localStorage中的数据
+        localStorage.removeItem('pendingInstance')
+        
+        // 填充表单数据
+        setFormData({
+          name: pendingInstance.name || '',
+          workingDirectory: pendingInstance.path || '',
+          startCommand: pendingInstance.startCommand || '',
+          stopCommand: 'stop',
+          enableStreamForward: false,
+          programPath: '',
+          terminalUser: ''
+        })
+        
+        // 打开创建模态框
+        setShowCreateModal(true)
+        setTimeout(() => {
+          setCreateModalAnimating(true)
+          addNotification({
+            type: 'info',
+            title: '自动填充',
+            message: '已自动填充部署信息，请检查并完善配置'
+          })
+        }, 10)
+      } catch (error) {
+        console.error('解析待创建实例数据失败:', error)
+      }
+    }
   }, [])
 
   useEffect(() => {

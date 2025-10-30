@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { deployTModLoaderServer, deployFactorioServer, cancelDeployment, getActiveDeployments, getTModLoaderInfo, searchMrpackModpacks, getMrpackProjectVersions, deployMrpackServer } from '../modules/game/othergame/unified-functions.js'
+import { deployTModLoaderServer, deployFactorioServer, cancelDeployment, getActiveDeployments, getTModLoaderInfo, searchMrpackModpacks, getMrpackProjectVersions, deployMrpackServer, deployBedrockServer, getBedrockDownloadLinks } from '../modules/game/othergame/unified-functions.js'
 import { authenticateToken } from '../middleware/auth.js'
 import logger from '../utils/logger.js'
 import { Server as SocketIOServer } from 'socket.io'
@@ -22,7 +22,8 @@ export function setMoreGamesDependencies(socketIO: SocketIOServer) {
 export enum GameType {
   TMODLOADER = 'tmodloader',
   FACTORIO = 'factorio',
-  MRPACK = 'mrpack'
+  MRPACK = 'mrpack',
+  BEDROCK = 'bedrock'
 }
 
 // 平台类型枚举
@@ -97,6 +98,15 @@ const supportedGames: GameInfo[] = [
     category: '策略游戏',
     supported: true,
     supportedPlatforms: [Platform.LINUX] // 仅Linux平台支持
+  },
+  {
+    id: 'bedrock',
+    name: 'Minecraft基岩版',
+    description: 'Minecraft基岩版官方服务端',
+    icon: '⛏️',
+    category: '沙盒游戏',
+    supported: true,
+    supportedPlatforms: [Platform.WINDOWS, Platform.LINUX] // Windows和Linux平台支持
   }
 ]
 
@@ -755,6 +765,134 @@ router.post('/deploy/mrpack', authenticateToken, async (req: Request, res: Respo
     res.status(500).json({
       success: false,
       error: 'Minecraft整合包部署失败',
+      message: error.message
+    })
+  }
+})
+
+// 获取Minecraft基岩版下载链接
+router.get('/bedrock/download-links', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    logger.info('开始获取Minecraft基岩版下载链接')
+    
+    const versionInfo = await getBedrockDownloadLinks()
+    
+    logger.info('成功获取Minecraft基岩版下载链接', {
+      linksCount: versionInfo.links.length
+    })
+    
+    res.json({
+      success: true,
+      data: versionInfo,
+      message: '获取下载链接成功'
+    })
+  } catch (error: any) {
+    logger.error('获取Minecraft基岩版下载链接失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '获取下载链接失败',
+      message: error.message
+    })
+  }
+})
+
+// 部署Minecraft基岩版服务端
+router.post('/deploy/bedrock', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { installPath, platform, versionType = 'stable', socketId } = req.body
+    
+    if (!installPath) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少必填参数',
+        message: '安装路径为必填项'
+      })
+    }
+    
+    const deploymentId = `bedrock-deploy-${Date.now()}`
+    
+    // 立即返回部署ID
+    res.json({
+      success: true,
+      data: {
+        deploymentId
+      },
+      message: '开始部署Minecraft基岩版服务端'
+    })
+    
+    logger.info('开始部署Minecraft基岩版服务端', { installPath, platform, versionType, deploymentId })
+    
+    // 异步执行部署
+    ;(async () => {
+      try {
+        // 使用统一函数进行部署
+        const result = await deployBedrockServer({
+          targetDirectory: installPath,
+          platform,
+          versionType,
+          deploymentId,
+          onProgress: (message, type = 'info') => {
+            if (io && socketId) {
+              io.to(socketId).emit('more-games-deploy-log', {
+                deploymentId,
+                message,
+                type,
+                timestamp: new Date().toISOString()
+              })
+            }
+          }
+        })
+        
+        if (result.success) {
+          logger.info('Minecraft基岩版服务端部署成功', {
+            installPath: result.data?.targetDirectory,
+            platform: result.data?.platform,
+            startCommand: result.data?.startCommand,
+            deploymentId: result.data?.deploymentId
+          })
+          
+          // 发送完成事件
+          if (io && socketId) {
+            io.to(socketId).emit('more-games-deploy-log', {
+              deploymentId,
+              message: '部署完成！',
+              type: 'success',
+              timestamp: new Date().toISOString()
+            })
+            
+            io.to(socketId).emit('more-games-deploy-progress', {
+              deploymentId,
+              percentage: 100
+            })
+            
+            io.to(socketId).emit('more-games-deploy-complete', {
+              deploymentId,
+              success: true,
+              data: result.data
+            })
+          }
+        } else {
+          throw new Error(result.message || 'Minecraft基岩版部署失败')
+        }
+      } catch (error: any) {
+        logger.error('Minecraft基岩版部署失败:', error)
+        
+        // 发送错误事件
+        if (io && socketId) {
+          io.to(socketId).emit('more-games-deploy-error', {
+            deploymentId,
+            success: false,
+            error: error.message || 'Minecraft基岩版部署失败'
+          })
+        }
+      }
+    })()
+    
+  } catch (error: any) {
+    logger.error('启动Minecraft基岩版部署失败:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Minecraft基岩版部署失败',
       message: error.message
     })
   }
