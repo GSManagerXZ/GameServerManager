@@ -3,6 +3,11 @@ import fs from 'fs/promises'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { TerminalManager } from '../terminal/TerminalManager.js'
+import os from 'os'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 
 export interface Instance {
   id: string
@@ -359,6 +364,35 @@ export class InstanceManager extends EventEmitter {
         await fs.access(instance.workingDirectory)
       } catch {
         throw new Error(`工作目录不存在: ${instance.workingDirectory}`)
+      }
+      
+      // 根据平台检查和处理启动命令
+      const platform = os.platform()
+      const startCommand = instance.startCommand.trim()
+      
+      // 检查是否是 ./ 开头的命令
+      if (startCommand.startsWith('./') && (platform === 'linux' || platform === 'darwin')) {
+        // Linux/Mac 平台：自动为文件添加可执行权限
+        // 提取文件名（处理可能有参数的情况）
+        const commandParts = startCommand.split(/\s+/)
+        const scriptPath = commandParts[0].substring(2) // 去掉 ./
+        const fullPath = path.join(instance.workingDirectory, scriptPath)
+        
+        try {
+          // 检查文件是否存在
+          await fs.access(fullPath)
+          
+          // 添加可执行权限
+          this.logger.info(`为文件添加可执行权限: ${fullPath}`)
+          await execAsync(`chmod +x "${fullPath}"`)
+          this.logger.info(`已为 ${scriptPath} 添加可执行权限`)
+        } catch (error: any) {
+          if (error.code === 'ENOENT') {
+            this.logger.warn(`启动脚本不存在: ${fullPath}，将尝试继续启动`)
+          } else {
+            this.logger.warn(`添加可执行权限失败: ${error.message}，将尝试继续启动`)
+          }
+        }
       }
       
       // 生成终端会话ID

@@ -88,6 +88,7 @@ const InstanceManagerPage: React.FC = () => {
   const [instanceToDelete, setInstanceToDelete] = useState<Instance | null>(null)
   const [showStartConfirmDialog, setShowStartConfirmDialog] = useState(false)
   const [instanceToStart, setInstanceToStart] = useState<Instance | null>(null)
+  const [startWarningType, setStartWarningType] = useState<'none' | 'windows-slash' | 'linux-backslash'>('none')
   const [showCreateConfigDialog, setShowCreateConfigDialog] = useState(false)
   const [createConfigInfo, setCreateConfigInfo] = useState<{
     instanceId: string
@@ -741,12 +742,37 @@ const InstanceManagerPage: React.FC = () => {
 
   // 检查启动命令并显示确认对话框
   const handleStartInstance = (instance: Instance) => {
+    const startCommand = instance.startCommand.trim()
+    
     // 检测启动命令是否为none
-    const isCommandNone = instance.startCommand === 'none'
+    const isCommandNone = startCommand === 'none'
+    
+    // 检测平台和启动命令格式是否匹配
+    // 使用后端服务器的平台信息来判断
+    const serverPlatform = systemInfo?.platform?.toLowerCase() || ''
+    const isWindowsServer = serverPlatform.includes('win32') || serverPlatform.includes('windows')
+    const isLinuxServer = serverPlatform.includes('linux') || serverPlatform.includes('darwin')
+    
+    // Windows 平台使用了 Linux 格式 (./)
+    const isWindowsWithLinuxSlash = startCommand.startsWith('./') && isWindowsServer
+    
+    // Linux 平台使用了 Windows 格式 (.\)
+    const isLinuxWithWindowsBackslash = startCommand.startsWith('.\\') && isLinuxServer
 
     if (isCommandNone) {
-      // 显示确认对话框
+      // 显示 none 命令的确认对话框
       setInstanceToStart(instance)
+      setStartWarningType('none')
+      setShowStartConfirmDialog(true)
+    } else if (isWindowsWithLinuxSlash) {
+      // 显示 Windows 平台 ./ 格式错误的警告对话框
+      setInstanceToStart(instance)
+      setStartWarningType('windows-slash')
+      setShowStartConfirmDialog(true)
+    } else if (isLinuxWithWindowsBackslash) {
+      // 显示 Linux 平台 .\ 格式错误的警告对话框
+      setInstanceToStart(instance)
+      setStartWarningType('linux-backslash')
       setShowStartConfirmDialog(true)
     } else {
       // 直接启动
@@ -2280,6 +2306,7 @@ const InstanceManagerPage: React.FC = () => {
         isOpen={showStartConfirmDialog}
         instanceName={instanceToStart?.name || ''}
         startCommand={instanceToStart?.startCommand || ''}
+        warningType={startWarningType}
         onConfirm={handleConfirmStart}
         onCancel={handleCancelStart}
       />

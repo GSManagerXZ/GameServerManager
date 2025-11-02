@@ -107,7 +107,7 @@ const NotificationContainer: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {notification.title}
                 </h4>
-                <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 whitespace-pre-line">
                   {notification.message}
                 </p>
               </div>
