@@ -6,7 +6,7 @@ import { TerminalManager } from '../terminal/TerminalManager.js'
 import os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import { JavaManager } from '../environment/JavaManager.js'
+import { JavaManager } from '../environment/javaManager.js'
 
 const execAsync = promisify(exec)
 
