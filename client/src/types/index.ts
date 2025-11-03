@@ -342,6 +342,8 @@ export interface SettingsState {
 }
 
 // 实例管理相关类型
+export type InstanceType = 'generic' | 'minecraft-java' | 'minecraft-bedrock'
+
 export interface Instance {
   id: string
   name: string
@@ -359,6 +361,8 @@ export interface Instance {
   programPath?: string
   terminalSessionId?: string
   terminalUser?: string
+  instanceType?: InstanceType
+  javaVersion?: string
 }
 
 export interface CreateInstanceRequest {
@@ -371,6 +375,8 @@ export interface CreateInstanceRequest {
   enableStreamForward?: boolean
   programPath?: string
   terminalUser?: string
+  instanceType?: InstanceType
+  javaVersion?: string
 }
 
 export interface InstanceState {

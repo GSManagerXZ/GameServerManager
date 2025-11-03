@@ -164,19 +164,50 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       })
     }
     
-    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser } = req.body
+    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser, instanceType, javaVersion } = req.body
+    
+    // 根据实例类型设置默认值
+    const actualInstanceType = instanceType || 'generic'
+    let actualStartCommand = startCommand?.trim() || ''
+    let actualStopCommand = stopCommand || 'ctrl+c'
+    
+    // 我的世界基岩版 - 根据平台设置启动命令
+    if (actualInstanceType === 'minecraft-bedrock') {
+      const platform = os.platform()
+      if (platform === 'win32') {
+        actualStartCommand = '.\\bedrock_server.exe'
+      } else {
+        actualStartCommand = './bedrock_server'
+      }
+      actualStopCommand = 'stop'
+    }
+    
+    // 我的世界Java版 - 启动命令会在启动时动态生成
+    if (actualInstanceType === 'minecraft-java') {
+      actualStartCommand = 'echo Minecraft Java Edition'  // 占位符，启动时会被替换为实际命令
+      actualStopCommand = 'stop'
+    }
     
     // 验证必填字段
-    if (!name || !workingDirectory || !startCommand) {
+    if (!name || !workingDirectory) {
       return res.status(400).json({
         success: false,
         error: '缺少必填字段',
-        message: '实例名称、工作目录和启动命令为必填项'
+        message: '实例名称和工作目录为必填项'
+      })
+    }
+    
+    // 通用类型需要启动命令
+    if (actualInstanceType === 'generic' && !actualStartCommand) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少必填字段',
+        message: '启动命令为必填项'
       })
     }
     
     // 验证停止命令
-    if (stopCommand && !['ctrl+c', 'stop', 'exit', 'quit'].includes(stopCommand)) {
+    if (actualStopCommand && !['ctrl+c', 'stop', 'exit', 'quit'].includes(actualStopCommand)) {
       return res.status(400).json({
         success: false,
         error: '无效的停止命令',
@@ -188,11 +219,13 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       name: name.trim(),
       description: description?.trim() || '',
       workingDirectory: workingDirectory.trim(),
-      startCommand: startCommand.trim(),
+      startCommand: actualStartCommand,
       autoStart: Boolean(autoStart),
-      stopCommand: stopCommand || 'ctrl+c',
+      stopCommand: actualStopCommand,
       enableStreamForward: Boolean(enableStreamForward),
-      programPath: programPath?.trim() || ''
+      programPath: programPath?.trim() || '',
+      instanceType: actualInstanceType,
+      javaVersion: javaVersion?.trim() || undefined
     }
     // 处理terminalUser字段：如果是空字符串则设为空字符串，如果有值则设置值
     if (typeof terminalUser === 'string') {
@@ -201,7 +234,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     
     const instance = await instanceManager.createInstance(instanceData)
     
-    logger.info(`用户创建实例: ${instance.name}`)
+    logger.info(`用户创建实例: ${instance.name}, 类型: ${actualInstanceType}`)
     
     res.status(201).json({
       success: true,
@@ -229,19 +262,50 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
     }
     
     const { id } = req.params
-    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser } = req.body
+    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser, instanceType, javaVersion } = req.body
+    
+    // 根据实例类型设置默认值
+    const actualInstanceType = instanceType || 'generic'
+    let actualStartCommand = startCommand?.trim() || ''
+    let actualStopCommand = stopCommand || 'ctrl+c'
+    
+    // 我的世界基岩版 - 根据平台设置启动命令
+    if (actualInstanceType === 'minecraft-bedrock') {
+      const platform = os.platform()
+      if (platform === 'win32') {
+        actualStartCommand = '.\\bedrock_server.exe'
+      } else {
+        actualStartCommand = './bedrock_server'
+      }
+      actualStopCommand = 'stop'
+    }
+    
+    // 我的世界Java版 - 启动命令会在启动时动态生成
+    if (actualInstanceType === 'minecraft-java') {
+      actualStartCommand = 'echo Minecraft Java Edition'  // 占位符，启动时会被替换为实际命令
+      actualStopCommand = 'stop'
+    }
     
     // 验证必填字段
-    if (!name || !workingDirectory || !startCommand) {
+    if (!name || !workingDirectory) {
       return res.status(400).json({
         success: false,
         error: '缺少必填字段',
-        message: '实例名称、工作目录和启动命令为必填项'
+        message: '实例名称和工作目录为必填项'
+      })
+    }
+    
+    // 通用类型需要启动命令
+    if (actualInstanceType === 'generic' && !actualStartCommand) {
+      return res.status(400).json({
+        success: false,
+        error: '缺少必填字段',
+        message: '启动命令为必填项'
       })
     }
     
     // 验证停止命令
-    if (stopCommand && !['ctrl+c', 'stop', 'exit', 'quit'].includes(stopCommand)) {
+    if (actualStopCommand && !['ctrl+c', 'stop', 'exit', 'quit'].includes(actualStopCommand)) {
       return res.status(400).json({
         success: false,
         error: '无效的停止命令',
@@ -253,11 +317,13 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       name: name.trim(),
       description: description?.trim() || '',
       workingDirectory: workingDirectory.trim(),
-      startCommand: startCommand.trim(),
+      startCommand: actualStartCommand,
       autoStart: Boolean(autoStart),
-      stopCommand: stopCommand || 'ctrl+c',
+      stopCommand: actualStopCommand,
       enableStreamForward: Boolean(enableStreamForward),
-      programPath: programPath?.trim() || ''
+      programPath: programPath?.trim() || '',
+      instanceType: actualInstanceType,
+      javaVersion: javaVersion?.trim() || undefined
     }
     // 处理terminalUser字段：如果是空字符串则设为空字符串，如果有值则设置值
     if (typeof terminalUser === 'string') {

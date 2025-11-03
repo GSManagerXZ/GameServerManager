@@ -26,6 +26,7 @@ import { useSystemStore } from '@/stores/systemStore'
 import apiClient from '@/utils/api'
 import { ConfirmDeleteDialog } from '@/components/ConfirmDeleteDialog'
 import { ConfirmStartDialog } from '@/components/ConfirmStartDialog'
+import { StartErrorDialog } from '@/components/StartErrorDialog'
 import { CreateConfigDialog } from '@/components/CreateConfigDialog'
 import SearchableSelect from '@/components/SearchableSelect'
 import RconConsole from '@/components/RconConsole'
@@ -89,6 +90,9 @@ const InstanceManagerPage: React.FC = () => {
   const [showStartConfirmDialog, setShowStartConfirmDialog] = useState(false)
   const [instanceToStart, setInstanceToStart] = useState<Instance | null>(null)
   const [startWarningType, setStartWarningType] = useState<'none' | 'windows-slash' | 'linux-backslash'>('none')
+  const [showStartErrorDialog, setShowStartErrorDialog] = useState(false)
+  const [startErrorMessage, setStartErrorMessage] = useState('')
+  const [startErrorInstance, setStartErrorInstance] = useState<Instance | null>(null)
   const [showCreateConfigDialog, setShowCreateConfigDialog] = useState(false)
   const [createConfigInfo, setCreateConfigInfo] = useState<{
     instanceId: string
@@ -108,8 +112,12 @@ const InstanceManagerPage: React.FC = () => {
     stopCommand: 'ctrl+c',
     enableStreamForward: false,
     programPath: '',
-    terminalUser: ''
+    terminalUser: '',
+    instanceType: 'generic',
+    javaVersion: ''
   })
+  const [javaEnvironments, setJavaEnvironments] = useState<any[]>([])
+  const [loadingJava, setLoadingJava] = useState(false)
   
   // 停止按钮状态管理
   const [disabledStopButtons, setDisabledStopButtons] = useState<Set<string>>(new Set())
@@ -812,11 +820,10 @@ const InstanceManagerPage: React.FC = () => {
         errorMessage = error.error
       }
 
-      addNotification({
-        type: 'error',
-        title: '启动失败',
-        message: errorMessage
-      })
+      // 显示错误弹窗
+      setStartErrorInstance(instance)
+      setStartErrorMessage(errorMessage)
+      setShowStartErrorDialog(true)
     }
   }
 
@@ -1006,7 +1013,7 @@ const InstanceManagerPage: React.FC = () => {
   }
 
   // 重置表单
-  const resetForm = () => {
+  const resetForm = async () => {
     setFormData({
       name: '',
       description: '',
@@ -1016,7 +1023,9 @@ const InstanceManagerPage: React.FC = () => {
       stopCommand: 'ctrl+c',
       enableStreamForward: false,
       programPath: '',
-      terminalUser: ''
+      terminalUser: '',
+      instanceType: 'generic',
+      javaVersion: ''
     })
   }
 
@@ -1090,7 +1099,7 @@ const InstanceManagerPage: React.FC = () => {
   }
 
   // 编辑实例
-  const handleEditInstance = (instance: Instance) => {
+  const handleEditInstance = async (instance: Instance) => {
     setEditingInstance(instance)
     setFormData({
       name: instance.name,
@@ -1101,10 +1110,32 @@ const InstanceManagerPage: React.FC = () => {
       stopCommand: instance.stopCommand,
       enableStreamForward: instance.enableStreamForward || false,
       programPath: instance.programPath || '',
-      terminalUser: instance.terminalUser || ''
+      terminalUser: instance.terminalUser || '',
+      instanceType: instance.instanceType || 'generic',
+      javaVersion: instance.javaVersion || ''
     })
     setShowCreateModal(true)
     setTimeout(() => setCreateModalAnimating(true), 10)
+    
+    // 加载Java环境列表
+    await fetchJavaEnvironments()
+  }
+  
+  // 获取Java环境列表
+  const fetchJavaEnvironments = async () => {
+    try {
+      setLoadingJava(true)
+      const response = await apiClient.getJavaEnvironments()
+      if (response.success && response.data) {
+        // 只保留已安装的Java环境
+        const installedJavaEnvs = response.data.filter((env: any) => env.installed)
+        setJavaEnvironments(installedJavaEnvs)
+      }
+    } catch (error: any) {
+      console.error('获取Java环境列表失败:', error)
+    } finally {
+      setLoadingJava(false)
+    }
   }
 
   // 获取状态图标
@@ -1157,11 +1188,12 @@ const InstanceManagerPage: React.FC = () => {
         </div>
         {activeTab === 'instances' && (
           <button
-            onClick={() => {
+            onClick={async () => {
               setEditingInstance(null)
-              resetForm()
+              await resetForm()
               setShowCreateModal(true)
               setTimeout(() => setCreateModalAnimating(true), 10)
+              await fetchJavaEnvironments()
             }}
             className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
@@ -1258,11 +1290,12 @@ const InstanceManagerPage: React.FC = () => {
               创建您的第一个实例来开始管理应用
             </p>
             <button
-              onClick={() => {
+              onClick={async () => {
                 setEditingInstance(null)
-                resetForm()
+                await resetForm()
                 setShowCreateModal(true)
                 setTimeout(() => setCreateModalAnimating(true), 10)
+                await fetchJavaEnvironments()
               }}
               className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
@@ -1977,6 +2010,9 @@ const InstanceManagerPage: React.FC = () => {
                 <p className="text-sm text-yellow-700 dark:text-yellow-400">
                   面板侧备份是通过压缩方式实现，可能会受到文件读写和IO限制可能存在备份不全或备份文件损坏问题，若服务端侧有相关备份功能强烈建议通过服务端侧实现更稳妥！
                 </p>
+                <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                  备份文件在面板所在目录下的data\backupdata文件夹中
+                </p>
               </div>
             </div>
           </div>
@@ -2013,6 +2049,29 @@ const InstanceManagerPage: React.FC = () => {
             </h2>
             
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  实例类型 *
+                </label>
+                <select
+                  value={formData.instanceType || 'generic'}
+                  onChange={(e) => {
+                    const newType = e.target.value as 'generic' | 'minecraft-java' | 'minecraft-bedrock'
+                    setFormData({ 
+                      ...formData, 
+                      instanceType: newType,
+                      // 根据类型设置默认停止命令
+                      stopCommand: newType === 'generic' ? formData.stopCommand : 'stop'
+                    })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="generic">Steam/通用控制台程序</option>
+                  <option value="minecraft-java">我的世界Java版</option>
+                  <option value="minecraft-bedrock">我的世界基岩版</option>
+                </select>
+              </div>
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   实例名称 *
@@ -2052,44 +2111,82 @@ const InstanceManagerPage: React.FC = () => {
                 />
               </div>
               
-              <div>
-                <div className="flex items-center space-x-2 mb-1">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    启动命令 *
+              {/* 我的世界Java版 - Java环境选择 */}
+              {formData.instanceType === 'minecraft-java' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Java环境 *
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleOpenStartCommandHelpModal}
-                    className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-                    title="查看启动命令帮助"
+                  <select
+                    value={formData.javaVersion || ''}
+                    onChange={(e) => setFormData({ ...formData, javaVersion: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={loadingJava}
                   >
-                    <HelpCircle className="w-4 h-4" />
-                  </button>
+                    <option value="">Java（PATH环境变量）</option>
+                    {javaEnvironments.map((env: any) => (
+                      <option key={env.version} value={env.version}>
+                        {env.displayName || env.version}
+                      </option>
+                    ))}
+                  </select>
+                  {loadingJava && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      正在加载Java环境列表...
+                    </p>
+                  )}
+                  {!loadingJava && javaEnvironments.length === 0 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      未检测到已安装的Java环境，将使用系统PATH环境变量中的Java
+                    </p>
+                  )}
                 </div>
-                <input
-                  type="text"
-                  value={formData.startCommand}
-                  onChange={(e) => setFormData({ ...formData, startCommand: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="输入启动命令"
-                />
-              </div>
+              )}
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  停止命令
-                </label>
-                <select
-                  value={formData.stopCommand}
-                  onChange={(e) => setFormData({ ...formData, stopCommand: e.target.value as 'ctrl+c' | 'stop' | 'exit' | 'quit' })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="ctrl+c">Ctrl+C</option>
-                  <option value="stop">stop</option>
-                  <option value="exit">exit</option>
-                  <option value="quit">quit</option>
-                </select>
-              </div>
+              {/* 通用类型 - 显示启动命令 */}
+              {formData.instanceType === 'generic' && (
+                <div>
+                  <div className="flex items-center space-x-2 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      启动命令 *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleOpenStartCommandHelpModal}
+                      className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                      title="查看启动命令帮助"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={formData.startCommand}
+                    onChange={(e) => setFormData({ ...formData, startCommand: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="输入启动命令"
+                  />
+                </div>
+              )}
+              
+              {/* 停止命令 - 仅通用类型显示 */}
+              {formData.instanceType === 'generic' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    停止命令
+                  </label>
+                  <select
+                    value={formData.stopCommand}
+                    onChange={(e) => setFormData({ ...formData, stopCommand: e.target.value as 'ctrl+c' | 'stop' | 'exit' | 'quit' })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="ctrl+c">Ctrl+C</option>
+                    <option value="stop">stop</option>
+                    <option value="exit">exit</option>
+                    <option value="quit">quit</option>
+                  </select>
+                </div>
+              )}
               
               <div className="flex items-center">
                 <input
@@ -2180,7 +2277,12 @@ const InstanceManagerPage: React.FC = () => {
               </button>
               <button
                 onClick={editingInstance ? handleUpdateInstance : handleCreateInstance}
-                disabled={!formData.name || !formData.workingDirectory || !formData.startCommand || (formData.enableStreamForward && !formData.programPath)}
+                disabled={
+                  !formData.name || 
+                  !formData.workingDirectory || 
+                  (formData.instanceType === 'generic' && !formData.startCommand) ||
+                  (formData.enableStreamForward && !formData.programPath)
+                }
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {editingInstance ? '更新' : '创建'}
@@ -2309,6 +2411,19 @@ const InstanceManagerPage: React.FC = () => {
         warningType={startWarningType}
         onConfirm={handleConfirmStart}
         onCancel={handleCancelStart}
+      />
+
+      {/* 启动错误对话框 */}
+      <StartErrorDialog
+        isOpen={showStartErrorDialog}
+        instanceName={startErrorInstance?.name || ''}
+        errorMessage={startErrorMessage}
+        workingDirectory={startErrorInstance?.workingDirectory}
+        onClose={() => {
+          setShowStartErrorDialog(false)
+          setStartErrorInstance(null)
+          setStartErrorMessage('')
+        }}
       />
 
       {/* 启动命令帮助模态框 */}

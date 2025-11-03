@@ -6,8 +6,11 @@ import { TerminalManager } from '../terminal/TerminalManager.js'
 import os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { JavaManager } from '../environment/JavaManager.js'
 
 const execAsync = promisify(exec)
+
+export type InstanceType = 'generic' | 'minecraft-java' | 'minecraft-bedrock'
 
 export interface Instance {
   id: string
@@ -26,6 +29,8 @@ export interface Instance {
   programPath?: string
   terminalSessionId?: string
   terminalUser?: string
+  instanceType?: InstanceType
+  javaVersion?: string
 }
 
 export interface CreateInstanceRequest {
@@ -38,6 +43,8 @@ export interface CreateInstanceRequest {
   enableStreamForward?: boolean
   programPath?: string
   terminalUser?: string
+  instanceType?: InstanceType
+  javaVersion?: string
 }
 
 export class InstanceManager extends EventEmitter {
@@ -46,12 +53,14 @@ export class InstanceManager extends EventEmitter {
   private saveTimeout: NodeJS.Timeout | null = null
   private logger: any
   private terminalManager: TerminalManager
+  private javaManager: JavaManager
 
   constructor(terminalManager: TerminalManager, logger: any, configPath: string = './data/instances.json') {
     super()
     this.logger = logger
     this.terminalManager = terminalManager
     this.configPath = configPath
+    this.javaManager = new JavaManager()
   }
   
   // 获取系统负载信息
@@ -138,6 +147,91 @@ export class InstanceManager extends EventEmitter {
   private async delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
+  
+  // 检测工作目录中的启动脚本
+  private async detectStartScript(workingDirectory: string): Promise<string | null> {
+    try {
+      const files = await fs.readdir(workingDirectory)
+      const platform = os.platform()
+      
+      // 根据平台定义启动脚本文件名优先级
+      const scriptNames = platform === 'win32' 
+        ? ['start.bat', 'run.bat', 'start.cmd', 'run.cmd']
+        : ['start.sh', 'run.sh']
+      
+      // 按优先级查找启动脚本
+      for (const scriptName of scriptNames) {
+        if (files.includes(scriptName)) {
+          this.logger.info(`检测到启动脚本: ${scriptName}`)
+          return scriptName
+        }
+      }
+      
+      return null
+    } catch (error) {
+      this.logger.error('检测启动脚本失败:', error)
+      return null
+    }
+  }
+  
+  // 检测工作目录中的jar文件
+  private async detectJarFile(workingDirectory: string): Promise<string | null> {
+    try {
+      const files = await fs.readdir(workingDirectory)
+      const jarFiles = files.filter(file => file.endsWith('.jar'))
+      
+      if (jarFiles.length === 0) {
+        return null
+      }
+      
+      // 如果只有一个jar文件，直接返回
+      if (jarFiles.length === 1) {
+        return jarFiles[0]
+      }
+      
+      // 如果有多个jar文件，优先选择包含server的文件名
+      const serverJar = jarFiles.find(file => file.toLowerCase().includes('server'))
+      if (serverJar) {
+        return serverJar
+      }
+      
+      // 否则返回第一个jar文件
+      return jarFiles[0]
+    } catch (error) {
+      this.logger.error('检测jar文件失败:', error)
+      return null
+    }
+  }
+  
+  // 获取Java路径
+  private async getJavaPath(javaVersion?: string): Promise<string> {
+    // 如果未指定Java版本，使用系统PATH中的java
+    if (!javaVersion) {
+      return 'java'
+    }
+    
+    try {
+      // 从JavaManager获取Java环境列表
+      const javaEnvironments = await this.javaManager.getJavaEnvironments()
+      
+      // 查找匹配的Java版本
+      const javaEnv = javaEnvironments.find(env => env.version === javaVersion)
+      
+      if (javaEnv && javaEnv.installed && javaEnv.javaExecutable) {
+        this.logger.info(`找到Java ${javaVersion} 路径: ${javaEnv.javaExecutable}`)
+        // 返回带引号的路径（处理包含空格的情况）
+        return `"${javaEnv.javaExecutable}"`
+      }
+      
+      // 如果没有找到指定版本的Java，回退到系统PATH中的java
+      this.logger.warn(`未找到已安装的Java版本 ${javaVersion}，使用系统PATH中的java`)
+      return 'java'
+    } catch (error) {
+      this.logger.error(`获取Java路径失败:`, error)
+      this.logger.warn(`回退到系统PATH中的java`)
+      return 'java'
+    }
+  }
 
   // 初始化实例管理器
   public async initialize(): Promise<void> {
@@ -158,14 +252,24 @@ export class InstanceManager extends EventEmitter {
       const instancesData = JSON.parse(data)
       
       for (const instanceData of instancesData) {
+        // 迁移旧的 auto-detect-jar 占位符
+        let startCommand = instanceData.startCommand
+        if (startCommand === 'auto-detect-jar') {
+          startCommand = 'echo Minecraft Java Edition'
+          this.logger.info(`迁移实例 ${instanceData.name} 的旧启动命令占位符`)
+        }
+        
         const instance: Instance = {
           ...instanceData,
+          startCommand,
           status: 'stopped', // 重启后所有实例都是停止状态
           pid: undefined,
           terminalSessionId: undefined,
           enableStreamForward: instanceData.enableStreamForward ?? false,
           programPath: instanceData.programPath ?? '',
-          terminalUser: instanceData.terminalUser ?? ''
+          terminalUser: instanceData.terminalUser ?? '',
+          instanceType: instanceData.instanceType ?? 'generic',
+          javaVersion: instanceData.javaVersion ?? undefined
         }
         this.instances.set(instance.id, instance)
       }
@@ -206,7 +310,9 @@ export class InstanceManager extends EventEmitter {
           lastStopped: instance.lastStopped,
           enableStreamForward: instance.enableStreamForward,
           programPath: instance.programPath,
-          terminalUser: instance.terminalUser
+          terminalUser: instance.terminalUser,
+          instanceType: instance.instanceType,
+          javaVersion: instance.javaVersion
         }))
         
         await fs.writeFile(this.configPath, JSON.stringify(instancesData, null, 2))
@@ -368,7 +474,65 @@ export class InstanceManager extends EventEmitter {
       
       // 根据平台检查和处理启动命令
       const platform = os.platform()
-      const startCommand = instance.startCommand.trim()
+      let startCommand = instance.startCommand.trim()
+      
+      // 我的世界Java版 - 自动检测启动脚本或jar文件
+      if (instance.instanceType === 'minecraft-java') {
+        // 优先检测启动脚本
+        const startScript = await this.detectStartScript(instance.workingDirectory)
+        
+        if (startScript) {
+          // 检测到启动脚本，直接使用脚本启动
+          if (platform === 'win32') {
+            startCommand = startScript
+          } else {
+            // Linux/Mac 平台，使用 ./ 前缀
+            startCommand = `./${startScript}`
+          }
+          this.logger.info(`我的世界Java版检测到启动脚本: ${startCommand}`)
+        } else {
+          // 未检测到启动脚本，使用jar文件启动
+          const jarFile = await this.detectJarFile(instance.workingDirectory)
+          if (!jarFile) {
+            const errorMsg = `启动失败：工作目录中未找到启动脚本或.jar文件\n\n请确保工作目录（${instance.workingDirectory}）中包含以下文件之一：\n` +
+              (platform === 'win32' 
+                ? '• 启动脚本：start.bat, run.bat, start.cmd, run.cmd\n• 或服务端核心：.jar文件' 
+                : '• 启动脚本：start.sh, run.sh\n• 或服务端核心：.jar文件')
+            this.logger.error(errorMsg)
+            throw new Error(errorMsg)
+          }
+          
+          // 获取Java路径
+          const javaPath = await this.getJavaPath(instance.javaVersion)
+          
+          // 构建启动命令
+          // 在Windows PowerShell中，如果路径包含引号，需要使用 & 调用运算符
+          if (platform === 'win32' && javaPath.startsWith('"')) {
+            startCommand = `& ${javaPath} -jar ${jarFile} nogui`
+          } else {
+            startCommand = `${javaPath} -jar ${jarFile} nogui`
+          }
+          this.logger.info(`我的世界Java版自动生成启动命令: ${startCommand}`)
+        }
+      }
+      
+      // 我的世界基岩版 - 检测对应平台的启动文件
+      if (instance.instanceType === 'minecraft-bedrock') {
+        const bedrockExecutable = platform === 'win32' ? 'bedrock_server.exe' : 'bedrock_server'
+        const bedrockPath = path.join(instance.workingDirectory, bedrockExecutable)
+        
+        try {
+          await fs.access(bedrockPath)
+          this.logger.info(`我的世界基岩版检测到启动文件: ${bedrockExecutable}`)
+        } catch {
+          const errorMsg = `启动失败：工作目录中未找到基岩版服务端启动文件\n\n请确保工作目录（${instance.workingDirectory}）中包含以下文件：\n` +
+            (platform === 'win32' 
+              ? '• 基岩版服务端：bedrock_server.exe' 
+              : '• 基岩版服务端：bedrock_server')
+          this.logger.error(errorMsg)
+          throw new Error(errorMsg)
+        }
+      }
       
       // 检查是否是 ./ 开头的命令
       if (startCommand.startsWith('./') && (platform === 'linux' || platform === 'darwin')) {
@@ -471,7 +635,7 @@ export class InstanceManager extends EventEmitter {
         setTimeout(() => {
           this.terminalManager.handleInput(virtualSocket, {
             sessionId: terminalSessionId,
-            data: instance.startCommand + '\r'
+            data: startCommand + '\r'  // 使用动态生成的启动命令
           })
         }, 1000)
       }
@@ -480,7 +644,7 @@ export class InstanceManager extends EventEmitter {
       instance.status = 'running'
       instance.lastStarted = new Date().toISOString()
       
-      this.logger.info(`启动实例: ${instance.name} (终端会话: ${terminalSessionId})`)
+      this.logger.info(`启动实例: ${instance.name} (终端会话: ${terminalSessionId}), 启动命令: ${startCommand}`)
       
       this.emit('instance-status-changed', { id, status: 'running' })
       await this.saveInstances()
