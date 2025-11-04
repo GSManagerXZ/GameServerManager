@@ -1947,6 +1947,7 @@ const SettingsPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                list="game-path-options"
                 value={gameSettings.defaultInstallPath}
                 onChange={(e) => setGameSettings(prev => ({
                   ...prev,
@@ -1956,6 +1957,10 @@ const SettingsPage: React.FC = () => {
                 placeholder="例如: D:\Games 或 /home/steam/games"
                 disabled={gameLoading}
               />
+              <datalist id="game-path-options">
+                <option value="/root/games" />
+                <option value="/home/steam/games" />
+              </datalist>
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                 • 设置后，所有游戏部署时将默认使用此路径
               </p>
