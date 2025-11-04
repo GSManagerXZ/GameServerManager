@@ -276,6 +276,7 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
       const uploadFile: UploadFile = {
         uid: file.name + file.size + Date.now(),
         name: file.name,
+        size: file.size,
         status: 'done',
         originFileObj: file as any
       }
