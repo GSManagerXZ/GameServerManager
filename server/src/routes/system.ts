@@ -87,7 +87,7 @@ router.get('/alerts', (req: Request, res: Response) => {
 })
 
 // 设置告警阈值
-router.post('/alerts/thresholds', (req: Request, res: Response) => {
+router.post('/alerts/thresholds', authenticateToken, (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -329,7 +329,7 @@ router.get('/load', (req: Request, res: Response) => {
 })
 
 // 获取环境变量
-router.get('/env', (req: Request, res: Response) => {
+router.get('/env', authenticateToken, (req: Request, res: Response) => {
   try {
     // 只返回安全的环境变量
     const safeEnvVars = {
@@ -449,7 +449,7 @@ router.get('/logs/:filename', async (req: Request, res: Response) => {
 })
 
 // 清理日志文件
-router.delete('/logs/:filename', async (req: Request, res: Response) => {
+router.delete('/logs/:filename', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { filename } = req.params
     
@@ -480,7 +480,7 @@ router.delete('/logs/:filename', async (req: Request, res: Response) => {
 })
 
 // 系统重启（仅重启应用）
-router.post('/restart', (req: Request, res: Response) => {
+router.post('/restart', authenticateToken, (req: Request, res: Response) => {
   try {
     res.json({
       success: true,

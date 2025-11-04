@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Modal, Form, Input, Upload, message, Progress } from 'antd'
-import { InboxOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, Upload, message, Progress, Button, Space, Alert } from 'antd'
+import { InboxOutlined, CloseCircleOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import type { UploadProps, UploadFile } from 'antd'
 import { FileUploadProgress } from '@/types/file'
 
@@ -188,9 +188,53 @@ export const RenameDialog: React.FC<RenameDialogProps> = ({
   )
 }
 
+interface FileUploadState {
+  file: File
+  progress: number
+  status: 'pending' | 'uploading' | 'completed' | 'error'
+  error?: string
+  speed?: number // bytes/s
+  remainingTime?: number // seconds
+}
+
+interface ChunkProgressInfo {
+  chunkIndex: number
+  status: 'pending' | 'uploading' | 'completed' | 'error' | 'retrying'
+  progress: number
+  size: number
+  uploadedSize: number
+  retryCount?: number
+  error?: string
+}
+
+interface UploadDetailInfo {
+  phase: string
+  phaseText: string
+  currentChunk: number
+  totalChunks: number
+  uploadedChunks: number
+  uploadedSize: number
+  totalSize: number
+  percentage: number
+  speed: number
+  speedText: string
+  remainingTime: number
+  remainingTimeText: string
+  currentBatch: number
+  totalBatches: number
+  chunksProgress: ChunkProgressInfo[]
+  mergingProgress?: number
+  retryInfo?: {
+    chunkIndex: number
+    retryCount: number
+    maxRetries: number
+  }
+  errorMessage?: string
+}
+
 interface UploadDialogProps {
   visible: boolean
-  onConfirm: (files: FileList, onProgress?: (progress: FileUploadProgress) => void) => void
+  onConfirm: (files: FileList, onProgress?: (progress: FileUploadProgress) => void, signal?: AbortSignal) => void
   onCancel: () => void
 }
 
@@ -203,6 +247,11 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
   const [uploadProgress, setUploadProgress] = useState<FileUploadProgress | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [fileUploadStates, setFileUploadStates] = useState<Map<string, FileUploadState>>(new Map())
+  const [overallProgress, setOverallProgress] = useState(0)
+  const [uploadDetail, setUploadDetail] = useState<UploadDetailInfo | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const isCancelledRef = useRef(false)
 
   const uploadProps: UploadProps = {
     name: 'files',
@@ -258,6 +307,24 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
 
     setLoading(true)
     setIsUploading(true)
+    isCancelledRef.current = false
+    
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController()
+    
+    // 初始化文件上传状态
+    const initialStates = new Map<string, FileUploadState>()
+    fileList.forEach(uploadFile => {
+      if (uploadFile.originFileObj) {
+        initialStates.set(uploadFile.uid, {
+          file: uploadFile.originFileObj as File,
+          progress: 0,
+          status: 'pending'
+        })
+      }
+    })
+    setFileUploadStates(initialStates)
+    
     try {
       // 创建一个真正的FileList对象
       const dataTransfer = new DataTransfer()
@@ -268,56 +335,431 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
       })
       const files = dataTransfer.files
       
-      onConfirm(files, setUploadProgress)
-      setFileList([])
+      // 更新进度回调
+      const onProgressUpdate = (progress: FileUploadProgress & { detail?: any }) => {
+        // 如果已取消，不更新进度
+        if (isCancelledRef.current) {
+          return
+        }
+        
+        setUploadProgress(progress)
+        
+        // 更新详细进度信息
+        if (progress.detail) {
+          setUploadDetail(progress.detail)
+        }
+        
+        // 更新整体进度
+        if (progress.status === 'completed') {
+          setOverallProgress(100)
+        } else if (progress.status === 'uploading') {
+          setOverallProgress(progress.progress)
+        }
+      }
+      
+      await onConfirm(files, onProgressUpdate, abortControllerRef.current.signal)
+      
+      // 如果没有被取消，显示成功状态
+      if (!isCancelledRef.current) {
+        // 上传成功，等待一会儿让用户看到完成状态
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        setFileList([])
+        setFileUploadStates(new Map())
+        setOverallProgress(0)
+      }
+    } catch (error: any) {
+      // 如果是取消操作，不显示错误
+      if (error.name === 'AbortError' || error.message === 'Upload aborted' || isCancelledRef.current) {
+        console.log('上传已取消')
+      } else {
+        message.error(error.message || '上传失败')
+      }
     } finally {
-      setLoading(false)
-      setIsUploading(false)
-      setUploadProgress(null)
+      if (!isCancelledRef.current) {
+        setLoading(false)
+        setIsUploading(false)
+        setUploadProgress(null)
+      }
     }
   }
 
   const handleCancel = () => {
-    setFileList([])
-    onCancel()
+    if (isUploading) {
+      // 正在上传，执行取消操作
+      isCancelledRef.current = true
+      
+      // 取消所有正在进行的上传
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      
+      message.info('正在取消上传...')
+      
+      // 延迟一点再重置状态，确保取消信号已传递
+      setTimeout(() => {
+        setFileList([])
+        setFileUploadStates(new Map())
+        setOverallProgress(0)
+        setIsUploading(false)
+        setLoading(false)
+        setUploadProgress(null)
+        abortControllerRef.current = null
+        onCancel()
+      }, 300)
+    } else {
+      // 未开始上传，直接取消
+      setFileList([])
+      setFileUploadStates(new Map())
+      setOverallProgress(0)
+      onCancel()
+    }
+  }
+  
+  // 格式化文件大小
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+  }
+  
+  // 格式化速度
+  const formatSpeed = (bytesPerSecond: number): string => {
+    return formatFileSize(bytesPerSecond) + '/s'
+  }
+  
+  // 格式化剩余时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) return `${Math.round(seconds)}秒`
+    if (seconds < 3600) return `${Math.round(seconds / 60)}分钟`
+    return `${Math.round(seconds / 3600)}小时`
   }
 
   return (
     <Modal
-      title="上传文件"
+      title={
+        <div className="flex items-center justify-between">
+          <span>上传文件</span>
+          {isUploading && (
+            <span className="text-sm font-normal text-gray-500">
+              正在上传...
+            </span>
+          )}
+        </div>
+      }
       open={visible}
       onOk={handleOk}
       onCancel={handleCancel}
       confirmLoading={loading}
       destroyOnHidden
-      width={600}
+      width={700}
+      footer={
+        isUploading ? [
+          <Button key="cancel" onClick={handleCancel} danger>
+            取消上传
+          </Button>
+        ] : [
+          <Button key="cancel" onClick={handleCancel}>
+            取消
+          </Button>,
+          <Button 
+            key="submit" 
+            type="primary" 
+            loading={loading} 
+            onClick={handleOk}
+            disabled={fileList.length === 0}
+          >
+            开始上传
+          </Button>
+        ]
+      }
     >
       <div className="mt-4">
-        <Dragger 
-          {...uploadProps}
-          disabled={isUploading}
-        >
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined className="text-4xl text-blue-500" />
-          </p>
-          <p className="ant-upload-text text-lg font-medium">
-            点击或拖拽文件到此区域上传
-          </p>
-          <p className="ant-upload-hint text-gray-500">
-            支持单个或批量上传文件
-          </p>
-        </Dragger>
+        {!isUploading && (
+          <>
+            <Dragger 
+              {...uploadProps}
+              disabled={isUploading}
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined className="text-4xl text-blue-500" />
+              </p>
+              <p className="ant-upload-text text-lg font-medium">
+                点击或拖拽文件到此区域上传
+              </p>
+              <p className="ant-upload-hint text-gray-500">
+                支持单个或批量上传文件，大文件将自动使用分片上传
+              </p>
+            </Dragger>
+            
+            {fileList.length > 0 && (
+              <Alert
+                className="mt-4"
+                message={`已选择 ${fileList.length} 个文件，总大小: ${formatFileSize(
+                  fileList.reduce((sum, f) => sum + (f.size || 0), 0)
+                )}`}
+                type="info"
+                showIcon
+              />
+            )}
+          </>
+        )}
         
-        {uploadProgress && (
-          <div className="mt-4">
-            <div className="mb-2 text-sm text-gray-600">
-              正在上传: {uploadProgress.fileName}
+        {isUploading && uploadProgress && (
+          <div className="space-y-4">
+            {/* 整体进度 */}
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-sm font-medium">
+                  {uploadDetail?.phaseText || '上传中...'}
+                </span>
+                <span className="text-sm text-gray-600">
+                  {uploadProgress.fileName}
+                </span>
+              </div>
+              <Progress 
+                percent={uploadProgress.progress} 
+                status={
+                  uploadProgress.status === 'completed' ? 'success' :
+                  uploadProgress.status === 'error' ? 'exception' :
+                  'active'
+                }
+                strokeColor={{
+                  '0%': '#108ee9',
+                  '100%': '#87d068',
+                }}
+              />
+              
+              {/* 详细上传信息 */}
+              {uploadDetail && (uploadProgress.status === 'uploading' || uploadDetail.phase === 'merging') && (
+                <div className="mt-3 space-y-3">
+                  {/* 基础统计信息 */}
+                  <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 text-xs">
+                    {/* 分片信息 */}
+                    {uploadDetail.totalChunks > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">分片进度:</span>
+                        <span className="font-medium">
+                          {uploadDetail.uploadedChunks}/{uploadDetail.totalChunks} 个分片
+                          {uploadDetail.totalBatches > 0 && ` (批次 ${uploadDetail.currentBatch}/${uploadDetail.totalBatches})`}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* 已上传大小 */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">已上传:</span>
+                      <span className="font-medium">
+                        {formatFileSize(uploadDetail.uploadedSize)} / {formatFileSize(uploadDetail.totalSize)}
+                      </span>
+                    </div>
+                    
+                    {/* 上传速度 */}
+                    {uploadDetail.speed > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">上传速度:</span>
+                        <span className="font-medium text-blue-600">{uploadDetail.speedText}</span>
+                      </div>
+                    )}
+                    
+                    {/* 剩余时间 */}
+                    {uploadDetail.remainingTime > 0 && uploadDetail.speed > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">预计剩余:</span>
+                        <span className="font-medium text-orange-600">{uploadDetail.remainingTimeText}</span>
+                      </div>
+                    )}
+                    
+                    {/* 重试信息 */}
+                    {uploadDetail.retryInfo && (
+                      <div className="flex items-center justify-between text-yellow-600 dark:text-yellow-500">
+                        <span>⚠️ 重试中:</span>
+                        <span className="font-medium">
+                          分片 {uploadDetail.retryInfo.chunkIndex + 1} 
+                          ({uploadDetail.retryInfo.retryCount}/{uploadDetail.retryInfo.maxRetries})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 文件合并进度 */}
+                  {uploadDetail.phase === 'merging' && uploadDetail.mergingProgress !== undefined && (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="flex items-center justify-between mb-2 text-xs">
+                        <span className="font-medium text-blue-700 dark:text-blue-300">
+                          🔗 正在写入文件...
+                        </span>
+                        <span className="text-blue-600 dark:text-blue-400">
+                          {uploadDetail.mergingProgress}%
+                        </span>
+                      </div>
+                      <Progress 
+                        percent={uploadDetail.mergingProgress} 
+                        size="small"
+                        strokeColor="#3b82f6"
+                        showInfo={false}
+                      />
+                    </div>
+                  )}
+
+                  {/* 分片列表 */}
+                  {uploadDetail.chunksProgress && uploadDetail.chunksProgress.length > 0 && uploadDetail.phase === 'uploading' && (
+                    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                          分片详情
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          显示前 {Math.min(uploadDetail.chunksProgress.length, 10)} 个
+                        </span>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {uploadDetail.chunksProgress.slice(0, 50).map((chunk) => {
+                          const getStatusColor = () => {
+                            switch (chunk.status) {
+                              case 'completed': return 'text-green-600 dark:text-green-400'
+                              case 'uploading': return 'text-blue-600 dark:text-blue-400'
+                              case 'retrying': return 'text-yellow-600 dark:text-yellow-400'
+                              case 'error': return 'text-red-600 dark:text-red-400'
+                              default: return 'text-gray-400 dark:text-gray-600'
+                            }
+                          }
+
+                          const getStatusIcon = () => {
+                            switch (chunk.status) {
+                              case 'completed': return '✓'
+                              case 'uploading': return '↑'
+                              case 'retrying': return '↻'
+                              case 'error': return '✗'
+                              default: return '○'
+                            }
+                          }
+
+                          return (
+                            <div 
+                              key={chunk.chunkIndex}
+                              className={`flex items-center justify-between p-2 rounded text-xs ${
+                                chunk.status === 'uploading' ? 'bg-blue-100 dark:bg-blue-900/30' :
+                                chunk.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20' :
+                                chunk.status === 'retrying' ? 'bg-yellow-50 dark:bg-yellow-900/20' :
+                                chunk.status === 'error' ? 'bg-red-50 dark:bg-red-900/20' :
+                                'bg-white dark:bg-gray-700'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2 flex-1 min-w-0">
+                                <span className={`font-medium ${getStatusColor()}`}>
+                                  {getStatusIcon()}
+                                </span>
+                                <span className="font-medium truncate">
+                                  #{chunk.chunkIndex + 1}
+                                </span>
+                                <span className="text-gray-500 text-[10px]">
+                                  {formatFileSize(chunk.size)}
+                                </span>
+                                {chunk.retryCount && chunk.retryCount > 0 && (
+                                  <span className="text-yellow-600 text-[10px]">
+                                    (重试{chunk.retryCount})
+                                  </span>
+                                )}
+                              </div>
+                              {chunk.status === 'uploading' && (
+                                <div className="flex items-center space-x-2 ml-2">
+                                  <div className="w-16">
+                                    <Progress 
+                                      percent={chunk.progress} 
+                                      size="small" 
+                                      showInfo={false}
+                                      strokeWidth={3}
+                                    />
+                                  </div>
+                                  <span className="text-[10px] text-gray-600 w-8 text-right">
+                                    {Math.round(chunk.progress)}%
+                                  </span>
+                                </div>
+                              )}
+                              {chunk.status === 'completed' && (
+                                <span className="text-[10px] text-green-600 dark:text-green-400">
+                                  完成
+                                </span>
+                              )}
+                              {chunk.status === 'error' && chunk.error && (
+                                <span className="text-[10px] text-red-600 truncate max-w-[100px]" title={chunk.error}>
+                                  {chunk.error}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {uploadDetail.chunksProgress.length > 50 && (
+                          <div className="text-center text-xs text-gray-500 py-2">
+                            ... 还有 {uploadDetail.chunksProgress.length - 50} 个分片
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {uploadProgress.status === 'completed' && (
+                <div className="mt-2 flex items-center text-sm text-green-600">
+                  <CheckCircleOutlined className="mr-1" />
+                  上传完成
+                </div>
+              )}
+              
+              {uploadProgress.status === 'error' && (
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center text-sm text-red-600">
+                    <CloseCircleOutlined className="mr-1" />
+                    上传失败
+                  </div>
+                  {uploadDetail?.errorMessage && (
+                    <div className="text-xs text-red-500 ml-5">
+                      {uploadDetail.errorMessage}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <Progress 
-              percent={uploadProgress.progress} 
-              status={uploadProgress.progress === 100 ? 'success' : 'active'}
-              showInfo
-            />
+            
+            {/* 文件列表 */}
+            {fileList.length > 1 && (
+              <div className="max-h-60 overflow-y-auto space-y-2">
+                {fileList.map((file) => {
+                  const state = fileUploadStates.get(file.uid)
+                  return (
+                    <div 
+                      key={file.uid}
+                      className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium truncate flex-1">
+                          {file.name}
+                        </span>
+                        <span className="text-xs text-gray-500 ml-2">
+                          {formatFileSize(file.size || 0)}
+                        </span>
+                      </div>
+                      {state && (
+                        <Progress 
+                          percent={state.progress} 
+                          size="small"
+                          status={
+                            state.status === 'completed' ? 'success' :
+                            state.status === 'error' ? 'exception' :
+                            state.status === 'uploading' ? 'active' :
+                            'normal'
+                          }
+                          showInfo={false}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

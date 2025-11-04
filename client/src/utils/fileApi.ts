@@ -356,19 +356,70 @@ export class FileApiClient {
       }
     }
 
+    // 创建可取消的请求
+    const controller = new AbortController()
+    
+    try {
+      const response = await this.client.post(`${API_BASE}/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 300000, // 5分钟超时
+        signal: controller.signal,
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            // 对于多文件上传，这里简化处理，显示总体进度
+            onProgress({
+              fileName: files.length === 1 ? files[0].name : `${files.length} 个文件`,
+              progress,
+              status: progress === 100 ? 'completed' : 'uploading'
+            })
+          }
+        }
+      })
+      return response.data
+    } catch (error: any) {
+      // 如果是取消请求，不报错
+      if (error.name === 'CanceledError') {
+        console.log('上传已取消')
+      }
+      throw error
+    }
+  }
+
+  // 上传单个文件（小文件，直接上传）
+  async uploadSingleFile(
+    targetPath: string,
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<FileOperationResult> {
+    const formData = new FormData()
+    formData.append('targetPath', targetPath)
+    
+    // 检查文件名是否包含中文字符
+    const hasChineseChars = /[\u4e00-\u9fa5]/.test(file.name)
+    
+    if (hasChineseChars) {
+      const blob = new Blob([file], { type: file.type })
+      const newFile = new File([blob], file.name, {
+        type: file.type,
+        lastModified: file.lastModified
+      })
+      formData.append('files', newFile, file.name)
+    } else {
+      formData.append('files', file)
+    }
+
     const response = await this.client.post(`${API_BASE}/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
+      timeout: 300000, // 5分钟超时
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-          // 对于多文件上传，这里简化处理，显示总体进度
-          onProgress({
-            fileName: files.length === 1 ? files[0].name : `${files.length} 个文件`,
-            progress,
-            status: progress === 100 ? 'completed' : 'uploading'
-          })
+          onProgress(progress)
         }
       }
     })

@@ -61,7 +61,7 @@ interface FileStore {
   createDirectory: (name: string) => Promise<boolean>
   deleteSelectedFiles: () => Promise<boolean>
   renameFile: (oldPath: string, newName: string) => Promise<boolean>
-  uploadFiles: (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error' }) => void) => Promise<boolean>
+  uploadFiles: (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal) => Promise<boolean>
   downloadFile: (path: string) => void
   downloadFileWithProgress: (path: string) => Promise<{ taskId: string; message: string }>
   
@@ -301,14 +301,75 @@ export const useFileStore = create<FileStore>((set, get) => ({
   },
 
   // 上传文件
-  uploadFiles: async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error' }) => void) => {
+  uploadFiles: async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal) => {
     const { currentPath } = get()
     
     try {
+      // 导入分片上传工具
+      const { ChunkUploader } = await import('@/utils/chunkUpload')
+      
+      // 对于单个文件，检查是否需要分片上传
+      if (files.length === 1) {
+        const file = files[0]
+        const shouldUseChunk = ChunkUploader.shouldUseChunkUpload(file.size)
+        
+        if (shouldUseChunk) {
+          // 使用分片上传
+          console.log(`文件 ${file.name} 大小为 ${(file.size / 1024 / 1024).toFixed(2)} MB，使用分片上传`)
+          
+          const uploader = new ChunkUploader({
+            file,
+            targetPath: currentPath,
+            signal, // 传递取消信号
+            onProgress: (progress) => {
+              if (onProgress) {
+                onProgress({
+                  fileName: file.name,
+                  progress,
+                  status: progress === 100 ? 'completed' : 'uploading'
+                })
+              }
+            },
+            onDetailProgress: (detail) => {
+              // 传递详细进度信息
+              if (onProgress) {
+                onProgress({
+                  fileName: file.name,
+                  progress: detail.percentage,
+                  status: detail.phase === 'completed' ? 'completed' : detail.phase === 'error' ? 'error' : 'uploading',
+                  detail
+                })
+              }
+            },
+            onError: (error) => {
+              console.error('分片上传失败:', error)
+              if (onProgress) {
+                onProgress({
+                  fileName: file.name,
+                  progress: 0,
+                  status: 'error'
+                })
+              }
+            }
+          })
+          
+          await uploader.upload()
+          await get().loadFiles()
+          return true
+        }
+      }
+      
+      // 小文件或多文件使用普通上传
       await fileApiClient.uploadFiles(currentPath, files, onProgress)
       await get().loadFiles()
       return true
     } catch (error: any) {
+      // 如果是取消操作，不设置错误状态
+      if (error.name === 'AbortError' || error.message === 'Upload aborted') {
+        console.log('上传已被用户取消')
+        return false
+      }
+      
       set({ error: error.message || '上传文件失败' })
       if (onProgress) {
         onProgress({

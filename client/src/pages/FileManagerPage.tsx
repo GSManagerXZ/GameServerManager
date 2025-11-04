@@ -1141,8 +1141,8 @@ const FileManagerPage: React.FC = () => {
     setRenameDialog({ visible: false, file: null })
   }
   
-  const handleUploadConfirm = async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error' }) => void) => {
-    const success = await uploadFiles(files, onProgress)
+  const handleUploadConfirm = async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal) => {
+    const success = await uploadFiles(files, onProgress, signal)
     if (success) {
       addNotification({
         type: 'success',

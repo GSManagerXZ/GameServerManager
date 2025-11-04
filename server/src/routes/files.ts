@@ -17,6 +17,7 @@ import { authenticateToken, authenticateTokenFlexible } from '../middleware/auth
 import { taskManager } from '../modules/task/taskManager.js'
 import { compressionWorker } from '../modules/task/compressionWorker.js'
 import { executeFileOperation } from '../modules/task/fileOperationWorker.js'
+import { ChunkUploadManager } from '../modules/chunkUploadManager.js'
 
 const execAsync = promisify(exec)
 
@@ -1126,6 +1127,213 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
   } catch (error: any) {
     console.error('Upload error:', error)
     res.status(500).json({ success: false, message: 'Upload failed', error: error.message })
+  }
+})
+
+// 分片上传 - 检查已上传的分片
+router.post('/upload/check', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { uploadId, fileName, fileSize, totalChunks } = req.body
+
+    if (!uploadId || !fileName || !fileSize || !totalChunks) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要参数'
+      })
+    }
+
+    const chunkManager = ChunkUploadManager.getInstance()
+    
+    // 获取或创建上传会话（这里不需要targetPath，仅检查）
+    const upload = await chunkManager.getOrCreateUpload(
+      uploadId,
+      fileName,
+      fileSize,
+      totalChunks,
+      '' // targetPath在合并时才需要
+    )
+
+    const uploadedChunks = chunkManager.getUploadedChunks(uploadId)
+
+    res.json({
+      success: true,
+      data: {
+        uploadId,
+        uploadedChunks,
+        totalChunks: upload.totalChunks
+      }
+    })
+  } catch (error: any) {
+    console.error('Check upload error:', error)
+    res.status(500).json({
+      success: false,
+      message: error.message || '检查上传状态失败'
+    })
+  }
+})
+
+// 分片上传 - 上传单个分片
+router.post('/upload/chunk', authenticateToken, upload.single('chunk'), async (req: Request, res: Response) => {
+  try {
+    const { uploadId, fileName, fileSize, chunkIndex, totalChunks, chunkHash, targetPath } = req.body
+    const chunkFile = req.file
+
+    if (!uploadId || !fileName || !fileSize || chunkIndex === undefined || !totalChunks || !chunkHash || !targetPath || !chunkFile) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要参数'
+      })
+    }
+
+    const chunkManager = ChunkUploadManager.getInstance()
+    
+    // 获取或创建上传会话
+    const uploadSession = await chunkManager.getOrCreateUpload(
+      uploadId,
+      fileName,
+      parseInt(fileSize),
+      parseInt(totalChunks),
+      targetPath
+    )
+
+    // 读取分片数据
+    const chunkData = await fs.readFile(chunkFile.path)
+
+    // 保存分片
+    await chunkManager.saveChunk(
+      uploadId,
+      parseInt(chunkIndex),
+      chunkData,
+      chunkHash
+    )
+
+    // 删除临时文件（如果文件存在）
+    try {
+      const fileExists = await fs.stat(chunkFile.path).then(() => true).catch(() => false)
+      if (fileExists) {
+        await fs.unlink(chunkFile.path)
+      }
+    } catch (err) {
+      console.warn('删除临时分片文件失败:', err)
+    }
+
+    res.json({
+      success: true,
+      message: `分片 ${chunkIndex} 上传成功`,
+      data: {
+        chunkIndex: parseInt(chunkIndex),
+        uploaded: true
+      }
+    })
+  } catch (error: any) {
+    console.error('Upload chunk error:', error)
+    
+    // 清理临时文件
+    if (req.file?.path) {
+      await fs.unlink(req.file.path).catch(() => {})
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: error.message || '分片上传失败'
+    })
+  }
+})
+
+// 分片上传 - 合并分片
+router.post('/upload/merge', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { uploadId, fileName, fileSize, totalChunks, targetPath } = req.body
+
+    if (!uploadId || !fileName || !fileSize || !totalChunks || !targetPath) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要参数'
+      })
+    }
+
+    const chunkManager = ChunkUploadManager.getInstance()
+
+    // 检查上传是否完成
+    if (!chunkManager.isUploadComplete(uploadId)) {
+      const uploadedChunks = chunkManager.getUploadedChunks(uploadId)
+      return res.status(400).json({
+        success: false,
+        message: `文件未完全上传，已上传 ${uploadedChunks.length}/${totalChunks} 个分片`
+      })
+    }
+
+    // 修复Windows路径格式
+    const fixedTargetPath = fixWindowsPath(targetPath)
+    
+    // 处理Windows路径格式，确保使用绝对路径
+    let fullTargetPath: string
+    if (path.isAbsolute(fixedTargetPath)) {
+      fullTargetPath = fixedTargetPath
+    } else {
+      fullTargetPath = path.resolve(process.cwd(), fixedTargetPath.replace(/^\//, ''))
+    }
+
+    // 构建完整的目标文件路径
+    const targetFilePath = path.join(fullTargetPath, fileName)
+
+    // 检查文件是否已存在，如果存在则添加序号
+    let finalFilePath = targetFilePath
+    let counter = 1
+    while (await fs.access(finalFilePath).then(() => true).catch(() => false)) {
+      const ext = path.extname(fileName)
+      const nameWithoutExt = path.basename(fileName, ext)
+      const newFileName = `${nameWithoutExt}(${counter})${ext}`
+      finalFilePath = path.join(fullTargetPath, newFileName)
+      counter++
+    }
+
+    // 合并分片
+    await chunkManager.mergeChunks(uploadId, finalFilePath)
+
+    res.json({
+      success: true,
+      message: '文件合并成功',
+      data: {
+        filePath: finalFilePath,
+        fileName: path.basename(finalFilePath),
+        fileSize: parseInt(fileSize)
+      }
+    })
+  } catch (error: any) {
+    console.error('Merge chunks error:', error)
+    res.status(500).json({
+      success: false,
+      message: error.message || '合并文件失败'
+    })
+  }
+})
+
+// 分片上传 - 取消上传
+router.delete('/upload/cancel/:uploadId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { uploadId } = req.params
+
+    if (!uploadId) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少uploadId'
+      })
+    }
+
+    const chunkManager = ChunkUploadManager.getInstance()
+    await chunkManager.cancelUpload(uploadId)
+
+    res.json({
+      success: true,
+      message: '上传已取消'
+    })
+  } catch (error: any) {
+    console.error('Cancel upload error:', error)
+    res.status(500).json({
+      success: false,
+      message: error.message || '取消上传失败'
+    })
   }
 })
 
