@@ -246,10 +246,21 @@ export class ChunkUploader {
    * 计算分片hash
    */
   private async calculateHash(blob: Blob): Promise<string> {
-    const buffer = await blob.arrayBuffer()
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    try {
+      // 检查 crypto.subtle 是否可用（仅在安全上下文中可用）
+      if (!crypto || !crypto.subtle || !crypto.subtle.digest) {
+        console.warn('crypto.subtle 不可用，跳过hash计算')
+        return 'skip'
+      }
+      
+      const buffer = await blob.arrayBuffer()
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    } catch (error) {
+      console.warn('计算hash失败，跳过hash计算:', error)
+      return 'skip'
+    }
   }
 
   /**
