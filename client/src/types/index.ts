@@ -136,6 +136,7 @@ export interface SystemStats {
 
 export interface SystemInfo {
   platform: string
+  rawPlatform?: string  // 原始平台标识 (win32/linux/darwin)，用于平台判断
   arch: string
   hostname: string
   ipv4: string[]

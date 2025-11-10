@@ -29,8 +29,9 @@ interface JavaEnvironment {
   installStage?: 'download' | 'extract'
 }
 
-interface SystemInfo {
+interface LocalSystemInfo {
   platform: string
+  rawPlatform?: string  // 原始平台标识 (win32/linux/darwin)
   arch: string
 }
 
@@ -83,7 +84,7 @@ interface DirectXEnvironment {
 }
 
 const EnvironmentManagerPage: React.FC = () => {
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
+  const [systemInfo, setSystemInfo] = useState<LocalSystemInfo | null>(null)
   const [javaEnvironments, setJavaEnvironments] = useState<JavaEnvironment[]>([])
   const [vcRedistEnvironments, setVcRedistEnvironments] = useState<VcRedistEnvironment[]>([])
   const [directxEnvironments, setDirectxEnvironments] = useState<DirectXEnvironment[]>([])
@@ -165,6 +166,7 @@ const EnvironmentManagerPage: React.FC = () => {
       if (response.success && response.data) {
         setSystemInfo({
           platform: response.data.platform,
+          rawPlatform: response.data.rawPlatform,
           arch: response.data.arch
         })
       }
@@ -1174,7 +1176,11 @@ const EnvironmentManagerPage: React.FC = () => {
   // 获取平台图标
   const getPlatformIcon = () => {
     if (!systemInfo) return <Monitor className="w-4 h-4" />
-    return systemInfo.platform === 'win32' 
+    // 优先使用 rawPlatform，回退到检查 platform 字段
+    const isWindows = systemInfo?.rawPlatform
+      ? systemInfo.rawPlatform === 'win32'
+      : systemInfo.platform?.toLowerCase().includes('windows')
+    return isWindows
       ? <Monitor className="w-4 h-4" />
       : <Server className="w-4 h-4" />
   }
@@ -1182,7 +1188,11 @@ const EnvironmentManagerPage: React.FC = () => {
   // 获取平台名称
   const getPlatformName = () => {
     if (!systemInfo) return '未知'
-    return systemInfo.platform === 'win32' ? 'Windows' : 'Linux'
+    // 优先使用 rawPlatform，回退到检查 platform 字段
+    const isWindows = systemInfo?.rawPlatform
+      ? systemInfo.rawPlatform === 'win32'
+      : systemInfo.platform?.toLowerCase().includes('windows')
+    return isWindows ? 'Windows' : 'Linux'
   }
 
   if (loading) {

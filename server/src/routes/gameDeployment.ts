@@ -877,17 +877,18 @@ router.post('/scan-minecraft-directory', authenticateToken, async (req: Request,
         // 优先选择run.bat，否则使用第一个找到的.bat文件
         const runBat = batFiles.find(f => f.toLowerCase() === 'run.bat')
         const scriptFile = runBat || batFiles[0]
-        recommendedStartCommand = scriptFile
+        recommendedStartCommand = `.\\${scriptFile}`  // 添加 .\ 路径前缀
         startMethod = 'bat_script'
-        logger.info(`[智能检测] 推荐使用BAT脚本: ${scriptFile}`)
+        logger.info(`[智能检测] 推荐使用BAT脚本: ${recommendedStartCommand}`)
       } else if (!isWindows && shFiles.length > 0) {
         // Linux/Mac平台优先使用.sh脚本
         // 优先选择run.sh，否则使用第一个找到的.sh文件
         const runSh = shFiles.find(f => f.toLowerCase() === 'run.sh')
         const scriptFile = runSh || shFiles[0]
-        recommendedStartCommand = `./${scriptFile}`
+        // 使用 bash 命令执行，与云构建保持一致
+        recommendedStartCommand = `bash ${scriptFile}`
         startMethod = 'sh_script'
-        logger.info(`[智能检测] 推荐使用SH脚本: ${scriptFile}`)
+        logger.info(`[智能检测] 推荐使用SH脚本: ${recommendedStartCommand}`)
       } else if (jarFiles.length > 0) {
         // 如果没有对应平台的脚本，使用jar文件
         // 优先选择server.jar，否则使用第一个找到的jar文件
@@ -899,7 +900,9 @@ router.post('/scan-minecraft-directory', authenticateToken, async (req: Request,
       } else {
         logger.warn(`[智能检测] 未找到任何启动文件 (jar/bat/sh)`)
       }
-      
+
+      logger.info(`[智能检测] 平台: ${platform}, isWindows: ${isWindows}, 推荐命令: ${recommendedStartCommand}`)
+
       res.json({
         success: true,
         data: {

@@ -163,32 +163,27 @@ router.post('/download', authenticateToken, async (req, res) => {
     const files = await fs.readdir(targetPath)
     let startCommand = ''
     const isWindows = process.platform === 'win32'
-    
-    // 检测是否有run文件
-    const runFile = files.find(file => 
-      file.toLowerCase().startsWith('run') && 
-      (file.endsWith('.bat') || file.endsWith('.sh') || !file.includes('.'))
-    )
 
-    if (runFile) {
-      // 如果存在run文件，优先使用
-      if (isWindows) {
-        startCommand = `.\\${runFile}`
-      } else {
-        startCommand = runFile.endsWith('.sh') ? `bash ${runFile}` : `./${runFile}`
+    // 根据平台优先选择对应的启动脚本
+    if (isWindows) {
+      // Windows平台：优先 run.bat > start.bat
+      const runBat = files.find(file => file.toLowerCase() === 'run.bat')
+      const startBat = files.find(file => file.toLowerCase() === 'start.bat')
+
+      if (runBat) {
+        startCommand = `.\\${runBat}`
+      } else if (startBat) {
+        startCommand = `.\\${startBat}`
       }
     } else {
-      // 检测start文件
-      const hasStartBat = files.includes('start.bat')
-      const hasStartSh = files.includes('start.sh')
-      
-      if (hasStartBat && hasStartSh) {
-        // 根据当前平台选择
-        startCommand = isWindows ? '.\\start.bat' : 'bash start.sh'
-      } else if (hasStartBat) {
-        startCommand = '.\\start.bat'
-      } else if (hasStartSh) {
-        startCommand = 'bash start.sh'
+      // Linux/Mac平台：优先 run.sh > start.sh
+      const runSh = files.find(file => file.toLowerCase() === 'run.sh')
+      const startSh = files.find(file => file.toLowerCase() === 'start.sh')
+
+      if (runSh) {
+        startCommand = `bash ${runSh}`
+      } else if (startSh) {
+        startCommand = `bash ${startSh}`
       }
     }
 

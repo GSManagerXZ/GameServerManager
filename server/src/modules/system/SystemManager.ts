@@ -11,6 +11,7 @@ const execAsync = promisify(exec)
 
 interface SystemInfo {
   platform: string
+  rawPlatform: string  // 原始平台标识 (win32/linux/darwin)
   arch: string
   hostname: string
   ipv4: string[]
@@ -426,9 +427,10 @@ export class SystemManager extends EventEmitter {
     
     // 获取本地IP地址
     const { ipv4, ipv6 } = this.getLocalIpAddresses()
-    
+
     return {
       platform: platformName,
+      rawPlatform: os.platform(),  // 保存原始平台标识
       arch: os.arch(),
       hostname: os.hostname(),
       ipv4,

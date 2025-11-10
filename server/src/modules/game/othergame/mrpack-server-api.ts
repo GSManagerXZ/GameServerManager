@@ -96,6 +96,7 @@ export interface ModpackDeployResult {
   targetDirectory?: string;
   installedMods?: number;
   loaderVersion?: string;
+  serverType?: string;  // 服务端类型 (forge/neoforge/fabric/quilt)
 }
 
 // ==================== Mrpack处理器类 ====================
@@ -585,13 +586,14 @@ export class MrpackServerAPI {
       if (onProgress) {
         onProgress('整合包部署完成！', 'success');
       }
-      
+
       return {
         success: true,
         message: '整合包部署成功',
         targetDirectory,
         installedMods: downloadedMods,
-        loaderVersion: indexData.dependencies[loaderType] || 'latest'
+        loaderVersion: indexData.dependencies[loaderType] || 'latest',
+        serverType: loaderType  // 返回服务端类型，用于前端生成启动命令
       };
     } catch (error) {
       // 清理临时文件

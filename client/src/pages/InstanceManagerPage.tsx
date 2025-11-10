@@ -757,9 +757,13 @@ const InstanceManagerPage: React.FC = () => {
     
     // 检测平台和启动命令格式是否匹配
     // 使用后端服务器的平台信息来判断
-    const serverPlatform = systemInfo?.platform?.toLowerCase() || ''
-    const isWindowsServer = serverPlatform.includes('win32') || serverPlatform.includes('windows')
-    const isLinuxServer = serverPlatform.includes('linux') || serverPlatform.includes('darwin')
+    // 优先使用 rawPlatform，回退到检查 platform 字段
+    const isWindowsServer = systemInfo?.rawPlatform
+      ? systemInfo.rawPlatform === 'win32'
+      : systemInfo?.platform?.toLowerCase().includes('windows') || false
+    const isLinuxServer = systemInfo?.rawPlatform
+      ? (systemInfo.rawPlatform === 'linux' || systemInfo.rawPlatform === 'darwin')
+      : systemInfo?.platform?.toLowerCase().includes('linux') || false
     
     // Windows 平台使用了 Linux 格式 (./)
     const isWindowsWithLinuxSlash = startCommand.startsWith('./') && isWindowsServer

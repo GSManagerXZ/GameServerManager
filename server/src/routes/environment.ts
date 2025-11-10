@@ -29,13 +29,15 @@ const packageManager = new LinuxPackageManager()
 // 获取系统信息
 router.get('/system-info', authenticateToken, async (req, res) => {
   try {
+    const rawPlatform = os.platform()
     const systemInfo = {
-      platform: os.platform(),
+      platform: rawPlatform,  // 保持原样，用于显示
+      rawPlatform: rawPlatform,  // 原始平台标识，用于判断
       arch: os.arch(),
       type: os.type(),
       release: os.release()
     }
-    
+
     res.json({
       success: true,
       data: systemInfo

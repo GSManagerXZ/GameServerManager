@@ -52,7 +52,18 @@ interface Games {
   [key: string]: GameInfo
 }
 
-
+// 辅助函数：判断是否为 Windows 平台
+const isWindowsPlatform = (systemInfo: any): boolean => {
+  // 优先使用 rawPlatform（原始平台标识）
+  if (systemInfo?.rawPlatform) {
+    return systemInfo.rawPlatform === 'win32'
+  }
+  // 回退到检查 platform 字段（友好名称）
+  if (systemInfo?.platform) {
+    return systemInfo.platform.toLowerCase().includes('windows')
+  }
+  return false
+}
 
 const GameDeploymentPage: React.FC = () => {
   const { addNotification } = useNotificationStore()
@@ -685,8 +696,9 @@ const GameDeploymentPage: React.FC = () => {
         setCloudBuildLogs(prev => [...prev, '部署完成！'])
 
         // 使用后端检测到的启动命令
-        const startCommand = response.data.startCommand || 
-          (systemInfo?.platform === 'win32' ? '.\\start.bat' : 'bash start.sh')
+        // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
+        const startCommand = response.data.startCommand ||
+          (isWindowsPlatform(systemInfo) ? '.\\start.bat' : 'bash start.sh')
 
         setCloudBuildComplete(true)
         setCloudBuildResult({
@@ -724,10 +736,11 @@ const GameDeploymentPage: React.FC = () => {
     const instanceName = `${cloudBuildResult.coreName}-${cloudBuildResult.version}`
     setCloudInstanceName(instanceName)
     setCloudInstanceDescription(`${cloudBuildResult.coreName} ${cloudBuildResult.version} 服务端`)
-    
+
     // 使用后端检测到的启动命令，如果没有则使用默认值
-    const startCommand = cloudBuildResult.startCommand || 
-      (systemInfo?.platform === 'win32' ? '.\\start.bat' : 'bash start.sh')
+    // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
+    const startCommand = cloudBuildResult.startCommand ||
+      (isWindowsPlatform(systemInfo) ? '.\\start.bat' : 'bash start.sh')
     setCloudInstanceStartCommand(startCommand)
 
     setShowCreateCloudInstanceModal(true)
@@ -1654,13 +1667,14 @@ const GameDeploymentPage: React.FC = () => {
   }
 
   // 根据服务器类型生成启动命令
-  const generateStartCommand = (serverType: string, selectedJava: string = 'default', isWindows: boolean = process.platform === 'win32') => {
+  const generateStartCommand = (serverType: string, selectedJava: string = 'default', isWindows: boolean = isWindowsPlatform(systemInfo)) => {
     const lowerServerType = serverType.toLowerCase()
     const javaExecutable = getSelectedJavaExecutable(selectedJava)
 
     if (lowerServerType.includes('forge') || lowerServerType.includes('neoforge')) {
       // Forge/NeoForge 使用启动脚本
-      return isWindows ? 'run.bat' : './run.sh'
+      // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
+      return isWindows ? '.\\run.bat' : 'bash run.sh'
     } else if (lowerServerType.includes('fabric') || lowerServerType.includes('quilt')) {
       // Fabric/Quilt 重命名为 server.jar
       return `${javaExecutable} -jar server.jar`
@@ -1922,11 +1936,12 @@ const GameDeploymentPage: React.FC = () => {
   // 监听Java版本选择变化，自动更新启动命令
   useEffect(() => {
     // 更新Minecraft实例启动命令
-    if (selectedServer && selectedVersion && selectedMinecraftJava) {
+    // 只在用户手动选择时更新，不覆盖下载后扫描得到的启动命令
+    if (selectedServer && selectedVersion && selectedMinecraftJava && !downloadResult) {
       setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
       setStartCommandEdited(false)
     }
-  }, [selectedMinecraftJava, selectedServer])
+  }, [selectedMinecraftJava, selectedServer, downloadResult])
 
   useEffect(() => {
     // 更新整合包实例启动命令
@@ -1986,7 +2001,8 @@ const GameDeploymentPage: React.FC = () => {
         const folderName = `modrinth-${cleanPackId}-${cleanVersion}`
         
         // 根据平台使用正确的路径分隔符
-        const isWindows = systemInfo?.platform === 'win32'
+        // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
+        const isWindows = isWindowsPlatform(systemInfo)
         const separator = isWindows ? '\\' : '/'
         
         // 确保基础路径以分隔符结尾
@@ -3494,7 +3510,8 @@ const GameDeploymentPage: React.FC = () => {
                                   const folderName = `modrinth-${cleanPackId}-${cleanVersion}`
                                   
                                   // 根据平台使用正确的路径分隔符
-                                  const isWindows = systemInfo?.platform === 'win32'
+                                  // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
+                                  const isWindows = isWindowsPlatform(systemInfo)
                                   const separator = isWindows ? '\\' : '/'
                                   
                                   // 确保基础路径以分隔符结尾
@@ -3966,28 +3983,38 @@ const GameDeploymentPage: React.FC = () => {
                       </p>
                       <button
                         onClick={async () => {
+                          console.log('[Minecraft实例创建] 点击创建实例按钮')
+                          console.log('[Minecraft实例创建] selectedServer:', selectedServer)
+                          console.log('[Minecraft实例创建] downloadResult:', downloadResult)
+
                           setInstanceName(`${selectedServer}-${selectedVersion}`)
                           setInstanceDescription(`Minecraft ${selectedServer} ${selectedVersion} 服务器`)
-                          
+
                           // 打开弹窗前预扫描并填充启动命令
                           try {
                             console.log('[Minecraft实例创建] 打开弹窗前进行目录扫描:', downloadResult.targetDirectory)
                             const scanResult = await apiClient.scanMinecraftDirectory(downloadResult.targetDirectory)
+                            console.log('[Minecraft实例创建] 扫描结果:', scanResult)
                             if (scanResult.success && scanResult.data?.recommendedStartCommand) {
                               let cmd = scanResult.data.recommendedStartCommand as string
+                              console.log('[Minecraft实例创建] 后端推荐命令:', cmd)
                               if (scanResult.data.startMethod === 'jar_file' && selectedMinecraftJava !== 'default') {
                                 const javaExecutable = getSelectedJavaExecutable(selectedMinecraftJava)
                                 cmd = cmd.replace(/^java\b/, javaExecutable)
                               }
+                              console.log('[Minecraft实例创建] 最终使用命令:', cmd)
                               setInstanceStartCommand(cmd)
                               setStartCommandEdited(false)
                             } else {
                               const fallback = generateStartCommand(selectedServer, selectedMinecraftJava)
+                              console.log('[Minecraft实例创建] 使用回退命令:', fallback)
                               setInstanceStartCommand(fallback)
                               setStartCommandEdited(false)
                             }
                           } catch (e) {
+                            console.error('[Minecraft实例创建] 扫描异常:', e)
                             const fallback = generateStartCommand(selectedServer, selectedMinecraftJava)
+                            console.log('[Minecraft实例创建] 异常回退命令:', fallback)
                             setInstanceStartCommand(fallback)
                             setStartCommandEdited(false)
                           }
