@@ -84,7 +84,7 @@ export class JavaManager {
     await this.ensureInstallDir()
 
     const platform = os.platform()
-    const javaVersions = ['java8', 'java11', 'java17', 'java21']
+    const javaVersions = ['java8', 'java11', 'java17']
     const environments: JavaEnvironment[] = []
 
     for (const version of javaVersions) {

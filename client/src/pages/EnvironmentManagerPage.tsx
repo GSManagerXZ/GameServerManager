@@ -141,21 +141,16 @@ const EnvironmentManagerPage: React.FC = () => {
       key: 'java11',
       description: 'Java 11 (OpenJDK 11.0.0.2)',
       windows: 'https://download.java.net/openjdk/jdk11.0.0.2/ri/openjdk-11.0.0.2_windows-x64.zip',
-      linux: 'https://download.java.net/openjdk/jdk11.0.0.2/ri/openjdk-11.0.0.2_linux-x64.tar.gz'
+      linux: 'https://download.java.net/openjdk/jdk11.0.0.2/ri/openjdk-11.0.0.2_linux-x64.tar.gz',
+      arm: 'https://aka.ms/download-jdk/microsoft-jdk-11-linux-aarch64.tar.gz'
     },
     {
       version: 'Java 17',
       key: 'java17',
       description: 'Java 17 (OpenJDK 17.0.0.1)',
       windows: 'https://download.java.net/openjdk/jdk17.0.0.1/ri/openjdk-17.0.0.1+2_windows-x64_bin.zip',
-      linux: 'https://download.java.net/openjdk/jdk17.0.0.1/ri/openjdk-17.0.0.1+2_linux-x64_bin.tar.gz'
-    },
-    {
-      version: 'Java 21',
-      key: 'java21',
-      description: 'Java 21 (OpenJDK 21+35)',
-      windows: 'https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_windows-x64_bin.zip',
-      linux: 'https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_linux-x64_bin.tar.gz'
+      linux: 'https://download.java.net/openjdk/jdk17.0.0.1/ri/openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
+      arm: 'https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_macos-aarch64_bin.tar.gz'
     }
   ]
 
@@ -669,7 +664,17 @@ const EnvironmentManagerPage: React.FC = () => {
       return
     }
 
-    const downloadUrl = systemInfo.platform === 'win32' ? javaConfig.windows : javaConfig.linux
+    // 根据平台和架构选择下载URL
+    let downloadUrl: string
+    if (systemInfo.platform === 'win32') {
+      downloadUrl = javaConfig.windows
+    } else if (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') {
+      // ARM架构
+      downloadUrl = (javaConfig as any).arm || javaConfig.linux
+    } else {
+      // x64架构
+      downloadUrl = javaConfig.linux
+    }
 
     try {
       // 更新安装状态

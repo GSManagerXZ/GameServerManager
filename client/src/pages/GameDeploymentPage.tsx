@@ -46,6 +46,10 @@ interface GameInfo {
       [logoUrl: string]: string
     }
   }
+  ports?: Array<{
+    port: number
+    protocol: string
+  }>
 }
 
 interface Games {
@@ -4995,11 +4999,26 @@ const GameDeploymentPage: React.FC = () => {
               </div>
 
               {/* 游戏信息 */}
-              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 space-y-2">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   <strong>AppID:</strong> {selectedGame.info.appid}
                 </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                {selectedGame.info.ports && selectedGame.info.ports.length > 0 && (
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    <strong>端口信息:</strong>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {selectedGame.info.ports.map((portInfo, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded text-xs font-medium"
+                        >
+                          {portInfo.port} ({portInfo.protocol})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   <strong>提示:</strong> {selectedGame.info.tip}
                 </p>
               </div>

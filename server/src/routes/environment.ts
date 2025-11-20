@@ -95,10 +95,11 @@ function validateSponsorKey(): boolean {
 }
 
 // 获取赞助者专用下载链接
-function getSponsorDownloadUrl(version: string, platform: string): string {
+function getSponsorDownloadUrl(version: string, platform: string, arch?: string): string {
   const baseUrls = {
     windows: 'http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Windows/',
-    linux: 'http://langlangy.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/'
+    linux: 'http://langlangy.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/',
+    arm: 'http://langlangy.server.xiaozhuhouses.asia:8082/disk1/jdk/aarch64/'
   }
 
   const fileNames = {
@@ -108,24 +109,31 @@ function getSponsorDownloadUrl(version: string, platform: string): string {
     },
     java11: {
       windows: 'openjdk-11.0.0.2_windows-x64.zip',
-      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz'
+      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz',
+      arm: 'microsoft-jdk-11-linux-aarch64.tar.gz'
     },
     java17: {
       windows: 'openjdk-17.0.0.1+2_windows-x64_bin.zip',
-      linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz'
-    },
-    java21: {
-      windows: 'openjdk-21+35_windows-x64_bin.zip',
-      linux: 'openjdk-21+35_linux-x64_bin.tar.gz'
+      linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
+      arm: 'openjdk-17.0.2_macos-aarch64_bin.tar.gz'
     }
   }
 
-  const platformKey = platform === 'win32' ? 'windows' : 'linux'
+  // 判断平台类型
+  let platformKey: 'windows' | 'linux' | 'arm'
+  if (platform === 'win32') {
+    platformKey = 'windows'
+  } else if (arch === 'arm64' || arch === 'aarch64') {
+    platformKey = 'arm'
+  } else {
+    platformKey = 'linux'
+  }
+
   const baseUrl = baseUrls[platformKey]
   const fileName = fileNames[version]?.[platformKey]
 
   if (!baseUrl || !fileName) {
-    throw new Error(`不支持的版本或平台: ${version}, ${platform}`)
+    throw new Error(`不支持的版本或平台: ${version}, ${platform}, ${arch}`)
   }
 
   return baseUrl + fileName
@@ -150,7 +158,8 @@ router.post('/java/install', authenticateToken, async (req, res) => {
     if (isSponsor) {
       try {
         const platform = process.platform
-        finalDownloadUrl = getSponsorDownloadUrl(version, platform)
+        const arch = os.arch()
+        finalDownloadUrl = getSponsorDownloadUrl(version, platform, arch)
         logger.info(`检测到有效赞助者，使用赞助者专用下载链接: ${finalDownloadUrl}`)
       } catch (error) {
         logger.warn(`获取赞助者下载链接失败，使用默认链接: ${error instanceof Error ? error.message : '未知错误'}`)

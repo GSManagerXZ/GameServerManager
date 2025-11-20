@@ -71,7 +71,8 @@ const GameConfigSection: React.FC<GameConfigSectionProps> = ({ isAuthenticated }
       url: '',
       system: ['Windows'],
       system_info: [],
-      memory: 4
+      memory: 4,
+      ports: []
     })
     setIsCreating(true)
   }
@@ -283,7 +284,7 @@ const GameConfigSection: React.FC<GameConfigSectionProps> = ({ isAuthenticated }
                   <span className="text-gray-500 dark:text-gray-400">App ID:</span>
                   <span className="text-gray-900 dark:text-white font-mono">{config.appid}</span>
                 </div>
-                
+
                 {config.system && config.system.length > 0 && (
                   <div className="flex items-center space-x-2">
                     <Monitor className="w-4 h-4 text-gray-400" />
@@ -299,13 +300,29 @@ const GameConfigSection: React.FC<GameConfigSectionProps> = ({ isAuthenticated }
                     </div>
                   </div>
                 )}
-                
+
                 {config.memory && (
                   <div className="flex items-center space-x-2">
                     <HardDrive className="w-4 h-4 text-gray-400" />
                     <span className="text-gray-700 dark:text-gray-300">
                       {config.memory}GB 内存
                     </span>
+                  </div>
+                )}
+
+                {config.ports && config.ports.length > 0 && (
+                  <div className="flex items-start space-x-2">
+                    <span className="text-gray-500 dark:text-gray-400 mt-0.5">端口:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {config.ports.map((portInfo, index) => (
+                        <span
+                          key={index}
+                          className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded text-xs font-medium"
+                        >
+                          {portInfo.port} ({portInfo.protocol})
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -492,6 +509,64 @@ const GameConfigSection: React.FC<GameConfigSectionProps> = ({ isAuthenticated }
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     placeholder="https://docs.gsm.xiaozhuhouses.asia/..."
                   />
+                </div>
+
+                {/* 端口信息 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    端口信息
+                  </label>
+                  <div className="space-y-2">
+                    {(editingConfig.ports || []).map((port, index) => (
+                      <div key={index} className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="65535"
+                          value={port.port}
+                          onChange={(e) => {
+                            const newPorts = [...(editingConfig.ports || [])]
+                            newPorts[index] = { ...newPorts[index], port: parseInt(e.target.value) || 0 }
+                            setEditingConfig({ ...editingConfig, ports: newPorts })
+                          }}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          placeholder="端口号"
+                        />
+                        <input
+                          type="text"
+                          value={port.protocol}
+                          onChange={(e) => {
+                            const newPorts = [...(editingConfig.ports || [])]
+                            newPorts[index] = { ...newPorts[index], protocol: e.target.value }
+                            setEditingConfig({ ...editingConfig, ports: newPorts })
+                          }}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          placeholder="协议 (如: tcp/udp)"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newPorts = (editingConfig.ports || []).filter((_, i) => i !== index)
+                            setEditingConfig({ ...editingConfig, ports: newPorts })
+                          }}
+                          className="p-2 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newPorts = [...(editingConfig.ports || []), { port: 0, protocol: 'tcp/udp' }]
+                        setEditingConfig({ ...editingConfig, ports: newPorts })
+                      }}
+                      className="flex items-center space-x-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>添加端口</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* 游戏提示 */}

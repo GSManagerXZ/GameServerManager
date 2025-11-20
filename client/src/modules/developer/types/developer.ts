@@ -87,6 +87,11 @@ export interface GameConfig {
   memory?: number
   /** 文档链接 */
   docs?: string
+  /** 端口信息 */
+  ports?: Array<{
+    port: number
+    protocol: string
+  }>
 }
 
 /**
