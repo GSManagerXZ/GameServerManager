@@ -1958,7 +1958,7 @@ const SettingsPage: React.FC = () => {
                 disabled={gameLoading}
               />
               <datalist id="game-path-options">
-                <option value="/root/games" />
+                <option value="/root/steam/games" />
                 <option value="/home/steam/games" />
               </datalist>
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">

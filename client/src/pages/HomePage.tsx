@@ -116,7 +116,7 @@ const HostnameWithIP: React.FC<HostnameWithIPProps> = ({ systemInfo }) => {
         <div className="flex items-center space-x-3">
           <Network className="w-8 h-8 text-purple-500" />
           <div className="flex-1">
-            <p className="text-sm text-gray-600 dark:text-gray-400">主机信息</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">主机信息（鼠标悬停显示IP）</p>
             <p className="text-lg font-semibold text-black dark:text-white">{systemInfo.hostname}</p>
           </div>
         </div>
