@@ -769,5 +769,12 @@
       "Windows",
       "Linux"
     ]
+  },
+  "The_Riftbreaker": {
+    "game_nameCN": "银河破裂者",
+    "appid": "4114030",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/780310/dd5bfa48472fc06f2d802de1844d4dee850eb23b/header_alt_assets_6_schinese.jpg",
+    "url": "https://store.steampowered.com/app/780310/The_Riftbreaker/?l=schinese"
   }
 }
