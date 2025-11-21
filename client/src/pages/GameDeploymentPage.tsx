@@ -2943,7 +2943,7 @@ const GameDeploymentPage: React.FC = () => {
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
               >
                 {/* 游戏图片 */}
-                <div className="aspect-video bg-gray-200 dark:bg-gray-700 relative">
+                <div className="aspect-[460/215] bg-gray-200 dark:bg-gray-700 relative overflow-hidden">
                   <img
                     src={gameInfo.image}
                     alt={gameInfo.game_nameCN}
@@ -3197,7 +3197,7 @@ const GameDeploymentPage: React.FC = () => {
                       className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
                     >
                       {/* 游戏图片 */}
-                      <div className="aspect-video bg-gray-200 dark:bg-gray-700 relative">
+                      <div className="aspect-[460/215] bg-gray-200 dark:bg-gray-700 relative overflow-hidden">
                         <img
                           src={game.image || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPuaXoOazleWKoOi9veWbvueJhzwvdGV4dD48L3N2Zz4='}
                           alt={game.name}

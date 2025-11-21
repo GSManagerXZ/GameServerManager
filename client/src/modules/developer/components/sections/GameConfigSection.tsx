@@ -214,7 +214,7 @@ const GameConfigSection: React.FC<GameConfigSectionProps> = ({ isAuthenticated }
         {filteredConfigs.map(([key, config]) => (
           <div key={key} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             {/* 游戏图片 */}
-            <div className="aspect-video bg-gray-100 dark:bg-gray-700 relative">
+            <div className="aspect-[460/215] bg-gray-100 dark:bg-gray-700 relative overflow-hidden">
               {config.image ? (
                 <img
                   src={config.image}
