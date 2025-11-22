@@ -809,7 +809,7 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
         </p>
         <div className="max-h-40 overflow-y-auto bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
           {fileNames.map((name, index) => (
-            <div key={index} className="text-sm text-gray-600 dark:text-gray-400 py-1">
+            <div key={`${name}-${index}`} className="text-sm text-gray-600 dark:text-gray-400 py-1">
               {name}
             </div>
           ))}

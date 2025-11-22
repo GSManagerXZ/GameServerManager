@@ -1660,6 +1660,7 @@ const FileManagerPage: React.FC = () => {
                     >
                     <FileContextMenu
                       file={file}
+                      files={files}
                       selectedFiles={selectedFiles}
                       clipboard={clipboard}
                       onClose={() => setContextMenuInfo(null)}
@@ -1732,6 +1733,7 @@ const FileManagerPage: React.FC = () => {
                     >
                     <FileContextMenu
                       file={file}
+                      files={files}
                       selectedFiles={selectedFiles}
                       clipboard={clipboard}
                       onClose={() => setContextMenuInfo(null)}
@@ -1801,6 +1803,7 @@ const FileManagerPage: React.FC = () => {
       {/* 空白区域右键菜单 */}
       <FileContextMenu
         file={null}
+        files={files}
         selectedFiles={selectedFiles}
         clipboard={clipboard}
         onClose={() => setContextMenuInfo(null)}

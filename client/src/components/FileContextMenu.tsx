@@ -28,6 +28,7 @@ import { useSystemStore } from '@/stores/systemStore'
 interface FileContextMenuProps {
   children: React.ReactNode
   file: FileItem | null // 修改为可选，null表示空白区域
+  files?: FileItem[] // 新增：所有文件列表，用于根据 path 查找文件对象
   selectedFiles: Set<string>
   clipboard: {
     items: string[]
@@ -70,6 +71,7 @@ interface FileContextMenuProps {
 export const FileContextMenu: React.FC<FileContextMenuProps> = ({
   children,
   file,
+  files = [], // 新增：默认为空数组
   selectedFiles,
   clipboard,
   globalContextMenuInfo,
@@ -128,10 +130,13 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
       // 空白区域菜单不操作任何文件
       return []
     }
-    
+
     if (isSelected && isMultipleSelected) {
       // 如果当前文件被选中且有多个选中项，操作所有选中的文件
-      return Array.from(selectedFiles).map(path => ({ ...file!, path }))
+      // 从 files 数组中查找对应的文件对象，而不是复制当前文件的属性
+      return Array.from(selectedFiles)
+        .map(path => files.find(f => f.path === path))
+        .filter((f): f is FileItem => f !== undefined)
     } else {
       // 否则只操作当前文件
       return [file!]
