@@ -773,8 +773,40 @@
   "The_Riftbreaker": {
     "game_nameCN": "银河破裂者",
     "appid": "4114030",
-    "tip": "",
+    "tip": "此服务端官方并没有配备启动脚本需自行搜索开服文档",
     "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/780310/dd5bfa48472fc06f2d802de1844d4dee850eb23b/header_alt_assets_6_schinese.jpg",
     "url": "https://store.steampowered.com/app/780310/The_Riftbreaker/?l=schinese"
+  },
+  "VEIN": {
+    "game_nameCN": "静脉",
+    "appid": "2131400",
+    "tip": "需要使用非root用户启动",
+    "image": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1857950/header.jpg",
+    "url": "https://store.steampowered.com/app/1857950/VEIN/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [],
+    "memory": 10,
+    "ports": [
+      {
+        "port": 7777,
+        "protocol": "udp"
+      }
+    ]
+  },
+  "Longvinter": {
+    "game_nameCN": "隆冬",
+    "appid": "1639880",
+    "tip": "此服务端Linux暂时无法启动，可能是服务端问题，请等待社区反馈或官方解决",
+    "image": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1635450/header.jpg",
+    "url": "https://store.steampowered.com/app/1635450/Longvinter/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [],
+    "ports": []
   }
 }

@@ -1,17 +1,10 @@
 volumes:
   gsm3_data:
     driver: local
-  game_data:
-    driver: local
-  game_file:
-    driver: local
 
 services:
   management_panel:
-    build:
-      context: .
-      # 默认构建当前平台架构
-      # 如需指定架构，请使用 docker-compose-arm64.yml
+    build: .
     container_name: GSManager3
     image: xiaozhu674/gameservermanager:latest
     user: root                       
@@ -22,13 +15,13 @@ services:
       - "27015:27015"
     volumes:
     #steam用户数据目录 不建议修改
-      - game_data:/home/.config 
-      - game_data:/home/.local
-      - game_file:/home/steam/games
+      - ./game_data:/home/steam/.config 
+      - ./game_data:/home/steam/.local
+      - ./game_file:/home/steam/games
     #root用户数据目录 不建议修改
-      - game_data:/root/.config 
-      - game_data:/root/.local   
-      - game_file:/root/steam/games 
+      - ./game_data:/root/.config 
+      - ./game_data:/root/.local   
+      - ./game_file:/root/steam/games 
     #面板数据，请勿改动
       - gsm3_data:/root/server/data 
     environment:
@@ -37,13 +30,3 @@ services:
     stdin_open: true                  # 保持STDIN打开
     tty: true                         # 分配TTY
     restart: unless-stopped           # 自动重启策略
-    
-    # 如果需要，取消注释下面的行来限制资源
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: '4.0'
-    #       memory: 8G
-    #     reservations:
-    #       cpus: '2.0'
-    #       memory: 4G
