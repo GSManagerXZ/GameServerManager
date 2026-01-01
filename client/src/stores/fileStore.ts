@@ -9,23 +9,23 @@ interface FileStore {
   selectedFiles: Set<string>
   loading: boolean
   error: string | null
-  
+
   // 分页相关
   pagination: FilePagination
   loadingMore: boolean
-  
+
   // 剪贴板相关
   clipboard: {
     items: string[] // 文件路径数组
     operation: 'copy' | 'cut' | null // 操作类型
   }
-  
+
   // 编辑器相关
   openFiles: Map<string, string> // path -> content
   originalFiles: Map<string, string> // path -> original content
   fileEncodings: Map<string, string> // path -> encoding
   activeFile: string | null
-  
+
   // 文件监视相关
   watchedFiles: Set<string> // 被监视的文件路径
   fileChangedDialog: {
@@ -33,11 +33,11 @@ interface FileStore {
     filePath: string
     fileName: string
   } | null
-  
+
   // 任务相关
   tasks: Task[]
   activeTasks: Task[]
-  
+
   // 收藏相关
   favorites: Array<{
     path: string
@@ -45,7 +45,7 @@ interface FileStore {
     type: 'file' | 'directory'
     exists: boolean
   }>
-  
+
   // 操作方法
   setCurrentPath: (path: string) => void
   loadFiles: (path?: string, reset?: boolean) => Promise<void>
@@ -55,26 +55,26 @@ interface FileStore {
   unselectFile: (path: string) => void
   clearSelection: () => void
   toggleFileSelection: (path: string) => void
-  
+
   // 文件操作
   createFile: (name: string, content?: string) => Promise<boolean>
   createDirectory: (name: string) => Promise<boolean>
   deleteSelectedFiles: () => Promise<boolean>
   renameFile: (oldPath: string, newName: string) => Promise<boolean>
-  uploadFiles: (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal) => Promise<boolean>
+  uploadFiles: (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal, conflictStrategy?: 'replace' | 'rename') => Promise<boolean>
   downloadFile: (path: string) => void
   downloadFileWithProgress: (path: string) => Promise<{ taskId: string; message: string }>
-  
+
   // 剪贴板操作
   copyFiles: (filePaths: string[]) => void
   cutFiles: (filePaths: string[]) => void
   pasteFiles: (targetPath: string) => Promise<{ taskId?: string; success: boolean; message: string }>
   clearClipboard: () => void
-  
+
   // 压缩解压操作
   compressFiles: (filePaths: string[], archiveName: string, format?: string) => Promise<boolean>
   extractArchive: (archivePath: string) => Promise<boolean>
-  
+
   // 编辑器操作
   openFile: (path: string, encoding?: string) => Promise<{ isIncompatible: boolean; detectedEncoding: string; confidence: number; content: string }>
   closeFile: (path: string) => void
@@ -82,26 +82,26 @@ interface FileStore {
   setActiveFile: (path: string | null) => void
   updateFileContent: (path: string, content: string) => void
   isFileModified: (path: string) => boolean
-  
+
   // 文件监视操作
   watchFile: (path: string) => void
   unwatchFile: (path: string) => void
   handleFileChanged: (filePath: string) => void
   reloadChangedFile: (filePath: string) => Promise<void>
   dismissFileChangedDialog: () => void
-  
+
   // 任务管理
   loadTasks: () => Promise<void>
   loadActiveTasks: () => Promise<void>
   getTask: (taskId: string) => Promise<Task | null>
   deleteTask: (taskId: string) => Promise<FileOperationResult>
-  
+
   // 收藏管理
   loadFavorites: () => Promise<void>
   addFavorite: (path: string) => Promise<boolean>
   removeFavorite: (path: string) => Promise<boolean>
   checkFavorite: (path: string) => Promise<boolean>
-  
+
   // 工具方法
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -150,16 +150,16 @@ export const useFileStore = create<FileStore>((set, get) => ({
   loadFiles: async (path?: string, reset: boolean = true) => {
     const targetPath = path || get().currentPath
     const currentState = get()
-    
+
     // 如果是重置加载，设置loading状态
     if (reset) {
       set({ loading: true, error: null })
     }
-    
+
     try {
       const page = reset ? 1 : currentState.pagination.page + 1
       const response = await fileApiClient.listDirectory(targetPath, page, 50)
-      
+
       let newFiles: FileItem[]
       if (reset) {
         // 重置加载，替换所有文件
@@ -168,8 +168,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
         // 追加加载，合并文件列表
         newFiles = [...currentState.files, ...response.files]
       }
-      
-      set({ 
+
+      set({
         files: newFiles,
         currentPath: targetPath,
         pagination: response.pagination,
@@ -178,8 +178,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
         selectedFiles: reset ? new Set() : currentState.selectedFiles // 重置时清空选择
       })
     } catch (error: any) {
-      set({ 
-        error: error.message || '加载文件列表失败', 
+      set({
+        error: error.message || '加载文件列表失败',
         loading: false,
         loadingMore: false
       })
@@ -189,12 +189,12 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 加载更多文件
   loadMoreFiles: async () => {
     const { pagination, loadingMore } = get()
-    
+
     // 如果正在加载或没有更多数据，直接返回
     if (loadingMore || !pagination.hasMore) {
       return
     }
-    
+
     set({ loadingMore: true })
     await get().loadFiles(undefined, false)
   },
@@ -240,7 +240,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   createFile: async (name: string, content: string = '') => {
     const { currentPath } = get()
     const newPath = `${currentPath}/${name}`.replace(/\/+/g, '/')
-    
+
     try {
       await fileApiClient.createFile(newPath, content)
       await get().loadFiles()
@@ -255,7 +255,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   createDirectory: async (name: string) => {
     const { currentPath } = get()
     const newPath = `${currentPath}/${name}`.replace(/\/+/g, '/')
-    
+
     try {
       await fileApiClient.createDirectory(newPath)
       await get().loadFiles()
@@ -270,7 +270,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   deleteSelectedFiles: async () => {
     const { selectedFiles } = get()
     if (selectedFiles.size === 0) return false
-    
+
     try {
       await fileApiClient.deleteItems(Array.from(selectedFiles))
       await get().loadFiles()
@@ -289,7 +289,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     const pathParts = oldPath.split(separator)
     pathParts[pathParts.length - 1] = newName
     const newPath = pathParts.join(separator)
-    
+
     try {
       await fileApiClient.renameItem(oldPath, newPath)
       await get().loadFiles()
@@ -301,26 +301,27 @@ export const useFileStore = create<FileStore>((set, get) => ({
   },
 
   // 上传文件
-  uploadFiles: async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal) => {
+  uploadFiles: async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal, conflictStrategy?: 'replace' | 'rename') => {
     const { currentPath } = get()
-    
+
     try {
       // 导入分片上传工具
       const { ChunkUploader } = await import('@/utils/chunkUpload')
-      
+
       // 对于单个文件，检查是否需要分片上传
       if (files.length === 1) {
         const file = files[0]
         const shouldUseChunk = ChunkUploader.shouldUseChunkUpload(file.size)
-        
+
         if (shouldUseChunk) {
           // 使用分片上传
           console.log(`文件 ${file.name} 大小为 ${(file.size / 1024 / 1024).toFixed(2)} MB，使用分片上传`)
-          
+
           const uploader = new ChunkUploader({
             file,
             targetPath: currentPath,
             signal, // 传递取消信号
+            conflictStrategy: conflictStrategy || 'rename', // 传递冲突策略
             onProgress: (progress) => {
               if (onProgress) {
                 onProgress({
@@ -352,15 +353,15 @@ export const useFileStore = create<FileStore>((set, get) => ({
               }
             }
           })
-          
+
           await uploader.upload()
           await get().loadFiles()
           return true
         }
       }
-      
+
       // 小文件或多文件使用普通上传
-      await fileApiClient.uploadFiles(currentPath, files, onProgress)
+      await fileApiClient.uploadFiles(currentPath, files, onProgress, conflictStrategy || 'rename')
       await get().loadFiles()
       return true
     } catch (error: any) {
@@ -369,7 +370,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
         console.log('上传已被用户取消')
         return false
       }
-      
+
       set({ error: error.message || '上传文件失败' })
       if (onProgress) {
         onProgress({
@@ -405,42 +406,42 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 打开文件
   openFile: async (path: string, encoding?: string) => {
     const { openFiles, originalFiles, fileEncodings } = get()
-    
+
     if (openFiles.has(path)) {
       set({ activeFile: path })
       // 如果文件已打开，返回默认值
-      return { 
-        isIncompatible: false, 
-        detectedEncoding: fileEncodings.get(path) || 'utf-8', 
-        confidence: 1, 
-        content: openFiles.get(path) || '' 
+      return {
+        isIncompatible: false,
+        detectedEncoding: fileEncodings.get(path) || 'utf-8',
+        confidence: 1,
+        content: openFiles.get(path) || ''
       }
     }
-    
+
     try {
       const fileContent = await fileApiClient.readFile(path, encoding)
-      
+
       // 检查返回的数据是否有效
       if (!fileContent || typeof fileContent.content === 'undefined') {
         throw new Error('文件内容为空或格式错误')
       }
-      
+
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)
       const newFileEncodings = new Map(fileEncodings)
-      
+
       newOpenFiles.set(path, fileContent.content || '')
       newOriginalFiles.set(path, fileContent.content || '')
       // 保存文件的原始编码
       newFileEncodings.set(path, fileContent.encoding || 'utf-8')
-      
-      set({ 
+
+      set({
         openFiles: newOpenFiles,
         originalFiles: newOriginalFiles,
         fileEncodings: newFileEncodings,
-        activeFile: path 
+        activeFile: path
       })
-      
+
       // 返回编码信息
       return {
         isIncompatible: fileContent.isIncompatible || false,
@@ -461,23 +462,23 @@ export const useFileStore = create<FileStore>((set, get) => ({
     const newOpenFiles = new Map(openFiles)
     const newOriginalFiles = new Map(originalFiles)
     const newFileEncodings = new Map(fileEncodings)
-    
+
     newOpenFiles.delete(path)
     newOriginalFiles.delete(path)
     newFileEncodings.delete(path)
-    
+
     // 停止监视该文件
     get().unwatchFile(path)
-    
-    const newActiveFile = activeFile === path ? 
-      (newOpenFiles.size > 0 ? Array.from(newOpenFiles.keys())[0] : null) : 
+
+    const newActiveFile = activeFile === path ?
+      (newOpenFiles.size > 0 ? Array.from(newOpenFiles.keys())[0] : null) :
       activeFile
-    
-    set({ 
+
+    set({
       openFiles: newOpenFiles,
       originalFiles: newOriginalFiles,
       fileEncodings: newFileEncodings,
-      activeFile: newActiveFile 
+      activeFile: newActiveFile
     })
   },
 
@@ -490,8 +491,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
       const newOriginalFiles = new Map(originalFiles)
       newOpenFiles.set(path, content)
       newOriginalFiles.set(path, content) // 保存后更新原始内容
-      
-      set({ 
+
+      set({
         openFiles: newOpenFiles,
         originalFiles: newOriginalFiles
       })
@@ -519,7 +520,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   // 复制文件到剪贴板
   copyFiles: (filePaths: string[]) => {
-    set({ 
+    set({
       clipboard: {
         items: [...filePaths],
         operation: 'copy'
@@ -529,7 +530,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   // 剪切文件到剪贴板
   cutFiles: (filePaths: string[]) => {
-    set({ 
+    set({
       clipboard: {
         items: [...filePaths],
         operation: 'cut'
@@ -547,7 +548,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     try {
       let result
       const sourcePaths = clipboard.items
-      
+
       if (clipboard.operation === 'copy') {
         // 批量复制
         result = await fileApiClient.copyItems(sourcePaths, targetPath)
@@ -563,10 +564,10 @@ export const useFileStore = create<FileStore>((set, get) => ({
       if (result.success) {
         // 刷新文件列表
         await get().loadFiles()
-        return { 
-          taskId: result.taskId, 
-          success: true, 
-          message: clipboard.operation === 'copy' ? '复制任务已创建' : '移动任务已创建' 
+        return {
+          taskId: result.taskId,
+          success: true,
+          message: clipboard.operation === 'copy' ? '复制任务已创建' : '移动任务已创建'
         }
       } else {
         return { success: false, message: result.message || '操作失败' }
@@ -579,7 +580,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   // 清空剪贴板
   clearClipboard: () => {
-    set({ 
+    set({
       clipboard: {
         items: [],
         operation: null
@@ -590,7 +591,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 压缩文件
   compressFiles: async (filePaths: string[], archiveName: string, format: string = 'zip') => {
     const { currentPath } = get()
-    
+
     try {
       const result = await fileApiClient.compressFiles(filePaths, currentPath, archiveName, format)
       // 立即刷新活动任务列表
@@ -605,7 +606,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 解压文件
   extractArchive: async (archivePath: string) => {
     const { currentPath } = get()
-    
+
     try {
       const result = await fileApiClient.extractArchive(archivePath, currentPath)
       // 立即刷新活动任务列表
@@ -632,7 +633,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     const originalContent = originalFiles.get(path)
     return currentContent !== originalContent
   },
-  
+
   // 任务管理
   loadTasks: async () => {
     try {
@@ -672,10 +673,10 @@ export const useFileStore = create<FileStore>((set, get) => ({
       return result
     } catch (error: any) {
       set({ error: error.message || '删除任务失败' })
-      return { 
-        success: false, 
-        status: 'error', 
-        message: error.message || '删除任务失败' 
+      return {
+        success: false,
+        status: 'error',
+        message: error.message || '删除任务失败'
       }
     }
   },
@@ -687,7 +688,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       const newWatchedFiles = new Set(watchedFiles)
       newWatchedFiles.add(path)
       set({ watchedFiles: newWatchedFiles })
-      
+
       // 通过socket发送监视请求
       // 注意：这个方法会在FileManagerPage中调用，那里会处理socket通信
     }
@@ -700,7 +701,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       const newWatchedFiles = new Set(watchedFiles)
       newWatchedFiles.delete(path)
       set({ watchedFiles: newWatchedFiles })
-      
+
       // 通过socket发送取消监视请求
       // 注意：这个方法会在FileManagerPage中调用，那里会处理socket通信
     }
@@ -709,15 +710,15 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 处理文件变化通知
   handleFileChanged: (filePath: string) => {
     const { openFiles } = get()
-    
+
     // 确保文件当前已打开
     if (!openFiles.has(filePath)) {
       return
     }
-    
+
     // 检查文件是否有未保存的修改
     const isModified = get().isFileModified(filePath)
-    
+
     if (isModified) {
       // 有未保存的修改，显示确认对话框
       const fileName = filePath.split(/[/\\]/).pop() || filePath
@@ -739,18 +740,18 @@ export const useFileStore = create<FileStore>((set, get) => ({
     try {
       const { fileEncodings } = get()
       const encoding = fileEncodings.get(filePath)
-      
+
       // 重新读取文件内容
       const fileContent = await fileApiClient.readFile(filePath, encoding)
-      
+
       const { openFiles, originalFiles } = get()
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)
-      
+
       newOpenFiles.set(filePath, fileContent.content || '')
       newOriginalFiles.set(filePath, fileContent.content || '')
-      
-      set({ 
+
+      set({
         openFiles: newOpenFiles,
         originalFiles: newOriginalFiles,
         fileChangedDialog: null

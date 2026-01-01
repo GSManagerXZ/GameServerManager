@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Button, 
-  Input, 
-  Breadcrumb, 
-  Spin, 
-  Empty, 
-  message, 
+import {
+  Button,
+  Input,
+  Breadcrumb,
+  Spin,
+  Empty,
+  message,
   Tooltip,
   Space,
   Tabs,
@@ -56,11 +56,11 @@ import { useThemeStore } from '@/stores/themeStore'
 import { FileGridItem } from '@/components/FileGridItem'
 import { FileListItem } from '@/components/FileListItem'
 import { FileContextMenu } from '@/components/FileContextMenu'
-import { 
-  CreateDialog, 
-  RenameDialog, 
-  UploadDialog, 
-  DeleteConfirmDialog 
+import {
+  CreateDialog,
+  RenameDialog,
+  UploadDialog,
+  DeleteConfirmDialog
 } from '@/components/FileDialogs'
 import { CompressDialog } from '@/components/CompressDialog'
 import { PermissionsDialog } from '@/components/PermissionsDialog'
@@ -138,25 +138,25 @@ const FileManagerPage: React.FC = () => {
     removeFavorite,
     checkFavorite
   } = useFileStore()
-  
+
   const { addNotification } = useNotificationStore()
   const { fetchSystemInfo } = useSystemStore()
   const { addToPlaylist } = useMusicStore()
   const { theme } = useThemeStore()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  
+
   // 对话框状态
   const [createDialog, setCreateDialog] = useState<{
     visible: boolean
     type: 'file' | 'folder'
   }>({ visible: false, type: 'folder' })
-  
+
   const [renameDialog, setRenameDialog] = useState<{
     visible: boolean
     file: FileItem | null
   }>({ visible: false, file: null })
-  
+
   const [uploadDialog, setUploadDialog] = useState(false)
   const [deleteDialog, setDeleteDialog] = useState<{
     visible: boolean
@@ -166,49 +166,49 @@ const FileManagerPage: React.FC = () => {
     visible: boolean
     files: FileItem[]
   }>({ visible: false, files: [] })
-  
+
   const [permissionsDialog, setPermissionsDialog] = useState<{
     visible: boolean
     file: FileItem | null
   }>({ visible: false, file: null })
-  
+
   // 路径输入
   const [pathInput, setPathInput] = useState('')
   const [isEditingPath, setIsEditingPath] = useState(false)
-  
+
   // 搜索
   const [searchQuery, setSearchQuery] = useState('')
-  
+
   // 历史记录
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
-  
+
   // 编辑器模态框
   const [editorModalVisible, setEditorModalVisible] = useState(false)
-  
+
   // 编辑器换行符类型选项
   const [lineEnding, setLineEnding] = useState<LineEndingType>(() => {
     const saved = localStorage.getItem('fileManager_lineEnding') as LineEndingType
     return saved || 'LF'
   })
-  
+
   // 当前活动文件的编码
   const [currentFileEncoding, setCurrentFileEncoding] = useState<string>('utf-8')
-  
+
   // 图片预览模态框
   const [imagePreviewVisible, setImagePreviewVisible] = useState(false)
   const [previewImagePath, setPreviewImagePath] = useState('')
   const [previewImageName, setPreviewImageName] = useState('')
-  
+
   // 任务状态抽屉
   const [taskDrawerVisible, setTaskDrawerVisible] = useState(false)
-  
+
   // 收藏抽屉
   const [favoriteDrawerVisible, setFavoriteDrawerVisible] = useState(false)
-  
+
   // 收藏状态缓存
   const [favoriteStatusMap, setFavoriteStatusMap] = useState<Map<string, boolean>>(new Map())
-  
+
   // 编码确认对话框
   const [encodingDialog, setEncodingDialog] = useState<{
     visible: boolean
@@ -217,14 +217,14 @@ const FileManagerPage: React.FC = () => {
     detectedEncoding: string
     confidence: number
   }>({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
-  
+
   // 监听活动文件变化，更新当前文件编码
   React.useEffect(() => {
     if (activeFile && fileEncodings.has(activeFile)) {
       setCurrentFileEncoding(fileEncodings.get(activeFile) || 'utf-8')
     }
   }, [activeFile, fileEncodings])
-  
+
   // WebSocket 文件变化事件监听
   React.useEffect(() => {
     // 监听文件变化事件
@@ -232,14 +232,14 @@ const FileManagerPage: React.FC = () => {
       console.log('收到文件变化通知:', data.filePath)
       handleFileChanged(data.filePath)
     }
-    
+
     socketClient.on('file-changed', handleFileChangedEvent)
-    
+
     return () => {
       socketClient.off('file-changed', handleFileChangedEvent)
     }
   }, [handleFileChanged])
-  
+
   // 自动监视打开的文件
   React.useEffect(() => {
     openFiles.forEach((_, filePath) => {
@@ -250,7 +250,7 @@ const FileManagerPage: React.FC = () => {
         console.log('开始监视文件:', filePath)
       }
     })
-    
+
     // 清理不再打开的文件的监视
     watchedFiles.forEach(filePath => {
       if (!openFiles.has(filePath)) {
@@ -260,7 +260,7 @@ const FileManagerPage: React.FC = () => {
       }
     })
   }, [openFiles, watchedFiles, watchFile, unwatchFile])
-  
+
   // 触摸适配
   const touchAdaptation = useTouchAdaptation()
 
@@ -273,7 +273,7 @@ const FileManagerPage: React.FC = () => {
     const saved = localStorage.getItem('fileManager_viewMode')
     return (saved as 'grid' | 'list') || 'grid'
   })
-  
+
   // 保存视图模式到localStorage
   const handleViewModeChange = (mode: 'grid' | 'list') => {
     // 小屏模式强制使用列表视图
@@ -298,37 +298,37 @@ const FileManagerPage: React.FC = () => {
     file: FileItem | null
     position: { x: number; y: number }
   } | null>(null);
-  
+
   // 滚动防抖处理
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastScrollTopRef = useRef(0)
   const fileListContainerRef = useRef<HTMLDivElement>(null)
   const autoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  
+
   // 盘符选择状态
   const [drives, setDrives] = useState<Array<{ label: string; value: string; type: string }>>([])
   const [selectedDrive, setSelectedDrive] = useState<string>('')
   const [drivesLoading, setDrivesLoading] = useState(false)
-  
+
   // 查找当前路径对应的盘符
   const findDriveForPath = useCallback((path: string, driveList: Array<{ label: string; value: string; type: string }>) => {
     if (!path || !driveList.length) return null
-    
+
     const normalizedPath = normalizePath(path)
-    
+
     // 对每个盘符进行匹配
     for (const drive of driveList) {
       const normalizedDriveValue = normalizePath(drive.value)
-      
+
       // 确保盘符路径以 / 结尾进行比较
       const driveRoot = normalizedDriveValue.endsWith('/') ? normalizedDriveValue : normalizedDriveValue + '/'
       const pathToCheck = normalizedPath.endsWith('/') ? normalizedPath : normalizedPath + '/'
-      
+
       // 检查路径是否以盘符开头
       if (pathToCheck.startsWith(driveRoot) || normalizedPath === normalizedDriveValue) {
         return drive
       }
-      
+
       // 特殊处理：如果是 Windows 盘符格式（如 D: 和 D:/），也要匹配
       if (normalizedDriveValue.match(/^[A-Za-z]:\/?\/?$/)) {
         const drivePrefix = normalizedDriveValue.charAt(0) + ':'
@@ -337,7 +337,7 @@ const FileManagerPage: React.FC = () => {
         }
       }
     }
-    
+
     return null
   }, [])
 
@@ -347,7 +347,7 @@ const FileManagerPage: React.FC = () => {
       setDrivesLoading(true)
       const driveList = await fileApiClient.getDrives()
       setDrives(driveList)
-      
+
       // 如果当前路径匹配某个盘符，设置为选中状态
       if (currentPath) {
         const currentDrive = findDriveForPath(currentPath, driveList)
@@ -366,21 +366,21 @@ const FileManagerPage: React.FC = () => {
       setDrivesLoading(false)
     }
   }, [currentPath, addNotification, findDriveForPath])
-  
+
   // 导航到指定路径
   const navigateToPath = useCallback((newPath: string) => {
     const normalizedPath = normalizePath(newPath)
-    
+
     // 更新历史记录
     const newHistory = history.slice(0, historyIndex + 1)
     newHistory.push(normalizedPath)
     setHistory(newHistory)
     setHistoryIndex(newHistory.length - 1)
-    
+
     // 只更新 URL 参数，让 useEffect 监听 URL 变化来更新状态
     navigate(`/files?path=${encodeURIComponent(normalizedPath)}`, { replace: true })
   }, [history, historyIndex, navigate])
-  
+
   // 切换盘符
   const handleDriveChange = useCallback((driveValue: string) => {
     setSelectedDrive(driveValue)
@@ -415,15 +415,15 @@ const FileManagerPage: React.FC = () => {
       }
     }
   }, [navigateToPath, openFile, addNotification])
-  
+
   const handleContextMenuRename = useCallback((file: FileItem) => {
     setRenameDialog({ visible: true, file })
   }, [])
-  
+
   const handleContextMenuDelete = useCallback((files: FileItem[]) => {
     setDeleteDialog({ visible: true, files })
   }, [])
-  
+
   const handleContextMenuDownload = useCallback((file: FileItem) => {
     fileApiClient.downloadFile(file.path)
     addNotification({
@@ -449,7 +449,7 @@ const FileManagerPage: React.FC = () => {
       })
     }
   }, [downloadFileWithProgress, addNotification])
-  
+
   const handleContextMenuCopy = useCallback((files: FileItem[]) => {
     const filePaths = files.map(file => file.path)
     copyFiles(filePaths)
@@ -459,7 +459,7 @@ const FileManagerPage: React.FC = () => {
       message: `已复制 ${files.length} 个项目到剪贴板`
     })
   }, [copyFiles, addNotification])
-  
+
   const handleContextMenuCut = useCallback((files: FileItem[]) => {
     const filePaths = files.map(file => file.path)
     cutFiles(filePaths)
@@ -469,14 +469,14 @@ const FileManagerPage: React.FC = () => {
       message: `已剪切 ${files.length} 个项目到剪贴板`
     })
   }, [cutFiles, addNotification])
-  
+
   // 粘贴处理
   const handlePaste = useCallback(async () => {
     if (!clipboard.operation || clipboard.items.length === 0) {
       message.warning('剪贴板为空')
       return
     }
-    
+
     const result = await pasteFiles(currentPath)
     if (result.success) {
       const operationText = clipboard.operation === 'copy' ? '复制' : '移动'
@@ -505,7 +505,7 @@ const FileManagerPage: React.FC = () => {
       })
     }
   }, [clipboard, pasteFiles, currentPath, addNotification, loadTasks])
-  
+
   const handleContextMenuView = useCallback(async (file: FileItem) => {
     if (isTextFile(file.name)) {
       try {
@@ -560,7 +560,7 @@ const FileManagerPage: React.FC = () => {
     // 如果是文件夹，使用文件夹路径；如果是空白区域（path为空），使用当前目录路径
     const targetPath = file.path || currentPath
     const targetName = file.name || '当前文件夹'
-    
+
     if (file.type === 'directory' || !file.path) {
       // 导航到终端页面，并传递文件夹路径作为查询参数
       navigate(`/terminal?cwd=${encodeURIComponent(targetPath)}`)
@@ -671,7 +671,7 @@ const FileManagerPage: React.FC = () => {
     }
     checkFavoriteStatuses()
   }, [files, checkFavorite])
-  
+
   // 初始化
   useEffect(() => {
     // 检查 URL 参数中的路径
@@ -683,20 +683,20 @@ const FileManagerPage: React.FC = () => {
       // 否则加载默认路径
       loadFiles(undefined, true) // 重置分页
     }
-    
+
     // 初始加载任务列表
     loadActiveTasks()
-    
+
     // 加载系统盘符
     loadDrives()
-    
+
     // 加载收藏列表
     loadFavorites()
-    
+
     // 预加载系统信息（用于右键菜单权限判断）
     fetchSystemInfo()
   }, [searchParams, setCurrentPath, loadFiles, fetchSystemInfo, loadFavorites])
-  
+
   // 当路径变化时更新选中的盘符
   useEffect(() => {
     if (drives.length > 0 && currentPath) {
@@ -706,14 +706,14 @@ const FileManagerPage: React.FC = () => {
       }
     }
   }, [currentPath, drives, selectedDrive, findDriveForPath])
-  
+
   // 定期刷新活动任务
   useEffect(() => {
     const interval = setInterval(() => {
       if (activeTasks.length > 0) {
         loadActiveTasks()
         // 如果有任务完成，刷新文件列表
-        const hasCompletedTasks = activeTasks.some(task => 
+        const hasCompletedTasks = activeTasks.some(task =>
           task.status === 'completed' || task.status === 'failed'
         )
         if (hasCompletedTasks) {
@@ -721,10 +721,10 @@ const FileManagerPage: React.FC = () => {
         }
       }
     }, 2000) // 每2秒刷新一次
-    
+
     return () => clearInterval(interval)
   }, [activeTasks, loadFiles])
-  
+
   // 键盘快捷键
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -738,12 +738,12 @@ const FileManagerPage: React.FC = () => {
         activeElement.closest('.ant-select') ||
         activeElement.closest('[role="textbox"]')
       )
-      
+
       // 如果焦点在输入框上，不处理文件操作快捷键
       if (isInputFocused) {
         return
       }
-      
+
       // 处理单独的按键
       switch (event.key) {
         case 'F2':
@@ -761,20 +761,20 @@ const FileManagerPage: React.FC = () => {
           // Delete删除
           if (selectedFiles.size > 0) {
             event.preventDefault()
-            const selectedFileItems = Array.from(selectedFiles).map(path => 
+            const selectedFileItems = Array.from(selectedFiles).map(path =>
               files.find(f => f.path === path)
             ).filter(Boolean) as FileItem[]
             handleContextMenuDelete(selectedFileItems)
           }
           break
       }
-      
+
       if (event.ctrlKey || event.metaKey) {
         switch (event.key.toLowerCase()) {
           case 'c':
             if (selectedFiles.size > 0) {
               event.preventDefault()
-              const selectedFileItems = Array.from(selectedFiles).map(path => 
+              const selectedFileItems = Array.from(selectedFiles).map(path =>
                 files.find(f => f.path === path)
               ).filter(Boolean) as FileItem[]
               handleContextMenuCopy(selectedFileItems)
@@ -783,7 +783,7 @@ const FileManagerPage: React.FC = () => {
           case 'x':
             if (selectedFiles.size > 0) {
               event.preventDefault()
-              const selectedFileItems = Array.from(selectedFiles).map(path => 
+              const selectedFileItems = Array.from(selectedFiles).map(path =>
                 files.find(f => f.path === path)
               ).filter(Boolean) as FileItem[]
               handleContextMenuCut(selectedFileItems)
@@ -798,11 +798,11 @@ const FileManagerPage: React.FC = () => {
         }
       }
     }
-    
+
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [selectedFiles, files, clipboard, handleContextMenuRename, handleContextMenuDelete, handleContextMenuCopy, handleContextMenuCut, handlePaste])
-  
+
   // 错误处理
   useEffect(() => {
     if (error) {
@@ -814,7 +814,7 @@ const FileManagerPage: React.FC = () => {
       setError(null)
     }
   }, [error, addNotification, setError])
-  
+
   // 检查是否需要自动加载更多文件
   const checkAutoLoadMore = useCallback(() => {
     if (!fileListContainerRef.current || loadingMore || !pagination.hasMore) {
@@ -823,7 +823,7 @@ const FileManagerPage: React.FC = () => {
 
     const container = fileListContainerRef.current
     const { scrollHeight, clientHeight } = container
-    
+
     // 如果内容高度小于等于容器高度（没有滚动条），且还有更多文件，则自动加载
     if (scrollHeight <= clientHeight) {
       console.log('检测到内容高度不足以产生滚动，自动加载更多文件')
@@ -855,16 +855,16 @@ const FileManagerPage: React.FC = () => {
       checkAutoLoadMore()
     }, 100)
   }, [files, pagination.hasMore, checkAutoLoadMore])
-  
+
   // 获取显示路径（相对于当前盘符的路径）
   const getDisplayPath = () => {
     if (selectedDrive && currentPath) {
       const normalizedCurrentPath = normalizePath(currentPath)
       const normalizedDriveValue = normalizePath(selectedDrive)
-      
+
       // 确保盘符路径以 / 结尾进行比较
       const driveRoot = normalizedDriveValue.endsWith('/') ? normalizedDriveValue : normalizedDriveValue + '/'
-      
+
       if (normalizedCurrentPath.startsWith(driveRoot) || normalizedCurrentPath === normalizedDriveValue) {
         let relativePath = normalizedCurrentPath.slice(normalizedDriveValue.length)
         // 移除开头的斜杠
@@ -882,7 +882,7 @@ const FileManagerPage: React.FC = () => {
   useEffect(() => {
     setPathInput(getDisplayPath())
   }, [currentPath, selectedDrive])
-  
+
   // 后退
   const goBack = () => {
     if (historyIndex > 0) {
@@ -892,7 +892,7 @@ const FileManagerPage: React.FC = () => {
       navigate(`/files?path=${encodeURIComponent(targetPath)}`, { replace: true })
     }
   }
-  
+
   // 前进
   const goForward = () => {
     if (historyIndex < history.length - 1) {
@@ -902,7 +902,7 @@ const FileManagerPage: React.FC = () => {
       navigate(`/files?path=${encodeURIComponent(targetPath)}`, { replace: true })
     }
   }
-  
+
   // 上级目录
   const goUp = () => {
     const parentPath = getDirectoryPath(currentPath)
@@ -910,11 +910,11 @@ const FileManagerPage: React.FC = () => {
       navigateToPath(parentPath)
     }
   }
-  
+
   // 处理路径输入
   const handlePathSubmit = () => {
     let inputPath = pathInput.trim()
-    
+
     // 如果输入的是相对路径且有选中的盘符，转换为绝对路径
     if (selectedDrive && !inputPath.includes(':') && !inputPath.startsWith('/')) {
       // 确保盘符路径以正确的分隔符结尾
@@ -924,7 +924,7 @@ const FileManagerPage: React.FC = () => {
       }
       inputPath = basePath + inputPath
     }
-    
+
     const trimmedInput = normalizePath(inputPath)
     const current = normalizePath(currentPath)
     if (trimmedInput && trimmedInput !== current) {
@@ -932,7 +932,7 @@ const FileManagerPage: React.FC = () => {
     }
     setIsEditingPath(false)
   }
-  
+
   // 文件点击处理
   const handleFileClick = (file: FileItem, event: React.MouseEvent) => {
     if (event.ctrlKey || event.metaKey) {
@@ -943,12 +943,12 @@ const FileManagerPage: React.FC = () => {
       const lastSelected = Array.from(selectedFiles)[selectedFiles.size - 1]
       const lastIndex = files.findIndex(f => f.path === lastSelected)
       const currentIndex = files.findIndex(f => f.path === file.path)
-      
+
       if (lastIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastIndex, currentIndex)
         const end = Math.max(lastIndex, currentIndex)
         const rangeFiles = files.slice(start, end + 1).map(f => f.path)
-        
+
         clearSelection()
         rangeFiles.forEach(path => selectFile(path))
       }
@@ -958,7 +958,7 @@ const FileManagerPage: React.FC = () => {
       selectFile(file.path)
     }
   }
-  
+
   // 文件双击处理
   const handleFileDoubleClick = async (file: FileItem) => {
     if (file.type === 'directory') {
@@ -992,15 +992,15 @@ const FileManagerPage: React.FC = () => {
       }
     }
   }
-  
 
-  
+
+
   // 处理换行符类型变化
   const handleLineEndingChange = (newLineEnding: LineEndingType) => {
     setLineEnding(newLineEnding)
     localStorage.setItem('fileManager_lineEnding', newLineEnding)
   }
-  
+
   // 创建具体类型文件的处理函数
   const handleCreateTextFile = async () => {
     const fileName = `新建文本文档.txt`
@@ -1016,7 +1016,7 @@ const FileManagerPage: React.FC = () => {
       setEditorModalVisible(true)
     }
   }
-  
+
   const handleCreateJsonFile = async () => {
     const fileName = `新建文件.json`
     const filePath = await createFile(fileName, '{\n  \n}')
@@ -1031,7 +1031,7 @@ const FileManagerPage: React.FC = () => {
       setEditorModalVisible(true)
     }
   }
-  
+
   const handleCreateIniFile = async () => {
     const fileName = `新建配置.ini`
     const filePath = await createFile(fileName, '; INI 配置文件\n[Section]\nkey=value\n')
@@ -1046,29 +1046,29 @@ const FileManagerPage: React.FC = () => {
       setEditorModalVisible(true)
     }
   }
-  
+
   // 编码转换确认处理
   const handleEncodingConvert = async () => {
     try {
       // 关闭当前文件（如果已打开）
       closeFile(encodingDialog.filePath)
-      
+
       // 使用UTF-8编码重新打开文件（这会将原编码的内容转换为UTF-8字符串）
       const result = await openFile(encodingDialog.filePath, 'utf-8')
-      
+
       // 立即保存文件，将内容以UTF-8编码写入磁盘
       const saveSuccess = await saveFile(encodingDialog.filePath, result.content, 'utf-8')
-      
+
       if (!saveSuccess) {
         throw new Error('保存文件失败')
       }
-      
+
       // 关闭编码确认对话框
       setEncodingDialog({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
-      
+
       // 打开编辑器
       setEditorModalVisible(true)
-      
+
       addNotification({
         type: 'success',
         title: '编码转换成功',
@@ -1082,23 +1082,23 @@ const FileManagerPage: React.FC = () => {
       })
     }
   }
-  
+
   // 编码转换取消处理
   const handleEncodingCancel = () => {
     // 关闭文件
     closeFile(encodingDialog.filePath)
-    
+
     // 关闭编码确认对话框
     setEncodingDialog({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
-    
+
     addNotification({
       type: 'info',
       title: '已取消',
       message: '建议您下载文件后使用本地编辑器编辑'
     })
   }
-  
-  
+
+
   // 对话框处理
   const handleCreateConfirm = async (name: string) => {
     if (createDialog.type === 'folder') {
@@ -1126,7 +1126,7 @@ const FileManagerPage: React.FC = () => {
     }
     setCreateDialog({ visible: false, type: 'folder' })
   }
-  
+
   const handleRenameConfirm = async (newName: string) => {
     if (renameDialog.file) {
       const success = await renameFile(renameDialog.file.path, newName)
@@ -1140,9 +1140,9 @@ const FileManagerPage: React.FC = () => {
     }
     setRenameDialog({ visible: false, file: null })
   }
-  
-  const handleUploadConfirm = async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal) => {
-    const success = await uploadFiles(files, onProgress, signal)
+
+  const handleUploadConfirm = async (files: FileList, onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error'; detail?: any }) => void, signal?: AbortSignal, conflictStrategy?: 'replace' | 'rename') => {
+    const success = await uploadFiles(files, onProgress, signal, conflictStrategy)
     if (success) {
       addNotification({
         type: 'success',
@@ -1159,14 +1159,14 @@ const FileManagerPage: React.FC = () => {
       })
     }
   }
-  
+
   const handleDeleteConfirm = async () => {
     if (deleteDialog.files.length === 0) return
-    
+
     // 先选中要删除的文件
     clearSelection()
     deleteDialog.files.forEach(file => selectFile(file.path))
-    
+
     const success = await deleteSelectedFiles()
     if (success) {
       addNotification({
@@ -1195,7 +1195,7 @@ const FileManagerPage: React.FC = () => {
   const handlePermissions = (file: FileItem) => {
     setPermissionsDialog({ visible: true, file })
   }
-  
+
   // 编辑器相关
   const handleEditorChange = (path: string, content: string) => {
     updateFileContent(path, content)
@@ -1212,7 +1212,7 @@ const FileManagerPage: React.FC = () => {
     }
 
     let fileContent: string | undefined;
-    
+
     if (typeof content === 'string') {
       fileContent = content;
     } else {
@@ -1227,7 +1227,7 @@ const FileManagerPage: React.FC = () => {
       });
       return;
     }
-    
+
     // 在保存时根据选择的换行符类型转换文本
     let contentToSave = fileContent
     // 先统一转换为 LF
@@ -1245,31 +1245,31 @@ const FileManagerPage: React.FC = () => {
         contentToSave = normalized
         break
     }
-    
+
     // 使用当前选择的编码保存
     await saveFile(activeFile, contentToSave, currentFileEncoding)
   }
-  
-  
+
+
   // 生成面包屑
   const generateBreadcrumbs = () => {
     // 获取相对于当前盘符的路径
     let relativePath = currentPath
     let rootTitle = '根目录'
     let rootPath = '/'
-    
+
     // 如果有选中的盘符，计算相对路径
     if (selectedDrive && currentPath.startsWith(selectedDrive)) {
       relativePath = currentPath.slice(selectedDrive.length)
       rootTitle = selectedDrive.replace(':', '')
       rootPath = selectedDrive
-      
+
       // 移除开头的斜杠或反斜杠
       if (relativePath.startsWith('/') || relativePath.startsWith('\\')) {
         relativePath = relativePath.slice(1)
       }
     }
-    
+
     const parts = relativePath.split(/[/\\]/).filter(Boolean)
     const items = [
       {
@@ -1281,7 +1281,7 @@ const FileManagerPage: React.FC = () => {
         )
       }
     ]
-    
+
     let currentBreadcrumbPath = rootPath
     parts.forEach((part, index) => {
       // 确保路径分隔符正确
@@ -1290,10 +1290,10 @@ const FileManagerPage: React.FC = () => {
       }
       currentBreadcrumbPath += part
       const breadcrumbPath = currentBreadcrumbPath
-      
+
       items.push({
         title: (
-          <span 
+          <span
             className="cursor-pointer hover:text-blue-500 text-gray-900 dark:text-white"
             onClick={() => navigateToPath(breadcrumbPath)}
           >
@@ -1302,15 +1302,15 @@ const FileManagerPage: React.FC = () => {
         )
       })
     })
-    
+
     return items
   }
-  
+
   // 过滤文件
-  const filteredFiles = files.filter(file => 
+  const filteredFiles = files.filter(file =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
-  
+
   // 获取任务状态图标
   const getTaskStatusIcon = (status: string) => {
     switch (status) {
@@ -1326,7 +1326,7 @@ const FileManagerPage: React.FC = () => {
         return <ClockCircleOutlined />
     }
   }
-  
+
   // 获取任务状态文本
   const getTaskStatusText = (status: string) => {
     switch (status) {
@@ -1342,7 +1342,7 @@ const FileManagerPage: React.FC = () => {
         return '未知'
     }
   }
-  
+
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900">
       {/* 工具栏 */}
@@ -1361,39 +1361,39 @@ const FileManagerPage: React.FC = () => {
               options={drives}
             />
           </div>
-          
+
           {/* 导航按钮 */}
           <Space>
             <Tooltip title="后退">
-              <Button 
-                icon={<LeftOutlined />} 
+              <Button
+                icon={<LeftOutlined />}
                 disabled={historyIndex <= 0}
                 onClick={goBack}
               />
             </Tooltip>
             <Tooltip title="前进">
-              <Button 
-                icon={<RightOutlined />} 
+              <Button
+                icon={<RightOutlined />}
                 disabled={historyIndex >= history.length - 1}
                 onClick={goForward}
               />
             </Tooltip>
             <Tooltip title="上级目录">
-              <Button 
-                icon={<FolderOutlined />} 
+              <Button
+                icon={<FolderOutlined />}
                 onClick={goUp}
               />
             </Tooltip>
             <Tooltip title="刷新">
-              <Button 
-                icon={<ReloadOutlined />} 
+              <Button
+                icon={<ReloadOutlined />}
                 onClick={() => loadFiles()}
                 loading={loading}
               />
             </Tooltip>
           </Space>
         </div>
-        
+
         <div className="flex items-center space-x-2">
           {/* 视图切换 - 小屏模式下隐藏 */}
           {!touchAdaptation.shouldHideViewToggle && (
@@ -1544,7 +1544,7 @@ const FileManagerPage: React.FC = () => {
           </Space>
         </div>
       </div>
-      
+
       {/* 路径栏 */}
       <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
         {isEditingPath ? (
@@ -1561,9 +1561,9 @@ const FileManagerPage: React.FC = () => {
           </div>
         )}
       </div>
-      
+
       {/* 主内容区 */}
-      <div 
+      <div
         ref={fileListContainerRef}
         className="flex-1 p-4 overflow-auto"
         style={{ maxHeight: 'calc(100vh - 200px)' }}
@@ -1571,7 +1571,7 @@ const FileManagerPage: React.FC = () => {
           // 检查是否点击在空白区域（不是文件项）
           const target = e.target as HTMLElement
           const isFileItem = target.closest('[data-file-item]')
-          
+
           if (!isFileItem) {
             e.preventDefault()
             // 清除选择
@@ -1587,7 +1587,7 @@ const FileManagerPage: React.FC = () => {
           // 点击空白区域时清除选择和关闭菜单
           const target = e.target as HTMLElement
           const isFileItem = target.closest('[data-file-item]')
-          
+
           if (!isFileItem) {
             clearSelection()
             setContextMenuInfo(null)
@@ -1596,23 +1596,23 @@ const FileManagerPage: React.FC = () => {
         onScroll={(e) => {
           const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
           const distanceFromBottom = scrollHeight - scrollTop - clientHeight
-          
+
           // 清除之前的定时器
           if (scrollTimeoutRef.current) {
             clearTimeout(scrollTimeoutRef.current)
           }
-          
+
           // 检查是否向下滚动
           const isScrollingDown = scrollTop > lastScrollTopRef.current
           lastScrollTopRef.current = scrollTop
-          
+
           // 立即检查是否需要加载更多（针对快速滚动）
           if (distanceFromBottom <= 50 && pagination.hasMore && !loadingMore && isScrollingDown) {
             console.log('立即触发加载更多文件 - 距离底部:', distanceFromBottom, 'px')
             loadMoreFiles()
             return
           }
-          
+
           // 防抖处理，延迟检查（针对慢速滚动）
           scrollTimeoutRef.current = setTimeout(() => {
             if (distanceFromBottom < 100 && pagination.hasMore && !loadingMore && isScrollingDown) {
@@ -1627,7 +1627,7 @@ const FileManagerPage: React.FC = () => {
             <Spin size="large" />
           </div>
         ) : filteredFiles.length === 0 ? (
-          <Empty 
+          <Empty
             description="此文件夹为空"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
@@ -1646,65 +1646,66 @@ const FileManagerPage: React.FC = () => {
                   // 对于加载更多的情况，新加载的文件使用很小的延迟
                   const isNewlyLoaded = pagination.page > 1 && index >= (pagination.page - 1) * 50
                   const animationDelay = isNewlyLoaded ? Math.min((index % 5) * 0.01, 0.05) : Math.min(index * 0.02, 0.5)
-                  
+
                   return (
                     <motion.div
                       key={file.path}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ 
-                        duration: isNewlyLoaded ? 0.2 : 0.3, 
+                      transition={{
+                        duration: isNewlyLoaded ? 0.2 : 0.3,
                         delay: animationDelay,
                         ease: "easeOut"
                       }}
                     >
-                    <FileContextMenu
-                      file={file}
-                      files={files}
-                      selectedFiles={selectedFiles}
-                      clipboard={clipboard}
-                      onClose={() => setContextMenuInfo(null)}
-                      onOpen={handleContextMenuOpen}
-                      onRename={handleContextMenuRename}
-                      onDelete={handleContextMenuDelete}
-                      onDownload={handleContextMenuDownload}
-                      onDownloadWithProgress={handleContextMenuDownloadWithProgress}
-                      onCopy={handleContextMenuCopy}
-                      onCut={handleContextMenuCut}
-                      onPaste={handlePaste}
-                      onView={handleContextMenuView}
-                      onCompress={handleContextMenuCompress}
-                      onExtract={handleContextMenuExtract}
-                      onOpenTerminal={handleContextMenuOpenTerminal}
-                      onAddToPlaylist={handleAddToPlaylist}
-                      onCreateFile={() => setCreateDialog({ visible: true, type: 'file' })}
-                      onCreateFolder={() => setCreateDialog({ visible: true, type: 'folder' })}
-                      onCreateTextFile={handleCreateTextFile}
-                      onCreateJsonFile={handleCreateJsonFile}
-                      onCreateIniFile={handleCreateIniFile}
-                      onPermissions={handlePermissions}
-                      onToggleFavorite={handleToggleFavorite}
-                      isFavorited={favoriteStatusMap.get(file.path) || false}
-                      // 全局菜单控制
-                      globalContextMenuInfo={contextMenuInfo}
-                      setGlobalContextMenuInfo={setContextMenuInfo}
-                    >
-                      <FileGridItem
+                      <FileContextMenu
                         file={file}
-                        isSelected={selectedFiles.has(file.path)}
-                        onClick={handleFileClick}
-                        onDoubleClick={handleFileDoubleClick}
-                        onContextMenu={(file, event) => {
-                          // 长按触发右键菜单
-                          const position = event instanceof TouchEvent
-                            ? { x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 }
-                            : { x: event.clientX, y: event.clientY }
-                          setContextMenuInfo({ file, position })
-                        }}
-                      />
-                    </FileContextMenu>
-                  </motion.div>
-                )})}
+                        files={files}
+                        selectedFiles={selectedFiles}
+                        clipboard={clipboard}
+                        onClose={() => setContextMenuInfo(null)}
+                        onOpen={handleContextMenuOpen}
+                        onRename={handleContextMenuRename}
+                        onDelete={handleContextMenuDelete}
+                        onDownload={handleContextMenuDownload}
+                        onDownloadWithProgress={handleContextMenuDownloadWithProgress}
+                        onCopy={handleContextMenuCopy}
+                        onCut={handleContextMenuCut}
+                        onPaste={handlePaste}
+                        onView={handleContextMenuView}
+                        onCompress={handleContextMenuCompress}
+                        onExtract={handleContextMenuExtract}
+                        onOpenTerminal={handleContextMenuOpenTerminal}
+                        onAddToPlaylist={handleAddToPlaylist}
+                        onCreateFile={() => setCreateDialog({ visible: true, type: 'file' })}
+                        onCreateFolder={() => setCreateDialog({ visible: true, type: 'folder' })}
+                        onCreateTextFile={handleCreateTextFile}
+                        onCreateJsonFile={handleCreateJsonFile}
+                        onCreateIniFile={handleCreateIniFile}
+                        onPermissions={handlePermissions}
+                        onToggleFavorite={handleToggleFavorite}
+                        isFavorited={favoriteStatusMap.get(file.path) || false}
+                        // 全局菜单控制
+                        globalContextMenuInfo={contextMenuInfo}
+                        setGlobalContextMenuInfo={setContextMenuInfo}
+                      >
+                        <FileGridItem
+                          file={file}
+                          isSelected={selectedFiles.has(file.path)}
+                          onClick={handleFileClick}
+                          onDoubleClick={handleFileDoubleClick}
+                          onContextMenu={(file, event) => {
+                            // 长按触发右键菜单
+                            const position = event instanceof TouchEvent
+                              ? { x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 }
+                              : { x: event.clientX, y: event.clientY }
+                            setContextMenuInfo({ file, position })
+                          }}
+                        />
+                      </FileContextMenu>
+                    </motion.div>
+                  )
+                })}
               </motion.div>
             ) : (
               <motion.div
@@ -1719,70 +1720,71 @@ const FileManagerPage: React.FC = () => {
                   // 对于加载更多的情况，新加载的文件使用很小的延迟
                   const isNewlyLoaded = pagination.page > 1 && index >= (pagination.page - 1) * 50
                   const animationDelay = isNewlyLoaded ? Math.min((index % 5) * 0.01, 0.05) : Math.min(index * 0.02, 0.5)
-                  
+
                   return (
                     <motion.div
                       key={file.path}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ 
-                        duration: isNewlyLoaded ? 0.2 : 0.3, 
+                      transition={{
+                        duration: isNewlyLoaded ? 0.2 : 0.3,
                         delay: animationDelay,
                         ease: "easeOut"
                       }}
                     >
-                    <FileContextMenu
-                      file={file}
-                      files={files}
-                      selectedFiles={selectedFiles}
-                      clipboard={clipboard}
-                      onClose={() => setContextMenuInfo(null)}
-                      onOpen={handleContextMenuOpen}
-                      onRename={handleContextMenuRename}
-                      onDelete={handleContextMenuDelete}
-                      onDownload={handleContextMenuDownload}
-                      onDownloadWithProgress={handleContextMenuDownloadWithProgress}
-                      onCopy={handleContextMenuCopy}
-                      onCut={handleContextMenuCut}
-                      onPaste={handlePaste}
-                      onView={handleContextMenuView}
-                      onCompress={handleContextMenuCompress}
-                      onExtract={handleContextMenuExtract}
-                      onOpenTerminal={handleContextMenuOpenTerminal}
-                      onAddToPlaylist={handleAddToPlaylist}
-                      onCreateFile={() => setCreateDialog({ visible: true, type: 'file' })}
-                      onCreateFolder={() => setCreateDialog({ visible: true, type: 'folder' })}
-                      onCreateTextFile={handleCreateTextFile}
-                      onCreateJsonFile={handleCreateJsonFile}
-                      onCreateIniFile={handleCreateIniFile}
-                      onPermissions={handlePermissions}
-                      onToggleFavorite={handleToggleFavorite}
-                      isFavorited={favoriteStatusMap.get(file.path) || false}
-                      // 全局菜单控制
-                      globalContextMenuInfo={contextMenuInfo}
-                      setGlobalContextMenuInfo={setContextMenuInfo}
-                      >
-                      <FileListItem
+                      <FileContextMenu
                         file={file}
-                        isSelected={selectedFiles.has(file.path)}
-                        onClick={handleFileClick}
-                        onDoubleClick={handleFileDoubleClick}
-                        onContextMenu={(file, event) => {
-                          // 长按触发右键菜单
-                          const position = event instanceof TouchEvent
-                            ? { x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 }
-                            : { x: event.clientX, y: event.clientY }
-                          setContextMenuInfo({ file, position })
-                        }}
-                      />
-                    </FileContextMenu>
-                  </motion.div>
-                )})}
+                        files={files}
+                        selectedFiles={selectedFiles}
+                        clipboard={clipboard}
+                        onClose={() => setContextMenuInfo(null)}
+                        onOpen={handleContextMenuOpen}
+                        onRename={handleContextMenuRename}
+                        onDelete={handleContextMenuDelete}
+                        onDownload={handleContextMenuDownload}
+                        onDownloadWithProgress={handleContextMenuDownloadWithProgress}
+                        onCopy={handleContextMenuCopy}
+                        onCut={handleContextMenuCut}
+                        onPaste={handlePaste}
+                        onView={handleContextMenuView}
+                        onCompress={handleContextMenuCompress}
+                        onExtract={handleContextMenuExtract}
+                        onOpenTerminal={handleContextMenuOpenTerminal}
+                        onAddToPlaylist={handleAddToPlaylist}
+                        onCreateFile={() => setCreateDialog({ visible: true, type: 'file' })}
+                        onCreateFolder={() => setCreateDialog({ visible: true, type: 'folder' })}
+                        onCreateTextFile={handleCreateTextFile}
+                        onCreateJsonFile={handleCreateJsonFile}
+                        onCreateIniFile={handleCreateIniFile}
+                        onPermissions={handlePermissions}
+                        onToggleFavorite={handleToggleFavorite}
+                        isFavorited={favoriteStatusMap.get(file.path) || false}
+                        // 全局菜单控制
+                        globalContextMenuInfo={contextMenuInfo}
+                        setGlobalContextMenuInfo={setContextMenuInfo}
+                      >
+                        <FileListItem
+                          file={file}
+                          isSelected={selectedFiles.has(file.path)}
+                          onClick={handleFileClick}
+                          onDoubleClick={handleFileDoubleClick}
+                          onContextMenu={(file, event) => {
+                            // 长按触发右键菜单
+                            const position = event instanceof TouchEvent
+                              ? { x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 }
+                              : { x: event.clientX, y: event.clientY }
+                            setContextMenuInfo({ file, position })
+                          }}
+                        />
+                      </FileContextMenu>
+                    </motion.div>
+                  )
+                })}
               </motion.div>
             )}
           </AnimatePresence>
         )}
-        
+
         {/* 加载更多指示器 */}
         {loadingMore && (
           <div className="flex items-center justify-center py-4">
@@ -1790,7 +1792,7 @@ const FileManagerPage: React.FC = () => {
             <span className="ml-2 text-gray-500">加载更多...</span>
           </div>
         )}
-        
+
         {/* 分页信息 */}
         {pagination.total > 0 && (
           <div className="text-center text-gray-500 text-sm mt-4">
@@ -1799,7 +1801,7 @@ const FileManagerPage: React.FC = () => {
           </div>
         )}
       </div>
-      
+
       {/* 空白区域右键菜单 */}
       <FileContextMenu
         file={null}
@@ -1820,7 +1822,7 @@ const FileManagerPage: React.FC = () => {
       >
         <div />
       </FileContextMenu>
-      
+
       {/* 对话框 */}
       <CreateDialog
         visible={createDialog.visible}
@@ -1828,34 +1830,35 @@ const FileManagerPage: React.FC = () => {
         onConfirm={handleCreateConfirm}
         onCancel={() => setCreateDialog({ visible: false, type: 'folder' })}
       />
-      
+
       <RenameDialog
         visible={renameDialog.visible}
         currentName={renameDialog.file?.name || ''}
         onConfirm={handleRenameConfirm}
         onCancel={() => setRenameDialog({ visible: false, file: null })}
       />
-      
+
       <UploadDialog
         visible={uploadDialog}
+        targetPath={currentPath}
         onConfirm={handleUploadConfirm}
         onCancel={() => setUploadDialog(false)}
       />
-      
+
       <DeleteConfirmDialog
         visible={deleteDialog.visible}
         fileNames={deleteDialog.files.map(file => file.name)}
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteDialog({ visible: false, files: [] })}
       />
-      
+
       <CompressDialog
         visible={compressDialog.visible}
         fileCount={compressDialog.files.length}
         onConfirm={handleCompressConfirm}
         onCancel={() => setCompressDialog({ visible: false, files: [] })}
       />
-      
+
       <PermissionsDialog
         visible={permissionsDialog.visible}
         file={permissionsDialog.file}
@@ -1865,7 +1868,7 @@ const FileManagerPage: React.FC = () => {
           await loadFiles()
         }}
       />
-      
+
       {/* 编辑器模态框 */}
       <Modal
         title="文本编辑器"
@@ -1878,9 +1881,9 @@ const FileManagerPage: React.FC = () => {
           <Button key="close" onClick={() => setEditorModalVisible(false)}>
             关闭
           </Button>,
-          <Button 
-            key="save" 
-            type="primary" 
+          <Button
+            key="save"
+            type="primary"
             icon={<SaveOutlined />}
             onClick={() => handleSaveFile()}
             disabled={!activeFile}
@@ -1915,8 +1918,8 @@ const FileManagerPage: React.FC = () => {
                     <FileTextOutlined className="mr-1" />
                     {getBasename(filePath)}
                     {isFileModified(filePath) && (
-                      <span 
-                        className="ml-1 w-2 h-2 bg-orange-500 rounded-full" 
+                      <span
+                        className="ml-1 w-2 h-2 bg-orange-500 rounded-full"
                         title="文件已修改"
                       />
                     )}
@@ -1937,18 +1940,17 @@ const FileManagerPage: React.FC = () => {
                 )
               }))}
             />
-            
+
             {/* 换行符和编码选择器 */}
-            <div 
+            <div
               className="flex items-center justify-start px-4 py-2 space-x-6"
-              style={{ 
+              style={{
                 backgroundColor: theme === 'dark' ? '#1F1F1F' : '#FAFAFA'
               }}
             >
               <div className="flex items-center">
-                <span className={`text-sm mr-3 ${
-                  theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-                }`}>
+                <span className={`text-sm mr-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                  }`}>
                   换行符:
                 </span>
                 <Select
@@ -1963,11 +1965,10 @@ const FileManagerPage: React.FC = () => {
                   ]}
                 />
               </div>
-              
+
               <div className="flex items-center">
-                <span className={`text-sm mr-3 ${
-                  theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-                }`}>
+                <span className={`text-sm mr-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                  }`}>
                   编码:
                 </span>
                 <Select
@@ -1990,7 +1991,7 @@ const FileManagerPage: React.FC = () => {
           </div>
         )}
       </Modal>
-      
+
       {/* 图片预览模态框 */}
       <ImagePreview
         isOpen={imagePreviewVisible}
@@ -1998,7 +1999,7 @@ const FileManagerPage: React.FC = () => {
         imagePath={previewImagePath}
         fileName={previewImageName}
       />
-      
+
       {/* 编码确认对话框 */}
       <EncodingConfirmDialog
         visible={encodingDialog.visible}
@@ -2008,7 +2009,7 @@ const FileManagerPage: React.FC = () => {
         onConfirm={handleEncodingConvert}
         onCancel={handleEncodingCancel}
       />
-      
+
       {/* 文件变化确认对话框 */}
       {fileChangedDialog && (
         <FileChangedDialog
@@ -2032,7 +2033,7 @@ const FileManagerPage: React.FC = () => {
           }}
         />
       )}
-      
+
       {/* 收藏抽屉 */}
       <Drawer
         title="收藏列表"
@@ -2043,19 +2044,18 @@ const FileManagerPage: React.FC = () => {
       >
         <div className="space-y-4">
           {favorites.length === 0 ? (
-            <Empty 
+            <Empty
               description="暂无收藏"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
             <div className="space-y-2">
               {favorites.map((fav) => (
-                <Card 
-                  key={fav.path} 
-                  size="small" 
-                  className={`cursor-pointer hover:shadow-md transition-shadow ${
-                    !fav.exists ? 'opacity-50' : ''
-                  }`}
+                <Card
+                  key={fav.path}
+                  size="small"
+                  className={`cursor-pointer hover:shadow-md transition-shadow ${!fav.exists ? 'opacity-50' : ''
+                    }`}
                   onClick={() => {
                     if (fav.exists) {
                       handleNavigateToFavorite(fav.path, fav.type)
@@ -2107,11 +2107,11 @@ const FileManagerPage: React.FC = () => {
               ))}
             </div>
           )}
-          
+
           {favorites.length > 0 && (
             <div className="text-center pt-4">
-              <Button 
-                type="primary" 
+              <Button
+                type="primary"
                 onClick={() => {
                   loadFavorites()
                   addNotification({
@@ -2138,7 +2138,7 @@ const FileManagerPage: React.FC = () => {
       >
         <div className="space-y-4">
           {activeTasks.length === 0 ? (
-            <Empty 
+            <Empty
               description="暂无活动任务"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
@@ -2149,20 +2149,20 @@ const FileManagerPage: React.FC = () => {
                   <div className="flex items-center space-x-2">
                     {getTaskStatusIcon(task.status)}
                     <span className="font-medium">
-                      {task.type === 'compress' ? '压缩' : 
-                       task.type === 'extract' ? '解压' :
-                       task.type === 'copy' ? '复制' :
-                       task.type === 'move' ? '移动' :
-                       task.type === 'download' ? '下载' : task.type}
+                      {task.type === 'compress' ? '压缩' :
+                        task.type === 'extract' ? '解压' :
+                          task.type === 'copy' ? '复制' :
+                            task.type === 'move' ? '移动' :
+                              task.type === 'download' ? '下载' : task.type}
                     </span>
                     <span className="text-gray-500">
                       {getTaskStatusText(task.status)}
                     </span>
                   </div>
                   {(task.status === 'completed' || task.status === 'failed') && (
-                    <Button 
-                      size="small" 
-                      type="text" 
+                    <Button
+                      size="small"
+                      type="text"
                       danger
                       onClick={async () => {
                         try {
@@ -2193,21 +2193,21 @@ const FileManagerPage: React.FC = () => {
                     </Button>
                   )}
                 </div>
-                
+
                 {task.status === 'running' && (
-                  <Progress 
-                    percent={task.progress || 0} 
+                  <Progress
+                    percent={task.progress || 0}
                     size="small"
                     status="active"
                   />
                 )}
-                
+
                 {task.message && (
                   <div className="text-sm text-gray-600 mt-2">
                     {task.message}
                   </div>
                 )}
-                
+
                 <div className="text-xs text-gray-400 mt-2">
                   创建时间: {new Date(task.createdAt).toLocaleString()}
                   {task.updatedAt && (
@@ -2219,11 +2219,11 @@ const FileManagerPage: React.FC = () => {
               </Card>
             ))
           )}
-          
+
           {activeTasks.length > 0 && (
             <div className="text-center pt-4">
-              <Button 
-                type="primary" 
+              <Button
+                type="primary"
                 onClick={() => {
                   loadActiveTasks()
                   loadTasks()

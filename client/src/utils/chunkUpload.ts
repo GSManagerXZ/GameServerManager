@@ -13,6 +13,7 @@ export interface ChunkUploadOptions {
   onDetailProgress?: (detail: UploadDetailProgress) => void // 详细进度回调
   onError?: (error: Error) => void
   signal?: AbortSignal // 支持取消上传
+  conflictStrategy?: 'replace' | 'rename' // 文件冲突处理策略
 }
 
 export interface ChunkProgressInfo {
@@ -85,6 +86,7 @@ export class ChunkUploader {
   private onDetailProgress?: (detail: UploadDetailProgress) => void
   private onError?: (error: Error) => void
   private signal?: AbortSignal
+  private conflictStrategy: 'replace' | 'rename'
 
   private uploadId: string
   private chunks: ChunkInfo[] = []
@@ -108,6 +110,7 @@ export class ChunkUploader {
     this.onDetailProgress = options.onDetailProgress
     this.onError = options.onError
     this.signal = options.signal
+    this.conflictStrategy = options.conflictStrategy || 'rename'
 
     // 生成唯一的上传ID
     this.uploadId = this.generateUploadId()
@@ -225,10 +228,10 @@ export class ChunkUploader {
       const start = i * this.chunkSize
       const end = Math.min(start + this.chunkSize, this.file.size)
       const chunk = this.file.slice(start, end)
-      
+
       // 计算分片hash用于校验
       const hash = await this.calculateHash(chunk)
-      
+
       this.chunks.push({
         chunkIndex: i,
         chunkSize: end - start,
@@ -252,7 +255,7 @@ export class ChunkUploader {
         console.warn('crypto.subtle 不可用，跳过hash计算')
         return 'skip'
       }
-      
+
       const buffer = await blob.arrayBuffer()
       const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
       const hashArray = Array.from(new Uint8Array(hashBuffer))
@@ -312,7 +315,7 @@ export class ChunkUploader {
 
     const { chunkIndex, start, end, hash } = chunkInfo
     const chunk = this.file.slice(start, end)
-    
+
     const formData = new FormData()
     formData.append('uploadId', this.uploadId)
     formData.append('fileName', this.file.name)
@@ -327,26 +330,26 @@ export class ChunkUploader {
     formData.append('chunk', chunkBlob, chunkFileName)
 
     const token = localStorage.getItem('gsm3_token')
-    
+
     // 使用 XMLHttpRequest 以支持进度回调
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      
+
       // 监听上传进度
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable) {
           const chunkProgress = (event.loaded / event.total) * 100
-          
+
           // 更新分片进度
           this.updateChunkProgress(chunkIndex, 'uploading', chunkProgress, event.loaded)
           this.sendDetailProgress('uploading', `正在上传分片 ${chunkIndex + 1}/${this.chunks.length}`)
-          
+
           if (this.onChunkProgress) {
             this.onChunkProgress(chunkIndex, this.chunks.length, chunkProgress)
           }
         }
       })
-      
+
       // 监听完成
       xhr.addEventListener('load', () => {
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -367,29 +370,29 @@ export class ChunkUploader {
           reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`))
         }
       })
-      
+
       // 监听错误
       xhr.addEventListener('error', () => {
         reject(new Error('网络错误'))
       })
-      
+
       xhr.addEventListener('abort', () => {
         reject(new Error('上传已取消'))
       })
-      
+
       // 监听超时 - 增加到2分钟
       xhr.timeout = ChunkUploader.CHUNK_UPLOAD_TIMEOUT
       xhr.addEventListener('timeout', () => {
         reject(new Error('上传超时，请检查网络连接'))
       })
-      
+
       // 取消信号
       if (this.signal) {
         this.signal.addEventListener('abort', () => {
           xhr.abort()
         })
       }
-      
+
       xhr.open('POST', '/api/files/upload/chunk')
       if (token) {
         xhr.setRequestHeader('Authorization', `Bearer ${token}`)
@@ -404,49 +407,49 @@ export class ChunkUploader {
   private async uploadChunkWithRetry(chunkInfo: ChunkInfo): Promise<void> {
     const { chunkIndex } = chunkInfo
     let lastError: Error | null = null
-    
+
     this.currentChunk = chunkIndex
-    
+
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
         if (this.aborted) {
           throw new Error('Upload aborted')
         }
-        
+
         // 标记为上传中
         this.updateChunkProgress(chunkIndex, 'uploading', 0, 0)
         this.sendDetailProgress('uploading', `正在上传分片 ${chunkIndex + 1}/${this.chunks.length}`)
-        
+
         await this.uploadChunk(chunkInfo)
         this.retryCount.delete(chunkIndex)
-        
+
         // 标记为完成
         this.updateChunkProgress(chunkIndex, 'completed', 100, chunkInfo.chunkSize)
         this.sendDetailProgress('uploading', `分片 ${chunkIndex + 1} 上传完成`)
-        
+
         // 上传成功后，添加短暂延迟，避免请求过快
         if (chunkIndex % 10 === 0) {
           // 每10个分片休息一下，减轻服务器压力
           await new Promise(resolve => setTimeout(resolve, 100))
         }
-        
+
         return
       } catch (error) {
         lastError = error as Error
         const currentRetry = attempt + 1
         this.retryCount.set(chunkIndex, currentRetry)
-        
+
         // 标记为错误或重试中
         this.updateChunkProgress(chunkIndex, attempt < this.maxRetries ? 'retrying' : 'error', 0, 0)
-        
+
         if (attempt < this.maxRetries) {
           // 优化重试策略：使用更长的延迟，并添加随机抖动
           const baseDelay = ChunkUploader.RETRY_BASE_DELAY * Math.pow(2, attempt)
           const jitter = Math.random() * 1000 // 随机0-1秒
           const delay = Math.min(baseDelay + jitter, 30000) // 最大30秒
-          
+
           console.warn(`分片 ${chunkIndex} 上传失败（${lastError?.message}），${delay.toFixed(0)}ms 后进行第 ${currentRetry} 次重试...`)
-          
+
           // 发送重试信息
           this.sendDetailProgress('uploading', `分片 ${chunkIndex + 1} 重试中...`, {
             retryInfo: {
@@ -455,7 +458,7 @@ export class ChunkUploader {
               maxRetries: this.maxRetries
             }
           })
-          
+
           await new Promise(resolve => setTimeout(resolve, delay))
         } else {
           // 所有重试都失败，标记为错误
@@ -466,7 +469,7 @@ export class ChunkUploader {
         }
       }
     }
-    
+
     throw new Error(`分片 ${chunkIndex} 上传失败，已重试 ${this.maxRetries} 次: ${lastError?.message}`)
   }
 
@@ -485,7 +488,7 @@ export class ChunkUploader {
    */
   private async mergeChunks(): Promise<void> {
     const token = localStorage.getItem('gsm3_token')
-    
+
     // 模拟合并进度（因为后端合并是同步的，我们模拟一个进度）
     const simulateMergingProgress = async () => {
       for (let i = 0; i <= 100; i += 10) {
@@ -494,10 +497,10 @@ export class ChunkUploader {
         await new Promise(resolve => setTimeout(resolve, 100))
       }
     }
-    
+
     // 启动进度模拟
     const progressPromise = simulateMergingProgress()
-    
+
     // 实际合并请求
     const mergePromise = fetch('/api/files/upload/merge', {
       method: 'POST',
@@ -510,12 +513,13 @@ export class ChunkUploader {
         fileName: this.file.name,
         fileSize: this.file.size,
         totalChunks: this.chunks.length,
-        targetPath: this.targetPath
+        targetPath: this.targetPath,
+        conflictStrategy: this.conflictStrategy
       })
     })
 
     const response = await mergePromise
-    
+
     // 确保进度达到100%
     this.sendDetailProgress('merging', '正在合并文件...', { mergingProgress: 100 })
 
@@ -536,17 +540,17 @@ export class ChunkUploader {
   async upload(): Promise<void> {
     try {
       this.uploadStartTime = Date.now()
-      
+
       // 1. 计算分片
       this.sendDetailProgress('preparing', '正在准备上传...')
       console.log(`开始分片上传: ${this.file.name} (${(this.file.size / 1024 / 1024).toFixed(2)} MB)`)
       await this.calculateChunks()
       console.log(`文件已分为 ${this.chunks.length} 个分片，并发数: ${ChunkUploader.CONCURRENT_UPLOADS}`)
-      
+
       // 2. 检查已上传的分片（断点续传）
       this.sendDetailProgress('preparing', '检查断点续传...')
       await this.checkUploadedChunks()
-      
+
       // 标记已上传的分片为完成状态
       this.uploadedChunks.forEach(chunkIndex => {
         const chunk = this.chunks[chunkIndex]
@@ -554,68 +558,68 @@ export class ChunkUploader {
           this.updateChunkProgress(chunkIndex, 'completed', 100, chunk.chunkSize)
         }
       })
-      
+
       // 3. 上传未完成的分片
       const chunksToUpload = this.chunks.filter(chunk => !this.uploadedChunks.has(chunk.chunkIndex))
-      
+
       if (chunksToUpload.length === 0) {
         console.log('所有分片已上传，直接合并')
         this.sendDetailProgress('merging', '所有分片已存在，正在合并...')
       } else {
         console.log(`需要上传 ${chunksToUpload.length} 个分片，已完成 ${this.uploadedChunks.size} 个`)
-        
+
         // 并发上传（使用队列控制，避免一次性发送太多请求）
         const concurrency = ChunkUploader.CONCURRENT_UPLOADS
         this.totalBatches = Math.ceil(chunksToUpload.length / concurrency)
-        
+
         for (let i = 0; i < chunksToUpload.length; i += concurrency) {
           if (this.aborted) {
             throw new Error('Upload aborted')
           }
-          
+
           this.currentBatch = Math.floor(i / concurrency) + 1
           const batch = chunksToUpload.slice(i, i + concurrency)
           const batchProgress = Math.round(((i + batch.length) / chunksToUpload.length) * 100)
           console.log(`上传批次 ${this.currentBatch}/${this.totalBatches}，进度: ${batchProgress}%`)
-          
+
           this.sendDetailProgress('uploading', `上传批次 ${this.currentBatch}/${this.totalBatches}`)
-          
+
           // 并发上传当前批次
           await Promise.all(batch.map(chunk => this.uploadChunkWithRetry(chunk)))
-          
+
           // 批次之间添加短暂延迟，避免请求过快
           if (i + concurrency < chunksToUpload.length) {
             await new Promise(resolve => setTimeout(resolve, 200))
           }
         }
       }
-      
+
       // 4. 合并分片
       console.log('所有分片上传完成，开始合并文件...')
       this.sendDetailProgress('merging', '正在合并文件...')
       await this.mergeChunks()
-      
+
       const duration = (Date.now() - this.uploadStartTime) / 1000
       const speed = this.file.size / duration / 1024 / 1024 // MB/s
       console.log(`文件上传成功！耗时: ${duration.toFixed(2)}秒，平均速度: ${speed.toFixed(2)} MB/s`)
-      
+
       // 5. 更新最终进度
       if (this.onProgress) {
         this.onProgress(100)
       }
-      
+
       this.sendDetailProgress('completed', '上传完成！', {
         percentage: 100,
         uploadedSize: this.file.size
       })
-      
+
     } catch (error) {
       console.error('文件上传失败:', error)
-      
+
       this.sendDetailProgress('error', '上传失败', {
         errorMessage: (error as Error).message
       })
-      
+
       if (this.onError) {
         this.onError(error as Error)
       }
@@ -630,7 +634,7 @@ export class ChunkUploader {
     // 大于10MB的文件使用分片上传（提高阈值，减少小文件使用分片）
     return fileSize > 10 * 1024 * 1024
   }
-  
+
   /**
    * 获取当前上传进度信息
    */
@@ -638,13 +642,13 @@ export class ChunkUploader {
     const uploadedSize = Array.from(this.uploadedChunks)
       .map(idx => this.chunks[idx]?.chunkSize || 0)
       .reduce((sum, size) => sum + size, 0)
-    
+
     const percentage = this.file.size > 0 ? Math.round((uploadedSize / this.file.size) * 100) : 0
     const elapsed = Date.now() - this.uploadStartTime
     const speed = elapsed > 0 ? (uploadedSize / elapsed) * 1000 : 0 // bytes/s
     const remainingSize = this.file.size - uploadedSize
     const remainingTime = speed > 0 ? remainingSize / speed : 0
-    
+
     return {
       uploadedChunks: this.uploadedChunks.size,
       totalChunks: this.chunks.length,

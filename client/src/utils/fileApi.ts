@@ -65,8 +65,8 @@ export class FileApiClient {
   // 读取文件内容
   async readFile(path: string, encoding?: string): Promise<FileContent> {
     const response = await this.client.get(`${API_BASE}/read-content`, {
-      params: { 
-        path, 
+      params: {
+        path,
         ...(encoding && { encoding })
       }
     })
@@ -187,11 +187,11 @@ export class FileApiClient {
   // 下载文件（立即触发下载）
   downloadFile(path: string): void {
     const token = localStorage.getItem('gsm3_token')
-    
+
     // 构建带认证的URL
     const baseUrl = `${API_BASE}/download?path=${encodeURIComponent(path)}`
     const url = token ? `${baseUrl}&token=${encodeURIComponent(token)}` : baseUrl
-    
+
     // 方法1：使用隐藏的iframe进行下载（推荐，支持认证）
     try {
       const iframe = document.createElement('iframe')
@@ -200,23 +200,23 @@ export class FileApiClient {
       iframe.style.left = '-9999px'
       iframe.style.top = '-9999px'
       iframe.name = 'download_iframe_' + Date.now()
-      
+
       document.body.appendChild(iframe)
-      
+
       // 直接设置iframe的src来触发下载
       iframe.src = url
-      
+
       // 清理DOM元素
       setTimeout(() => {
         if (document.body.contains(iframe)) {
           document.body.removeChild(iframe)
         }
       }, 5000) // 增加清理时间，确保下载完成
-      
+
       console.log('开始下载文件:', path)
     } catch (error) {
       console.error('iframe下载失败，尝试备用方法:', error)
-      
+
       // 方法2：备用方案 - 使用隐藏的链接点击
       try {
         const link = document.createElement('a')
@@ -224,21 +224,21 @@ export class FileApiClient {
         link.download = ''
         link.style.display = 'none'
         link.target = '_blank'
-        
+
         document.body.appendChild(link)
         link.click()
-        
+
         // 清理DOM元素
         setTimeout(() => {
           if (document.body.contains(link)) {
             document.body.removeChild(link)
           }
         }, 1000)
-        
+
         console.log('使用链接点击下载文件:', path)
       } catch (fallbackError) {
         console.error('链接下载也失败了，尝试最后的方法:', fallbackError)
-        
+
         // 方法3：最后的备用方案 - 直接跳转
         try {
           window.open(url, '_blank')
@@ -267,12 +267,12 @@ export class FileApiClient {
   downloadFileWithProgress(taskId: string): void {
     const token = localStorage.getItem('gsm3_token')
     const url = `${API_BASE}/download-task/${taskId}`
-    
+
     // 创建一个临时的a标签进行下载
     const link = document.createElement('a')
     link.href = url
     link.style.display = 'none'
-    
+
     // 添加认证头
     if (token) {
       // 对于直接下载链接，我们需要在URL中包含token或使用其他方式
@@ -282,66 +282,88 @@ export class FileApiClient {
           'Authorization': `Bearer ${token}`
         }
       })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`下载失败: ${response.status}`)
-        }
-        
-        // 从响应头中获取文件名
-        const contentDisposition = response.headers.get('Content-Disposition')
-        let fileName = 'download'
-        
-        if (contentDisposition) {
-          const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/)
-          if (utf8Match) {
-            try {
-              fileName = decodeURIComponent(utf8Match[1])
-            } catch (e) {
-              console.warn('Failed to decode UTF-8 filename:', e)
-            }
-          } else {
-            const normalMatch = contentDisposition.match(/filename="([^"]+)"/)
-            if (normalMatch) {
-              fileName = normalMatch[1]
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`下载失败: ${response.status}`)
+          }
+
+          // 从响应头中获取文件名
+          const contentDisposition = response.headers.get('Content-Disposition')
+          let fileName = 'download'
+
+          if (contentDisposition) {
+            const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/)
+            if (utf8Match) {
+              try {
+                fileName = decodeURIComponent(utf8Match[1])
+              } catch (e) {
+                console.warn('Failed to decode UTF-8 filename:', e)
+              }
+            } else {
+              const normalMatch = contentDisposition.match(/filename="([^"]+)"/)
+              if (normalMatch) {
+                fileName = normalMatch[1]
+              }
             }
           }
-        }
-        
-        return response.blob().then(blob => ({ blob, fileName }))
-      })
-      .then(({ blob, fileName }) => {
-        const downloadUrl = window.URL.createObjectURL(blob)
-        link.href = downloadUrl
-        link.download = fileName
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        window.URL.revokeObjectURL(downloadUrl)
-        
-        console.log('文件下载成功:', fileName)
-      })
-      .catch(error => {
-        console.error('下载失败:', error)
-      })
+
+          return response.blob().then(blob => ({ blob, fileName }))
+        })
+        .then(({ blob, fileName }) => {
+          const downloadUrl = window.URL.createObjectURL(blob)
+          link.href = downloadUrl
+          link.download = fileName
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          window.URL.revokeObjectURL(downloadUrl)
+
+          console.log('文件下载成功:', fileName)
+        })
+        .catch(error => {
+          console.error('下载失败:', error)
+        })
     }
+  }
+
+  // 检查文件上传冲突
+  async checkUploadConflicts(
+    targetPath: string,
+    fileNames: string[]
+  ): Promise<{
+    hasConflicts: boolean
+    conflicts: Array<{
+      fileName: string
+      exists: boolean
+      existingSize?: number
+      existingModified?: Date
+    }>
+  }> {
+    const response = await this.client.post(`${API_BASE}/upload/check-conflict`, {
+      targetPath,
+      fileNames
+    })
+    return response.data.data
   }
 
   // 上传文件
   async uploadFiles(
-    targetPath: string, 
-    files: FileList, 
-    onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error' }) => void
+    targetPath: string,
+    files: FileList,
+    onProgress?: (progress: { fileName: string; progress: number; status: 'uploading' | 'completed' | 'error' }) => void,
+    conflictStrategy: 'replace' | 'rename' | 'skip' = 'rename'
   ): Promise<FileOperationResult> {
     const formData = new FormData()
     formData.append('targetPath', targetPath)
-    
+    formData.append('conflictStrategy', conflictStrategy)
+
     // 处理文件名编码，确保中文文件名正确传输
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      
+
       // 检查文件名是否包含中文字符
       const hasChineseChars = /[\u4e00-\u9fa5]/.test(file.name)
-      
+
       if (hasChineseChars) {
         // 对于包含中文的文件名，创建一个新的File对象确保编码正确
         const blob = new Blob([file], { type: file.type })
@@ -358,7 +380,7 @@ export class FileApiClient {
 
     // 创建可取消的请求
     const controller = new AbortController()
-    
+
     try {
       const response = await this.client.post(`${API_BASE}/upload`, formData, {
         headers: {
@@ -396,10 +418,10 @@ export class FileApiClient {
   ): Promise<FileOperationResult> {
     const formData = new FormData()
     formData.append('targetPath', targetPath)
-    
+
     // 检查文件名是否包含中文字符
     const hasChineseChars = /[\u4e00-\u9fa5]/.test(file.name)
-    
+
     if (hasChineseChars) {
       const blob = new Blob([file], { type: file.type })
       const newFile = new File([blob], file.name, {
