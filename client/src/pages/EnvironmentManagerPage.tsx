@@ -159,6 +159,14 @@ const EnvironmentManagerPage: React.FC = () => {
       windows: 'https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_windows-x64_bin.zip',
       linux: 'https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_linux-x64_bin.tar.gz',
       arm: 'https://download.java.net/java/GA/jdk21/fd2272bbf8e04c3dbaee13770090416c/35/GPL/openjdk-21_macos-aarch64_bin.tar.gz'
+    },
+    {
+      version: 'Java 25',
+      key: 'java25',
+      description: 'Java 25 (OpenJDK 25+36)',
+      windows: 'https://download.java.net/openjdk/jdk25/ri/openjdk-25+36_windows-x64_bin.zip',
+      linux: 'https://download.java.net/openjdk/jdk25/ri/openjdk-25+36_linux-x64_bin.tar.gz',
+      arm: 'https://download.java.net/java/GA/jdk25/bd75d5f9689641da8e1daabeccb5528b/36/GPL/openjdk-25_macos-aarch64_bin.tar.gz'
     }
   ]
 
