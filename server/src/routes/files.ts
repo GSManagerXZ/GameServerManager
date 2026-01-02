@@ -1022,7 +1022,7 @@ router.get('/download', authenticateTokenFlexible, async (req: Request, res: Res
 // 检查文件上传冲突
 router.post('/upload/check-conflict', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { targetPath, fileNames } = req.body
+    const { targetPath, fileNames, filePaths } = req.body
 
     if (!targetPath || !fileNames || !Array.isArray(fileNames)) {
       return res.status(400).json({
@@ -1042,26 +1042,45 @@ router.post('/upload/check-conflict', authenticateToken, async (req: Request, re
       fullTargetPath = path.resolve(process.cwd(), fixedTargetPath.replace(/^\//, ''))
     }
 
-    // 检查每个文件是否存在冲突
-    const conflicts: Array<{ fileName: string; exists: boolean; existingSize?: number; existingModified?: Date }> = []
+    // 解析文件相对路径（用于文件夹上传）
+    let fileRelativePaths: string[] = []
+    if (filePaths && Array.isArray(filePaths)) {
+      fileRelativePaths = filePaths
+    }
 
-    for (const fileName of fileNames) {
-      const targetFilePath = path.join(fullTargetPath, fileName)
+    // 检查每个文件是否存在冲突
+    const conflicts: Array<{ fileName: string; relativePath?: string; exists: boolean; existingSize?: number; existingModified?: Date }> = []
+
+    for (let i = 0; i < fileNames.length; i++) {
+      const fileName = fileNames[i]
+      const relativePath = fileRelativePaths[i] || ''
+
+      // 根据相对路径确定实际的目标文件路径
+      let targetFilePath: string
+      if (relativePath) {
+        // 相对路径格式如: "folderName/subFolder/file.txt"
+        // 我们需要使用整个相对路径来构建目标路径
+        targetFilePath = path.join(fullTargetPath, relativePath)
+      } else {
+        targetFilePath = path.join(fullTargetPath, fileName)
+      }
+
       try {
         const stats = await fs.stat(targetFilePath)
         if (stats.isFile()) {
           conflicts.push({
             fileName,
+            relativePath: relativePath || undefined,
             exists: true,
             existingSize: stats.size,
             existingModified: stats.mtime
           })
         } else {
-          conflicts.push({ fileName, exists: false })
+          conflicts.push({ fileName, relativePath: relativePath || undefined, exists: false })
         }
       } catch {
         // 文件不存在
-        conflicts.push({ fileName, exists: false })
+        conflicts.push({ fileName, relativePath: relativePath || undefined, exists: false })
       }
     }
 
@@ -1091,11 +1110,12 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
   console.log('Files length:', req.files?.length)
 
   try {
-    const { targetPath, conflictStrategy = 'rename' } = req.body
+    const { targetPath, conflictStrategy = 'rename', filePaths } = req.body
     // conflictStrategy: 'replace' | 'rename' | 'skip'
     // - replace: 直接替换已存在的文件
     // - rename: 自动重命名（添加序号）
     // - skip: 跳过已存在的文件
+    // filePaths: JSON字符串，包含每个文件的相对路径（用于文件夹上传保留结构）
 
     const files = req.files as Express.Multer.File[]
 
@@ -1107,6 +1127,17 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
     if (!files || files.length === 0) {
       console.log('Error: No files uploaded')
       return res.status(400).json({ success: false, message: 'No files uploaded' })
+    }
+
+    // 解析文件相对路径（用于文件夹上传）
+    let fileRelativePaths: string[] = []
+    if (filePaths) {
+      try {
+        fileRelativePaths = JSON.parse(filePaths)
+        console.log('Folder upload detected, file paths:', fileRelativePaths)
+      } catch (e) {
+        console.warn('Failed to parse filePaths:', e)
+      }
     }
 
     // 修复Windows路径格式
@@ -1131,7 +1162,8 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
 
     // 移动文件到目标目录
     const results = []
-    for (const file of files) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
       try {
         // 使用改进的文件名处理函数
         let originalName = fixChineseFilename(file.originalname)
@@ -1146,9 +1178,27 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
           console.log(`Using fallback filename: ${originalName}`)
         }
 
+        // 处理文件夹上传的相对路径
+        // 获取此文件对应的相对路径
+        const relativePath = fileRelativePaths[i] || ''
+        let fileTargetDir = fullTargetPath
+
+        if (relativePath) {
+          // 相对路径格式如: "folderName/subFolder/file.txt"
+          // 我们需要取父目录部分: "folderName/subFolder"
+          const relativeDir = path.dirname(relativePath)
+          if (relativeDir && relativeDir !== '.') {
+            // 构建完整的目标目录（目标路径 + 相对目录）
+            fileTargetDir = path.join(fullTargetPath, relativeDir)
+            // 确保子目录存在
+            await fs.mkdir(fileTargetDir, { recursive: true })
+            console.log(`Created folder structure: ${fileTargetDir}`)
+          }
+        }
+
         // 检查目标文件是否已存在
         let finalFileName = originalName
-        const targetFilePath = path.join(fullTargetPath, originalName)
+        const targetFilePath = path.join(fileTargetDir, originalName)
         const fileExists = await fs.access(targetFilePath).then(() => true).catch(() => false)
 
         if (fileExists) {
@@ -1164,13 +1214,13 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
               try {
                 await fs.unlink(file.path)
               } catch { }
-              results.push({ name: originalName, success: true, skipped: true })
+              results.push({ name: originalName, relativePath, success: true, skipped: true })
               continue
             case 'rename':
             default:
               // 自动重命名：添加序号
               let counter = 1
-              while (await fs.access(path.join(fullTargetPath, finalFileName)).then(() => true).catch(() => false)) {
+              while (await fs.access(path.join(fileTargetDir, finalFileName)).then(() => true).catch(() => false)) {
                 const ext = path.extname(originalName)
                 const nameWithoutExt = path.basename(originalName, ext)
                 finalFileName = `${nameWithoutExt}(${counter})${ext}`
@@ -1181,7 +1231,7 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
           }
         }
 
-        const finalTargetFilePath = path.join(fullTargetPath, finalFileName)
+        const finalTargetFilePath = path.join(fileTargetDir, finalFileName)
         console.log(`Moving file from ${file.path} to ${finalTargetFilePath}`)
 
         // 使用diskStorage时，文件已经在临时目录中，需要移动到目标目录
@@ -1197,7 +1247,7 @@ router.post('/upload', authenticateToken, upload.array('files'), async (req: Req
             throw renameError
           }
         }
-        results.push({ name: finalFileName, success: true, replaced: fileExists && conflictStrategy === 'replace' })
+        results.push({ name: finalFileName, relativePath, success: true, replaced: fileExists && conflictStrategy === 'replace' })
       } catch (error: any) {
         console.error(`Failed to move file ${file.originalname}:`, error)
         results.push({ name: file.originalname, success: false, error: error.message })

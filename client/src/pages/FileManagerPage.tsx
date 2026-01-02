@@ -16,11 +16,13 @@ import {
   Progress,
   Badge,
   Drawer,
-  Select
+  Select,
+  Dropdown
 } from 'antd'
 import {
   HomeOutlined,
   FolderOutlined,
+  FolderAddOutlined,
   PlusOutlined,
   UploadOutlined,
   DeleteOutlined,
@@ -157,7 +159,10 @@ const FileManagerPage: React.FC = () => {
     file: FileItem | null
   }>({ visible: false, file: null })
 
-  const [uploadDialog, setUploadDialog] = useState(false)
+  const [uploadDialog, setUploadDialog] = useState<{
+    visible: boolean
+    directory: boolean // 是否为文件夹上传模式
+  }>({ visible: false, directory: false })
   const [deleteDialog, setDeleteDialog] = useState<{
     visible: boolean
     files: FileItem[]
@@ -1149,7 +1154,7 @@ const FileManagerPage: React.FC = () => {
         title: '上传成功',
         message: `成功上传 ${files.length} 个文件`
       })
-      setUploadDialog(false)
+      setUploadDialog({ visible: false, directory: false })
     } else if (onProgress) {
       // 如果上传失败，通过进度回调通知错误状态
       onProgress({
@@ -1454,14 +1459,31 @@ const FileManagerPage: React.FC = () => {
                 {!touchAdaptation.shouldShowMobileUI && "新建文件"}
               </Button>
             </Tooltip>
-            <Tooltip title="上传文件">
-              <Button
-                icon={<UploadOutlined />}
-                onClick={() => setUploadDialog(true)}
-              >
-                {!touchAdaptation.shouldShowMobileUI && "上传"}
-              </Button>
-            </Tooltip>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'file',
+                    icon: <UploadOutlined />,
+                    label: '上传文件',
+                    onClick: () => setUploadDialog({ visible: true, directory: false })
+                  },
+                  {
+                    key: 'folder',
+                    icon: <FolderAddOutlined />,
+                    label: '上传文件夹',
+                    onClick: () => setUploadDialog({ visible: true, directory: true })
+                  }
+                ]
+              }}
+              trigger={['click']}
+            >
+              <Tooltip title="上传">
+                <Button icon={<UploadOutlined />}>
+                  {!touchAdaptation.shouldShowMobileUI && "上传"}
+                </Button>
+              </Tooltip>
+            </Dropdown>
 
             {/* 文件操作按钮 - 小屏模式下隐藏 */}
             {!touchAdaptation.shouldShowMobileUI && (
@@ -1839,10 +1861,11 @@ const FileManagerPage: React.FC = () => {
       />
 
       <UploadDialog
-        visible={uploadDialog}
+        visible={uploadDialog.visible}
         targetPath={currentPath}
         onConfirm={handleUploadConfirm}
-        onCancel={() => setUploadDialog(false)}
+        onCancel={() => setUploadDialog({ visible: false, directory: false })}
+        directory={uploadDialog.directory}
       />
 
       <DeleteConfirmDialog

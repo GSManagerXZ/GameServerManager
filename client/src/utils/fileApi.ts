@@ -357,9 +357,17 @@ export class FileApiClient {
     formData.append('targetPath', targetPath)
     formData.append('conflictStrategy', conflictStrategy)
 
+    // 收集文件的相对路径信息（用于保留文件夹结构）
+    const filePaths: string[] = []
+
     // 处理文件名编码，确保中文文件名正确传输
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
+
+      // 获取文件的相对路径（用于文件夹上传）
+      // webkitRelativePath 格式如：folderName/subFolder/file.txt
+      const relativePath = (file as any).webkitRelativePath || ''
+      filePaths.push(relativePath)
 
       // 检查文件名是否包含中文字符
       const hasChineseChars = /[\u4e00-\u9fa5]/.test(file.name)
@@ -372,10 +380,16 @@ export class FileApiClient {
           lastModified: file.lastModified
         })
         formData.append('files', newFile, file.name)
-        console.log('Uploading Chinese filename:', file.name)
+        console.log('Uploading Chinese filename:', file.name, 'relativePath:', relativePath)
       } else {
         formData.append('files', file)
       }
+    }
+
+    // 如果存在相对路径信息，说明是文件夹上传
+    if (filePaths.some(p => p !== '')) {
+      formData.append('filePaths', JSON.stringify(filePaths))
+      console.log('Uploading folder with structure, file paths:', filePaths)
     }
 
     // 创建可取消的请求

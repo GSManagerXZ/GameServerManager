@@ -237,11 +237,16 @@ interface UploadDialogProps {
   targetPath: string // 上传目标路径
   onConfirm: (files: FileList, onProgress?: (progress: FileUploadProgress) => void, signal?: AbortSignal, conflictStrategy?: 'replace' | 'rename') => void
   onCancel: () => void
+  directory?: boolean // 是否支持文件夹上传
 }
+
+// 文件夹上传时的最大文件数量限制
+const MAX_FOLDER_FILES = 100
 
 // 文件冲突信息接口
 interface FileConflict {
   fileName: string
+  relativePath?: string // 文件夹上传时的相对路径
   exists: boolean
   existingSize?: number
   existingModified?: Date
@@ -251,7 +256,8 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
   visible,
   targetPath,
   onConfirm,
-  onCancel
+  onCancel,
+  directory = false
 }) => {
   const [fileList, setFileList] = useState<UploadFile[]>([])
   const [uploadProgress, setUploadProgress] = useState<FileUploadProgress | null>(null)
@@ -269,10 +275,35 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
   const [conflictFiles, setConflictFiles] = useState<FileConflict[]>([])
   const pendingFilesRef = useRef<FileList | null>(null)
 
+  // 文件夹上传超过限制的提示状态
+  const [folderLimitExceeded, setFolderLimitExceeded] = useState(false)
+  const folderFilesCountRef = useRef(0)
+
   const uploadProps: UploadProps = {
     name: 'files',
     multiple: true,
-    beforeUpload: (file) => {
+    directory: directory, // 支持文件夹上传
+    beforeUpload: (file, allFiles) => {
+      // 文件夹上传时检查文件数量限制
+      if (directory && allFiles.length > MAX_FOLDER_FILES) {
+        // 如果还没有显示过提示，才显示
+        if (!folderLimitExceeded) {
+          setFolderLimitExceeded(true)
+          message.error({
+            content: `文件夹内文件数量（${allFiles.length}个）超过${MAX_FOLDER_FILES}个限制，请压缩后上传压缩包`,
+            duration: 5
+          })
+          // 清空已选文件列表
+          setFileList([])
+        }
+        return Upload.LIST_IGNORE
+      }
+
+      // 重置限制状态
+      if (folderLimitExceeded) {
+        setFolderLimitExceeded(false)
+      }
+
       // 验证文件名是否包含中文字符
       const hasChineseChars = /[\u4e00-\u9fa5]/.test(file.name)
 
@@ -414,7 +445,12 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
     // 检查文件冲突
     setIsCheckingConflict(true)
     try {
-      const fileNames = Array.from(files).map(f => f.name)
+      // 收集文件名和相对路径（用于文件夹上传）
+      const fileInfos = Array.from(files).map(f => ({
+        name: f.name,
+        relativePath: (f as any).webkitRelativePath || ''
+      }))
+
       const response = await fetch('/api/files/upload/check-conflict', {
         method: 'POST',
         headers: {
@@ -423,7 +459,8 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
         },
         body: JSON.stringify({
           targetPath,
-          fileNames
+          fileNames: fileInfos.map(f => f.name),
+          filePaths: fileInfos.map(f => f.relativePath) // 传递相对路径
         })
       })
 
@@ -567,10 +604,12 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
                   <InboxOutlined className="text-4xl text-blue-500" />
                 </p>
                 <p className="ant-upload-text text-lg font-medium">
-                  点击或拖拽文件到此区域上传
+                  {directory ? '点击选择文件夹上传' : '点击或拖拽文件到此区域上传'}
                 </p>
                 <p className="ant-upload-hint text-gray-500">
-                  支持单个或批量上传文件，大文件将自动使用分片上传
+                  {directory
+                    ? `支持上传整个文件夹，但文件夹内文件数量不得超过${MAX_FOLDER_FILES}个，超过请先压缩后上传压缩包`
+                    : '支持单个或批量上传文件，大文件将自动使用分片上传'}
                 </p>
               </Dragger>
 
@@ -876,12 +915,19 @@ export const UploadDialog: React.FC<UploadDialogProps> = ({
           <div className="max-h-48 overflow-y-auto border rounded-lg dark:border-gray-600">
             {conflictFiles.map((conflict, index) => (
               <div
-                key={conflict.fileName}
+                key={conflict.relativePath || conflict.fileName}
                 className={`flex items-center justify-between p-3 ${index !== conflictFiles.length - 1 ? 'border-b dark:border-gray-600' : ''
                   }`}
               >
-                <div className="flex items-center min-w-0 flex-1">
-                  <span className="truncate font-medium">{conflict.fileName}</span>
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="truncate font-medium">
+                    {conflict.relativePath || conflict.fileName}
+                  </span>
+                  {conflict.relativePath && (
+                    <span className="text-xs text-gray-400 truncate">
+                      文件名: {conflict.fileName}
+                    </span>
+                  )}
                 </div>
                 {conflict.existingSize !== undefined && (
                   <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
