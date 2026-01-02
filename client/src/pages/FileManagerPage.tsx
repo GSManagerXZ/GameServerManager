@@ -1443,22 +1443,31 @@ const FileManagerPage: React.FC = () => {
 
           {/* 操作按钮 */}
           <Space>
-            <Tooltip title="新建文件夹">
-              <Button
-                icon={<PlusOutlined />}
-                onClick={() => setCreateDialog({ visible: true, type: 'folder' })}
-              >
-                {!touchAdaptation.shouldShowMobileUI && "新建文件夹"}
-              </Button>
-            </Tooltip>
-            <Tooltip title="新建文件">
-              <Button
-                icon={<FileAddOutlined />}
-                onClick={() => setCreateDialog({ visible: true, type: 'file' })}
-              >
-                {!touchAdaptation.shouldShowMobileUI && "新建文件"}
-              </Button>
-            </Tooltip>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'folder',
+                    icon: <FolderAddOutlined />,
+                    label: '新建文件夹',
+                    onClick: () => setCreateDialog({ visible: true, type: 'folder' })
+                  },
+                  {
+                    key: 'file',
+                    icon: <FileAddOutlined />,
+                    label: '新建文件',
+                    onClick: () => setCreateDialog({ visible: true, type: 'file' })
+                  }
+                ]
+              }}
+              trigger={['click']}
+            >
+              <Tooltip title="新建">
+                <Button icon={<PlusOutlined />}>
+                  {!touchAdaptation.shouldShowMobileUI && "新建"}
+                </Button>
+              </Tooltip>
+            </Dropdown>
             <Dropdown
               menu={{
                 items: [
