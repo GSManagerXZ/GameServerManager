@@ -17,7 +17,9 @@ import {
   Badge,
   Drawer,
   Select,
-  Dropdown
+  Dropdown,
+  Switch,
+  Popover
 } from 'antd'
 import {
   HomeOutlined,
@@ -183,6 +185,10 @@ const FileManagerPage: React.FC = () => {
 
   // 搜索
   const [searchQuery, setSearchQuery] = useState('')
+  const [recursiveSearch, setRecursiveSearch] = useState(false)
+  const [searchResults, setSearchResults] = useState<FileItem[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // 历史记录
   const [history, setHistory] = useState<string[]>([])
@@ -1311,10 +1317,77 @@ const FileManagerPage: React.FC = () => {
     return items
   }
 
+  // 处理递归搜索
+  const handleRecursiveSearch = useCallback(async (query: string) => {
+    if (!query.trim() || !recursiveSearch) {
+      setSearchResults([])
+      setIsSearching(false)
+      return
+    }
+
+    setIsSearching(true)
+    try {
+      const result = await fileApiClient.searchFiles(currentPath, query, 'all', false, 200)
+      // 确保搜索结果符合 FileItem 类型
+      const items: FileItem[] = result.results.map((item: any) => ({
+        name: item.name,
+        path: item.path,
+        type: item.type as 'file' | 'directory',
+        size: item.size,
+        modified: item.modified,
+        parent_dir: item.parent_dir || ''
+      }))
+      setSearchResults(items)
+    } catch (error: any) {
+      console.error('递归搜索失败:', error)
+      addNotification({
+        type: 'error',
+        title: '搜索失败',
+        message: error.message || '搜索时发生错误'
+      })
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }, [currentPath, recursiveSearch, addNotification])
+
+  // 搜索框防抖处理
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+
+    if (recursiveSearch && searchQuery.trim()) {
+      searchTimeoutRef.current = setTimeout(() => {
+        handleRecursiveSearch(searchQuery)
+      }, 500) // 500ms 防抖
+    } else {
+      setSearchResults([])
+      setIsSearching(false)
+    }
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [searchQuery, recursiveSearch, handleRecursiveSearch])
+
+  // 当路径变化时清空搜索结果
+  useEffect(() => {
+    setSearchResults([])
+    // 如果递归搜索开启且有搜索词，重新搜索
+    if (recursiveSearch && searchQuery.trim()) {
+      handleRecursiveSearch(searchQuery)
+    }
+  }, [currentPath])
+
   // 过滤文件
-  const filteredFiles = files.filter(file =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredFiles = recursiveSearch && searchQuery.trim()
+    ? searchResults
+    : files.filter(file =>
+      file.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
 
   // 获取任务状态图标
   const getTaskStatusIcon = (status: string) => {
@@ -1433,13 +1506,40 @@ const FileManagerPage: React.FC = () => {
           )}
 
           {/* 搜索 */}
-          <Input
-            placeholder="搜索文件..."
-            prefix={<SearchOutlined />}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={touchAdaptation.shouldShowMobileUI ? "w-32" : "w-64"}
-          />
+          <Popover
+            content={
+              <div className="flex items-center gap-2">
+                <span className="text-sm">递归搜索子目录</span>
+                <Switch
+                  size="small"
+                  checked={recursiveSearch}
+                  onChange={setRecursiveSearch}
+                />
+              </div>
+            }
+            trigger="hover"
+            placement="bottom"
+          >
+            <Input
+              placeholder={recursiveSearch ? "递归搜索文件..." : "搜索文件..."}
+              prefix={
+                isSearching ? <LoadingOutlined spin /> : <SearchOutlined />
+              }
+              suffix={
+                recursiveSearch ? (
+                  <Tooltip title="递归搜索已开启">
+                    <span className="text-xs text-blue-500 cursor-pointer">
+                      递归
+                    </span>
+                  </Tooltip>
+                ) : null
+              }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={touchAdaptation.shouldShowMobileUI ? "w-36" : "w-64"}
+              allowClear
+            />
+          </Popover>
 
           {/* 操作按钮 */}
           <Space>
