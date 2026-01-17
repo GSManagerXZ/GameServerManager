@@ -118,7 +118,7 @@ router.get('/games', authenticateToken, async (req: Request, res: Response) => {
       
       try {
         // 自动执行更新游戏清单
-        const remoteUrl = 'http://gsm.server.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
+        const remoteUrl = 'http://api.gsm.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
         const targetPath = possiblePaths[0] // 使用第一个路径作为目标路径
         
         // 确保目录存在
@@ -487,7 +487,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
             }
             
             // 请求实例市场数据
-            const marketUrl = `http://gsm.server.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
+            const marketUrl = `http://api.gsm.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
             
             const marketData = await new Promise<any>((resolve, reject) => {
               const url = new URL(marketUrl)
@@ -594,7 +594,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
           }
           
           // 请求实例市场数据
-          const marketUrl = `http://gsm.server.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
+          const marketUrl = `http://api.gsm.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
           
           const marketData = await new Promise<any>((resolve, reject) => {
             const url = new URL(marketUrl)
@@ -718,7 +718,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
 // 更新Steam游戏部署清单
 router.post('/update-game-list', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const remoteUrl = 'http://gsm.server.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
+    const remoteUrl = 'http://api.gsm.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
     const gamesFilePath = path.join(__dirname, '../data/games/installgame.json')
     
     logger.info('开始更新Steam游戏部署清单', { remoteUrl, localPath: gamesFilePath })

@@ -25,7 +25,7 @@ router.post('/validate-key', authenticateToken, async (req: Request, res: Respon
     }
 
     // 向第三方API发送请求校验密钥
-    const apiUrl = 'http://gsm.server.xiaozhuhouses.asia:10002/api/key/check'
+    const apiUrl = 'http://api.gsm.xiaozhuhouses.asia:10002/api/key/check'
     
     logger.info(`开始校验赞助者密钥: ${key.substring(0, 8)}...`)
     

@@ -129,7 +129,7 @@ router.get('/games', authenticateToken, async (req: Request, res: Response) => {
 
     try {
       // 向第三方API请求在线游戏列表
-      const response = await axios.post('http://gsm.server.xiaozhuhouses.asia:10002/api/online-games', {
+      const response = await axios.post('http://api.gsm.xiaozhuhouses.asia:10002/api/online-games', {
         system: systemName,
         key: sponsorConfig.key
       }, {
@@ -275,7 +275,7 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
         const currentPlatform = getCurrentPlatform()
         const systemName = currentPlatform === Platform.WINDOWS ? 'Windows' : 'Linux'
         
-        const gameListResponse = await axios.post('http://gsm.server.xiaozhuhouses.asia:10002/api/online-games', {
+        const gameListResponse = await axios.post('http://api.gsm.xiaozhuhouses.asia:10002/api/online-games', {
           system: systemName,
           key: sponsorConfig.key
         })

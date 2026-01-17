@@ -97,7 +97,7 @@ function validateSponsorKey(): boolean {
 // 获取赞助者专用下载链接
 function getSponsorDownloadUrl(version: string, platform: string, arch?: string): string {
   const baseUrls = {
-    windows: 'http://download.server.xiaozhuhouses.asia:8082/disk1/jdk/Windows/',
+    windows: 'http://download.xiaozhuhouses.asia:8082/disk1/jdk/Windows/',
     linux: 'http://langlangy.server.xiaozhuhouses.asia:8082/disk1/jdk/Linux/',
     arm: 'http://langlangy.server.xiaozhuhouses.asia:8082/disk1/jdk/aarch64/'
   }

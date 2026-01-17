@@ -215,7 +215,7 @@ router.get('/instances/market', async (req: Request, res: Response) => {
     }
     
     // 请求第二个服务获取实例市场数据
-    const marketUrl = `http://gsm.server.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
+    const marketUrl = `http://api.gsm.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
     
     logger.info(`插件请求实例市场数据: ${marketUrl}`)
     
