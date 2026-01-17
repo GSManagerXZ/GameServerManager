@@ -3,7 +3,7 @@ import fs from 'fs-extra'
 import os from 'os'
 import axios from 'axios'
 import AdmZip from 'adm-zip'
-import tar from 'tar'
+import * as tar from 'tar'
 import logger from '../../utils/logger.js'
 
 export interface JavaEnvironment {
