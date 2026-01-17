@@ -4,6 +4,26 @@ import * as tar from 'tar'
 import { createReadStream, createWriteStream } from 'fs'
 import * as zlib from 'zlib'
 
+/**
+ * 安全过滤器：防止 CVE-2026-23745 漏洞
+ */
+function createTarSecurityFilter(cwd: string) {
+  return (filePath: string, entry: tar.ReadEntry): boolean => {
+    if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
+      const linkpath = (entry as any).linkpath as string
+      if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
+        console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`)
+        return false
+      }
+    }
+    if (path.isAbsolute(filePath) || filePath.includes('..')) {
+      console.warn(`[安全过滤] 阻止危险路径: ${filePath}`)
+      return false
+    }
+    return true
+  }
+}
+
 export interface BackupInfo {
   name: string
   baseDir: string
@@ -60,17 +80,17 @@ export class BackupManager {
       try {
         const metaRaw = await fs.readFile(path.join(backupDir, 'data.json'), 'utf-8')
         meta = JSON.parse(metaRaw)
-      } catch {}
-      
+      } catch { }
+
       // 计算总大小
       const totalSize = detailed.reduce((sum, file) => sum + file.size, 0)
-      
-      result.push({ 
-        name: e.name, 
-        baseDir: backupDir, 
-        files: detailed.sort((a,b)=>a.fileName.localeCompare(b.fileName)), 
+
+      result.push({
+        name: e.name,
+        baseDir: backupDir,
+        files: detailed.sort((a, b) => a.fileName.localeCompare(b.fileName)),
         totalSize,
-        meta 
+        meta
       })
     }
     return result
@@ -79,7 +99,7 @@ export class BackupManager {
   private formatTimestamp(date: Date): string {
     const pad = (n: number) => n.toString().padStart(2, '0')
     // 使用连字符替代冒号，以兼容Windows文件系统
-    return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
   }
 
   async createBackup(backupName: string, sourcePath: string, maxKeep: number): Promise<{ archivePath: string }> {
@@ -108,7 +128,7 @@ export class BackupManager {
       const gzip = zlib.createGzip({ level: 6 })
       readStream.pipe(gzip).pipe(writeStream)
         .on('finish', async () => {
-          try { await fs.unlink(tempTarPath) } catch {}
+          try { await fs.unlink(tempTarPath) } catch { }
           resolve()
         })
         .on('error', reject)
@@ -123,7 +143,7 @@ export class BackupManager {
         const removeCount = items.length - maxKeep
         for (let i = 0; i < removeCount; i++) {
           const toRemove = path.join(backupDir, items[i])
-          try { await fs.unlink(toRemove) } catch {}
+          try { await fs.unlink(toRemove) } catch { }
         }
       }
     }
@@ -146,7 +166,7 @@ export class BackupManager {
     }
     try {
       await fs.rm(targetPath, { recursive: true, force: true })
-    } catch {}
+    } catch { }
     // 确保父目录存在（tar 解压会在父目录下创建同名目录/文件）
     await this.ensureDir(path.dirname(targetPath))
 
@@ -163,8 +183,13 @@ export class BackupManager {
         .on('error', reject)
     })
 
-    await tar.extract({ file: tempTarPath, cwd: path.dirname(targetPath) } as any)
-    try { await fs.unlink(tempTarPath) } catch {}
+    const extractCwd = path.dirname(targetPath)
+    await tar.extract({
+      file: tempTarPath,
+      cwd: extractCwd,
+      filter: createTarSecurityFilter(extractCwd)
+    } as any)
+    try { await fs.unlink(tempTarPath) } catch { }
     return { targetPath }
   }
 

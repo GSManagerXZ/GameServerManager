@@ -46,54 +46,54 @@ export class FactorioDeployer {
     try {
       const buffer = Buffer.alloc(512);
       const fd = await fsPromises.open(filePath, 'r');
-      
+
       try {
         await fd.read(buffer, 0, 512, 0);
-        
+
         // 检查文件头魔数
         const header = buffer.toString('hex');
-        
+
         console.log(`文件头魔数: ${header.substring(0, 32)}`);
-        
+
         // ZIP文件 (PK)
         if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
           console.log('检测到ZIP格式');
           return 'zip';
         }
-        
+
         // GZIP文件
         if (buffer[0] === 0x1F && buffer[1] === 0x8B) {
           console.log('检测到GZIP格式');
           return 'gzip';
         }
-        
+
         // XZ文件
-        if (buffer[0] === 0xFD && buffer[1] === 0x37 && buffer[2] === 0x7A && 
-            buffer[3] === 0x58 && buffer[4] === 0x5A && buffer[5] === 0x00) {
+        if (buffer[0] === 0xFD && buffer[1] === 0x37 && buffer[2] === 0x7A &&
+          buffer[3] === 0x58 && buffer[4] === 0x5A && buffer[5] === 0x00) {
           console.log('检测到XZ格式');
           return 'xz';
         }
-        
+
         // BZIP2文件
         if (buffer[0] === 0x42 && buffer[1] === 0x5A && buffer[2] === 0x68) {
           console.log('检测到BZIP2格式');
           return 'bzip2';
         }
-        
+
         // TAR文件需要检查257字节处的ustar标识
         if (buffer.length >= 262 && buffer.slice(257, 262).toString() === 'ustar') {
           console.log('检测到TAR格式');
           return 'tar';
         }
-        
+
       } finally {
         await fd.close();
       }
-      
+
       // 如果魔数检测失败，根据文件扩展名判断
       console.log('魔数检测失败，使用文件扩展名判断');
       const basename = path.basename(filePath).toLowerCase();
-      
+
       if (basename.endsWith('.tar.xz')) {
         console.log('根据扩展名检测到TAR.XZ格式');
         return 'tar.xz';
@@ -102,7 +102,7 @@ export class FactorioDeployer {
         console.log('根据扩展名检测到TAR.GZ格式');
         return 'tar.gz';
       }
-      
+
       const ext = path.extname(filePath).toLowerCase();
       if (ext === '.tar') {
         console.log('根据扩展名检测到TAR格式');
@@ -124,7 +124,7 @@ export class FactorioDeployer {
         console.log('根据扩展名检测到BZ2格式');
         return 'bzip2';
       }
-      
+
       console.log('未知文件格式');
       return 'unknown';
     } catch (error) {
@@ -133,14 +133,14 @@ export class FactorioDeployer {
       const basename = path.basename(filePath).toLowerCase();
       if (basename.endsWith('.tar.xz')) return 'tar.xz';
       if (basename.endsWith('.tar.gz') || basename.endsWith('.tgz')) return 'tar.gz';
-      
+
       const ext = path.extname(filePath).toLowerCase();
       if (ext === '.tar') return 'tar';
       if (ext === '.gz') return 'gzip';
       if (ext === '.zip') return 'zip';
       if (ext === '.xz') return 'xz';
       if (ext === '.bz2') return 'bzip2';
-      
+
       return 'unknown';
     }
   }
@@ -150,11 +150,11 @@ export class FactorioDeployer {
    */
   cancel(): void {
     this.cancelled = true;
-    
+
     // 终止当前进程
     if (this.currentProcess && !this.currentProcess.killed) {
       this.currentProcess.kill('SIGTERM');
-      
+
       // 等待一段时间后强制终止
       setTimeout(() => {
         if (this.currentProcess && !this.currentProcess.killed) {
@@ -162,12 +162,12 @@ export class FactorioDeployer {
         }
       }, 5000);
     }
-    
+
     // 取消当前下载
     if (this.currentDownloadController) {
       this.currentDownloadController.abort();
     }
-    
+
     console.log('Factorio服务端部署已取消');
   }
 
@@ -185,11 +185,11 @@ export class FactorioDeployer {
    */
   async deploy(options: DeploymentOptions): Promise<DeploymentResult> {
     this.cancelled = false; // 重置取消状态
-    
+
     const tempDir = options.tempDir || this.defaultTempDir;
     const initialTempFilePath = path.join(tempDir, `factorio-server-${Date.now()}.tar.xz`);
     let actualTempFilePath = initialTempFilePath;
-    
+
     try {
       // 检查是否已取消
       if (this.cancelled) {
@@ -201,16 +201,16 @@ export class FactorioDeployer {
       await this.downloadServer(initialTempFilePath);
 
       // 检查实际下载的文件路径
-       const tempFiles = await fsPromises.readdir(tempDir);
-       const downloadedFile = tempFiles.find(file => 
-         file.startsWith('factorio-server-') && 
-         (file.endsWith('.tar.xz') || file.endsWith('.tar.gz') || file.endsWith('.zip') || file.endsWith('.tar'))
-       );
-       
-       if (downloadedFile) {
-         actualTempFilePath = path.join(tempDir, downloadedFile);
-         console.log(`实际下载的文件: ${actualTempFilePath}`);
-       }
+      const tempFiles = await fsPromises.readdir(tempDir);
+      const downloadedFile = tempFiles.find(file =>
+        file.startsWith('factorio-server-') &&
+        (file.endsWith('.tar.xz') || file.endsWith('.tar.gz') || file.endsWith('.zip') || file.endsWith('.tar'))
+      );
+
+      if (downloadedFile) {
+        actualTempFilePath = path.join(tempDir, downloadedFile);
+        console.log(`实际下载的文件: ${actualTempFilePath}`);
+      }
 
       // 检查是否已取消
       if (this.cancelled) {
@@ -231,7 +231,7 @@ export class FactorioDeployer {
 
       // 4. 清理临时文件
       await fs.remove(actualTempFilePath);
-      
+
       // 5. 清理临时目录（如果指定了tempDir）
       if (options.tempDir && await fs.pathExists(options.tempDir)) {
         try {
@@ -263,7 +263,7 @@ export class FactorioDeployer {
       } catch (cleanupError) {
         console.warn('清理临时文件时出错:', cleanupError);
       }
-      
+
       return {
         success: false,
         message: `部署失败: ${error instanceof Error ? error.message : String(error)}`
@@ -282,10 +282,10 @@ export class FactorioDeployer {
     }
 
     this.currentDownloadController = new AbortController();
-    
+
     try {
       console.log(`正在从 ${this.downloadUrl} 下载文件...`);
-      
+
       const response = await axios({
         method: 'GET',
         url: this.downloadUrl,
@@ -301,12 +301,12 @@ export class FactorioDeployer {
       // 检查响应头以确定文件类型
       const contentType = response.headers['content-type'];
       const contentDisposition = response.headers['content-disposition'];
-      
+
       console.log(`Content-Type: ${contentType}`);
       if (contentDisposition) {
         console.log(`Content-Disposition: ${contentDisposition}`);
       }
-      
+
       // 根据响应头调整文件扩展名
       let adjustedFilePath = filePath;
       if (contentType) {
@@ -318,7 +318,7 @@ export class FactorioDeployer {
           adjustedFilePath = filePath.replace(/\.[^.]+$/, '.tar');
         }
       }
-      
+
       console.log(`保存文件到: ${adjustedFilePath}`);
 
       const writer = createWriteStream(adjustedFilePath);
@@ -327,28 +327,28 @@ export class FactorioDeployer {
       return new Promise((resolve, reject) => {
         writer.on('finish', () => {
           if (this.cancelled) {
-            fsPromises.unlink(adjustedFilePath).catch(() => {});
+            fsPromises.unlink(adjustedFilePath).catch(() => { });
             reject(new Error('操作已取消'));
             return;
           }
-          
+
           // 更新文件路径引用
           if (adjustedFilePath !== filePath) {
             // 如果文件路径发生了变化，需要通知调用者
             console.log(`文件已保存为: ${adjustedFilePath}`);
           }
-          
+
           resolve();
         });
-        
+
         writer.on('error', (error) => {
-          fsPromises.unlink(adjustedFilePath).catch(() => {});
+          fsPromises.unlink(adjustedFilePath).catch(() => { });
           reject(error);
         });
-        
+
         response.data.on('error', (error: any) => {
           if (error.name === 'AbortError') {
-            fsPromises.unlink(adjustedFilePath).catch(() => {});
+            fsPromises.unlink(adjustedFilePath).catch(() => { });
             reject(new Error('操作已取消'));
           } else {
             reject(error);
@@ -379,26 +379,26 @@ export class FactorioDeployer {
     try {
       const stats = await fsPromises.stat(filePath);
       console.log(`文件大小: ${stats.size} 字节`);
-      
+
       // 检查文件大小是否合理（Factorio服务端通常大于10MB）
       if (stats.size < 10 * 1024 * 1024) {
         console.warn('警告: 文件大小异常小，可能下载不完整');
         return false;
       }
-      
+
       // 尝试读取文件头部分来验证文件完整性
       const buffer = Buffer.alloc(1024);
       const fd = await fsPromises.open(filePath, 'r');
-      
+
       try {
         await fd.read(buffer, 0, 1024, 0);
-        
+
         // 检查是否为有效的压缩文件头
         if (buffer[0] === 0x00 && buffer[1] === 0x00) {
           console.warn('警告: 文件头部为空，可能文件损坏');
           return false;
         }
-        
+
         return true;
       } finally {
         await fd.close();
@@ -429,11 +429,11 @@ export class FactorioDeployer {
 
     // 确保解压目录存在
     await fs.ensureDir(extractPath);
-    
+
     // 检测文件格式
     const format = await this.detectFileFormat(archivePath);
     console.log(`检测到文件格式: ${format}`);
-    
+
     try {
       switch (format) {
         case 'zip':
@@ -459,7 +459,7 @@ export class FactorioDeployer {
       }
     } catch (error) {
       console.error(`使用 ${format} 解压器失败:`, error);
-      
+
       // 对于tar.xz文件，如果第一次失败了，不要再次尝试系统命令
       if (format === 'tar.xz' || format === 'xz') {
         const errorMsg = `tar.xz文件解压失败: ${error instanceof Error ? error.message : String(error)}\n` +
@@ -467,7 +467,7 @@ export class FactorioDeployer {
           `这通常是因为系统缺少必要的解压工具。请检查是否已安装 tar 和 xz-utils 包。`;
         throw new Error(errorMsg);
       }
-      
+
       // 对于其他格式，尝试系统命令作为后备方案
       console.log('尝试使用系统命令作为后备方案...');
       try {
@@ -493,7 +493,7 @@ export class FactorioDeployer {
   private async diagnoseSystemEnvironment(toolsAvailable: Record<string, boolean>, isWindows: boolean): Promise<void> {
     const missingTools = [];
     const availableTools = [];
-    
+
     for (const [tool, available] of Object.entries(toolsAvailable)) {
       if (available) {
         availableTools.push(tool);
@@ -501,20 +501,20 @@ export class FactorioDeployer {
         missingTools.push(tool);
       }
     }
-    
+
     console.log(`✓ 可用工具 (${availableTools.length}): ${availableTools.join(', ')}`);
     if (missingTools.length > 0) {
       console.log(`✗ 缺失工具 (${missingTools.length}): ${missingTools.join(', ')}`);
     }
-    
+
     // 检查tar.xz解压的最低要求
     const hasBasicTarXzSupport = toolsAvailable.tar && (toolsAvailable.xz || toolsAvailable.unxz);
     const hasAdvancedSupport = hasBasicTarXzSupport || toolsAvailable['7z'];
-    
+
     if (!hasAdvancedSupport && !isWindows) {
       console.warn('⚠️  警告: 系统缺少tar.xz解压支持');
       console.log('建议安装命令:');
-      
+
       // 检测Linux发行版并提供相应的安装命令
       try {
         const fs = require('fs');
@@ -536,7 +536,7 @@ export class FactorioDeployer {
     } else if (hasBasicTarXzSupport) {
       console.log('✓ 系统支持tar.xz解压');
     }
-    
+
     // 性能优化建议
     if (toolsAvailable.tar && toolsAvailable.xz && !toolsAvailable.pixz && !toolsAvailable.pxz && !isWindows) {
       console.log('💡 性能提示: 可安装 pixz 或 pxz 以获得并行解压支持，提升大文件解压速度');
@@ -550,7 +550,7 @@ export class FactorioDeployer {
    */
   private async checkCommandAvailable(command: string): Promise<boolean> {
     const { spawn } = require('child_process');
-    
+
     try {
       await new Promise<void>((resolve, reject) => {
         // 对于不同的命令使用不同的检查参数
@@ -560,14 +560,14 @@ export class FactorioDeployer {
         } else if (command === 'pixz' || command === 'pxz') {
           args = ['-h']; // 这些工具使用-h显示帮助
         }
-        
+
         const child = spawn(command, args, {
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 5000 // 5秒超时
         });
-        
+
         let resolved = false;
-        
+
         child.on('close', (code) => {
           if (!resolved) {
             resolved = true;
@@ -579,14 +579,14 @@ export class FactorioDeployer {
             }
           }
         });
-        
+
         child.on('error', (error) => {
           if (!resolved) {
             resolved = true;
             reject(error);
           }
         });
-        
+
         // 设置超时
         setTimeout(() => {
           if (!resolved) {
@@ -610,15 +610,15 @@ export class FactorioDeployer {
    */
   private async extractWithSystemCommand(archivePath: string, extractPath: string): Promise<void> {
     const { spawn } = require('child_process');
-    
+
     return new Promise(async (resolve, reject) => {
       console.log(`尝试使用系统命令解压: ${archivePath}`);
       console.log(`目标路径: ${extractPath}`);
       console.log(`操作系统: ${process.platform}`);
-      
+
       // 检测操作系统并选择合适的命令
       const isWindows = process.platform === 'win32';
-      
+
       // 检查关键工具的可用性
       console.log('正在检查系统解压工具...');
       const toolsAvailable = {
@@ -631,15 +631,15 @@ export class FactorioDeployer {
         '7z': await this.checkCommandAvailable('7z'),
         unzip: await this.checkCommandAvailable('unzip')
       };
-      
+
       console.log('可用工具:', toolsAvailable);
-      
+
       // 诊断系统环境
       await this.diagnoseSystemEnvironment(toolsAvailable, isWindows);
-      
+
       // 根据文件类型和操作系统选择命令
       const commands: Array<[string, string[]]> = [];
-      
+
       if (archivePath.endsWith('.tar.xz')) {
         if (isWindows) {
           // Windows下的命令优先级
@@ -652,42 +652,42 @@ export class FactorioDeployer {
           commands.push(['powershell', ['-Command', `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractPath}' -Force`]]);
         } else {
           // Linux/Mac下使用tar命令，按优先级排序
-          
+
           // 方法1: 使用xz工具链解压（最推荐）
           if (toolsAvailable.xz && toolsAvailable.tar) {
             commands.push(['sh', ['-c', `xz -dc "${archivePath}" | tar -xf - -C "${extractPath}"`]]);
           }
-          
+
           // 方法2: 使用tar的-J参数（需要tar支持xz）
           if (toolsAvailable.tar) {
             commands.push(['tar', ['-xJf', archivePath, '-C', extractPath]]);
           }
-          
+
           // 方法3: 使用pixz（并行xz解压，如果可用）
           if (await this.checkCommandAvailable('pixz') && toolsAvailable.tar) {
             commands.push(['sh', ['-c', `pixz -dc "${archivePath}" | tar -xf - -C "${extractPath}"`]]);
           }
-          
+
           // 方法4: 使用unxz + tar组合
           if (toolsAvailable.unxz && toolsAvailable.tar) {
             commands.push(['sh', ['-c', `unxz -c "${archivePath}" | tar -xf - -C "${extractPath}"`]]);
           }
-          
+
           // 方法5: 尝试让tar自动检测格式
           if (toolsAvailable.tar) {
             commands.push(['tar', ['-xf', archivePath, '-C', extractPath]]);
           }
-          
+
           // 方法6: 使用7z作为后备
           if (toolsAvailable['7z']) {
             commands.push(['7z', ['x', archivePath, `-o${extractPath}`, '-y']]);
           }
-          
+
           // 方法7: 尝试使用pxz（另一个并行xz实现）
           if (await this.checkCommandAvailable('pxz') && toolsAvailable.tar) {
             commands.push(['sh', ['-c', `pxz -dc "${archivePath}" | tar -xf - -C "${extractPath}"`]]);
           }
-          
+
           // 方法8: 使用lzma工具（xz的前身）
           if (await this.checkCommandAvailable('lzma') && toolsAvailable.tar) {
             commands.push(['sh', ['-c', `lzma -dc "${archivePath}" | tar -xf - -C "${extractPath}"`]]);
@@ -729,7 +729,7 @@ export class FactorioDeployer {
         if (!toolsAvailable.xz && !toolsAvailable.unxz && !isWindows && archivePath.endsWith('.tar.xz')) missingTools.push('xz-utils');
         if (!toolsAvailable['7z']) missingTools.push('7zip');
         if (!toolsAvailable.unzip && !isWindows) missingTools.push('unzip');
-        
+
         let installCmd = '';
         if (!isWindows) {
           try {
@@ -747,12 +747,12 @@ export class FactorioDeployer {
             installCmd = '请使用系统包管理器安装 tar xz-utils p7zip unzip';
           }
         }
-        
+
         const errorMsg = `❌ 没有可用的解压工具处理 ${path.basename(archivePath)}\n` +
           `缺少工具: ${missingTools.join(', ')}\n` +
           `文件类型: tar.xz (需要 tar + xz 支持)\n` +
           `\n解决方案:\n` +
-          (isWindows ? 
+          (isWindows ?
             `Windows系统:\n` +
             `1. 安装 7-Zip: https://www.7-zip.org/\n` +
             `2. 或安装 Git for Windows (包含tar)\n` +
@@ -773,9 +773,9 @@ export class FactorioDeployer {
           const fileName = path.basename(archivePath);
           const fileSize = require('fs').statSync(archivePath).size;
           const fileSizeMB = (fileSize / 1024 / 1024).toFixed(2);
-          
+
           let diagnosisMsg = '';
-          
+
           // 检查是否是工具问题
           const hasAnyXzTool = toolsAvailable.xz || toolsAvailable.unxz || toolsAvailable.pixz || toolsAvailable.pxz;
           if (!toolsAvailable.tar) {
@@ -793,7 +793,7 @@ export class FactorioDeployer {
           } else {
             diagnosisMsg += '❓ 未知错误，可能是文件格式或系统兼容性问题\n';
           }
-          
+
           const errorMsg = `🚫 所有解压方法都失败了\n` +
             `\n📁 文件信息:\n` +
             `  文件名: ${fileName}\n` +
@@ -802,9 +802,9 @@ export class FactorioDeployer {
             `\n🔍 问题诊断:\n${diagnosisMsg}` +
             `\n💻 系统信息:\n` +
             `  操作系统: ${process.platform}\n` +
-            `  可用工具: ${Object.entries(toolsAvailable).filter(([,v]) => v).map(([k]) => k).join(', ') || '无'}\n` +
+            `  可用工具: ${Object.entries(toolsAvailable).filter(([, v]) => v).map(([k]) => k).join(', ') || '无'}\n` +
             `\n🛠️  尝试的命令 (${commands.length}个):\n` +
-            commands.map(([cmd, args], i) => `  ${i+1}. ${cmd} ${args.join(' ')}`).join('\n') +
+            commands.map(([cmd, args], i) => `  ${i + 1}. ${cmd} ${args.join(' ')}`).join('\n') +
             `\n❌ 最后错误: ${lastError}\n` +
             `\n🔧 建议解决方案:\n` +
             (isWindows ?
@@ -822,7 +822,7 @@ export class FactorioDeployer {
 
         const [command, args] = commands[currentCommandIndex];
         currentCommandIndex++;
-        
+
         console.log(`尝试命令 ${currentCommandIndex}/${commands.length}: ${command} ${args.join(' ')}`);
 
         const extractProcess = spawn(command, args, {
@@ -830,21 +830,21 @@ export class FactorioDeployer {
         });
 
         this.currentProcess = extractProcess;
-        
+
         let stdout = '';
         let stderr = '';
-        
+
         extractProcess.stdout?.on('data', (data) => {
           stdout += data.toString();
         });
-        
+
         extractProcess.stderr?.on('data', (data) => {
           stderr += data.toString();
         });
 
         extractProcess.on('close', (code: number) => {
           this.currentProcess = undefined;
-          
+
           if (this.cancelled) {
             reject(new Error('操作已取消'));
             return;
@@ -882,7 +882,7 @@ export class FactorioDeployer {
    */
   private async extractZip(archivePath: string, extractPath: string): Promise<void> {
     const yauzl = require('yauzl');
-    
+
     return new Promise((resolve, reject) => {
       yauzl.open(archivePath, { lazyEntries: true }, (err: any, zipfile: any) => {
         if (err) {
@@ -891,7 +891,7 @@ export class FactorioDeployer {
         }
 
         zipfile.readEntry();
-        
+
         zipfile.on('entry', async (entry: any) => {
           if (this.cancelled) {
             reject(new Error('操作已取消'));
@@ -899,7 +899,7 @@ export class FactorioDeployer {
           }
 
           const entryPath = path.join(extractPath, entry.fileName);
-          
+
           if (/\/$/.test(entry.fileName)) {
             // 目录
             await fs.ensureDir(entryPath);
@@ -907,29 +907,29 @@ export class FactorioDeployer {
           } else {
             // 文件
             await fs.ensureDir(path.dirname(entryPath));
-            
+
             zipfile.openReadStream(entry, (err: any, readStream: any) => {
               if (err) {
                 reject(err);
                 return;
               }
-              
+
               const writeStream = createWriteStream(entryPath);
               readStream.pipe(writeStream);
-              
+
               writeStream.on('close', () => {
                 zipfile.readEntry();
               });
-              
+
               writeStream.on('error', reject);
             });
           }
         });
-        
+
         zipfile.on('end', () => {
           resolve();
         });
-        
+
         zipfile.on('error', reject);
       });
     });
@@ -941,12 +941,12 @@ export class FactorioDeployer {
   private async extractGzip(archivePath: string, extractPath: string): Promise<void> {
     const outputPath = path.join(extractPath, path.basename(archivePath, '.gz'));
     await fs.ensureDir(path.dirname(outputPath));
-    
+
     return new Promise((resolve, reject) => {
       const readStream = createReadStream(archivePath);
       const writeStream = createWriteStream(outputPath);
       const gunzip = zlib.createGunzip();
-      
+
       pipeline(readStream, gunzip, writeStream, (err) => {
         if (err) {
           reject(err);
@@ -962,11 +962,28 @@ export class FactorioDeployer {
    */
   private async extractTar(archivePath: string, extractPath: string): Promise<void> {
     const tar = require('tar');
-    
+
     return tar.extract({
       file: archivePath,
       cwd: extractPath,
-      strict: true
+      strict: true,
+      // 安全过滤器：防止 CVE-2026-23745 漏洞
+      filter: (filePath: string, entry: any) => {
+        // 阻止符号链接和硬链接的危险路径
+        if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
+          const linkpath = entry.linkpath as string;
+          if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
+            console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`);
+            return false;
+          }
+        }
+        // 阻止路径遍历和绝对路径
+        if (path.isAbsolute(filePath) || filePath.includes('..')) {
+          console.warn(`[安全过滤] 阻止危险路径: ${filePath}`);
+          return false;
+        }
+        return true;
+      }
     });
   }
 
@@ -979,18 +996,18 @@ export class FactorioDeployer {
     return new Promise((resolve, reject) => {
       try {
         console.log(`开始解压XZ文件: ${archivePath}`);
-        
+
         const readStream = createReadStream(archivePath);
-        
+
         // 使用zlib.createUnzip()来处理xz压缩
         // 注意：Node.js的zlib不直接支持xz，这里先尝试作为gzip处理
         const decompressStream = zlib.createUnzip();
-        
+
         readStream.on('error', (error) => {
           console.error('读取文件错误:', error);
           reject(new Error(`读取压缩文件失败: ${error.message}`));
         });
-        
+
         decompressStream.on('error', (error) => {
           console.error('解压错误:', error);
           // 如果zlib解压失败，尝试使用系统命令
@@ -998,29 +1015,42 @@ export class FactorioDeployer {
             .then(resolve)
             .catch(reject);
         });
-        
+
         readStream.pipe(decompressStream);
-        
+
         // 如果是tar.xz，需要进一步解压tar
         if (archivePath.endsWith('.tar.xz')) {
           console.log('检测到tar.xz格式，进行tar解压...');
           const tar = require('tar');
-          const tarExtract = tar.extract({ 
+          const tarExtract = tar.extract({
             cwd: extractPath,
             strict: false, // 允许一些不严格的tar格式
-            filter: (path: string, entry: any) => {
-              // 过滤掉可能的问题文件
-              return !path.includes('..');
+            // 安全过滤器：防止 CVE-2026-23745 漏洞
+            filter: (filePath: string, entry: any) => {
+              // 阻止符号链接和硬链接的危险路径
+              if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
+                const linkpath = entry.linkpath as string;
+                if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
+                  console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`);
+                  return false;
+                }
+              }
+              // 阻止路径遍历和绝对路径
+              if (path.isAbsolute(filePath) || filePath.includes('..')) {
+                console.warn(`[安全过滤] 阻止危险路径: ${filePath}`);
+                return false;
+              }
+              return true;
             }
           });
-          
+
           decompressStream.pipe(tarExtract);
-          
+
           tarExtract.on('end', () => {
             console.log('tar.xz解压完成');
             resolve();
           });
-          
+
           tarExtract.on('error', (error: Error) => {
             console.error('tar解压错误:', error);
             // 如果tar解压失败，尝试系统命令
@@ -1032,14 +1062,14 @@ export class FactorioDeployer {
           // 直接写入文件
           const outputPath = path.join(extractPath, path.basename(archivePath, '.xz'));
           const writeStream = createWriteStream(outputPath);
-          
+
           decompressStream.pipe(writeStream);
-          
+
           writeStream.on('finish', () => {
             console.log('xz解压完成');
             resolve();
           });
-          
+
           writeStream.on('error', (error) => {
             console.error('写入文件错误:', error);
             reject(new Error(`写入解压文件失败: ${error.message}`));
@@ -1098,7 +1128,7 @@ export class FactorioDeployer {
       const { exec } = require('child_process');
       const execPromise = promisify(exec);
       const { stdout } = await execPromise(`"${serverExecutable}" --version`);
-      
+
       return stdout.trim();
     } catch (error) {
       return null;

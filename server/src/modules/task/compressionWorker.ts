@@ -8,6 +8,29 @@ import * as zlib from 'zlib'
 import yauzl from 'yauzl'
 import { taskManager, Task } from './taskManager.js'
 
+/**
+ * 安全过滤器：防止 CVE-2026-23745 漏洞
+ * 阻止符号链接投毒和硬链接逃逸攻击
+ */
+function createTarSecurityFilter(cwd: string) {
+  return (filePath: string, entry: tar.ReadEntry): boolean => {
+    // 阻止符号链接和硬链接的绝对路径或路径遍历
+    if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
+      const linkpath = (entry as any).linkpath as string
+      if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
+        console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`)
+        return false
+      }
+    }
+    // 阻止绝对路径和路径遍历
+    if (path.isAbsolute(filePath) || filePath.includes('..')) {
+      console.warn(`[安全过滤] 阻止危险路径: ${filePath}`)
+      return false
+    }
+    return true
+  }
+}
+
 export class CompressionWorker {
   async compressFiles(
     taskId: string,
@@ -136,7 +159,7 @@ export class CompressionWorker {
 
     // 获取相对路径
     const relativePaths = sourcePaths.map(p => path.basename(p))
-    
+
     await tar.create(
       {
         f: archivePath,
@@ -159,7 +182,7 @@ export class CompressionWorker {
 
     // 获取相对路径
     const relativePaths = sourcePaths.map(p => path.basename(p))
-    
+
     await tar.create(
       {
         f: archivePath,
@@ -183,7 +206,7 @@ export class CompressionWorker {
 
     // 先创建tar文件，然后用xz压缩
     const tempTarPath = archivePath.replace('.tar.xz', '.tar')
-    
+
     try {
       // 创建tar文件
       const relativePaths = sourcePaths.map(p => path.basename(p))
@@ -204,11 +227,11 @@ export class CompressionWorker {
       await new Promise<void>((resolve, reject) => {
         const readStream = createReadStream(tempTarPath)
         const writeStream = createWriteStream(archivePath)
-        
+
         // 注意：Node.js的zlib不直接支持xz，这里使用gzip作为替代
         // 在生产环境中，建议使用系统命令或专门的xz库
         const compressStream = zlib.createGzip({ level: compressionLevel })
-        
+
         readStream
           .pipe(compressStream)
           .pipe(writeStream)
@@ -223,7 +246,7 @@ export class CompressionWorker {
       // 清理临时文件
       try {
         await fs.unlink(tempTarPath)
-      } catch {}
+      } catch { }
       throw error
     }
   }
@@ -279,7 +302,7 @@ export class CompressionWorker {
         message: `unzipper解压失败，尝试备用方案: ${unzipperError.message}`,
         progress: 10
       })
-      
+
       // 如果unzipper失败，尝试使用yauzl
       try {
         await this.extractZipWithYauzl(taskId, archivePath, targetPath)
@@ -308,7 +331,7 @@ export class CompressionWorker {
             // 确保文件所在的目录存在
             const fileDir = path.dirname(filePath)
             await fs.mkdir(fileDir, { recursive: true })
-            
+
             entry.pipe(createWriteStream(filePath))
             entry.on('close', () => {
               extractedFiles++
@@ -444,6 +467,7 @@ export class CompressionWorker {
     await tar.extract({
       file: archivePath,
       cwd: targetPath,
+      filter: createTarSecurityFilter(targetPath),
       onentry: (entry) => {
         taskManager.updateTask(taskId, {
           message: `正在解压: ${entry.path}`,
@@ -463,6 +487,7 @@ export class CompressionWorker {
       file: archivePath,
       cwd: targetPath,
       gzip: true,
+      filter: createTarSecurityFilter(targetPath),
       onentry: (entry) => {
         taskManager.updateTask(taskId, {
           message: `正在解压: ${entry.path}`,
@@ -480,7 +505,7 @@ export class CompressionWorker {
 
     // 先解压xz，再解压tar
     const tempTarPath = archivePath.replace(/\.(tar\.xz|txz)$/, '.tar')
-    
+
     try {
       taskManager.updateTask(taskId, {
         message: '正在解压XZ压缩...',
@@ -491,11 +516,11 @@ export class CompressionWorker {
       await new Promise<void>((resolve, reject) => {
         const readStream = createReadStream(archivePath)
         const writeStream = createWriteStream(tempTarPath)
-        
+
         // 注意：这里使用gzip解压，因为我们在压缩时使用的是gzip
         // 在生产环境中应该使用真正的xz解压
         const decompressStream = zlib.createGunzip()
-        
+
         readStream
           .pipe(decompressStream)
           .pipe(writeStream)
@@ -512,6 +537,7 @@ export class CompressionWorker {
       await tar.extract({
         file: tempTarPath,
         cwd: targetPath,
+        filter: createTarSecurityFilter(targetPath),
         onentry: (entry) => {
           taskManager.updateTask(taskId, {
             message: `正在解压: ${entry.path}`,
@@ -526,7 +552,7 @@ export class CompressionWorker {
       // 清理临时文件
       try {
         await fs.unlink(tempTarPath)
-      } catch {}
+      } catch { }
       throw error
     }
   }

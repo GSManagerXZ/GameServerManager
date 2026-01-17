@@ -6,6 +6,28 @@ import AdmZip from 'adm-zip'
 import * as tar from 'tar'
 import logger from '../../utils/logger.js'
 
+/**
+ * 安全过滤器：防止 CVE-2026-23745 漏洞
+ */
+function createTarSecurityFilter(cwd: string) {
+  return (filePath: string, stat: any): boolean => {
+    // 阻止符号链接和硬链接的绝对路径或路径遍历
+    if (stat.type === 'SymbolicLink' || stat.type === 'Link') {
+      const linkpath = (stat as any).linkpath as string
+      if (linkpath && (path.isAbsolute(linkpath) || linkpath.includes('..'))) {
+        logger.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`)
+        return false
+      }
+    }
+    // 阻止绝对路径和路径遍历
+    if (path.isAbsolute(filePath) || filePath.includes('..')) {
+      logger.warn(`[安全过滤] 阻止危险路径: ${filePath}`)
+      return false
+    }
+    return true
+  }
+}
+
 export interface JavaEnvironment {
   version: string
   platform: string
@@ -182,7 +204,8 @@ export class JavaManager {
       // 解压TAR.GZ文件
       await tar.x({
         file: filePath,
-        cwd: extractDir
+        cwd: extractDir,
+        filter: createTarSecurityFilter(extractDir)
       })
     } else {
       throw new Error(`不支持的文件格式: ${fileName}`)
@@ -196,7 +219,7 @@ export class JavaManager {
    */
   private async setExecutablePermissions(versionDir: string): Promise<void> {
     const platform = os.platform()
-    
+
     // 只在Linux/Unix系统上设置权限
     if (platform !== 'linux' && platform !== 'darwin') {
       return
@@ -233,7 +256,7 @@ export class JavaManager {
         for (const file of files) {
           const filePath = path.join(binDir, file)
           const stat = await fs.stat(filePath)
-          
+
           if (stat.isFile()) {
             // 设置为 755 权限 (rwxr-xr-x)
             await fs.chmod(filePath, 0o755)
