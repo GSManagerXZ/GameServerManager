@@ -48,6 +48,7 @@ import { setupDeveloperRoutes } from './routes/developer.js'
 import wallpaperRouter from './routes/wallpaper.js'
 import networkRouter from './routes/network.js'
 import cloudBuildRouter from './routes/cloudBuild.js'
+import { consoleLogBuffer } from './utils/logger.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -268,7 +269,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // 艺术字输出函数
 function printAsciiArt() {
   const terminalWidth = process.stdout.columns || 120
-  
+
   const mainArtLines = [
     '______   _____    __  ___                                               ',
     '   / ____/  / ___/   /  |/  /  ____ _   ____   ____ _   ____ _  ___    _____ ',
@@ -278,23 +279,23 @@ function printAsciiArt() {
     '                                                     /____/                 ',
     '                                                                            '
   ]
-  
+
   const subtitle = '🎮 游戏服务器管理面板 v3.0 🎮'
   const startupText = '正在启动服务器...'
-  
+
   // 居中显示主艺术字
   console.log('')
   mainArtLines.forEach(line => {
     const padding = Math.max(0, Math.floor((terminalWidth - line.length) / 2))
     console.log(' '.repeat(padding) + line)
   })
-  
+
   console.log('')
-  
+
   // 居中显示副标题
   const subtitlePadding = Math.max(0, Math.floor((terminalWidth - subtitle.length) / 2))
   console.log(' '.repeat(subtitlePadding) + subtitle)
-  
+
   // 获取并居中显示平台艺术字
   const platformArt = getPlatformArt()
   const platformLines = platformArt.split('\n').filter(line => line.trim())
@@ -305,40 +306,40 @@ function printAsciiArt() {
       console.log(' '.repeat(padding) + cleanLine)
     }
   })
-  
+
   console.log('')
-  
+
   // 居中显示启动文本
   const startupPadding = Math.max(0, Math.floor((terminalWidth - startupText.length) / 2))
   console.log(' '.repeat(startupPadding) + startupText)
-  
+
   console.log('')
 }
 
 // 显示连接信息
 function displayConnectionInfo(host: string, port: number) {
   const terminalWidth = process.stdout.columns || 80
-  
+
   console.log('')
   console.log('='.repeat(terminalWidth))
   console.log('')
-  
+
   const title = '🚀 GSM面板启动完成！'
   const titlePadding = Math.max(0, Math.floor((terminalWidth - title.length) / 2))
   console.log(' '.repeat(titlePadding) + title)
-  
+
   console.log('')
-  
+
   // 显示本地访问地址
   const localUrl = `http://localhost:${port}`
   const localText = `📍 本地访问: ${localUrl}`
   const localPadding = Math.max(0, Math.floor((terminalWidth - localText.length) / 2))
   console.log(' '.repeat(localPadding) + localText)
-  
+
   // 获取所有网络接口的IP地址
   const networkInterfaces = os.networkInterfaces()
   const networkIPs: string[] = []
-  
+
   for (const [interfaceName, interfaces] of Object.entries(networkInterfaces)) {
     if (interfaces) {
       for (const iface of interfaces) {
@@ -349,7 +350,7 @@ function displayConnectionInfo(host: string, port: number) {
       }
     }
   }
-  
+
   // 显示网络访问地址
   if (networkIPs.length > 0) {
     // 如果有多个网卡IP，显示所有的
@@ -366,13 +367,13 @@ function displayConnectionInfo(host: string, port: number) {
     const networkPadding = Math.max(0, Math.floor((terminalWidth - networkText.length) / 2))
     console.log(' '.repeat(networkPadding) + networkText)
   }
-  
+
   console.log('')
-  
+
   const tipText = '💡 请在浏览器中打开上述地址访问管理面板'
   const tipPadding = Math.max(0, Math.floor((terminalWidth - tipText.length) / 2))
   console.log(' '.repeat(tipPadding) + tipText)
-  
+
   console.log('')
   console.log('='.repeat(terminalWidth))
   console.log('')
@@ -381,7 +382,7 @@ function displayConnectionInfo(host: string, port: number) {
 // 获取平台艺术字
 function getPlatformArt(): string {
   const platform = process.platform
-  
+
   switch (platform) {
     case 'win32':
       return `
@@ -391,7 +392,7 @@ function getPlatformArt(): string {
 ██║███╗██║██║██║╚██╗██║██║  ██║██║   ██║██║███╗██║╚════██║
 ╚███╔███╔╝██║██║ ╚████║██████╔╝╚██████╔╝╚███╔███╔╝███████║
  ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚══════╝`
-    
+
     case 'linux':
       return `
 ██╗     ██╗███╗   ██╗██╗   ██╗██╗  ██╗
@@ -400,7 +401,7 @@ function getPlatformArt(): string {
 ██║     ██║██║╚██╗██║██║   ██║ ██╔██╗ 
 ███████╗██║██║ ╚████║╚██████╔╝██╔╝ ██╗
 ╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝`
-    
+
     case 'darwin':
       return `
 ███╗   ███╗ █████╗  ██████╗ ██████╗ ███████╗
@@ -409,7 +410,7 @@ function getPlatformArt(): string {
 ██║╚██╔╝██║██╔══██║██║     ██║   ██║╚════██║
 ██║ ╚═╝ ██║██║  ██║╚██████╗╚██████╔╝███████║
 ╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝`
-    
+
     default:
       return `
 ██╗   ██╗███╗   ██╗██╗██╗  ██╗
@@ -425,22 +426,22 @@ function getPlatformArt(): string {
 function checkCORSConfiguration() {
   const corsOrigin = process.env.CORS_ORIGIN || '*'
   const socketCorsOrigin = process.env.SOCKET_CORS_ORIGIN || '*'
-  
+
   if (corsOrigin === '*' || socketCorsOrigin === '*') {
     console.log('\n' + '='.repeat(80))
     console.log('🚨 CORS安全风险警告 🚨')
     console.log('='.repeat(80))
-    
+
     if (corsOrigin === '*') {
       console.log('⚠️  检测到 CORS_ORIGIN 配置为通配符 "*"')
       console.log('   这将允许任何域名访问您的API，存在跨域安全风险！')
     }
-    
+
     if (socketCorsOrigin === '*') {
       console.log('⚠️  检测到 SOCKET_CORS_ORIGIN 配置为通配符 "*"')
       console.log('   这将允许任何域名连接您的WebSocket，存在安全风险！')
     }
-    
+
     console.log('\n🔧 若在公网中使用强烈建议修改配置：')
     console.log('   1. 在 .env 文件中将 CORS_ORIGIN 设置为具体的前端地址')
     console.log('   2. 在 .env 文件中将 SOCKET_CORS_ORIGIN 设置为具体的前端地址')
@@ -456,13 +457,13 @@ function checkCORSConfiguration() {
 // 检测并生成.env文件
 async function ensureEnvFile() {
   const envPath = path.join(process.cwd(), '.env')
-  
+
   try {
     await fs.access(envPath)
     logger.info('.env 文件已存在')
   } catch {
     logger.info('.env 文件不存在，正在创建...')
-    
+
     const envContent = `# GSM3 游戏服务器管理系统配置
 
 # 服务器端口配置
@@ -531,10 +532,10 @@ REQUEST_TIMEOUT=0
 # 3. 请务必修改 SESSION_SECRET 和 JWT_SECRET 为随机字符串
 # 4. 根据服务器配置调整 JAVA_OPTS 中的内存设置
 `
-    
+
     await fs.writeFile(envPath, envContent, 'utf8')
     logger.info(`.env 文件已创建: ${envPath}`)
-    
+
     // 重新加载环境变量
     dotenv.config({ path: envPath })
   }
@@ -545,10 +546,10 @@ async function startServer() {
   try {
     // 检测并生成.env文件
     await ensureEnvFile()
-    
+
     // 输出艺术字
     printAsciiArt()
-    
+
     // 确保uploads目录存在
     const uploadsDir = path.join(process.cwd(), 'uploads')
     try {
@@ -580,7 +581,7 @@ async function startServer() {
     steamcmdManager = new SteamCMDManager(logger, configManager)
     pluginManager = new PluginManager(logger)
     fileWatchManager = new FileWatchManager(logger)
-    
+
     // 确保data目录存在
     const dataDir = path.join(process.cwd(), 'data')
     try {
@@ -589,7 +590,7 @@ async function startServer() {
       await fs.mkdir(dataDir, { recursive: true })
       logger.info(`创建data目录: ${dataDir}`)
     }
-    
+
     schedulerManager = new SchedulerManager(dataDir, logger)
 
     // 初始化配置和认证
@@ -600,13 +601,16 @@ async function startServer() {
     await pluginManager.loadPlugins()
     setAuthManager(authManager)
     setPluginManager(pluginManager)
-    
+
     // 设置 TerminalManager 的 Socket.IO 实例
     terminalManager.setSocketIO(io)
-    
+
     // 设置 FileWatchManager 的 Socket.IO 实例
     fileWatchManager.setSocketIO(io)
-    
+
+    // 设置 consoleLogBuffer 的 Socket.IO 实例（用于实时日志广播）
+    consoleLogBuffer.setSocketIO(io)
+
     // 设置schedulerManager与gameManager、instanceManager和terminalManager的关联
     schedulerManager.setGameManager(gameManager)
     schedulerManager.setInstanceManager(instanceManager)
@@ -623,43 +627,43 @@ async function startServer() {
     app.use('/api/config', setupConfigRoutes(configManager))
     app.use('/api/settings', setupSettingsRoutes(configManager))
     app.use('/api/backup', backupRoutes)
-    
+
     // 设置SteamCMD管理器和路由
     setSteamCMDManager(steamcmdManager, logger)
     app.use('/api/steamcmd', steamcmdRouter)
-    
+
     // 设置游戏部署路由
     setGameDeploymentManagers(terminalManager, instanceManager, steamcmdManager, configManager)
     app.use('/api/game-deployment', gameDeploymentRouter)
-    
+
     // 设置Minecraft路由
     setMinecraftDependencies(io, instanceManager)
     app.use('/api/minecraft', minecraftRouter)
-    
+
     // 设置更多游戏部署路由
     const { setMoreGamesDependencies } = await import('./routes/moreGames.js')
     setMoreGamesDependencies(io)
     app.use('/api/more-games', moreGamesRouter)
-    
+
     // 设置天气路由
     app.use('/api/weather', weatherRouter)
-    
+
     // 设置插件路由
     app.use('/api/plugins', pluginsRouter)
-    
+
     // 设置插件API桥接路由
     setPluginApiDependencies(instanceManager, systemManager, terminalManager, gameManager)
     app.use('/api/plugin-api', pluginApiRouter)
-    
+
     // 设置赞助者路由
     setSponsorDependencies(configManager)
     app.use('/api/sponsor', sponsorRouter)
-    
+
     // 设置在线部署路由
     const { setOnlineDeployDependencies } = await import('./routes/onlineDeploy.js')
     setOnlineDeployDependencies(io, configManager)
     app.use('/api/online-deploy', onlineDeployRouter)
-    
+
     // 设置游戏配置路由
     const { setInstanceManager: setGameConfigInstanceManager } = await import('./routes/gameconfig.js')
     setGameConfigInstanceManager(instanceManager)
@@ -672,9 +676,9 @@ async function startServer() {
     setEnvironmentSocketIO(io)
     setEnvironmentConfigManager(configManager)
     app.use('/api/environment', environmentRouter)
-    
-    // 导出 fileWatchManager 给文件路由使用
-    ;(global as any).fileWatchManager = fileWatchManager
+
+      // 导出 fileWatchManager 给文件路由使用
+      ; (global as any).fileWatchManager = fileWatchManager
 
     // 设置开发者路由
     app.use('/api/developer', setupDeveloperRoutes(configManager))
@@ -711,25 +715,25 @@ async function startServer() {
     // Socket.IO 认证中间件
     io.use(async (socket, next) => {
       const token = socket.handshake.auth.token
-      
+
       if (!token) {
         logger.warn(`Socket连接被拒绝: ${socket.id} - 缺少token`)
         return next(new Error('Authentication error: No token provided'))
       }
-      
+
       const decoded = authManager.verifyToken(token)
       if (!decoded) {
         logger.warn(`Socket连接被拒绝: ${socket.id} - 无效token`)
         return next(new Error('Authentication error: Invalid token'))
       }
-      
+
       // 将用户信息附加到socket
       socket.data.user = {
         userId: decoded.userId,
         username: decoded.username,
         role: decoded.role
       }
-      
+
       logger.info(`Socket认证成功: ${socket.id} - 用户: ${decoded.username}`)
       next()
     })
@@ -737,7 +741,7 @@ async function startServer() {
     // Socket.IO 连接处理
     io.on('connection', (socket) => {
       logger.info(`客户端连接: ${socket.id} - 用户: ${socket.data.user?.username}`)
-      
+
       // 终端相关事件
       socket.on('create-pty', async (data) => {
         // 将前端的cwd参数映射到后端的workingDirectory
@@ -748,19 +752,19 @@ async function startServer() {
         delete mappedData.cwd
         await terminalManager.createPty(socket, mappedData)
       })
-      
+
       socket.on('terminal-input', (data) => {
         terminalManager.handleInput(socket, data)
       })
-      
+
       socket.on('terminal-resize', (data) => {
         terminalManager.resizeTerminal(socket, data)
       })
-      
+
       socket.on('close-pty', (data) => {
         terminalManager.closePty(socket, data)
       })
-      
+
       socket.on('reconnect-session', (data) => {
         const success = terminalManager.reconnectSession(socket, data.sessionId)
         if (success) {
@@ -769,16 +773,16 @@ async function startServer() {
           socket.emit('session-reconnect-failed', { sessionId: data.sessionId })
         }
       })
-      
+
       // 游戏管理事件
       socket.on('game-start', (data) => {
         gameManager.startGame(socket, data)
       })
-      
+
       socket.on('game-stop', (data) => {
         gameManager.stopGame(socket, data)
       })
-      
+
       socket.on('game-command', (data) => {
         gameManager.sendCommand(socket, data.gameId, data.command)
       })
@@ -837,6 +841,20 @@ async function startServer() {
         terminalManager.handleClientDisconnect()
       })
 
+      // 面板日志订阅事件
+      socket.on('subscribe-console-logs', () => {
+        socket.join('console-logs')
+        logger.info(`客户端 ${socket.id} 开始订阅面板日志`)
+        // 发送历史日志
+        const recentLogs = consoleLogBuffer.getRecentLogs(100)
+        socket.emit('console-logs-history', { lines: recentLogs })
+      })
+
+      socket.on('unsubscribe-console-logs', () => {
+        socket.leave('console-logs')
+        logger.info(`客户端 ${socket.id} 取消订阅面板日志`)
+      })
+
       // 文件监视事件
       socket.on('watch-file', async (data: { filePath: string }) => {
         try {
@@ -882,6 +900,7 @@ async function startServer() {
         socket.leave('system-ports')
         socket.leave('system-processes')
         socket.leave('terminal-processes')
+        socket.leave('console-logs')
         // 通知系统管理器客户端已断开连接
         systemManager.handleClientDisconnect()
         // 通知终端管理器客户端已断开连接
@@ -889,7 +908,7 @@ async function startServer() {
         // 清理文件监视
         fileWatchManager.unwatchAllFilesForSocket(socket)
       })
-      
+
       // 错误处理
       socket.on('error', (error) => {
         logger.error(`Socket错误 ${socket.id}:`, error)
@@ -904,10 +923,10 @@ async function startServer() {
       logger.info(`地址: http://${HOST}:${PORT}`)
       logger.info(`环境: ${process.env.NODE_ENV || 'development'}`)
       logger.info(`进程ID: ${process.pid}`)
-      
+
       // 检查CORS配置安全性
       checkCORSConfiguration()
-      
+
       // 重点显示连接地址
       displayConnectionInfo(HOST, PORT)
     })

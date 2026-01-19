@@ -28,13 +28,13 @@ class SocketClient {
 
   private connect() {
     const token = localStorage.getItem('gsm3_token')
-    
+
     // 如果没有token，不建立连接
     if (!token) {
       console.log('没有找到认证token，跳过Socket连接')
       return
     }
-    
+
     this.socket = io(config.serverUrl, {
       auth: {
         token,
@@ -59,7 +59,7 @@ class SocketClient {
     this.socket.on('disconnect', (reason) => {
       console.log('Socket断开连接:', reason)
       this.emit('connection-status', { connected: false, reason })
-      
+
       if (reason === 'io server disconnect') {
         // 服务器主动断开，需要重新连接
         this.reconnect()
@@ -97,9 +97,9 @@ class SocketClient {
 
     this.reconnectAttempts++
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1)
-    
+
     console.log(`${delay}ms后尝试第${this.reconnectAttempts}次重连...`)
-    
+
     setTimeout(() => {
       if (this.socket) {
         this.socket.connect()
@@ -111,7 +111,7 @@ class SocketClient {
   emit(event: string, data?: any) {
     // 首先触发本地监听器
     this.emitLocal(event, data)
-    
+
     // 然后尝试向服务器发送事件
     if (this.socket?.connected) {
       this.socket.emit(event, data)
@@ -141,9 +141,9 @@ class SocketClient {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, [])
     }
-    
+
     this.listeners.get(event)!.push(callback)
-    
+
     if (this.socket) {
       this.socket.on(event, callback as any)
     }
@@ -159,7 +159,7 @@ class SocketClient {
           listeners.splice(index, 1)
         }
       }
-      
+
       if (this.socket) {
         this.socket.off(event, callback as any)
       }
@@ -295,12 +295,21 @@ class SocketClient {
     this.emit('unsubscribe-game-status', { gameId })
   }
 
+  // 面板日志订阅方法
+  subscribeConsoleLogs() {
+    this.emit('subscribe-console-logs')
+  }
+
+  unsubscribeConsoleLogs() {
+    this.emit('unsubscribe-console-logs')
+  }
+
   // 低功耗模式相关方法
   enterLowPowerMode() {
     if (!this.isLowPowerMode) {
       this.isLowPowerMode = true
       console.log('进入低功耗模式，关闭WebSocket连接并优化浏览器性能')
-      
+
       // 触发低功耗模式回调
       this.lowPowerModeCallbacks.forEach(callback => {
         try {
@@ -309,12 +318,12 @@ class SocketClient {
           console.error('执行低功耗模式回调时出错:', error)
         }
       })
-      
+
       // 断开WebSocket连接
       if (this.socket) {
         this.socket.disconnect()
       }
-      
+
       // 通知浏览器进入低功耗状态
       this.enableBrowserLowPowerMode()
     }
@@ -324,7 +333,7 @@ class SocketClient {
     if (this.isLowPowerMode) {
       this.isLowPowerMode = false
       console.log('退出低功耗模式，重新建立WebSocket连接并恢复浏览器性能')
-      
+
       // 触发低功耗模式回调
       this.lowPowerModeCallbacks.forEach(callback => {
         try {
@@ -333,10 +342,10 @@ class SocketClient {
           console.error('执行低功耗模式回调时出错:', error)
         }
       })
-      
+
       // 恢复浏览器正常状态
       this.disableBrowserLowPowerMode()
-      
+
       // 重新连接
       this.reconnectManually()
     }
@@ -366,34 +375,34 @@ class SocketClient {
           console.log('页面进入空闲状态优化')
         })
       }
-      
+
       // 2. 暂停不必要的动画和CSS过渡
       document.documentElement.style.setProperty('--animation-play-state', 'paused')
       document.documentElement.classList.add('low-power-mode')
-      
+
       // 3. 降低定时器频率
       this.pauseNonEssentialTimers()
-      
+
       // 4. 修改页面标题提示用户
       this.originalTitle = document.title
       document.title = '💤 ' + this.originalTitle + ' (低功耗模式)'
-      
+
       // 5. 使用Page Visibility API监听标签页状态
       this.setupPageVisibilityOptimization()
-      
+
       // 6. 设置Intersection Observer暂停不可见元素的更新
       this.setupIntersectionObserver()
-      
+
       // 7. 请求浏览器降低CPU使用率
       if ('scheduler' in window && 'postTask' in (window as any).scheduler) {
         (window as any).scheduler.postTask(() => {
           console.log('已请求浏览器调度器优化性能')
         }, { priority: 'background' })
       }
-      
+
       // 8. 降低浏览器渲染频率
       this.reduceBrowserRenderingFrequency()
-      
+
       console.log('浏览器低功耗模式已启用，标签页进入深度睡眠状态')
     } catch (error) {
       console.warn('启用浏览器低功耗模式时出错:', error)
@@ -405,25 +414,25 @@ class SocketClient {
       // 1. 恢复动画和CSS过渡
       document.documentElement.style.removeProperty('--animation-play-state')
       document.documentElement.classList.remove('low-power-mode')
-      
+
       // 2. 恢复定时器
       this.resumeNonEssentialTimers()
-      
+
       // 3. 恢复页面标题
       if (this.originalTitle) {
         document.title = this.originalTitle
         this.originalTitle = undefined
       }
-      
+
       // 4. 清理Page Visibility API监听
       this.cleanupPageVisibilityOptimization()
-      
+
       // 5. 清理Intersection Observer
       this.cleanupIntersectionObserver()
-      
+
       // 6. 恢复浏览器正常渲染频率
       this.restoreBrowserRenderingFrequency()
-      
+
       console.log('浏览器低功耗模式已禁用，标签页恢复正常状态')
     } catch (error) {
       console.warn('禁用浏览器低功耗模式时出错:', error)
@@ -485,7 +494,7 @@ class SocketClient {
       }, {
         threshold: 0.1
       })
-      
+
       // 观察所有可能消耗资源的元素
       document.querySelectorAll('video, canvas, iframe, [style*="animation"]').forEach(el => {
         this.intersectionObserver?.observe(el)
@@ -510,7 +519,7 @@ class SocketClient {
         videoElement.dataset.wasPlaying = 'true'
       }
     })
-    
+
     // 暂停所有音频
     document.querySelectorAll('audio').forEach(audio => {
       const audioElement = audio as HTMLAudioElement
@@ -519,7 +528,7 @@ class SocketClient {
         audioElement.dataset.wasPlaying = 'true'
       }
     })
-    
+
     console.log('已进入深度睡眠模式')
   }
 
@@ -527,17 +536,17 @@ class SocketClient {
     // 恢复之前播放的视频
     document.querySelectorAll('video[data-was-playing="true"]').forEach(video => {
       const videoElement = video as HTMLVideoElement
-      videoElement.play().catch(() => {})
+      videoElement.play().catch(() => { })
       delete videoElement.dataset.wasPlaying
     })
-    
+
     // 恢复之前播放的音频
     document.querySelectorAll('audio[data-was-playing="true"]').forEach(audio => {
       const audioElement = audio as HTMLAudioElement
-      audioElement.play().catch(() => {})
+      audioElement.play().catch(() => { })
       delete audioElement.dataset.wasPlaying
     })
-    
+
     console.log('已退出深度睡眠模式')
   }
 

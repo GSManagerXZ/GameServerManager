@@ -6,6 +6,7 @@ import { useNotificationStore } from '@/stores/notificationStore'
 import { useOnboardingStore } from '@/stores/onboardingStore'
 import { useSystemStore } from '@/stores/systemStore'
 import { useWallpaperStore } from '@/stores/wallpaperStore'
+import { useConsoleLogStore } from '@/stores/consoleLogStore'
 import AutoRedirectControl from '@/components/AutoRedirectControl'
 import apiClient from '@/utils/api'
 import {
@@ -35,7 +36,11 @@ import {
   Image,
   Upload,
   Trash2,
-  Sun as SunIcon
+  Sun as SunIcon,
+  FileText,
+  Archive,
+  Play,
+  Pause
 } from 'lucide-react'
 import SecurityWarningModal from '@/components/SecurityWarningModal'
 
@@ -48,7 +53,7 @@ const SettingsPage: React.FC = () => {
   const { systemInfo, fetchSystemInfo } = useSystemStore()
   const { settings: wallpaperSettings, setSettings: setWallpaperSettings, updateMainWallpaper, updateLoginWallpaper } = useWallpaperStore()
   const [showDeveloperWarning, setShowDeveloperWarning] = useState(false)
-  
+
   // 城市选项数据
   const cityOptions = [
     { value: '101010100', label: '北京市' },
@@ -86,7 +91,7 @@ const SettingsPage: React.FC = () => {
     { value: '101290101', label: '昆明市' },
     { value: '101170101', label: '贵阳市' }
   ]
-  
+
   // 密码修改状态
   const [passwordForm, setPasswordForm] = useState({
     oldPassword: '',
@@ -97,14 +102,14 @@ const SettingsPage: React.FC = () => {
     showConfirmPassword: false
   })
   const [passwordLoading, setPasswordLoading] = useState(false)
-  
+
   // 用户名修改状态
   const [usernameForm, setUsernameForm] = useState({
     newUsername: '',
     isEditing: false
   })
   const [usernameLoading, setUsernameLoading] = useState(false)
-  
+
   // 网页设置状态
   const [webSettings, setWebSettings] = useState({
     enableLowPowerMode: true,
@@ -142,7 +147,7 @@ const SettingsPage: React.FC = () => {
     defaultUser: ''
   })
   const [terminalLoading, setTerminalLoading] = useState(false)
-  
+
   // 系统用户列表状态
   const [systemUsers, setSystemUsers] = useState<string[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -174,10 +179,17 @@ const SettingsPage: React.FC = () => {
     tokenExpireHours: number | null
   } | null>(null)
 
+  // 面板日志 - 使用全局 store（切换页面不会断开）
+  const consoleLogStore = useConsoleLogStore()
+  const [logFiles, setLogFiles] = useState<{ name: string; size: number; sizeFormatted: string }[]>([])
+  const [logsDownloading, setLogsDownloading] = useState(false)
+  const [logsLoading, setLogsLoading] = useState(false)
+  const logContainerRef = React.useRef<HTMLDivElement>(null)
+
   // 处理密码修改
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       addNotification({
         type: 'error',
@@ -186,7 +198,7 @@ const SettingsPage: React.FC = () => {
       })
       return
     }
-    
+
     if (passwordForm.newPassword.length < 6) {
       addNotification({
         type: 'error',
@@ -195,19 +207,19 @@ const SettingsPage: React.FC = () => {
       })
       return
     }
-    
+
     setPasswordLoading(true)
-    
+
     try {
       const result = await changePassword(passwordForm.oldPassword, passwordForm.newPassword)
-      
+
       if (result.success) {
         addNotification({
           type: 'success',
           title: '密码修改成功',
           message: '密码已更新，即将退出登录'
         })
-        
+
         setPasswordForm({
           oldPassword: '',
           newPassword: '',
@@ -216,7 +228,7 @@ const SettingsPage: React.FC = () => {
           showNewPassword: false,
           showConfirmPassword: false
         })
-        
+
         // 密码修改成功后自动退出登录
         setTimeout(async () => {
           await logout()
@@ -238,7 +250,7 @@ const SettingsPage: React.FC = () => {
       setPasswordLoading(false)
     }
   }
-  
+
   // 处理用户名修改
   const handleUsernameChange = async () => {
     if (!usernameForm.newUsername.trim()) {
@@ -249,7 +261,7 @@ const SettingsPage: React.FC = () => {
       })
       return
     }
-    
+
     if (!/^[a-zA-Z0-9]{3,30}$/.test(usernameForm.newUsername)) {
       addNotification({
         type: 'error',
@@ -258,7 +270,7 @@ const SettingsPage: React.FC = () => {
       })
       return
     }
-    
+
     if (usernameForm.newUsername === user?.username) {
       addNotification({
         type: 'warning',
@@ -267,24 +279,24 @@ const SettingsPage: React.FC = () => {
       })
       return
     }
-    
+
     setUsernameLoading(true)
-    
+
     try {
       const result = await changeUsername(usernameForm.newUsername)
-      
+
       if (result.success) {
         addNotification({
           type: 'success',
           title: '用户名修改成功',
           message: '用户名已更新，即将退出登录'
         })
-        
+
         setUsernameForm({
           newUsername: '',
           isEditing: false
         })
-        
+
         // 用户名修改成功后自动退出登录
         setTimeout(async () => {
           await logout()
@@ -306,7 +318,7 @@ const SettingsPage: React.FC = () => {
       setUsernameLoading(false)
     }
   }
-  
+
   // 取消用户名编辑
   const handleCancelUsernameEdit = () => {
     setUsernameForm({
@@ -368,7 +380,7 @@ const SettingsPage: React.FC = () => {
         const { data } = result
         const isExpired = data.is_expired
         const expiryTime = data.timeData
-        
+
         setSponsorKeyStatus({
           isValid: !isExpired,
           message: isExpired ? '密钥已过期' : '密钥有效',
@@ -438,7 +450,7 @@ const SettingsPage: React.FC = () => {
         }
       })
       const result = await response.json()
-      
+
       if (result.success) {
         setSteamcmdSettings(prev => ({
           ...prev,
@@ -500,7 +512,7 @@ const SettingsPage: React.FC = () => {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
-              
+
               if (line.startsWith('event: progress')) {
                 setSteamcmdProgress(data.progress)
               } else if (line.startsWith('event: status')) {
@@ -657,7 +669,7 @@ const SettingsPage: React.FC = () => {
         console.error('获取赞助者密钥信息失败:', error)
       }
     }
-    
+
     // 从服务器加载终端配置
     const loadTerminalSettings = async () => {
       try {
@@ -671,7 +683,7 @@ const SettingsPage: React.FC = () => {
         console.error('加载终端配置失败:', error)
       }
     }
-    
+
     // 获取系统用户列表
     const fetchSystemUsers = async () => {
       setLoadingUsers(true)
@@ -712,7 +724,7 @@ const SettingsPage: React.FC = () => {
         }
       }
     }
-    
+
     loadSponsorKeyInfo()
     loadTerminalSettings()
     loadGameSettings()
@@ -732,7 +744,7 @@ const SettingsPage: React.FC = () => {
 
     return () => clearTimeout(timer)
   }, [steamcmdSettings.installPath])
-  
+
   // 保存终端设置
   const saveTerminalSettings = async () => {
     setTerminalLoading(true)
@@ -808,10 +820,10 @@ const SettingsPage: React.FC = () => {
     try {
       // 保存网页设置到localStorage
       localStorage.setItem('webSettings', JSON.stringify(webSettings))
-      
+
       // 保存终端设置到服务器
       await saveTerminalSettings()
-      
+
       addNotification({
         type: 'success',
         title: '设置已保存',
@@ -825,7 +837,7 @@ const SettingsPage: React.FC = () => {
       })
     }
   }
-  
+
   // 重置设置
   const resetSettings = () => {
     const defaultWebSettings = {
@@ -835,17 +847,17 @@ const SettingsPage: React.FC = () => {
       deepSleepTimeout: 10,
       weatherCity: '101010100'
     }
-    
+
     const defaultTerminalSettings = {
       defaultUser: ''
     }
-    
+
     setWebSettings(defaultWebSettings)
     setTerminalSettings(defaultTerminalSettings)
-    
+
     // 清除localStorage中的设置
     localStorage.removeItem('webSettings')
-    
+
     addNotification({
       type: 'info',
       title: '设置已重置',
@@ -858,7 +870,7 @@ const SettingsPage: React.FC = () => {
     setGameListUpdateLoading(true)
     try {
       const response = await apiClient.updateSteamGameList()
-      
+
       if (response.success) {
         addNotification({
           type: 'success',
@@ -943,7 +955,7 @@ const SettingsPage: React.FC = () => {
 
   const handleSecurityConfigChange = (updates: Partial<typeof securityConfig>) => {
     const newConfig = { ...securityConfig, ...updates }
-    
+
     // 检查是否设置为永不到期
     if (updates.tokenExpireHours === null) {
       setPendingSecurityConfig(newConfig)
@@ -996,13 +1008,143 @@ const SettingsPage: React.FC = () => {
     }
   }
 
+  // 加载日志文件列表
+  const loadLogFiles = async () => {
+    setLogsLoading(true)
+    try {
+      const response = await fetch('/api/system/logs', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('gsm3_token')}`
+        }
+      })
+      const result = await response.json()
+      if (result.success && result.data) {
+        setLogFiles(result.data)
+        // 默认选择第一个日志文件
+        if (result.data.length > 0 && !consoleLogStore.selectedFile) {
+          consoleLogStore.setSelectedFile(result.data[0].name)
+        }
+      }
+    } catch (error) {
+      console.error('加载日志文件列表失败:', error)
+    } finally {
+      setLogsLoading(false)
+    }
+  }
+
+  // 连接日志流或加载日志文件
+  const connectLogStream = async () => {
+    if (consoleLogStore.mode === 'console') {
+      // 实时终端模式：使用 WebSocket 监控
+      consoleLogStore.connect()
+      addNotification({
+        type: 'success',
+        title: '终端流已连接',
+        message: '正在实时监控面板终端输出'
+      })
+    } else {
+      // 日志文件模式：一次性加载内容
+      if (!consoleLogStore.selectedFile) {
+        addNotification({
+          type: 'warning',
+          title: '请选择日志文件',
+          message: '请先选择要查看的日志文件'
+        })
+        return
+      }
+
+      await consoleLogStore.loadFileContent()
+      addNotification({
+        type: 'success',
+        title: '日志加载成功',
+        message: `已加载 ${consoleLogStore.selectedFile} 的内容`
+      })
+    }
+  }
+
+  // 断开日志流
+  const disconnectLogStream = () => {
+    consoleLogStore.disconnect()
+
+    addNotification({
+      type: 'info',
+      title: '日志流已断开',
+      message: '实时日志监控已停止'
+    })
+  }
+
+  // 下载所有日志
+  const downloadAllLogs = async () => {
+    setLogsDownloading(true)
+    try {
+      const response = await fetch('/api/system/logs/download/all', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('gsm3_token')}`
+        }
+      })
+
+      if (!response.ok) {
+        const result = await response.json()
+        throw new Error(result.error || '下载失败')
+      }
+
+      // 获取文件名
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = 'gsm3-logs.tar'
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"$/)
+        if (filenameMatch) {
+          filename = filenameMatch[1]
+        }
+      }
+
+      // 下载文件
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      addNotification({
+        type: 'success',
+        title: '日志下载成功',
+        message: `日志文件已下载: ${filename}`
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '日志下载失败',
+        message: error instanceof Error ? error.message : '下载失败'
+      })
+    } finally {
+      setLogsDownloading(false)
+    }
+  }
+
+  // 滚动到日志底部的 effect
+  React.useEffect(() => {
+    if (logContainerRef.current && consoleLogStore.lines.length > 0) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [consoleLogStore.lines])
+
+  // 加载日志文件列表
+  React.useEffect(() => {
+    loadLogFiles()
+  }, [])
+
   // 壁纸处理函数
   const handleMainWallpaperUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
     // 验证文件类型
-    if (!file.type.startsWith('image/')) {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
       addNotification({
         type: 'error',
         title: '上传失败',
@@ -1166,7 +1308,7 @@ const SettingsPage: React.FC = () => {
           自定义您的GSM3游戏面板体验
         </p>
       </div>
-      
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* 网页设置 */}
         <div className="card-game p-6">
@@ -1174,7 +1316,7 @@ const SettingsPage: React.FC = () => {
             <Monitor className="w-5 h-5 text-purple-500" />
             <h2 className="text-lg font-semibold text-black dark:text-white">网页设置</h2>
           </div>
-          
+
           <div className="space-y-6">
             {/* 主题模式 */}
             <div className="flex items-center justify-between">
@@ -1197,7 +1339,7 @@ const SettingsPage: React.FC = () => {
                 />
               </button>
             </div>
-            
+
             {/* 低功耗模式 */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -1223,7 +1365,7 @@ const SettingsPage: React.FC = () => {
                   />
                 </button>
               </div>
-              
+
               {webSettings.enableLowPowerMode && (
                 <div className="ml-6 space-y-2">
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -1234,8 +1376,8 @@ const SettingsPage: React.FC = () => {
                     min="10"
                     max="300"
                     value={webSettings.lowPowerModeTimeout}
-                    onChange={(e) => setWebSettings(prev => ({ 
-                      ...prev, 
+                    onChange={(e) => setWebSettings(prev => ({
+                      ...prev,
                       lowPowerModeTimeout: Math.max(10, Math.min(300, parseInt(e.target.value) || 60))
                     }))}
                     className="w-20 px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -1246,7 +1388,7 @@ const SettingsPage: React.FC = () => {
                 </div>
               )}
             </div>
-            
+
             {/* 深度睡眠模式 */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -1272,7 +1414,7 @@ const SettingsPage: React.FC = () => {
                   />
                 </button>
               </div>
-              
+
               {webSettings.enableDeepSleep && (
                 <div className="ml-6 space-y-2">
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -1283,8 +1425,8 @@ const SettingsPage: React.FC = () => {
                     min="5"
                     max="60"
                     value={webSettings.deepSleepTimeout}
-                    onChange={(e) => setWebSettings(prev => ({ 
-                      ...prev, 
+                    onChange={(e) => setWebSettings(prev => ({
+                      ...prev,
                       deepSleepTimeout: Math.max(5, Math.min(60, parseInt(e.target.value) || 10))
                     }))}
                     className="w-20 px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1295,7 +1437,7 @@ const SettingsPage: React.FC = () => {
                 </div>
               )}
             </div>
-            
+
             {/* 天气地理位置 */}
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
@@ -1305,7 +1447,7 @@ const SettingsPage: React.FC = () => {
                   <p className="text-xs text-gray-600 dark:text-gray-400">选择首页显示的天气城市</p>
                 </div>
               </div>
-              
+
               <select
                 value={webSettings.weatherCity}
                 onChange={(e) => setWebSettings(prev => ({ ...prev, weatherCity: e.target.value }))}
@@ -1317,12 +1459,12 @@ const SettingsPage: React.FC = () => {
                   </option>
                 ))}
               </select>
-              
+
               <p className="text-xs text-gray-600 dark:text-gray-400">
                 当前选择: {cityOptions.find(city => city.value === webSettings.weatherCity)?.label || '未知城市'}
               </p>
             </div>
-            
+
             <div className="pt-4 border-t border-gray-700">
               <p className="text-sm text-gray-700 dark:text-gray-300">
                 当前主题: <span className="font-semibold">{theme === 'dark' ? '深色模式' : '浅色模式'}</span>
@@ -1350,7 +1492,7 @@ const SettingsPage: React.FC = () => {
             {/* 主面板壁纸 */}
             <div className="space-y-4">
               <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">主面板壁纸</h3>
-              
+
               {/* 壁纸预览 */}
               {wallpaperSettings.imageUrl && (
                 <div className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-white/20">
@@ -1570,208 +1712,207 @@ const SettingsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         {/* SteamCMD设置 - 检测到ARM架构时隐藏 */}
         {!(systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64') && (
-        <div className="card-game p-6">
-          <div className="flex items-center space-x-3 mb-6">
-            <Download className="w-5 h-5 text-green-500" />
-            <h2 className="text-lg font-semibold text-black dark:text-white">SteamCMD设置</h2>
-          </div>
-          
-          <div className="space-y-6">
-            {/* 当前状态 */}
-            <div className="p-4 bg-white/5 rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">当前状态</h3>
-                <div className="flex items-center space-x-2">
-                  {steamcmdSettings.isInstalled ? (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-red-500" />
-                  )}
-                  <span className={`text-sm ${
-                    steamcmdSettings.isInstalled ? 'text-green-500' : 'text-red-500'
-                  }`}>
-                    {steamcmdSettings.isInstalled ? '已安装' : '未安装'}
-                  </span>
+          <div className="card-game p-6">
+            <div className="flex items-center space-x-3 mb-6">
+              <Download className="w-5 h-5 text-green-500" />
+              <h2 className="text-lg font-semibold text-black dark:text-white">SteamCMD设置</h2>
+            </div>
+
+            <div className="space-y-6">
+              {/* 当前状态 */}
+              <div className="p-4 bg-white/5 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">当前状态</h3>
+                  <div className="flex items-center space-x-2">
+                    {steamcmdSettings.isInstalled ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-500" />
+                    )}
+                    <span className={`text-sm ${steamcmdSettings.isInstalled ? 'text-green-500' : 'text-red-500'
+                      }`}>
+                      {steamcmdSettings.isInstalled ? '已安装' : '未安装'}
+                    </span>
+                  </div>
+                </div>
+
+                {steamcmdSettings.installPath && (
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                    安装路径: {steamcmdSettings.installPath}
+                  </p>
+                )}
+
+                {steamcmdSettings.lastChecked && (
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    最后检查: {new Date(steamcmdSettings.lastChecked).toLocaleString()}
+                  </p>
+                )}
+              </div>
+
+              {/* 安装模式选择 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-3">
+                  安装模式
+                </label>
+                <div className="space-y-3">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="installMode"
+                      value="online"
+                      checked={steamcmdSettings.installMode === 'online'}
+                      onChange={(e) => setSteamcmdSettings(prev => ({
+                        ...prev,
+                        installMode: e.target.value as 'online' | 'manual'
+                      }))}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                      disabled={steamcmdLoading}
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                        在线安装
+                      </span>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        自动下载并安装SteamCMD到指定目录
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="installMode"
+                      value="manual"
+                      checked={steamcmdSettings.installMode === 'manual'}
+                      onChange={(e) => setSteamcmdSettings(prev => ({
+                        ...prev,
+                        installMode: e.target.value as 'online' | 'manual'
+                      }))}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                      disabled={steamcmdLoading}
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                        手动设置
+                      </span>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        指定已安装的SteamCMD路径
+                      </p>
+                    </div>
+                  </label>
                 </div>
               </div>
-              
-              {steamcmdSettings.installPath && (
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                  安装路径: {steamcmdSettings.installPath}
-                </p>
-              )}
-              
-              {steamcmdSettings.lastChecked && (
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  最后检查: {new Date(steamcmdSettings.lastChecked).toLocaleString()}
-                </p>
-              )}
-            </div>
-            
-            {/* 安装模式选择 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-3">
-                安装模式
-              </label>
-              <div className="space-y-3">
-                <label className="flex items-center space-x-3 cursor-pointer">
+
+              {/* 路径输入 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
+                  {steamcmdSettings.installMode === 'online' ? '安装路径' : 'SteamCMD路径'}
+                </label>
+                <div className="relative">
                   <input
-                    type="radio"
-                    name="installMode"
-                    value="online"
-                    checked={steamcmdSettings.installMode === 'online'}
+                    type="text"
+                    value={steamcmdSettings.installPath}
                     onChange={(e) => setSteamcmdSettings(prev => ({
                       ...prev,
-                      installMode: e.target.value as 'online' | 'manual'
+                      installPath: e.target.value
                     }))}
-                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                    className="w-full px-3 py-2 pr-10 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={steamcmdSettings.installMode === 'online'
+                      ? '例如: C:\\SteamCMD 或 容器写 /root/steamcmd'
+                      : '例如: C:\\SteamCMD 或 容器写 /root/steamcmd'
+                    }
                     disabled={steamcmdLoading}
                   />
-                  <div>
-                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                      在线安装
-                    </span>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      自动下载并安装SteamCMD到指定目录
-                    </p>
+
+                  {/* 路径检查状态 */}
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    {pathCheckLoading ? (
+                      <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                    ) : pathExists === true ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : pathExists === false ? (
+                      <XCircle className="w-4 h-4 text-red-500" />
+                    ) : null}
                   </div>
-                </label>
-                
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="installMode"
-                    value="manual"
-                    checked={steamcmdSettings.installMode === 'manual'}
-                    onChange={(e) => setSteamcmdSettings(prev => ({
-                      ...prev,
-                      installMode: e.target.value as 'online' | 'manual'
-                    }))}
-                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                    disabled={steamcmdLoading}
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                      手动设置
-                    </span>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      指定已安装的SteamCMD路径
-                    </p>
-                  </div>
-                </label>
+                </div>
+
+                {steamcmdSettings.installMode === 'manual' && pathExists === false && (
+                  <p className="text-xs text-red-500 mt-1">
+                    在指定路径下未找到steamcmd.exe或steamcmd.sh文件。容器中请填写为/root/steamcmd
+                  </p>
+                )}
+
+                {steamcmdSettings.installMode === 'manual' && pathExists === true && (
+                  <p className="text-xs text-green-500 mt-1">
+                    已找到SteamCMD可执行文件
+                  </p>
+                )}
               </div>
-            </div>
-            
-            {/* 路径输入 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
-                {steamcmdSettings.installMode === 'online' ? '安装路径' : 'SteamCMD路径'}
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={steamcmdSettings.installPath}
-                  onChange={(e) => setSteamcmdSettings(prev => ({
-                    ...prev,
-                    installPath: e.target.value
-                  }))}
-                  className="w-full px-3 py-2 pr-10 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={steamcmdSettings.installMode === 'online' 
-                    ? '例如: C:\\SteamCMD 或 容器写 /root/steamcmd' 
-                    : '例如: C:\\SteamCMD 或 容器写 /root/steamcmd'
-                  }
+
+              {/* 安装进度 */}
+              {steamcmdLoading && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-800 dark:text-gray-200">
+                      {steamcmdStatus}
+                    </span>
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {steamcmdProgress}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${steamcmdProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+
+              {/* 操作按钮 */}
+              <div className="flex space-x-3">
+                {steamcmdSettings.installMode === 'online' ? (
+                  <button
+                    onClick={handleOnlineInstall}
+                    disabled={steamcmdLoading || !steamcmdSettings.installPath.trim()}
+                    className="flex-1 btn-game py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  >
+                    {steamcmdLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    <span>{steamcmdLoading ? '安装中...' : '开始安装'}</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleManualPath}
+                    disabled={steamcmdLoading || !steamcmdSettings.installPath.trim()}
+                    className="flex-1 btn-game py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  >
+                    {steamcmdLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FolderOpen className="w-4 h-4" />
+                    )}
+                    <span>{steamcmdLoading ? '设置中...' : '设置路径'}</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={fetchSteamCMDStatus}
                   disabled={steamcmdLoading}
-                />
-                
-                {/* 路径检查状态 */}
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  {pathCheckLoading ? (
-                    <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
-                  ) : pathExists === true ? (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  ) : pathExists === false ? (
-                    <XCircle className="w-4 h-4 text-red-500" />
-                  ) : null}
-                </div>
-              </div>
-              
-              {steamcmdSettings.installMode === 'manual' && pathExists === false && (
-                <p className="text-xs text-red-500 mt-1">
-                  在指定路径下未找到steamcmd.exe或steamcmd.sh文件。容器中请填写为/root/steamcmd
-                </p>
-              )}
-              
-              {steamcmdSettings.installMode === 'manual' && pathExists === true && (
-                <p className="text-xs text-green-500 mt-1">
-                  已找到SteamCMD可执行文件
-                </p>
-              )}
-            </div>
-            
-            {/* 安装进度 */}
-            {steamcmdLoading && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-800 dark:text-gray-200">
-                    {steamcmdStatus}
-                  </span>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    {steamcmdProgress}%
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${steamcmdProgress}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
-            
-            {/* 操作按钮 */}
-            <div className="flex space-x-3">
-              {steamcmdSettings.installMode === 'online' ? (
-                <button
-                  onClick={handleOnlineInstall}
-                  disabled={steamcmdLoading || !steamcmdSettings.installPath.trim()}
-                  className="flex-1 btn-game py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="刷新状态"
                 >
-                  {steamcmdLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  <span>{steamcmdLoading ? '安装中...' : '开始安装'}</span>
+                  <RotateCcw className="w-4 h-4" />
                 </button>
-              ) : (
-                <button
-                  onClick={handleManualPath}
-                  disabled={steamcmdLoading || !steamcmdSettings.installPath.trim()}
-                  className="flex-1 btn-game py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-                >
-                  {steamcmdLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <FolderOpen className="w-4 h-4" />
-                  )}
-                  <span>{steamcmdLoading ? '设置中...' : '设置路径'}</span>
-                </button>
-              )}
-              
-              <button
-                onClick={fetchSteamCMDStatus}
-                disabled={steamcmdLoading}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="刷新状态"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
+              </div>
             </div>
           </div>
-        </div>
         )}
 
         {/* 赞助者密钥 */}
@@ -1780,7 +1921,7 @@ const SettingsPage: React.FC = () => {
             <Shield className="w-5 h-5 text-yellow-500" />
             <h2 className="text-lg font-semibold text-black dark:text-white">赞助者密钥</h2>
           </div>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
@@ -1820,16 +1961,15 @@ const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* 密钥状态显示 */}
             {sponsorKeyStatus.message && (
-              <div className={`p-3 rounded-lg ${
-                sponsorKeyStatus.isValid === true 
-                  ? 'bg-green-500/20 border border-green-500/30' 
-                  : sponsorKeyStatus.isValid === false 
+              <div className={`p-3 rounded-lg ${sponsorKeyStatus.isValid === true
+                ? 'bg-green-500/20 border border-green-500/30'
+                : sponsorKeyStatus.isValid === false
                   ? 'bg-red-500/20 border border-red-500/30'
                   : 'bg-yellow-500/20 border border-yellow-500/30'
-              }`}>
+                }`}>
                 <div className="flex items-center space-x-2">
                   {sponsorKeyStatus.isValid === true ? (
                     <CheckCircle className="w-4 h-4 text-green-500" />
@@ -1838,17 +1978,16 @@ const SettingsPage: React.FC = () => {
                   ) : (
                     <Loader2 className="w-4 h-4 text-yellow-500" />
                   )}
-                  <span className={`text-sm font-medium ${
-                    sponsorKeyStatus.isValid === true 
-                      ? 'text-green-500' 
-                      : sponsorKeyStatus.isValid === false 
+                  <span className={`text-sm font-medium ${sponsorKeyStatus.isValid === true
+                    ? 'text-green-500'
+                    : sponsorKeyStatus.isValid === false
                       ? 'text-red-500'
                       : 'text-yellow-500'
-                  }`}>
+                    }`}>
                     {sponsorKeyStatus.message}
                   </span>
                 </div>
-                
+
                 {sponsorKeyStatus.expiryTime && (
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                     到期时间: {new Date(sponsorKeyStatus.expiryTime).toLocaleString()}
@@ -1856,7 +1995,7 @@ const SettingsPage: React.FC = () => {
                 )}
               </div>
             )}
-            
+
             <div className="text-xs text-gray-600 dark:text-gray-400">
               <p>• 赞助者密钥用于验证您的赞助者身份</p>
               <p>• 密钥验证成功后将自动保存到本地</p>
@@ -1864,14 +2003,14 @@ const SettingsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         {/* 终端选项 */}
         <div className="card-game p-6">
           <div className="flex items-center space-x-3 mb-6">
             <Monitor className="w-5 h-5 text-green-500" />
             <h2 className="text-lg font-semibold text-black dark:text-white">终端选项</h2>
           </div>
-          
+
           <div className="space-y-4">
             {/* 默认用户设置 */}
             <div>
@@ -1911,9 +2050,9 @@ const SettingsPage: React.FC = () => {
               </p>
               <p className="text-xs text-gray-600 dark:text-gray-400">
                 • Docker中将此值填写为steam
-              </p>              
+              </p>
             </div>
-            
+
             {/* 保存按钮 */}
             <div className="flex justify-end">
               <button
@@ -1999,7 +2138,7 @@ const SettingsPage: React.FC = () => {
             <Lock className="w-5 h-5 text-purple-500" />
             <h2 className="text-lg font-semibold text-black dark:text-white">安全配置</h2>
           </div>
-          
+
           <div className="space-y-6">
             {/* 令牌重置规则 */}
             <div>
@@ -2028,7 +2167,7 @@ const SettingsPage: React.FC = () => {
                     </p>
                   </div>
                 </label>
-                
+
                 <label className="flex items-center space-x-3 cursor-pointer">
                   <input
                     type="radio"
@@ -2052,7 +2191,7 @@ const SettingsPage: React.FC = () => {
                 </label>
               </div>
             </div>
-            
+
             {/* 令牌到期时间 */}
             <div>
               <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
@@ -2077,7 +2216,7 @@ const SettingsPage: React.FC = () => {
                   />
                   <span className="text-sm text-gray-600 dark:text-gray-400">小时</span>
                 </div>
-                
+
                 <label className="flex items-center space-x-3 cursor-pointer">
                   <input
                     type="checkbox"
@@ -2102,12 +2241,12 @@ const SettingsPage: React.FC = () => {
                   </div>
                 </label>
               </div>
-              
+
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
                 当前设置: {securityConfig.tokenExpireHours === null ? '永不到期' : `${securityConfig.tokenExpireHours}小时`}
               </p>
             </div>
-            
+
             {/* 操作按钮 */}
             <div className="flex space-x-3">
               <button
@@ -2132,7 +2271,7 @@ const SettingsPage: React.FC = () => {
             <Shield className="w-5 h-5 text-red-500" />
             <h2 className="text-lg font-semibold text-black dark:text-white">账户安全</h2>
           </div>
-          
+
           {/* 用户信息 */}
           <div className="mb-6 p-4 bg-white/5 rounded-lg">
             <div className="flex items-center justify-between">
@@ -2171,19 +2310,19 @@ const SettingsPage: React.FC = () => {
                     </div>
                   ) : (
                     <div className="flex items-center space-x-2">
-                       <p className="text-black dark:text-white font-medium">{user?.username}</p>
-                       <button
-                         onClick={() => setUsernameForm(prev => ({
-                           ...prev,
-                           isEditing: true,
-                           newUsername: user?.username || ''
-                         }))}
-                         className="p-1 text-blue-500 hover:text-blue-400"
-                         title="修改用户名"
-                       >
-                         <Edit2 className="w-4 h-4" />
-                       </button>
-                     </div>
+                      <p className="text-black dark:text-white font-medium">{user?.username}</p>
+                      <button
+                        onClick={() => setUsernameForm(prev => ({
+                          ...prev,
+                          isEditing: true,
+                          newUsername: user?.username || ''
+                        }))}
+                        className="p-1 text-blue-500 hover:text-blue-400"
+                        title="修改用户名"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   )}
                   <p className="text-sm text-gray-600 dark:text-gray-400">
                     {user?.role === 'admin' ? '管理员' : '普通用户'}
@@ -2192,12 +2331,12 @@ const SettingsPage: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           {/* 自动跳转控制 */}
           <div className="mb-6">
             <AutoRedirectControl />
           </div>
-          
+
           {/* 修改密码表单 */}
           <form onSubmit={handlePasswordChange} className="space-y-4">
             <div>
@@ -2228,7 +2367,7 @@ const SettingsPage: React.FC = () => {
                 </button>
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
                 新密码
@@ -2257,7 +2396,7 @@ const SettingsPage: React.FC = () => {
                 </button>
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
                 确认新密码
@@ -2286,7 +2425,7 @@ const SettingsPage: React.FC = () => {
                 </button>
               </div>
             </div>
-            
+
             <button
               type="submit"
               disabled={passwordLoading || !passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword}
@@ -2297,7 +2436,189 @@ const SettingsPage: React.FC = () => {
           </form>
         </div>
       </div>
-      
+
+      {/* 面板日志 */}
+      <div className="card-game p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-3">
+            <FileText className="w-5 h-5 text-cyan-500" />
+            <h2 className="text-lg font-semibold text-black dark:text-white">面板日志</h2>
+          </div>
+          <div className="flex items-center space-x-3">
+            {/* 模式切换 */}
+            <div className="flex rounded-lg overflow-hidden border border-white/20">
+              <button
+                onClick={() => {
+                  consoleLogStore.setMode('console')
+                }}
+                className={`px-3 py-1.5 text-sm transition-colors ${consoleLogStore.mode === 'console'
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-white/10 text-gray-600 dark:text-gray-300 hover:bg-white/20'
+                  }`}
+              >
+                实时终端
+              </button>
+              <button
+                onClick={() => {
+                  consoleLogStore.setMode('file')
+                }}
+                className={`px-3 py-1.5 text-sm transition-colors ${consoleLogStore.mode === 'file'
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-white/10 text-gray-600 dark:text-gray-300 hover:bg-white/20'
+                  }`}
+              >
+                日志文件
+              </button>
+            </div>
+
+            {/* 日志文件选择（仅在日志文件模式显示） */}
+            {consoleLogStore.mode === 'file' && (
+              <select
+                value={consoleLogStore.selectedFile}
+                onChange={(e) => {
+                  consoleLogStore.setSelectedFile(e.target.value)
+                }}
+                className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                disabled={logsLoading}
+              >
+                {logFiles.map((file) => (
+                  <option key={file.name} value={file.name} className="bg-white dark:bg-gray-800">
+                    {file.name} ({file.sizeFormatted})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* 操作按钮 - 根据模式显示不同内容 */}
+            {consoleLogStore.mode === 'console' ? (
+              // 实时终端模式：显示连接/断开按钮
+              <button
+                onClick={consoleLogStore.isConnected ? disconnectLogStream : connectLogStream}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center space-x-2 text-sm ${consoleLogStore.isConnected
+                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                  : 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                  }`}
+              >
+                {consoleLogStore.isConnected ? (
+                  <>
+                    <Pause className="w-4 h-4" />
+                    <span>停止监控</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    <span>实时监控</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              // 日志文件模式：显示加载按钮
+              <button
+                onClick={connectLogStream}
+                disabled={!consoleLogStore.selectedFile || consoleLogStore.isLoading}
+                className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {consoleLogStore.isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>加载中...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4 h-4" />
+                    <span>加载日志</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* 一键导出 */}
+            <button
+              onClick={downloadAllLogs}
+              disabled={logsDownloading}
+              className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {logsDownloading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Archive className="w-4 h-4" />
+              )}
+              <span>{logsDownloading ? '导出中...' : '导出所有日志'}</span>
+            </button>
+
+            {/* 刷新列表 */}
+            <button
+              onClick={loadLogFiles}
+              disabled={logsLoading}
+              className="p-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="刷新日志列表"
+            >
+              {logsLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* 日志显示区域 */}
+        <div
+          ref={logContainerRef}
+          className="bg-gray-900 rounded-lg p-4 h-80 overflow-y-auto font-mono text-xs text-gray-300 border border-gray-700"
+        >
+          {consoleLogStore.lines.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+              <FileText className="w-12 h-12 mb-3 opacity-50" />
+              <p>点击「实时监控」开始查看日志</p>
+              <p className="text-xs mt-1">或选择其他日志文件</p>
+            </div>
+          ) : (
+            consoleLogStore.lines.map((line, index) => (
+              <div
+                key={index}
+                className={`py-0.5 border-b border-gray-800 hover:bg-gray-800/50 ${line.includes('error') || line.includes('ERROR')
+                  ? 'text-red-400'
+                  : line.includes('warn') || line.includes('WARN')
+                    ? 'text-yellow-400'
+                    : line.includes('info') || line.includes('INFO')
+                      ? 'text-blue-400'
+                      : 'text-gray-300'
+                  }`}
+              >
+                <span className="text-gray-600 mr-2 select-none">{index + 1}</span>
+                {line}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* 状态栏 */}
+        <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
+          <div className="flex items-center space-x-4">
+            <span>
+              状态:{' '}
+              {consoleLogStore.mode === 'console' ? (
+                <span className={consoleLogStore.isConnected ? 'text-green-500' : 'text-gray-400'}>
+                  {consoleLogStore.isConnected ? '● 实时监控中' : '○ 未连接'}
+                </span>
+              ) : (
+                <span className="text-blue-400">
+                  {consoleLogStore.lines.length > 0 ? '● 已加载' : '○ 未加载'}
+                </span>
+              )}
+            </span>
+            <span>
+              模式: {consoleLogStore.mode === 'console' ? '实时终端' : `日志文件 (${consoleLogStore.selectedFile || '未选择'})`}
+            </span>
+            <span>显示行数: {consoleLogStore.lines.length}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">日志目录: server/logs</span>
+          </div>
+        </div>
+      </div>
+
       {/* 操作按钮 */}
       <div className="card-game p-6">
         <div className="flex items-center justify-between">
@@ -2305,7 +2626,7 @@ const SettingsPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-black dark:text-white mb-1">设置操作</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">保存或重置您的设置</p>
           </div>
-          
+
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleDeveloperPageAccess}
