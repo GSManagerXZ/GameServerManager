@@ -78,6 +78,36 @@ router.delete('/folder', async (req: Request, res: Response) => {
   }
 })
 
+// 下载备份文件
+router.get('/download', async (req: Request, res: Response) => {
+  try {
+    const { backupName, fileName } = (req.query || {}) as { backupName?: string; fileName?: string }
+    if (!backupName || !fileName) {
+      return res.status(400).json({ success: false, message: '缺少必要参数: backupName 或 fileName' })
+    }
+    const filePath = await backupManager.getBackupFilePath(String(backupName), String(fileName))
+    
+    // 设置响应头，告诉浏览器下载文件
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
+    res.setHeader('Content-Type', 'application/octet-stream')
+    
+    // 发送文件
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        logger.error('下载备份文件失败:', err)
+        if (!res.headersSent) {
+          res.status(500).json({ success: false, message: '下载备份文件失败' })
+        }
+      }
+    })
+  } catch (error: any) {
+    logger.error('下载备份文件失败:', error)
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message || '下载备份文件失败' })
+    }
+  }
+})
+
 export default router
 
 

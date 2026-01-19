@@ -118,7 +118,7 @@ const InstanceManagerPage: React.FC = () => {
   })
   const [javaEnvironments, setJavaEnvironments] = useState<any[]>([])
   const [loadingJava, setLoadingJava] = useState(false)
-  
+
   // 停止按钮状态管理
   const [disabledStopButtons, setDisabledStopButtons] = useState<Set<string>>(new Set())
 
@@ -219,7 +219,7 @@ const InstanceManagerPage: React.FC = () => {
         const instance = instances.find(inst => inst.id === instanceId)
         const instanceName = instance?.name || instanceId
         const configName = availableConfigs.find(config => config.id === configId)?.name || configId
-        
+
         setCreateConfigInfo({
           instanceId,
           instanceName,
@@ -227,7 +227,7 @@ const InstanceManagerPage: React.FC = () => {
           configPath: configFilePath
         })
         setShowCreateConfigDialog(true)
-        
+
         // 暂时使用默认值
         const currentSchema = schema || configSchema
         const defaultData = fillDefaultValues(currentSchema, response.data?.config || {})
@@ -298,7 +298,7 @@ const InstanceManagerPage: React.FC = () => {
     console.log('当前configData状态:', JSON.stringify(configData, null, 2))
     console.log('configData对象引用:', configData)
     console.log('configData的键:', Object.keys(configData))
-    
+
     // 检查configData是否为空或只包含默认值
     const hasUserData = Object.keys(configData).length > 0
     console.log('configData是否包含数据:', hasUserData)
@@ -328,7 +328,7 @@ const InstanceManagerPage: React.FC = () => {
   const handleConfigSelection = async (instanceId: string, configId: string) => {
     setSelectedInstance(instanceId)
     setSelectedConfigId(configId)
-    
+
     if (instanceId && configId) {
       // 先获取配置模式
       const schemaResponse = await fetchConfigSchema(configId)
@@ -347,9 +347,9 @@ const InstanceManagerPage: React.FC = () => {
   // 填充默认值到配置数据
   const fillDefaultValues = (schema: any, currentData: any = {}) => {
     if (!schema || !schema.sections) return currentData
-    
+
     const filledData = { ...currentData }
-    
+
     // 处理sections数组
     if (Array.isArray(schema.sections)) {
       schema.sections.forEach((section: any) => {
@@ -358,7 +358,7 @@ const InstanceManagerPage: React.FC = () => {
         if (!filledData[sectionKey]) {
           filledData[sectionKey] = {}
         }
-        
+
         if (section.fields && Array.isArray(section.fields)) {
           section.fields.forEach((field: any) => {
             if (field.type === 'nested' && field.nested_fields) {
@@ -366,7 +366,7 @@ const InstanceManagerPage: React.FC = () => {
               if (!filledData[sectionKey][field.name]) {
                 filledData[sectionKey][field.name] = {}
               }
-              
+
               // 填充嵌套字段的默认值
               field.nested_fields.forEach((nestedField: any) => {
                 if (filledData[sectionKey][field.name][nestedField.name] === undefined && nestedField.default !== undefined) {
@@ -388,7 +388,7 @@ const InstanceManagerPage: React.FC = () => {
         if (!filledData[sectionKey]) {
           filledData[sectionKey] = {}
         }
-        
+
         if (section.fields && Array.isArray(section.fields)) {
           section.fields.forEach((field: any) => {
             if (field.type === 'nested' && field.nested_fields) {
@@ -396,7 +396,7 @@ const InstanceManagerPage: React.FC = () => {
               if (!filledData[sectionKey][field.name]) {
                 filledData[sectionKey][field.name] = {}
               }
-              
+
               // 填充嵌套字段的默认值
               field.nested_fields.forEach((nestedField: any) => {
                 if (filledData[sectionKey][field.name][nestedField.name] === undefined && nestedField.default !== undefined) {
@@ -413,7 +413,7 @@ const InstanceManagerPage: React.FC = () => {
         }
       })
     }
-    
+
     return filledData
   }
 
@@ -468,7 +468,7 @@ const InstanceManagerPage: React.FC = () => {
     fetchAvailableConfigs()
     fetchSystemUsers()
     fetchSystemInfo() // 获取系统信息以检测ARM架构
-    
+
     // 检查是否有待创建的实例（从游戏部署页面跳转过来）
     const pendingInstanceStr = localStorage.getItem('pendingInstance')
     if (pendingInstanceStr) {
@@ -476,7 +476,7 @@ const InstanceManagerPage: React.FC = () => {
         const pendingInstance = JSON.parse(pendingInstanceStr)
         // 清除localStorage中的数据
         localStorage.removeItem('pendingInstance')
-        
+
         // 填充表单数据
         setFormData({
           name: pendingInstance.name || '',
@@ -489,7 +489,7 @@ const InstanceManagerPage: React.FC = () => {
           programPath: '',
           terminalUser: ''
         })
-        
+
         // 打开创建模态框
         setShowCreateModal(true)
         setTimeout(() => {
@@ -561,6 +561,30 @@ const InstanceManagerPage: React.FC = () => {
     }
   }
 
+  const handleDownloadBackup = async (backupName: string, fileName: string) => {
+    try {
+      addNotification({ type: 'info', title: '开始下载', message: '正在准备下载备份文件...' })
+
+      const blob = await apiClient.downloadBackup(backupName, fileName)
+
+      // 创建下载链接
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+
+      // 清理
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+
+      addNotification({ type: 'success', title: '下载成功', message: '备份文件已开始下载' })
+    } catch (error: any) {
+      addNotification({ type: 'error', title: '下载失败', message: error.message || '下载备份文件失败' })
+    }
+  }
+
   // 当检测到ARM架构时，如果当前标签页是实例市场，则切换到我的实例标签页
   useEffect(() => {
     if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') && activeTab === 'market') {
@@ -586,7 +610,7 @@ const InstanceManagerPage: React.FC = () => {
         } else {
           executablePath = executablePath.split(' ')[0]
         }
-        
+
         // 检查是否为绝对路径（Windows: C:\ 或 D:\ 等，Unix: /开头）
         const isAbsolute = /^([a-zA-Z]:\\|\/)/.test(executablePath)
         if (!isAbsolute) {
@@ -598,7 +622,7 @@ const InstanceManagerPage: React.FC = () => {
           return
         }
       }
-      
+
       const response = await apiClient.createInstance(formData)
       if (response.success) {
         addNotification({
@@ -611,7 +635,7 @@ const InstanceManagerPage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('创建实例失败:', error)
-      
+
       // 获取具体的错误消息
       let errorMessage = '无法创建实例'
       if (error.message) {
@@ -619,7 +643,7 @@ const InstanceManagerPage: React.FC = () => {
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '创建失败',
@@ -631,7 +655,7 @@ const InstanceManagerPage: React.FC = () => {
   // 更新实例
   const handleUpdateInstance = async () => {
     if (!editingInstance) return
-    
+
     try {
       // 验证输出流转发配置
       if (formData.enableStreamForward && formData.programPath) {
@@ -643,7 +667,7 @@ const InstanceManagerPage: React.FC = () => {
         } else {
           executablePath = executablePath.split(' ')[0]
         }
-        
+
         // 检查是否为绝对路径（Windows: C:\ 或 D:\ 等，Unix: /开头）
         const isAbsolute = /^([a-zA-Z]:\\|\/)/.test(executablePath)
         if (!isAbsolute) {
@@ -655,7 +679,7 @@ const InstanceManagerPage: React.FC = () => {
           return
         }
       }
-      
+
       const response = await apiClient.updateInstance(editingInstance.id, formData)
       if (response.success) {
         addNotification({
@@ -668,7 +692,7 @@ const InstanceManagerPage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('更新实例失败:', error)
-      
+
       // 获取具体的错误消息
       let errorMessage = '无法更新实例'
       if (error.message) {
@@ -676,7 +700,7 @@ const InstanceManagerPage: React.FC = () => {
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '更新失败',
@@ -688,7 +712,7 @@ const InstanceManagerPage: React.FC = () => {
   // 安装市场实例
   const handleInstallMarketInstance = async () => {
     if (!selectedMarketInstance || !installFormData.workingDirectory) return
-    
+
     try {
       // 转换停止命令格式
       let stopCommand: 'ctrl+c' | 'stop' | 'exit' | 'quit' = 'ctrl+c'
@@ -701,7 +725,7 @@ const InstanceManagerPage: React.FC = () => {
       } else if (selectedMarketInstance.stopcommand === 'quit') {
         stopCommand = 'quit'
       }
-      
+
       const installData: CreateInstanceRequest = {
         name: selectedMarketInstance.name,
         description: `从实例市场安装的 ${selectedMarketInstance.name}`,
@@ -711,7 +735,7 @@ const InstanceManagerPage: React.FC = () => {
         stopCommand,
         terminalUser: ''
       }
-      
+
       const response = await apiClient.createInstance(installData)
       if (response.success) {
         addNotification({
@@ -725,14 +749,14 @@ const InstanceManagerPage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('安装实例失败:', error)
-      
+
       let errorMessage = '无法安装实例'
       if (error.message) {
         errorMessage = error.message
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '安装失败',
@@ -751,10 +775,10 @@ const InstanceManagerPage: React.FC = () => {
   // 检查启动命令并显示确认对话框
   const handleStartInstance = (instance: Instance) => {
     const startCommand = instance.startCommand.trim()
-    
+
     // 检测启动命令是否为none
     const isCommandNone = startCommand === 'none'
-    
+
     // 检测平台和启动命令格式是否匹配
     // 使用后端服务器的平台信息来判断
     // 优先使用 rawPlatform，回退到检查 platform 字段
@@ -764,10 +788,10 @@ const InstanceManagerPage: React.FC = () => {
     const isLinuxServer = systemInfo?.rawPlatform
       ? (systemInfo.rawPlatform === 'linux' || systemInfo.rawPlatform === 'darwin')
       : systemInfo?.platform?.toLowerCase().includes('linux') || false
-    
+
     // Windows 平台使用了 Linux 格式 (./)
     const isWindowsWithLinuxSlash = startCommand.startsWith('./') && isWindowsServer
-    
+
     // Linux 平台使用了 Windows 格式 (.\)
     const isLinuxWithWindowsBackslash = startCommand.startsWith('.\\') && isLinuxServer
 
@@ -856,13 +880,13 @@ const InstanceManagerPage: React.FC = () => {
           title: '停止成功',
           message: `实例 "${instance.name}" 正在停止`
         })
-        
+
         // 刷新实例列表以获取最新状态
         fetchInstances()
       }
     } catch (error: any) {
       console.error('停止实例失败:', error)
-      
+
       // 获取具体的错误消息
       let errorMessage = '无法停止实例'
       if (error.message) {
@@ -870,7 +894,7 @@ const InstanceManagerPage: React.FC = () => {
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '停止失败',
@@ -891,7 +915,7 @@ const InstanceManagerPage: React.FC = () => {
           return newSet
         })
       }, 3000)
-      
+
       // 调用关闭终端的API
       const response = await apiClient.closeTerminal(instance.id)
       if (response.success) {
@@ -900,19 +924,19 @@ const InstanceManagerPage: React.FC = () => {
           title: '终端已关闭',
           message: `实例 "${instance.name}" 的终端已关闭`
         })
-        
+
         fetchInstances()
       }
     } catch (error: any) {
       console.error('关闭终端失败:', error)
-      
+
       let errorMessage = '无法关闭终端'
       if (error.message) {
         errorMessage = error.message
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '关闭失败',
@@ -930,9 +954,9 @@ const InstanceManagerPage: React.FC = () => {
   // 确认删除实例
   const handleConfirmDelete = async (deleteDirectory: boolean) => {
     if (!instanceToDelete) return
-    
+
     setShowDeleteDialog(false)
-    
+
     try {
       const response = await apiClient.deleteInstance(instanceToDelete.id)
       if (response.success) {
@@ -951,12 +975,12 @@ const InstanceManagerPage: React.FC = () => {
                 paths: [instanceToDelete.workingDirectory]
               })
             })
-            
+
             if (!deleteResponse.ok) {
               const errorData = await deleteResponse.json()
               throw new Error(errorData.message || '删除目录失败')
             }
-            
+
             addNotification({
               type: 'success',
               title: '删除成功',
@@ -976,12 +1000,12 @@ const InstanceManagerPage: React.FC = () => {
             message: `实例 "${instanceToDelete.name}" 已删除`
           })
         }
-        
+
         fetchInstances()
       }
     } catch (error: any) {
       console.error('删除实例失败:', error)
-      
+
       // 获取具体的错误消息
       let errorMessage = '无法删除实例'
       if (error.message) {
@@ -989,7 +1013,7 @@ const InstanceManagerPage: React.FC = () => {
       } else if (error.error) {
         errorMessage = error.error
       }
-      
+
       addNotification({
         type: 'error',
         title: '删除失败',
@@ -1056,7 +1080,7 @@ const InstanceManagerPage: React.FC = () => {
   // 处理创建配置文件确认
   const handleCreateConfigConfirm = async () => {
     if (!createConfigInfo) return
-    
+
     try {
       const createResponse = await apiClient.createGameConfig(createConfigInfo.instanceId, createConfigInfo.configId)
       if (createResponse.data?.config) {
@@ -1120,11 +1144,11 @@ const InstanceManagerPage: React.FC = () => {
     })
     setShowCreateModal(true)
     setTimeout(() => setCreateModalAnimating(true), 10)
-    
+
     // 加载Java环境列表
     await fetchJavaEnvironments()
   }
-  
+
   // 获取Java环境列表
   const fetchJavaEnvironments = async () => {
     try {
@@ -1212,11 +1236,10 @@ const InstanceManagerPage: React.FC = () => {
         <nav className="-mb-px flex space-x-8">
           <button
             onClick={() => setActiveTab('instances')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'instances'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'instances'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
           >
             <div className="flex items-center space-x-2">
               <Server className="w-4 h-4" />
@@ -1227,11 +1250,10 @@ const InstanceManagerPage: React.FC = () => {
           {!(systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64') && (
             <button
               onClick={() => setActiveTab('market')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'market'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }`}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'market'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
             >
               <div className="flex items-center space-x-2">
                 <ShoppingCart className="w-4 h-4" />
@@ -1241,11 +1263,10 @@ const InstanceManagerPage: React.FC = () => {
           )}
           <button
             onClick={() => setActiveTab('gameConfig')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'gameConfig'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'gameConfig'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
           >
             <div className="flex items-center space-x-2">
               <Settings className="w-4 h-4" />
@@ -1254,11 +1275,10 @@ const InstanceManagerPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('rcon')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'rcon'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'rcon'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
           >
             <div className="flex items-center space-x-2">
               <Terminal className="w-4 h-4" />
@@ -1267,11 +1287,10 @@ const InstanceManagerPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('backup')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'backup'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
+            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'backup'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
           >
             <div className="flex items-center space-x-2">
               <Clock className="w-4 h-4" />
@@ -1314,120 +1333,117 @@ const InstanceManagerPage: React.FC = () => {
                 key={instance.id}
                 className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition-shadow"
               >
-              {/* 实例头部 */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-                    {instance.name}
-                  </h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-                    {instance.description}
-                  </p>
-                </div>
-                <div className="flex items-center space-x-1 ml-4">
-                  {getStatusIcon(instance.status)}
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {getStatusText(instance.status)}
-                  </span>
-                </div>
-              </div>
-
-              {/* 实例信息 */}
-              <div className="space-y-2 mb-4">
-                <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                  <FolderOpen className="w-4 h-4 mr-2" />
-                  <span className="truncate">{instance.workingDirectory}</span>
-                </div>
-                <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                  <Terminal className="w-4 h-4 mr-2" />
-                  <span className="truncate">{instance.startCommand}</span>
-                </div>
-                {instance.lastStarted && (
-                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                    <Clock className="w-4 h-4 mr-2" />
-                    <span>最后启动: {new Date(instance.lastStarted).toLocaleString()}</span>
+                {/* 实例头部 */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                      {instance.name}
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                      {instance.description}
+                    </p>
                   </div>
-                )}
-                {instance.pid && (
-                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                    <Activity className="w-4 h-4 mr-2" />
-                    <span>PID: {instance.pid}</span>
+                  <div className="flex items-center space-x-1 ml-4">
+                    {getStatusIcon(instance.status)}
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {getStatusText(instance.status)}
+                    </span>
                   </div>
-                )}
-              </div>
+                </div>
 
-              {/* 操作按钮 */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
-                <div className="flex items-center space-x-2">
-                  {instance.status === 'running' ? (
-                    <button
-                      onClick={() => handleStopInstance(instance)}
-                      className="flex items-center space-x-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
-                    >
-                      <Square className="w-4 h-4" />
-                      <span>停止</span>
-                    </button>
-                  ) : instance.status === 'stopping' ? (
-                    <button
-                      onClick={() => handleCloseTerminal(instance)}
-                      disabled={disabledStopButtons.has(instance.id)}
-                      className={`flex items-center space-x-1 px-3 py-1.5 rounded-md transition-colors ${
-                        disabledStopButtons.has(instance.id)
+                {/* 实例信息 */}
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                    <FolderOpen className="w-4 h-4 mr-2" />
+                    <span className="truncate">{instance.workingDirectory}</span>
+                  </div>
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                    <Terminal className="w-4 h-4 mr-2" />
+                    <span className="truncate">{instance.startCommand}</span>
+                  </div>
+                  {instance.lastStarted && (
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                      <Clock className="w-4 h-4 mr-2" />
+                      <span>最后启动: {new Date(instance.lastStarted).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {instance.pid && (
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                      <Activity className="w-4 h-4 mr-2" />
+                      <span>PID: {instance.pid}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center space-x-2">
+                    {instance.status === 'running' ? (
+                      <button
+                        onClick={() => handleStopInstance(instance)}
+                        className="flex items-center space-x-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
+                      >
+                        <Square className="w-4 h-4" />
+                        <span>停止</span>
+                      </button>
+                    ) : instance.status === 'stopping' ? (
+                      <button
+                        onClick={() => handleCloseTerminal(instance)}
+                        disabled={disabledStopButtons.has(instance.id)}
+                        className={`flex items-center space-x-1 px-3 py-1.5 rounded-md transition-colors ${disabledStopButtons.has(instance.id)
                           ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                           : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                      }`}
-                    >
-                      <Square className="w-4 h-4" />
-                      <span>关闭终端</span>
-                    </button>
-                  ) : (
+                          }`}
+                      >
+                        <Square className="w-4 h-4" />
+                        <span>关闭终端</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleStartInstance(instance)}
+                        className="flex items-center space-x-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
+                        disabled={instance.status === 'starting'}
+                      >
+                        <Play className="w-4 h-4" />
+                        <span>启动</span>
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleStartInstance(instance)}
-                      className="flex items-center space-x-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
-                      disabled={instance.status === 'starting'}
+                      onClick={() => handleOpenDirectory(instance)}
+                      className="flex items-center space-x-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
                     >
-                      <Play className="w-4 h-4" />
-                      <span>启动</span>
+                      <FolderOpen className="w-4 h-4" />
+                      <span>文件</span>
                     </button>
-                  )}
-                  <button
-                    onClick={() => handleOpenDirectory(instance)}
-                    className="flex items-center space-x-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                    <span>文件</span>
-                  </button>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <button
-                    onClick={() => handleEditInstance(instance)}
-                    disabled={instance.status === 'running'}
-                    className={`p-1.5 rounded transition-colors ${
-                      instance.status === 'running'
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => handleEditInstance(instance)}
+                      disabled={instance.status === 'running'}
+                      className={`p-1.5 rounded transition-colors ${instance.status === 'running'
                         ? 'text-gray-400 cursor-not-allowed'
                         : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
-                    }`}
-                    title={instance.status === 'running' ? '实例运行时无法编辑' : '编辑实例'}
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteInstance(instance)}
-                    disabled={instance.status === 'running'}
-                    className={`p-1.5 rounded transition-colors ${
-                      instance.status === 'running'
+                        }`}
+                      title={instance.status === 'running' ? '实例运行时无法编辑' : '编辑实例'}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteInstance(instance)}
+                      disabled={instance.status === 'running'}
+                      className={`p-1.5 rounded transition-colors ${instance.status === 'running'
                         ? 'text-gray-400 cursor-not-allowed'
                         : 'text-gray-600 hover:text-red-600 hover:bg-red-50'
-                    }`}
-                    title={instance.status === 'running' ? '实例运行时无法删除' : '删除实例'}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                        }`}
+                      title={instance.status === 'running' ? '实例运行时无法删除' : '删除实例'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
         )
       ) : activeTab === 'market' ? (
         /* 实例市场 */
@@ -1513,7 +1529,7 @@ const InstanceManagerPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               选择实例和配置文件
             </h3>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* 选择实例 */}
               <div>
@@ -1531,7 +1547,7 @@ const InstanceManagerPage: React.FC = () => {
                   className="w-full"
                 />
               </div>
-              
+
               {/* 选择配置文件 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1551,7 +1567,7 @@ const InstanceManagerPage: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           {/* 配置编辑区域 */}
           {selectedInstance && selectedConfigId && (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -1572,7 +1588,7 @@ const InstanceManagerPage: React.FC = () => {
                   <span>{isSavingConfig ? '保存中...' : '保存配置'}</span>
                 </button>
               </div>
-              
+
               {isConfigLoading ? (
                 <div className="flex items-center justify-center h-32">
                   <Loader className="w-8 h-8 animate-spin text-blue-500" />
@@ -1586,302 +1602,302 @@ const InstanceManagerPage: React.FC = () => {
                     const section = Array.isArray(configSchema.sections) ? sectionData : sectionData[1]
                     // 使用严格判断，确保空字符串不会被替换成 'default'
                     const sectionKey = Array.isArray(configSchema.sections) ? (section.key !== undefined && section.key !== null ? section.key : 'default') : sectionData[0]
-                    
+
                     return (
-                    <div key={sectionKey || sectionIndex} className="space-y-4">
-                      {/* Section标题 */}
-                      {sectionKey && (
-                        <div className="border-b border-gray-200 dark:border-gray-700 pb-2">
-                          <h4 className="text-md font-medium text-gray-900 dark:text-white">
-                            {section.display_name || sectionKey}
-                          </h4>
-                          {section.description && (
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                              {section.description}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      
-                      {/* Section字段 */}
-                      <div className="space-y-4 pl-4">
-                        {section.fields?.map((field: any, fieldIndex: number) => {
-                          const fieldValue = getNestedValue(configData, sectionKey, field.name)
-                          
-                          return (
-                            <div key={field.name || fieldIndex} className="space-y-2">
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {field.display || field.name}
-                                {field.required && <span className="text-red-500 ml-1">*</span>}
-                              </label>
-                              
-                              {field.description && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  {field.description}
-                                </p>
-                              )}
-                              
-                              {field.type === 'string' && (
-                                <input
-                                  type="text"
-                                  value={fieldValue !== undefined && fieldValue !== null ? fieldValue : (field.default || '')}
-                                  onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name)}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                  placeholder="请输入值"
-                                />
-                              )}
-                              
-                              {(field.type === 'integer' || field.type === 'number') && (
-                                <input
-                                  type="number"
-                                  value={fieldValue !== undefined && fieldValue !== null ? fieldValue.toString() : (field.default !== undefined ? field.default.toString() : '')}
-                                  onChange={(e) => {
-                                    const value = e.target.value
-                                    if (value === '') {
-                                      handleConfigDataChange(field.default !== undefined ? field.default : (field.type === 'integer' ? 0 : 0.0), sectionKey, field.name)
-                                    } else {
-                                      const numValue = field.type === 'integer' ? parseInt(value) : parseFloat(value)
-                                      handleConfigDataChange(isNaN(numValue) ? (field.default !== undefined ? field.default : (field.type === 'integer' ? 0 : 0.0)) : numValue, sectionKey, field.name)
-                                    }
-                                  }}
-                                  step={field.type === 'integer' ? '1' : 'any'}
-                                  min={field.min}
-                                  max={field.max}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                  placeholder="请输入数值"
-                                />
-                              )}
-                              
-                              {field.type === 'boolean' && (
-                                <div className="flex items-center space-x-3">
-                                  <label className="flex items-center cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={fieldValue !== undefined ? Boolean(fieldValue) : Boolean(field.default)}
-                                      onChange={(e) => {
-                                        handleConfigDataChange(e.target.checked, sectionKey, field.name)
-                                      }}
-                                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                                    />
-                                    <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                                      {fieldValue !== undefined ? Boolean(fieldValue) : Boolean(field.default) ? '启用' : '禁用'}
-                                    </span>
-                                  </label>
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    当前值: {fieldValue !== undefined ? (Boolean(fieldValue) ? 'true' : 'false') : (Boolean(field.default) ? 'true' : 'false')}
-                                  </span>
-                                </div>
-                              )}
-                              
-                              {(field.type === 'enum' || field.type === 'select') && (
-                                <select
-                                  value={fieldValue !== undefined && fieldValue !== null ? fieldValue : (field.default || '')}
-                                  onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name)}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                >
-                                  <option value="">请选择</option>
-                                  {field.options?.map((option: any) => {
-                                    // 支持两种格式：字符串数组和对象数组
-                                    if (typeof option === 'string') {
-                                      return (
-                                        <option key={option} value={option}>
-                                          {option}
-                                        </option>
-                                      )
-                                    } else if (option && typeof option === 'object' && option.value) {
-                                      return (
-                                        <option key={option.value} value={option.value}>
-                                          {option.label || option.value}
-                                        </option>
-                                      )
-                                    }
-                                    return null
-                                  })}
-                                </select>
-                              )}
-                              
-                              {(field.type === 'float' || field.type === 'double') && (
-                                <input
-                                  type="number"
-                                  value={fieldValue !== undefined && fieldValue !== null ? fieldValue.toString() : (field.default !== undefined ? field.default.toString() : '')}
-                                  onChange={(e) => {
-                                    const value = e.target.value
-                                    if (value === '') {
-                                      handleConfigDataChange(field.default !== undefined ? field.default : 0.0, sectionKey, field.name)
-                                    } else {
-                                      const numValue = parseFloat(value)
-                                      handleConfigDataChange(isNaN(numValue) ? (field.default !== undefined ? field.default : 0.0) : numValue, sectionKey, field.name)
-                                    }
-                                  }}
-                                  step="any"
-                                  min={field.min}
-                                  max={field.max}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                  placeholder="请输入小数值"
-                                />
-                              )}
-                              
-                              {/* 默认处理未知类型为文本输入 */}
-                              {field.type === 'nested' && field.nested_fields && (
-                                <div className="space-y-4 pl-4 border-l-2 border-gray-200 dark:border-gray-600">
-                                  <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">
-                                    嵌套配置项:
+                      <div key={sectionKey || sectionIndex} className="space-y-4">
+                        {/* Section标题 */}
+                        {sectionKey && (
+                          <div className="border-b border-gray-200 dark:border-gray-700 pb-2">
+                            <h4 className="text-md font-medium text-gray-900 dark:text-white">
+                              {section.display_name || sectionKey}
+                            </h4>
+                            {section.description && (
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                {section.description}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Section字段 */}
+                        <div className="space-y-4 pl-4">
+                          {section.fields?.map((field: any, fieldIndex: number) => {
+                            const fieldValue = getNestedValue(configData, sectionKey, field.name)
+
+                            return (
+                              <div key={field.name || fieldIndex} className="space-y-2">
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                  {field.display || field.name}
+                                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                                </label>
+
+                                {field.description && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {field.description}
                                   </p>
-                                  {field.nested_fields.map((nestedField: any, nestedIndex: number) => {
-                                    const nestedFieldValue = getNestedValue(configData, sectionKey, field.name, nestedField.name)
-                                    
-                                    return (
-                                      <div key={nestedField.name || nestedIndex} className="space-y-2">
-                                        <label className="block text-sm font-medium text-gray-600 dark:text-gray-400">
-                                          {nestedField.display || nestedField.name}
-                                          {nestedField.required && <span className="text-red-500 ml-1">*</span>}
-                                        </label>
-                                        
-                                        {nestedField.description && (
-                                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {nestedField.description}
-                                          </p>
-                                        )}
-                                        
-                                        {nestedField.type === 'string' && (
-                                          <input
-                                            type="text"
-                                            value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue : (nestedField.default || '')}
-                                            onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name, nestedField.name)}
-                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="请输入值"
-                                          />
-                                        )}
-                                        
-                                        {(nestedField.type === 'integer' || nestedField.type === 'number') && (
-                                          <input
-                                            type="number"
-                                            value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue.toString() : (nestedField.default !== undefined ? nestedField.default.toString() : '')}
-                                            onChange={(e) => {
-                                              const value = e.target.value
-                                              if (value === '') {
-                                                handleConfigDataChange(nestedField.default !== undefined ? nestedField.default : (nestedField.type === 'integer' ? 0 : 0.0), sectionKey, field.name, nestedField.name)
-                                              } else {
-                                                const numValue = nestedField.type === 'integer' ? parseInt(value) : parseFloat(value)
-                                                handleConfigDataChange(isNaN(numValue) ? (nestedField.default !== undefined ? nestedField.default : (nestedField.type === 'integer' ? 0 : 0.0)) : numValue, sectionKey, field.name, nestedField.name)
-                                              }
-                                            }}
-                                            step={nestedField.type === 'integer' ? '1' : 'any'}
-                                            min={nestedField.min}
-                                            max={nestedField.max}
-                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="请输入数值"
-                                          />
-                                        )}
-                                        
-                                        {nestedField.type === 'boolean' && (
-                                          <div className="flex items-center space-x-3">
-                                            <label className="flex items-center cursor-pointer">
-                                              <input
-                                                type="checkbox"
-                                                checked={nestedFieldValue !== undefined ? Boolean(nestedFieldValue) : Boolean(nestedField.default)}
-                                                onChange={(e) => {
-                                                  handleConfigDataChange(e.target.checked, sectionKey, field.name, nestedField.name)
-                                                }}
-                                                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                                              />
-                                              <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                                                {nestedFieldValue !== undefined ? Boolean(nestedFieldValue) : Boolean(nestedField.default) ? '启用' : '禁用'}
-                                              </span>
-                                            </label>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                                              当前值: {nestedFieldValue !== undefined ? (Boolean(nestedFieldValue) ? 'true' : 'false') : (Boolean(nestedField.default) ? 'true' : 'false')}
-                                            </span>
-                                          </div>
-                                        )}
-                                        
-                                        {(nestedField.type === 'enum' || nestedField.type === 'select') && (
-                                          <select
-                                            value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue : (nestedField.default || '')}
-                                            onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name, nestedField.name)}
-                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                          >
-                                            <option value="">请选择</option>
-                                            {nestedField.options?.map((option: any) => {
-                                              if (typeof option === 'string') {
-                                                return (
-                                                  <option key={option} value={option}>
-                                                    {option}
-                                                  </option>
-                                                )
-                                              } else if (option && typeof option === 'object' && option.value) {
-                                                return (
-                                                  <option key={option.value} value={option.value}>
-                                                    {option.label || option.value}
-                                                  </option>
-                                                )
-                                              }
-                                              return null
-                                            })}
-                                          </select>
-                                        )}
-                                        
-                                        {(nestedField.type === 'float' || nestedField.type === 'double') && (
-                                          <input
-                                            type="number"
-                                            value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue.toString() : (nestedField.default !== undefined ? nestedField.default.toString() : '')}
-                                            onChange={(e) => {
-                                              const value = e.target.value
-                                              if (value === '') {
-                                                handleConfigDataChange(nestedField.default !== undefined ? nestedField.default : 0.0, sectionKey, field.name, nestedField.name)
-                                              } else {
-                                                const numValue = parseFloat(value)
-                                                handleConfigDataChange(isNaN(numValue) ? (nestedField.default !== undefined ? nestedField.default : 0.0) : numValue, sectionKey, field.name, nestedField.name)
-                                              }
-                                            }}
-                                            step="any"
-                                            min={nestedField.min}
-                                            max={nestedField.max}
-                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="请输入小数值"
-                                          />
-                                        )}
-                                        
-                                        {/* 嵌套字段的默认处理 */}
-                                        {!['string', 'integer', 'number', 'boolean', 'enum', 'select', 'float', 'double'].includes(nestedField.type) && (
-                                          <div className="space-y-2">
-                                            <input
-                                              type="text"
-                                              value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue.toString() : (nestedField.default !== undefined ? nestedField.default.toString() : '')}
-                                              onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name, nestedField.name)}
-                                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                              placeholder="请输入值"
-                                            />
-                                            <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                                              未知类型 '{nestedField.type}' - 作为文本处理
-                                            </p>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              )}
-                              
-                               {!['string', 'integer', 'number', 'boolean', 'enum', 'select', 'float', 'double', 'nested'].includes(field.type) && (
-                                <div className="space-y-2">
+                                )}
+
+                                {field.type === 'string' && (
                                   <input
                                     type="text"
-                                    value={fieldValue !== undefined && fieldValue !== null ? fieldValue.toString() : (field.default !== undefined ? field.default.toString() : '')}
+                                    value={fieldValue !== undefined && fieldValue !== null ? fieldValue : (field.default || '')}
                                     onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name)}
                                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="请输入值"
                                   />
-                                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                                    未知类型 '{field.type}' - 作为文本处理
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
+                                )}
+
+                                {(field.type === 'integer' || field.type === 'number') && (
+                                  <input
+                                    type="number"
+                                    value={fieldValue !== undefined && fieldValue !== null ? fieldValue.toString() : (field.default !== undefined ? field.default.toString() : '')}
+                                    onChange={(e) => {
+                                      const value = e.target.value
+                                      if (value === '') {
+                                        handleConfigDataChange(field.default !== undefined ? field.default : (field.type === 'integer' ? 0 : 0.0), sectionKey, field.name)
+                                      } else {
+                                        const numValue = field.type === 'integer' ? parseInt(value) : parseFloat(value)
+                                        handleConfigDataChange(isNaN(numValue) ? (field.default !== undefined ? field.default : (field.type === 'integer' ? 0 : 0.0)) : numValue, sectionKey, field.name)
+                                      }
+                                    }}
+                                    step={field.type === 'integer' ? '1' : 'any'}
+                                    min={field.min}
+                                    max={field.max}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    placeholder="请输入数值"
+                                  />
+                                )}
+
+                                {field.type === 'boolean' && (
+                                  <div className="flex items-center space-x-3">
+                                    <label className="flex items-center cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={fieldValue !== undefined ? Boolean(fieldValue) : Boolean(field.default)}
+                                        onChange={(e) => {
+                                          handleConfigDataChange(e.target.checked, sectionKey, field.name)
+                                        }}
+                                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                                      />
+                                      <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                                        {fieldValue !== undefined ? Boolean(fieldValue) : Boolean(field.default) ? '启用' : '禁用'}
+                                      </span>
+                                    </label>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      当前值: {fieldValue !== undefined ? (Boolean(fieldValue) ? 'true' : 'false') : (Boolean(field.default) ? 'true' : 'false')}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {(field.type === 'enum' || field.type === 'select') && (
+                                  <select
+                                    value={fieldValue !== undefined && fieldValue !== null ? fieldValue : (field.default || '')}
+                                    onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name)}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                  >
+                                    <option value="">请选择</option>
+                                    {field.options?.map((option: any) => {
+                                      // 支持两种格式：字符串数组和对象数组
+                                      if (typeof option === 'string') {
+                                        return (
+                                          <option key={option} value={option}>
+                                            {option}
+                                          </option>
+                                        )
+                                      } else if (option && typeof option === 'object' && option.value) {
+                                        return (
+                                          <option key={option.value} value={option.value}>
+                                            {option.label || option.value}
+                                          </option>
+                                        )
+                                      }
+                                      return null
+                                    })}
+                                  </select>
+                                )}
+
+                                {(field.type === 'float' || field.type === 'double') && (
+                                  <input
+                                    type="number"
+                                    value={fieldValue !== undefined && fieldValue !== null ? fieldValue.toString() : (field.default !== undefined ? field.default.toString() : '')}
+                                    onChange={(e) => {
+                                      const value = e.target.value
+                                      if (value === '') {
+                                        handleConfigDataChange(field.default !== undefined ? field.default : 0.0, sectionKey, field.name)
+                                      } else {
+                                        const numValue = parseFloat(value)
+                                        handleConfigDataChange(isNaN(numValue) ? (field.default !== undefined ? field.default : 0.0) : numValue, sectionKey, field.name)
+                                      }
+                                    }}
+                                    step="any"
+                                    min={field.min}
+                                    max={field.max}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    placeholder="请输入小数值"
+                                  />
+                                )}
+
+                                {/* 默认处理未知类型为文本输入 */}
+                                {field.type === 'nested' && field.nested_fields && (
+                                  <div className="space-y-4 pl-4 border-l-2 border-gray-200 dark:border-gray-600">
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">
+                                      嵌套配置项:
+                                    </p>
+                                    {field.nested_fields.map((nestedField: any, nestedIndex: number) => {
+                                      const nestedFieldValue = getNestedValue(configData, sectionKey, field.name, nestedField.name)
+
+                                      return (
+                                        <div key={nestedField.name || nestedIndex} className="space-y-2">
+                                          <label className="block text-sm font-medium text-gray-600 dark:text-gray-400">
+                                            {nestedField.display || nestedField.name}
+                                            {nestedField.required && <span className="text-red-500 ml-1">*</span>}
+                                          </label>
+
+                                          {nestedField.description && (
+                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                              {nestedField.description}
+                                            </p>
+                                          )}
+
+                                          {nestedField.type === 'string' && (
+                                            <input
+                                              type="text"
+                                              value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue : (nestedField.default || '')}
+                                              onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name, nestedField.name)}
+                                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                              placeholder="请输入值"
+                                            />
+                                          )}
+
+                                          {(nestedField.type === 'integer' || nestedField.type === 'number') && (
+                                            <input
+                                              type="number"
+                                              value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue.toString() : (nestedField.default !== undefined ? nestedField.default.toString() : '')}
+                                              onChange={(e) => {
+                                                const value = e.target.value
+                                                if (value === '') {
+                                                  handleConfigDataChange(nestedField.default !== undefined ? nestedField.default : (nestedField.type === 'integer' ? 0 : 0.0), sectionKey, field.name, nestedField.name)
+                                                } else {
+                                                  const numValue = nestedField.type === 'integer' ? parseInt(value) : parseFloat(value)
+                                                  handleConfigDataChange(isNaN(numValue) ? (nestedField.default !== undefined ? nestedField.default : (nestedField.type === 'integer' ? 0 : 0.0)) : numValue, sectionKey, field.name, nestedField.name)
+                                                }
+                                              }}
+                                              step={nestedField.type === 'integer' ? '1' : 'any'}
+                                              min={nestedField.min}
+                                              max={nestedField.max}
+                                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                              placeholder="请输入数值"
+                                            />
+                                          )}
+
+                                          {nestedField.type === 'boolean' && (
+                                            <div className="flex items-center space-x-3">
+                                              <label className="flex items-center cursor-pointer">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={nestedFieldValue !== undefined ? Boolean(nestedFieldValue) : Boolean(nestedField.default)}
+                                                  onChange={(e) => {
+                                                    handleConfigDataChange(e.target.checked, sectionKey, field.name, nestedField.name)
+                                                  }}
+                                                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                                                />
+                                                <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                                                  {nestedFieldValue !== undefined ? Boolean(nestedFieldValue) : Boolean(nestedField.default) ? '启用' : '禁用'}
+                                                </span>
+                                              </label>
+                                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                当前值: {nestedFieldValue !== undefined ? (Boolean(nestedFieldValue) ? 'true' : 'false') : (Boolean(nestedField.default) ? 'true' : 'false')}
+                                              </span>
+                                            </div>
+                                          )}
+
+                                          {(nestedField.type === 'enum' || nestedField.type === 'select') && (
+                                            <select
+                                              value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue : (nestedField.default || '')}
+                                              onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name, nestedField.name)}
+                                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                              <option value="">请选择</option>
+                                              {nestedField.options?.map((option: any) => {
+                                                if (typeof option === 'string') {
+                                                  return (
+                                                    <option key={option} value={option}>
+                                                      {option}
+                                                    </option>
+                                                  )
+                                                } else if (option && typeof option === 'object' && option.value) {
+                                                  return (
+                                                    <option key={option.value} value={option.value}>
+                                                      {option.label || option.value}
+                                                    </option>
+                                                  )
+                                                }
+                                                return null
+                                              })}
+                                            </select>
+                                          )}
+
+                                          {(nestedField.type === 'float' || nestedField.type === 'double') && (
+                                            <input
+                                              type="number"
+                                              value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue.toString() : (nestedField.default !== undefined ? nestedField.default.toString() : '')}
+                                              onChange={(e) => {
+                                                const value = e.target.value
+                                                if (value === '') {
+                                                  handleConfigDataChange(nestedField.default !== undefined ? nestedField.default : 0.0, sectionKey, field.name, nestedField.name)
+                                                } else {
+                                                  const numValue = parseFloat(value)
+                                                  handleConfigDataChange(isNaN(numValue) ? (nestedField.default !== undefined ? nestedField.default : 0.0) : numValue, sectionKey, field.name, nestedField.name)
+                                                }
+                                              }}
+                                              step="any"
+                                              min={nestedField.min}
+                                              max={nestedField.max}
+                                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                              placeholder="请输入小数值"
+                                            />
+                                          )}
+
+                                          {/* 嵌套字段的默认处理 */}
+                                          {!['string', 'integer', 'number', 'boolean', 'enum', 'select', 'float', 'double'].includes(nestedField.type) && (
+                                            <div className="space-y-2">
+                                              <input
+                                                type="text"
+                                                value={nestedFieldValue !== undefined && nestedFieldValue !== null ? nestedFieldValue.toString() : (nestedField.default !== undefined ? nestedField.default.toString() : '')}
+                                                onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name, nestedField.name)}
+                                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="请输入值"
+                                              />
+                                              <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                                                未知类型 '{nestedField.type}' - 作为文本处理
+                                              </p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+
+                                {!['string', 'integer', 'number', 'boolean', 'enum', 'select', 'float', 'double', 'nested'].includes(field.type) && (
+                                  <div className="space-y-2">
+                                    <input
+                                      type="text"
+                                      value={fieldValue !== undefined && fieldValue !== null ? fieldValue.toString() : (field.default !== undefined ? field.default.toString() : '')}
+                                      onChange={(e) => handleConfigDataChange(e.target.value, sectionKey, field.name)}
+                                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                      placeholder="请输入值"
+                                    />
+                                    <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                                      未知类型 '{field.type}' - 作为文本处理
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
-                    </div>
                     )
                   })}
                 </div>
@@ -1895,7 +1911,7 @@ const InstanceManagerPage: React.FC = () => {
               )}
             </div>
           )}
-          
+
           {/* 空状态 */}
           {(!selectedInstance || !selectedConfigId) && (
             <div className="text-center py-12">
@@ -1976,7 +1992,7 @@ const InstanceManagerPage: React.FC = () => {
                             <div key={f.fileName} className="flex items-center justify-between p-2 bg-white/60 dark:bg-gray-800/60 rounded">
                               <div>
                                 <p className="text-sm text-gray-900 dark:text-white">{f.fileName}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(f.modified).toLocaleString()} • {(f.size/1024/1024).toFixed(2)} MB</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(f.modified).toLocaleString()} • {(f.size / 1024 / 1024).toFixed(2)} MB</p>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <button
@@ -1984,6 +2000,14 @@ const InstanceManagerPage: React.FC = () => {
                                   className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                                 >
                                   恢复
+                                </button>
+                                <button
+                                  onClick={() => handleDownloadBackup(b.name, f.fileName)}
+                                  className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center space-x-1"
+                                  title="下载备份文件"
+                                >
+                                  <Download className="w-4 h-4" />
+                                  <span>下载</span>
                                 </button>
                                 <button
                                   onClick={() => handleDeleteBackupFile(b.name, f.fileName)}
@@ -2002,7 +2026,7 @@ const InstanceManagerPage: React.FC = () => {
               </div>
             )}
           </div>
-          
+
           {/* 备份提醒信息 */}
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
             <div className="flex items-start space-x-3">
@@ -2042,16 +2066,14 @@ const InstanceManagerPage: React.FC = () => {
 
       {/* 创建/编辑实例模态框 */}
       {showCreateModal && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-300 ${
-          createModalAnimating ? 'opacity-100' : 'opacity-0'
-        }`}>
-          <div className={`bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto transform transition-all duration-300 ${
-            createModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-300 ${createModalAnimating ? 'opacity-100' : 'opacity-0'
           }`}>
+          <div className={`bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto transform transition-all duration-300 ${createModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+            }`}>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
               {editingInstance ? '编辑实例' : '创建实例'}
             </h2>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2061,8 +2083,8 @@ const InstanceManagerPage: React.FC = () => {
                   value={formData.instanceType || 'generic'}
                   onChange={(e) => {
                     const newType = e.target.value as 'generic' | 'minecraft-java' | 'minecraft-bedrock'
-                    setFormData({ 
-                      ...formData, 
+                    setFormData({
+                      ...formData,
                       instanceType: newType,
                       // 根据类型设置默认停止命令
                       stopCommand: newType === 'generic' ? formData.stopCommand : 'stop'
@@ -2075,7 +2097,7 @@ const InstanceManagerPage: React.FC = () => {
                   <option value="minecraft-bedrock">我的世界基岩版</option>
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   实例名称 *
@@ -2088,7 +2110,7 @@ const InstanceManagerPage: React.FC = () => {
                   placeholder="输入实例名称"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   实例描述
@@ -2101,7 +2123,7 @@ const InstanceManagerPage: React.FC = () => {
                   rows={3}
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   工作目录 *
@@ -2114,7 +2136,7 @@ const InstanceManagerPage: React.FC = () => {
                   placeholder="输入工作目录路径"
                 />
               </div>
-              
+
               {/* 我的世界Java版 - Java环境选择 */}
               {formData.instanceType === 'minecraft-java' && (
                 <div>
@@ -2146,7 +2168,7 @@ const InstanceManagerPage: React.FC = () => {
                   )}
                 </div>
               )}
-              
+
               {/* 通用类型 - 显示启动命令 */}
               {formData.instanceType === 'generic' && (
                 <div>
@@ -2172,7 +2194,7 @@ const InstanceManagerPage: React.FC = () => {
                   />
                 </div>
               )}
-              
+
               {/* 停止命令 - 仅通用类型显示 */}
               {formData.instanceType === 'generic' && (
                 <div>
@@ -2191,7 +2213,7 @@ const InstanceManagerPage: React.FC = () => {
                   </select>
                 </div>
               )}
-              
+
               <div className="flex items-center">
                 <input
                   type="checkbox"
@@ -2204,7 +2226,7 @@ const InstanceManagerPage: React.FC = () => {
                   自动启动
                 </label>
               </div>
-              
+
               <div className="flex items-center">
                 <input
                   type="checkbox"
@@ -2217,7 +2239,7 @@ const InstanceManagerPage: React.FC = () => {
                   启用输出流转发(仅Windows)
                 </label>
               </div>
-              
+
               {formData.enableStreamForward && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2235,7 +2257,7 @@ const InstanceManagerPage: React.FC = () => {
                   </p>
                 </div>
               )}
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   终端用户
@@ -2271,7 +2293,7 @@ const InstanceManagerPage: React.FC = () => {
                 </p>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={handleCloseCreateModal}
@@ -2282,8 +2304,8 @@ const InstanceManagerPage: React.FC = () => {
               <button
                 onClick={editingInstance ? handleUpdateInstance : handleCreateInstance}
                 disabled={
-                  !formData.name || 
-                  !formData.workingDirectory || 
+                  !formData.name ||
+                  !formData.workingDirectory ||
                   (formData.instanceType === 'generic' && !formData.startCommand) ||
                   (formData.enableStreamForward && !formData.programPath)
                 }
@@ -2298,16 +2320,14 @@ const InstanceManagerPage: React.FC = () => {
 
       {/* 安装实例模态框 */}
       {showInstallModal && selectedMarketInstance && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-300 ${
-          installModalAnimating ? 'opacity-100' : 'opacity-0'
-        }`}>
-          <div className={`bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 transform transition-all duration-300 ${
-            installModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-300 ${installModalAnimating ? 'opacity-100' : 'opacity-0'
           }`}>
+          <div className={`bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 transform transition-all duration-300 ${installModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+            }`}>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
               安装实例: {selectedMarketInstance.name}
             </h2>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2320,7 +2340,7 @@ const InstanceManagerPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
                 />
               </div>
-              
+
               <div>
                 <div className="flex items-center space-x-2 mb-1">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2342,7 +2362,7 @@ const InstanceManagerPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   停止命令
@@ -2354,7 +2374,7 @@ const InstanceManagerPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   运行目录 *
@@ -2368,7 +2388,7 @@ const InstanceManagerPage: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={handleCloseInstallModal}
@@ -2432,12 +2452,10 @@ const InstanceManagerPage: React.FC = () => {
 
       {/* 启动命令帮助模态框 */}
       {showStartCommandHelpModal && (
-        <div className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 transition-opacity duration-300 ${
-          startCommandHelpModalAnimating ? 'opacity-100' : 'opacity-0'
-        }`}>
-          <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 transform transition-all duration-300 ${
-            startCommandHelpModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        <div className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 transition-opacity duration-300 ${startCommandHelpModalAnimating ? 'opacity-100' : 'opacity-0'
           }`}>
+          <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 transform transition-all duration-300 ${startCommandHelpModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+            }`}>
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
                 <HelpCircle className="w-5 h-5 text-blue-500" />

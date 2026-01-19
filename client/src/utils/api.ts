@@ -38,7 +38,7 @@ class ApiClient {
         if (error.response?.status === 401) {
           // 只记录认证失败信息，不自动跳转登录页面
           console.warn('认证失败，请检查登录状态')
-          
+
           // 添加消息通知
           try {
             const { addNotification } = useNotificationStore.getState()
@@ -51,7 +51,7 @@ class ApiClient {
           } catch (notificationError) {
             console.error('添加通知失败:', notificationError)
           }
-          
+
           // 调用authStore的handleTokenExpired方法处理token过期
           try {
             // 动态导入避免循环依赖
@@ -154,14 +154,14 @@ class ApiClient {
     try {
       const response = await this.client.post<LoginResponse>('/auth/login', credentials)
       const result = response.data
-      
+
       if (result.success && result.token) {
         this.setToken(result.token)
         if (result.user) {
           localStorage.setItem('gsm3_user', JSON.stringify(result.user))
         }
       }
-      
+
       return result
     } catch (error: any) {
       if (error.response?.data) {
@@ -304,12 +304,12 @@ class ApiClient {
       const response = await this.client.post('/auth/change-username', {
         newUsername,
       })
-      
+
       // 如果修改成功，更新本地存储的用户信息
       if (response.data.success && response.data.user) {
         localStorage.setItem('gsm3_user', JSON.stringify(response.data.user))
       }
-      
+
       return response.data
     } catch (error: any) {
       if (error.response?.data) {
@@ -425,7 +425,7 @@ class ApiClient {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('path', path)
-    
+
     return this.post('/files/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -559,6 +559,18 @@ class ApiClient {
     return this.delete(`/backup/folder`, { params: { backupName } })
   }
 
+  async downloadBackup(backupName: string, fileName: string) {
+    try {
+      const response = await this.client.get('/backup/download', {
+        params: { backupName, fileName },
+        responseType: 'blob',
+      })
+      return response.data
+    } catch (error) {
+      throw error
+    }
+  }
+
   // Minecraft服务端API
   async getMinecraftServerCategories() {
     return this.get('/minecraft/server-categories')
@@ -678,7 +690,7 @@ class ApiClient {
     if (options.categories) params.append('categories', options.categories.join(','))
     if (options.versions) params.append('versions', options.versions.join(','))
     if (options.loaders) params.append('loaders', options.loaders.join(','))
-    
+
     return this.get(`/more-games/mrpack/search?${params.toString()}`)
   }
 

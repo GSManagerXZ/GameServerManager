@@ -203,6 +203,19 @@ export class BackupManager {
     const dir = path.join(this.backupRoot, backupName)
     await fs.rm(dir, { recursive: true, force: true })
   }
+
+  async getBackupFilePath(backupName: string, fileName: string): Promise<string> {
+    const backupDir = path.join(this.backupRoot, backupName)
+    const filePath = path.join(backupDir, fileName)
+
+    // 验证文件是否存在
+    try {
+      await fs.access(filePath)
+      return filePath
+    } catch (error) {
+      throw new Error('备份文件不存在')
+    }
+  }
 }
 
 export const backupManager = new BackupManager()
