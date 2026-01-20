@@ -79,6 +79,14 @@ interface SystemStats {
     avg5: number
     avg15: number
   }
+  // 面板自身资源消耗
+  panel: {
+    cpu: number      // CPU使用率百分比
+    memory: number   // 内存使用量（字节）
+    memoryUsage: number // 内存使用率百分比（相对于系统总内存）
+    uptime: number   // 运行时间（毫秒）
+    pid: number      // 进程ID
+  }
 }
 
 interface ProcessInfo {
@@ -175,7 +183,7 @@ export class SystemManager extends EventEmitter {
     this.io = io
     this.logger = logger
     this.serverStartTime = new Date()
-    
+
     // 默认告警阈值
     this.alertThresholds = {
       cpu: { warning: 100, critical: 100 }, // 禁用CPU告警
@@ -183,9 +191,9 @@ export class SystemManager extends EventEmitter {
       disk: { warning: 70, critical: 80 },
       network: { warning: 100 * 1024 * 1024, critical: 500 * 1024 * 1024 } // MB/s
     }
-    
+
     this.logger.info('系统监控管理器初始化完成')
-    
+
     // 清理现有的CPU告警（因为已禁用CPU告警）
     setTimeout(() => {
       const cpuAlert = this.alerts.get('cpu-alert')
@@ -195,10 +203,10 @@ export class SystemManager extends EventEmitter {
         this.logger.info('CPU告警已禁用，现有CPU告警已解除')
       }
     }, 1000)
-    
+
     // 检测并输出当前系统的资源获取方法
     this.detectResourceMethods()
-    
+
     // 开始监控
     this.startMonitoring()
   }
@@ -279,21 +287,21 @@ export class SystemManager extends EventEmitter {
         if (!this.hasSubscribers('system-stats')) {
           return
         }
-        
+
         const stats = await this.collectSystemStats()
         this.statsHistory.push(stats)
-        
+
         // 保持最近1小时的数据 (1200个数据点，3秒间隔)
         if (this.statsHistory.length > 1200) {
           this.statsHistory = this.statsHistory.slice(-1200)
         }
-        
+
         // 检查告警
         this.checkAlerts(stats)
-        
+
         // 发送统计信息到客户端
         this.io.to('system-stats').emit('system-stats', stats)
-        
+
       } catch (error) {
         this.logger.error('收集系统统计信息失败:', error)
       }
@@ -306,7 +314,7 @@ export class SystemManager extends EventEmitter {
         if (!this.hasSubscribers('system-ports')) {
           return
         }
-        
+
         const ports = await this.getActivePorts()
         this.io.to('system-ports').emit('system-ports', ports)
       } catch (error) {
@@ -321,7 +329,7 @@ export class SystemManager extends EventEmitter {
         if (!this.hasSubscribers('system-processes')) {
           return
         }
-        
+
         const processes = await this.getProcessList()
         this.io.to('system-processes').emit('system-processes', processes)
       } catch (error) {
@@ -363,15 +371,15 @@ export class SystemManager extends EventEmitter {
     const interfaces = os.networkInterfaces()
     const ipv4: string[] = []
     const ipv6: string[] = []
-    
+
     for (const name of Object.keys(interfaces)) {
       const networkInterface = interfaces[name]
       if (!networkInterface) continue
-      
+
       for (const net of networkInterface) {
         // 跳过内部地址和非活跃接口
         if (net.internal || !net.address) continue
-        
+
         if (net.family === 'IPv4') {
           ipv4.push(net.address)
         } else if (net.family === 'IPv6') {
@@ -382,7 +390,7 @@ export class SystemManager extends EventEmitter {
         }
       }
     }
-    
+
     return { ipv4, ipv6 }
   }
 
@@ -392,7 +400,7 @@ export class SystemManager extends EventEmitter {
   public async getSystemInfo(): Promise<SystemInfo> {
     const cpus = os.cpus()
     let platformName: string = os.platform()
-    
+
     // 如果是Windows系统，获取具体版本信息
     if (os.platform() === 'win32') {
       try {
@@ -424,7 +432,7 @@ export class SystemManager extends EventEmitter {
         platformName = 'Windows'
       }
     }
-    
+
     // 获取本地IP地址
     const { ipv4, ipv6 } = this.getLocalIpAddresses()
 
@@ -456,7 +464,8 @@ export class SystemManager extends EventEmitter {
     const networkInfo = await this.getNetworkInfo()
     const processInfo = await this.getProcessInfo()
     const loadInfo = this.getLoadInfo()
-    
+    const panelInfo = this.getPanelResourceUsage(memoryInfo.total)
+
     return {
       timestamp: new Date(),
       cpu: cpuUsage,
@@ -464,7 +473,49 @@ export class SystemManager extends EventEmitter {
       disk: diskInfo,
       network: networkInfo,
       processes: processInfo,
-      load: loadInfo
+      load: loadInfo,
+      panel: panelInfo
+    }
+  }
+
+  /**
+   * 获取面板自身资源消耗
+   */
+  private lastCpuUsage: NodeJS.CpuUsage | null = null
+  private lastCpuTime: number = 0
+
+  private getPanelResourceUsage(totalSystemMemory: number): SystemStats['panel'] {
+    // 获取内存使用情况
+    const memoryUsage = process.memoryUsage()
+    const panelMemory = memoryUsage.heapUsed + memoryUsage.external
+    const panelMemoryUsage = totalSystemMemory > 0 ? (panelMemory / totalSystemMemory) * 100 : 0
+
+    // 获取CPU使用情况
+    const currentCpuUsage = process.cpuUsage(this.lastCpuUsage || undefined)
+    const currentTime = Date.now()
+
+    let cpuPercent = 0
+    if (this.lastCpuUsage && this.lastCpuTime > 0) {
+      const elapsedMs = currentTime - this.lastCpuTime
+      if (elapsedMs > 0) {
+        // 计算CPU使用率：(用户时间 + 系统时间) / (经过时间 * CPU核心数) * 100
+        const totalCpuTime = (currentCpuUsage.user + currentCpuUsage.system) / 1000 // 转换为毫秒
+        const cpuCores = os.cpus().length
+        cpuPercent = (totalCpuTime / (elapsedMs * cpuCores)) * 100
+        cpuPercent = Math.min(Math.max(cpuPercent, 0), 100) // 限制在0-100之间
+      }
+    }
+
+    // 保存当前CPU使用情况供下次计算对比
+    this.lastCpuUsage = process.cpuUsage()
+    this.lastCpuTime = currentTime
+
+    return {
+      cpu: Math.round(cpuPercent * 100) / 100,
+      memory: panelMemory,
+      memoryUsage: Math.round(panelMemoryUsage * 100) / 100,
+      uptime: process.uptime() * 1000, // 转换为毫秒
+      pid: process.pid
     }
   }
 
@@ -479,17 +530,17 @@ export class SystemManager extends EventEmitter {
         const idle = cpu.times.idle
         return { total, idle }
       })
-      
+
       setTimeout(() => {
         const endMeasure = os.cpus().map(cpu => {
           const total = Object.values(cpu.times).reduce((acc, time) => acc + time, 0)
           const idle = cpu.times.idle
           return { total, idle }
         })
-        
+
         let totalUsage = 0
         const coreUsages: number[] = []
-        
+
         for (let i = 0; i < startMeasure.length; i++) {
           const totalDiff = endMeasure[i].total - startMeasure[i].total
           const idleDiff = endMeasure[i].idle - startMeasure[i].idle
@@ -498,9 +549,9 @@ export class SystemManager extends EventEmitter {
           coreUsages.push(roundedUsage)
           totalUsage += usage
         }
-        
+
         const avgUsage = totalUsage / cpus.length
-        
+
         resolve({
           usage: Math.round(avgUsage * 100) / 100,
           cores: cpus.length,
@@ -517,7 +568,7 @@ export class SystemManager extends EventEmitter {
    */
   private async getMemoryInfo(): Promise<SystemStats['memory']> {
     const platform = os.platform()
-    
+
     if (platform === 'win32') {
       return await this.getWindowsMemoryInfo()
     } else {
@@ -671,14 +722,14 @@ export class SystemManager extends EventEmitter {
     try {
       // 读取 /proc/meminfo 获取详细内存信息
       const { stdout } = await execAsync('cat /proc/meminfo', { timeout: 5000 })
-      
+
       const lines = stdout.split('\n')
       for (const line of lines) {
         const parts = line.split(':')
         if (parts.length >= 2) {
           const key = parts[0].trim()
           const value = parseInt(parts[1].trim().split(' ')[0]) * 1024 || 0 // KB to bytes
-          
+
           switch (key) {
             case 'MemAvailable':
               available = value
@@ -698,10 +749,10 @@ export class SystemManager extends EventEmitter {
           }
         }
       }
-      
+
       swapUsed = swapTotal - swapFree
       swapUsage = swapTotal > 0 ? (swapUsed / swapTotal) * 100 : 0
-      
+
     } catch (error) {
       this.logger.warn('获取Linux详细内存信息失败:', error)
     }
@@ -957,29 +1008,29 @@ export class SystemManager extends EventEmitter {
       // 监控根分区
       spaceCommand = 'df -h /'
     }
-    
+
     const { stdout: spaceOutput } = await execAsync(spaceCommand, { timeout: 10000 })
-    
+
     const lines = spaceOutput.trim().split('\n')
     const dataLine = lines[1]
     const parts = dataLine.split(/\s+/)
-    
+
     const total = this.parseSize(parts[1])
     const used = this.parseSize(parts[2])
     const free = this.parseSize(parts[3])
     const usage = parseFloat(parts[4].replace('%', ''))
-    
+
     // 获取磁盘读写信息
     let readBytes = 0, writeBytes = 0, readOps = 0, writeOps = 0
-    
+
     try {
       // 从/proc/diskstats获取磁盘IO信息
       const ioCommand = 'cat /proc/diskstats'
       const { stdout: ioOutput } = await execAsync(ioCommand, { timeout: 10000 })
-      
+
       const ioLines = ioOutput.trim().split('\n')
       let totalReadSectors = 0, totalWriteSectors = 0, totalReadOps = 0, totalWriteOps = 0
-      
+
       if (this.selectedDisk) {
         // 监控指定设备的IO
         // 需要从挂载点获取设备名
@@ -987,7 +1038,7 @@ export class SystemManager extends EventEmitter {
         const { stdout: deviceOutput } = await execAsync(mountCommand, { timeout: 5000 })
         const devicePath = deviceOutput.trim()
         const deviceName = devicePath.replace(/^\/dev\//, '').replace(/\d+$/, '') // 移除分区号
-        
+
         for (const line of ioLines) {
           const parts = line.trim().split(/\s+/)
           if (parts.length >= 14 && parts[2] === deviceName) {
@@ -1013,7 +1064,7 @@ export class SystemManager extends EventEmitter {
           }
         }
       }
-      
+
       // 计算当前速率（如果有上次的数据）
       const currentStats = {
         readBytes: totalReadSectors * 512, // 扇区大小通常是512字节
@@ -1022,7 +1073,7 @@ export class SystemManager extends EventEmitter {
         writeOps: totalWriteOps,
         timestamp: Date.now()
       }
-      
+
       if (this.lastDiskStats) {
         const timeDiff = (currentStats.timestamp - this.lastDiskStats.timestamp) / 1000 // 秒
         if (timeDiff > 0) {
@@ -1032,13 +1083,13 @@ export class SystemManager extends EventEmitter {
           writeOps = Math.max(0, (currentStats.writeOps - this.lastDiskStats.writeOps) / timeDiff)
         }
       }
-      
+
       this.lastDiskStats = currentStats
-      
+
     } catch (ioError) {
       this.logger.warn('获取Linux磁盘IO信息失败:', ioError)
     }
-    
+
     return {
       total,
       used,
@@ -1064,7 +1115,7 @@ export class SystemManager extends EventEmitter {
       if (os.platform() === 'win32') {
         // Windows: 使用 typeperf 获取网络统计
         const currentStats = await this.getWindowsNetworkStats()
-        
+
         if (this.lastNetworkStats) {
           const timeDiff = (currentStats.timestamp - this.lastNetworkStats.timestamp) / 1000
           if (timeDiff > 0) {
@@ -1074,12 +1125,12 @@ export class SystemManager extends EventEmitter {
             packetsOut = Math.max(0, (currentStats.packetsOut - this.lastNetworkStats.packetsOut) / timeDiff)
           }
         }
-        
+
         this.lastNetworkStats = currentStats
       } else {
         // Linux: 使用 /proc/net/dev 获取网络统计
         const currentStats = await this.getLinuxNetworkStats()
-        
+
         if (this.lastNetworkStats) {
           const timeDiff = (currentStats.timestamp - this.lastNetworkStats.timestamp) / 1000
           if (timeDiff > 0) {
@@ -1089,7 +1140,7 @@ export class SystemManager extends EventEmitter {
             packetsOut = Math.max(0, (currentStats.packetsOut - this.lastNetworkStats.packetsOut) / timeDiff)
           }
         }
-        
+
         this.lastNetworkStats = currentStats
       }
 
@@ -1150,7 +1201,7 @@ export class SystemManager extends EventEmitter {
         try {
           const { stdout } = await execAsync('typeperf "\\Network Interface(*)\\Bytes Total/sec" -sc 1', { timeout: 5000 })
           const lines = stdout.trim().split('\n')
-          
+
           for (const line of lines) {
             if (line.includes(',') && !line.includes('_Total') && !line.includes('Loopback')) {
               const parts = line.split(',')
@@ -1189,7 +1240,7 @@ export class SystemManager extends EventEmitter {
     try {
       const { stdout } = await execAsync('cat /proc/net/dev')
       const lines = stdout.trim().split('\n').slice(2) // 跳过头部
-      
+
       let totalBytesIn = 0
       let totalBytesOut = 0
       let totalPacketsIn = 0
@@ -1199,10 +1250,10 @@ export class SystemManager extends EventEmitter {
         const parts = line.trim().split(/\s+/)
         if (parts.length >= 17) {
           const interfaceName = parts[0].replace(':', '')
-          
+
           // 跳过回环接口
           if (interfaceName === 'lo') continue
-          
+
           const rxBytes = parseInt(parts[1]) || 0
           const rxPackets = parseInt(parts[2]) || 0
           const txBytes = parseInt(parts[9]) || 0
@@ -1253,16 +1304,16 @@ export class SystemManager extends EventEmitter {
   private async getProcessInfo(): Promise<SystemStats['processes']> {
     try {
       let command: string
-      
+
       if (os.platform() === 'win32') {
         command = 'tasklist /fo csv | find /c /v ""'
       } else {
         command = 'ps aux | wc -l'
       }
-      
+
       const { stdout } = await execAsync(command)
       const total = parseInt(stdout.trim()) || 0
-      
+
       return {
         total,
         running: Math.floor(total * 0.1), // 估算
@@ -1303,7 +1354,7 @@ export class SystemManager extends EventEmitter {
   public getNetworkInterfaces(): NetworkInterface[] {
     const interfaces = os.networkInterfaces()
     const result: NetworkInterface[] = []
-    
+
     for (const [name, addresses] of Object.entries(interfaces)) {
       if (addresses) {
         for (const addr of addresses) {
@@ -1319,7 +1370,7 @@ export class SystemManager extends EventEmitter {
         }
       }
     }
-    
+
     return result
   }
 
@@ -1347,18 +1398,18 @@ export class SystemManager extends EventEmitter {
       // 优先使用PowerShell获取磁盘信息
       const psCommand = 'powershell "Get-WmiObject -Class Win32_LogicalDisk | Select-Object Size,FreeSpace,DeviceID | ConvertTo-Json"'
       const { stdout } = await execAsync(psCommand, { timeout: 15000 })
-      
+
       const diskData = JSON.parse(stdout)
       const diskArray = Array.isArray(diskData) ? diskData : [diskData]
       const disks: DiskInfo[] = []
-      
+
       for (const disk of diskArray) {
         if (disk.Size && disk.FreeSpace) {
           const size = parseInt(disk.Size) || 0
           const freeSpace = parseInt(disk.FreeSpace) || 0
           const used = size - freeSpace
           const usage = size > 0 ? (used / size) * 100 : 0
-          
+
           disks.push({
             filesystem: disk.DeviceID,
             size,
@@ -1369,19 +1420,19 @@ export class SystemManager extends EventEmitter {
           })
         }
       }
-      
+
       return disks
     } catch (psError) {
       this.logger.warn('PowerShell命令执行失败，尝试使用wmic备用方案:', psError)
-      
+
       try {
         // 备用方案: 使用wmic命令
         const command = 'wmic logicaldisk get size,freespace,caption'
         const { stdout } = await execAsync(command, { timeout: 10000 })
-        
+
         const lines = stdout.trim().split('\n').slice(1)
         const disks: DiskInfo[] = []
-        
+
         for (const line of lines) {
           const parts = line.trim().split(/\s+/)
           if (parts.length >= 3) {
@@ -1390,7 +1441,7 @@ export class SystemManager extends EventEmitter {
             const size = parseInt(parts[2]) || 0
             const used = size - freeSpace
             const usage = size > 0 ? (used / size) * 100 : 0
-            
+
             disks.push({
               filesystem: caption,
               size,
@@ -1401,7 +1452,7 @@ export class SystemManager extends EventEmitter {
             })
           }
         }
-        
+
         return disks
       } catch (wmicError) {
         this.logger.error('wmic备用方案也执行失败:', wmicError)
@@ -1416,42 +1467,42 @@ export class SystemManager extends EventEmitter {
   private async getLinuxDiskList(): Promise<DiskInfo[]> {
     const command = 'df -h'
     const { stdout } = await execAsync(command, { timeout: 10000 })
-    
+
     const result: DiskInfo[] = []
     const lines = stdout.trim().split('\n').slice(1)
-    
+
     for (const line of lines) {
       const parts = line.split(/\s+/)
       if (parts.length >= 6) {
         const filesystem = parts[0]
-        
+
         // 过滤掉tmpfs、devtmpfs、proc、sysfs等虚拟文件系统
-        if (filesystem === 'tmpfs' || 
-            filesystem === 'devtmpfs' || 
-            filesystem === 'proc' || 
-            filesystem === 'sysfs' || 
-            filesystem === 'devpts' || 
-            filesystem === 'cgroup' || 
-            filesystem === 'pstore' || 
-            filesystem === 'bpf' || 
-            filesystem === 'cgroup2' || 
-            filesystem === 'configfs' || 
-            filesystem === 'debugfs' || 
-            filesystem === 'mqueue' || 
-            filesystem === 'hugetlbfs' || 
-            filesystem === 'tracefs' || 
-            filesystem === 'fusectl' || 
-            filesystem === 'securityfs' || 
-            filesystem.startsWith('overlay') ||
-            filesystem.startsWith('shm') ||
-            parts[5] === '/dev' ||
-            parts[5] === '/dev/shm' ||
-            parts[5] === '/run' ||
-            parts[5] === '/sys' ||
-            parts[5] === '/proc') {
+        if (filesystem === 'tmpfs' ||
+          filesystem === 'devtmpfs' ||
+          filesystem === 'proc' ||
+          filesystem === 'sysfs' ||
+          filesystem === 'devpts' ||
+          filesystem === 'cgroup' ||
+          filesystem === 'pstore' ||
+          filesystem === 'bpf' ||
+          filesystem === 'cgroup2' ||
+          filesystem === 'configfs' ||
+          filesystem === 'debugfs' ||
+          filesystem === 'mqueue' ||
+          filesystem === 'hugetlbfs' ||
+          filesystem === 'tracefs' ||
+          filesystem === 'fusectl' ||
+          filesystem === 'securityfs' ||
+          filesystem.startsWith('overlay') ||
+          filesystem.startsWith('shm') ||
+          parts[5] === '/dev' ||
+          parts[5] === '/dev/shm' ||
+          parts[5] === '/run' ||
+          parts[5] === '/sys' ||
+          parts[5] === '/proc') {
           continue
         }
-        
+
         result.push({
           filesystem: filesystem,
           size: this.parseSize(parts[1]),
@@ -1462,7 +1513,7 @@ export class SystemManager extends EventEmitter {
         })
       }
     }
-    
+
     return result
   }
 
@@ -1477,7 +1528,7 @@ export class SystemManager extends EventEmitter {
       } else {
         processes = await this.getLinuxProcessList()
       }
-      
+
       // 转换数据格式以匹配客户端期望的格式
       return processes.map(process => {
         // 确保startTime是有效的Date对象
@@ -1489,7 +1540,7 @@ export class SystemManager extends EventEmitter {
         } catch (e) {
           this.logger.warn(`进程 ${process.pid} 的启动时间无效，使用当前时间代替`)
         }
-        
+
         return {
           id: `${process.pid}`, // 添加 id 字段
           pid: process.pid,
@@ -1670,13 +1721,13 @@ export class SystemManager extends EventEmitter {
   private async getLinuxProcessList(): Promise<ProcessInfo[]> {
     const command = 'ps aux --sort=-%cpu | head -51'
     const { stdout } = await execAsync(command, { timeout: 10000 })
-    
+
     const result: ProcessInfo[] = []
     const lines = stdout.trim().split('\n').slice(1) // 跳过标题行
-    
+
     for (const line of lines) {
       if (!line.trim()) continue
-      
+
       // ps aux 输出格式: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
       const parts = line.trim().split(/\s+/)
       if (parts.length >= 11) {
@@ -1691,23 +1742,23 @@ export class SystemManager extends EventEmitter {
         const start = parts[8]
         const time = parts[9]
         const command = parts.slice(10).join(' ')
-        
+
         if (pid && pid > 0) {
           // 内存使用 (KB转MB)
           const memoryMB = rss / 1024
-          
+
           // 获取进程名 (从命令中提取)
           let processName = command.split(' ')[0]
           if (processName.includes('/')) {
             processName = processName.split('/').pop() || processName
           }
-          
+
           // 状态映射
           let status = 'Running'
           if (stat.includes('Z')) status = 'Zombie'
           else if (stat.includes('T')) status = 'Stopped'
           else if (stat.includes('S')) status = 'Sleeping'
-          
+
           // 解析启动时间
           let startTime = new Date()
           if (start && start !== '?') {
@@ -1728,7 +1779,7 @@ export class SystemManager extends EventEmitter {
                   startTime = new Date(`${start} ${today.getFullYear()}`)
                 }
               }
-              
+
               // 验证日期是否有效
               if (isNaN(startTime.getTime())) {
                 // 如果日期无效，使用当前时间
@@ -1739,7 +1790,7 @@ export class SystemManager extends EventEmitter {
               startTime = new Date()
             }
           }
-          
+
           result.push({
             pid,
             name: processName,
@@ -1752,7 +1803,7 @@ export class SystemManager extends EventEmitter {
         }
       }
     }
-    
+
     return result.slice(0, 50)
   }
 
@@ -1772,7 +1823,7 @@ export class SystemManager extends EventEmitter {
       }
 
       let command: string
-      
+
       if (os.platform() === 'win32') {
         // Windows: 使用 taskkill 命令
         if (force) {
@@ -1788,15 +1839,15 @@ export class SystemManager extends EventEmitter {
           command = `kill -15 ${pid}`
         }
       }
-      
+
       this.logger.info(`尝试终止进程 PID: ${pid}, 强制: ${force}, 命令: ${command}`)
-      
+
       const { stdout, stderr } = await execAsync(command)
-      
+
       // 等待一小段时间后检查进程是否真的被终止
       await new Promise(resolve => setTimeout(resolve, 1000))
       const stillExists = await this.checkProcessExists(pid)
-      
+
       if (stillExists) {
         if (!force) {
           // 如果普通终止失败，尝试强制终止
@@ -1806,13 +1857,13 @@ export class SystemManager extends EventEmitter {
           return { success: false, message: '进程终止失败，可能权限不足或进程受保护' }
         }
       }
-      
+
       this.logger.info(`进程 ${pid} 已成功终止`)
       return { success: true, message: '进程已成功终止' }
-      
+
     } catch (error: any) {
       this.logger.error(`终止进程 ${pid} 失败:`, error)
-      
+
       // 解析错误信息
       let errorMessage = '终止进程失败'
       if (error.message) {
@@ -1824,7 +1875,7 @@ export class SystemManager extends EventEmitter {
           errorMessage = `终止进程失败: ${error.message}`
         }
       }
-      
+
       return { success: false, message: errorMessage }
     }
   }
@@ -1835,15 +1886,15 @@ export class SystemManager extends EventEmitter {
   private async checkProcessExists(pid: number): Promise<boolean> {
     try {
       let command: string
-      
+
       if (os.platform() === 'win32') {
         command = `tasklist /FI "PID eq ${pid}" /FO CSV`
       } else {
         command = `ps -p ${pid}`
       }
-      
+
       const { stdout } = await execAsync(command)
-      
+
       if (os.platform() === 'win32') {
         // Windows: 检查输出是否包含进程信息
         const lines = stdout.trim().split('\n')
@@ -1864,10 +1915,10 @@ export class SystemManager extends EventEmitter {
   private checkAlerts(stats: SystemStats): void {
     // CPU告警已禁用
     // this.checkAlert('cpu', stats.cpu.usage, this.alertThresholds.cpu, 'CPU使用率')
-    
+
     // 内存告警
     this.checkAlert('memory', stats.memory.usage, this.alertThresholds.memory, '内存使用率')
-    
+
     // 磁盘告警
     this.checkAlert('disk', stats.disk.usage, this.alertThresholds.disk, '磁盘使用率')
   }
@@ -1883,15 +1934,15 @@ export class SystemManager extends EventEmitter {
   ): void {
     const alertId = `${type}-alert`
     const existingAlert = this.alerts.get(alertId)
-    
+
     let level: SystemAlert['level'] | null = null
-    
+
     if (value >= thresholds.critical) {
       level = 'critical'
     } else if (value >= thresholds.warning) {
       level = 'warning'
     }
-    
+
     if (level) {
       if (!existingAlert || existingAlert.level !== level) {
         const alert: SystemAlert = {
@@ -1904,7 +1955,7 @@ export class SystemManager extends EventEmitter {
           timestamp: new Date(),
           resolved: false
         }
-        
+
         this.alerts.set(alertId, alert)
         this.io.emit('system-alert', alert)
         this.logger.warn(`系统告警: ${alert.message}, 当前值: ${value}%`)
@@ -1937,7 +1988,7 @@ export class SystemManager extends EventEmitter {
    */
   public setAlertThresholds(thresholds: Partial<AlertThresholds>): void {
     this.alertThresholds = { ...this.alertThresholds, ...thresholds }
-    
+
     // 如果禁用了CPU告警（阈值设为100%），则解除现有的CPU告警
     if (thresholds.cpu && thresholds.cpu.warning >= 100 && thresholds.cpu.critical >= 100) {
       const cpuAlert = this.alerts.get('cpu-alert')
@@ -1947,7 +1998,7 @@ export class SystemManager extends EventEmitter {
         this.logger.info('CPU告警已禁用，现有CPU告警已解除')
       }
     }
-    
+
     this.logger.info('告警阈值已更新:', this.alertThresholds)
   }
 
@@ -1961,13 +2012,13 @@ export class SystemManager extends EventEmitter {
       'G': 1024 * 1024 * 1024,
       'T': 1024 * 1024 * 1024 * 1024
     }
-    
+
     const match = sizeStr.match(/^([0-9.]+)([KMGT]?)$/)
     if (!match) return 0
-    
+
     const value = parseFloat(match[1])
     const unit = match[2] || ''
-    
+
     return Math.floor(value * (units[unit] || 1))
   }
 
@@ -1977,7 +2028,7 @@ export class SystemManager extends EventEmitter {
   public async getActivePorts(): Promise<ActivePort[]> {
     try {
       let command: string
-      
+
       if (os.platform() === 'win32') {
         // Windows: 使用 netstat 命令
         command = 'netstat -ano'
@@ -1985,17 +2036,17 @@ export class SystemManager extends EventEmitter {
         // Linux/Unix: 使用 netstat 或 ss 命令
         command = 'netstat -tulpn 2>/dev/null || ss -tulpn'
       }
-      
+
       const { stdout } = await execAsync(command)
       const result: ActivePort[] = []
       const lines = stdout.trim().split('\n')
-      
+
       for (const line of lines) {
         const trimmedLine = line.trim()
         if (!trimmedLine || trimmedLine.includes('Proto') || trimmedLine.includes('Active')) {
           continue
         }
-        
+
         if (os.platform() === 'win32') {
           // Windows netstat 输出格式解析
           const parts = trimmedLine.split(/\s+/)
@@ -2004,13 +2055,13 @@ export class SystemManager extends EventEmitter {
             const localAddress = parts[1]
             const state = parts[3] || 'UNKNOWN'
             const pid = parts[4] ? parseInt(parts[4]) : undefined
-            
+
             // 解析地址和端口
             const addressMatch = localAddress.match(/^(.+):(\d+)$/)
             if (addressMatch) {
               const address = addressMatch[1] === '0.0.0.0' ? '所有接口' : addressMatch[1]
               const port = parseInt(addressMatch[2])
-              
+
               if (port > 0 && (protocol === 'tcp' || protocol === 'udp')) {
                 result.push({
                   port,
@@ -2029,7 +2080,7 @@ export class SystemManager extends EventEmitter {
             const protocol = parts[0].toLowerCase()
             const localAddress = parts[3] || parts[4] // netstat vs ss 格式差异
             const state = parts[5] || 'UNKNOWN'
-            
+
             // 解析进程信息 (如果有)
             let processInfo = ''
             let pid: number | undefined
@@ -2038,7 +2089,7 @@ export class SystemManager extends EventEmitter {
               pid = parseInt(processMatch[1])
               processInfo = processMatch[2]
             }
-            
+
             // 解析地址和端口
             const addressMatch = localAddress.match(/^(.+?):(\d+)$/)
             if (addressMatch) {
@@ -2048,9 +2099,9 @@ export class SystemManager extends EventEmitter {
               } else if (address === '127.0.0.1' || address === '::1') {
                 address = '本地回环'
               }
-              
+
               const port = parseInt(addressMatch[2])
-              
+
               if (port > 0 && (protocol.includes('tcp') || protocol.includes('udp'))) {
                 const protocolType = protocol.includes('tcp') ? 'tcp' : 'udp'
                 result.push({
@@ -2066,7 +2117,7 @@ export class SystemManager extends EventEmitter {
           }
         }
       }
-      
+
       // 按端口号排序并去重
       const uniquePorts = new Map<string, ActivePort>()
       for (const port of result) {
@@ -2075,9 +2126,9 @@ export class SystemManager extends EventEmitter {
           uniquePorts.set(key, port)
         }
       }
-      
+
       return Array.from(uniquePorts.values()).sort((a, b) => a.port - b.port)
-      
+
     } catch (error) {
       this.logger.error('获取活跃端口失败:', error)
       return []
@@ -2125,27 +2176,27 @@ export class SystemManager extends EventEmitter {
     const interfaces = os.networkInterfaces()
     const result: { name: string; displayName: string; type: string }[] = []
     const seenInterfaces = new Set<string>()
-    
+
     for (const [name, addresses] of Object.entries(interfaces)) {
       if (addresses && !seenInterfaces.has(name)) {
         seenInterfaces.add(name)
-        
+
         // 跳过回环接口
         if (name.toLowerCase().includes('loopback') || name === 'lo') {
           continue
         }
-        
+
         // 获取接口类型
         let type = '未知'
         let hasIPv4 = false
-        
+
         for (const addr of addresses) {
           if (addr.family === 'IPv4' && !addr.internal) {
             hasIPv4 = true
             break
           }
         }
-        
+
         if (hasIPv4) {
           if (name.toLowerCase().includes('ethernet') || name.toLowerCase().includes('eth')) {
             type = '以太网'
@@ -2156,7 +2207,7 @@ export class SystemManager extends EventEmitter {
           } else {
             type = '网络接口'
           }
-          
+
           result.push({
             name,
             displayName: `${name} (${type})`,
@@ -2165,7 +2216,7 @@ export class SystemManager extends EventEmitter {
         }
       }
     }
-    
+
     return result.sort((a, b) => {
       // 优先显示以太网，然后是无线网络，最后是其他
       const order = { '以太网': 1, '无线网络': 2, '网络接口': 3, '虚拟网络': 4, '未知': 5 }
@@ -2183,7 +2234,7 @@ export class SystemManager extends EventEmitter {
       const hasStatsSubscribers = this.hasSubscribers('system-stats')
       const hasPortsSubscribers = this.hasSubscribers('system-ports')
       const hasProcessesSubscribers = this.hasSubscribers('system-processes')
-      
+
       if (!hasStatsSubscribers && !hasPortsSubscribers && !hasProcessesSubscribers) {
         this.logger.info('所有客户端已断开连接，系统监控将在下次有订阅者时恢复资源收集')
       } else {

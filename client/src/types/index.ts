@@ -130,6 +130,14 @@ export interface SystemStats {
     rx: number
     tx: number
   }
+  // 面板自身资源消耗
+  panel?: {
+    cpu: number      // CPU使用率百分比
+    memory: number   // 内存使用量（字节）
+    memoryUsage: number // 内存使用率百分比（相对于系统总内存）
+    uptime: number   // 运行时间（毫秒）
+    pid: number      // 进程ID
+  }
   uptime: number
   timestamp: string
 }
@@ -224,12 +232,12 @@ export interface SocketEvents {
   'terminal-output': (data: { sessionId: string; data: string }) => void
   'terminal-created': (data: { sessionId: string; name: string }) => void
   'terminal-closed': (data: { sessionId: string }) => void
-  
+
   // 系统监控事件
   'system-stats': (data: SystemStats) => void
   'system-alert': (data: SystemAlert) => void
   'system-alert-resolved': (data: SystemAlert) => void
-  
+
   // 游戏服务器事件
   'game-status': (data: { gameId: string; status: GameServer['status'] }) => void
   'game-players': (data: { gameId: string; players: { current: number; max: number } }) => void
@@ -518,7 +526,7 @@ export interface NetworkCheckState {
   allChecksPassed: boolean
   checking: boolean
   lastCheckTime?: string
-  
+
   // 方法
   checkAll: () => Promise<void>
   checkSingle: (categoryId: string, itemId: string) => Promise<void>
