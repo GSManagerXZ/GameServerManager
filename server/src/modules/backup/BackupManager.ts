@@ -3,26 +3,7 @@ import path from 'path'
 import * as tar from 'tar'
 import { createReadStream, createWriteStream } from 'fs'
 import * as zlib from 'zlib'
-
-/**
- * 安全过滤器：防止 CVE-2026-23745 漏洞
- */
-function createTarSecurityFilter(cwd: string) {
-  return (filePath: string, entry: tar.ReadEntry): boolean => {
-    if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
-      const linkpath = (entry as any).linkpath as string
-      if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
-        console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`)
-        return false
-      }
-    }
-    if (path.isAbsolute(filePath) || filePath.includes('..')) {
-      console.warn(`[安全过滤] 阻止危险路径: ${filePath}`)
-      return false
-    }
-    return true
-  }
-}
+import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
 
 export interface BackupInfo {
   name: string
@@ -187,7 +168,7 @@ export class BackupManager {
     await tar.extract({
       file: tempTarPath,
       cwd: extractCwd,
-      filter: createTarSecurityFilter(extractCwd)
+      filter: createTarSecurityFilter({ cwd: extractCwd })
     } as any)
     try { await fs.unlink(tempTarPath) } catch { }
     return { targetPath }

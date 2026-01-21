@@ -7,29 +7,7 @@ import * as tar from 'tar'
 import * as zlib from 'zlib'
 import yauzl from 'yauzl'
 import { taskManager, Task } from './taskManager.js'
-
-/**
- * 安全过滤器：防止 CVE-2026-23745 漏洞
- * 阻止符号链接投毒和硬链接逃逸攻击
- */
-function createTarSecurityFilter(cwd: string) {
-  return (filePath: string, entry: tar.ReadEntry): boolean => {
-    // 阻止符号链接和硬链接的绝对路径或路径遍历
-    if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
-      const linkpath = (entry as any).linkpath as string
-      if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
-        console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`)
-        return false
-      }
-    }
-    // 阻止绝对路径和路径遍历
-    if (path.isAbsolute(filePath) || filePath.includes('..')) {
-      console.warn(`[安全过滤] 阻止危险路径: ${filePath}`)
-      return false
-    }
-    return true
-  }
-}
+import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
 
 export class CompressionWorker {
   async compressFiles(
@@ -467,7 +445,7 @@ export class CompressionWorker {
     await tar.extract({
       file: archivePath,
       cwd: targetPath,
-      filter: createTarSecurityFilter(targetPath),
+      filter: createTarSecurityFilter({ cwd: targetPath }),
       onentry: (entry) => {
         taskManager.updateTask(taskId, {
           message: `正在解压: ${entry.path}`,
@@ -487,7 +465,7 @@ export class CompressionWorker {
       file: archivePath,
       cwd: targetPath,
       gzip: true,
-      filter: createTarSecurityFilter(targetPath),
+      filter: createTarSecurityFilter({ cwd: targetPath }),
       onentry: (entry) => {
         taskManager.updateTask(taskId, {
           message: `正在解压: ${entry.path}`,
@@ -537,7 +515,7 @@ export class CompressionWorker {
       await tar.extract({
         file: tempTarPath,
         cwd: targetPath,
-        filter: createTarSecurityFilter(targetPath),
+        filter: createTarSecurityFilter({ cwd: targetPath }),
         onentry: (entry) => {
           taskManager.updateTask(taskId, {
             message: `正在解压: ${entry.path}`,

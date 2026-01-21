@@ -18,6 +18,7 @@ import { taskManager } from '../modules/task/taskManager.js'
 import { compressionWorker } from '../modules/task/compressionWorker.js'
 import { executeFileOperation } from '../modules/task/fileOperationWorker.js'
 import { ChunkUploadManager } from '../modules/chunkUploadManager.js'
+import { createTarSecurityFilter } from '../utils/tarSecurityFilter.js'
 
 const execAsync = promisify(exec)
 
@@ -1729,14 +1730,16 @@ async function extractArchive(archivePath: string, targetPath: string) {
       } else if (ext === '.tar') {
         await tar.extract({
           file: archivePath,
-          cwd: targetPath
-        })
+          cwd: targetPath,
+          filter: createTarSecurityFilter({ cwd: targetPath })
+        } as any)
         resolve()
       } else if (fileName.endsWith('.tar.gz') || fileName.endsWith('.tgz')) {
         await tar.extract({
           file: archivePath,
           cwd: targetPath,
-          gzip: true
+          gzip: true,
+          filter: createTarSecurityFilter({ cwd: targetPath })
         } as any)
         resolve()
       } else if (fileName.endsWith('.tar.xz') || fileName.endsWith('.txz')) {
@@ -1760,8 +1763,9 @@ async function extractArchive(archivePath: string, targetPath: string) {
           // 解压tar文件
           await tar.extract({
             file: tempTarPath,
-            cwd: targetPath
-          })
+            cwd: targetPath,
+            filter: createTarSecurityFilter({ cwd: targetPath })
+          } as any)
 
           // 删除临时tar文件
           await fs.unlink(tempTarPath)

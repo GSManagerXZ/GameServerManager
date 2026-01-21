@@ -8,6 +8,7 @@ import * as os from 'os';
 import { promisify } from 'util';
 import * as zlib from 'zlib';
 import { pipeline } from 'stream';
+import { createTarSecurityFilter } from '../../../utils/tarSecurityFilter.js';
 
 // ==================== 接口定义 ====================
 
@@ -967,23 +968,8 @@ export class FactorioDeployer {
       file: archivePath,
       cwd: extractPath,
       strict: true,
-      // 安全过滤器：防止 CVE-2026-23745 漏洞
-      filter: (filePath: string, entry: any) => {
-        // 阻止符号链接和硬链接的危险路径
-        if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
-          const linkpath = entry.linkpath as string;
-          if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
-            console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`);
-            return false;
-          }
-        }
-        // 阻止路径遍历和绝对路径
-        if (path.isAbsolute(filePath) || filePath.includes('..')) {
-          console.warn(`[安全过滤] 阻止危险路径: ${filePath}`);
-          return false;
-        }
-        return true;
-      }
+      // 使用统一的安全过滤器：防止 CVE-2026-23745 漏洞和 Unicode 竞态条件漏洞
+      filter: createTarSecurityFilter({ cwd: extractPath })
     });
   }
 
@@ -1025,23 +1011,8 @@ export class FactorioDeployer {
           const tarExtract = tar.extract({
             cwd: extractPath,
             strict: false, // 允许一些不严格的tar格式
-            // 安全过滤器：防止 CVE-2026-23745 漏洞
-            filter: (filePath: string, entry: any) => {
-              // 阻止符号链接和硬链接的危险路径
-              if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
-                const linkpath = entry.linkpath as string;
-                if (path.isAbsolute(linkpath) || linkpath.includes('..')) {
-                  console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`);
-                  return false;
-                }
-              }
-              // 阻止路径遍历和绝对路径
-              if (path.isAbsolute(filePath) || filePath.includes('..')) {
-                console.warn(`[安全过滤] 阻止危险路径: ${filePath}`);
-                return false;
-              }
-              return true;
-            }
+            // 使用统一的安全过滤器：防止 CVE-2026-23745 漏洞和 Unicode 竞态条件漏洞
+            filter: createTarSecurityFilter({ cwd: extractPath })
           });
 
           decompressStream.pipe(tarExtract);

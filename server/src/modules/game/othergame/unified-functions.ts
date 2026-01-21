@@ -15,6 +15,7 @@ import { MrpackServerAPI } from './mrpack-server-api.js';
 import { FileManager } from './minecraft-server-api.js';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
+import { createTarSecurityFilter } from '../../../utils/tarSecurityFilter.js';
 
 // 创建promisify版本的mkdtemp
 const mkdtempAsync = promisify(mkdtemp);
@@ -284,7 +285,7 @@ class DeploymentManagerImpl implements DeploymentManager {
   createDeployment(game: GameType, targetDirectory: string, onProgress?: LogCallback, deploymentId?: string): ActiveDeployment {
     const finalDeploymentId = deploymentId || `deploy_${++this.deploymentCounter}_${Date.now()}`;
     const cancellationToken = new CancellationTokenImpl();
-    
+
     const deployment: ActiveDeployment = {
       id: finalDeploymentId,
       game,
@@ -295,7 +296,7 @@ class DeploymentManagerImpl implements DeploymentManager {
       cancellationToken,
       onProgress
     };
-    
+
     this.activeDeployments.set(finalDeploymentId, deployment);
     return deployment;
   }
@@ -309,7 +310,7 @@ class DeploymentManagerImpl implements DeploymentManager {
     try {
       // 取消令牌
       deployment.cancellationToken.cancel();
-      
+
       // 终止所有进程
       for (const process of deployment.processes) {
         if (!process.killed) {
@@ -322,14 +323,14 @@ class DeploymentManagerImpl implements DeploymentManager {
           }, 5000);
         }
       }
-      
+
       // 清理临时目录
       await this.cleanupDeployment(deploymentId);
-      
+
       if (deployment.onProgress) {
         deployment.onProgress(`部署 ${deploymentId} 已取消`, 'warn');
       }
-      
+
       return true;
     } catch (error) {
       console.error(`取消部署 ${deploymentId} 失败:`, error);
@@ -340,14 +341,14 @@ class DeploymentManagerImpl implements DeploymentManager {
   async cancelAllDeployments(): Promise<number> {
     const deploymentIds = Array.from(this.activeDeployments.keys());
     let cancelledCount = 0;
-    
+
     for (const deploymentId of deploymentIds) {
       const success = await this.cancelDeployment(deploymentId);
       if (success) {
         cancelledCount++;
       }
     }
-    
+
     return cancelledCount;
   }
 
@@ -375,7 +376,7 @@ class DeploymentManagerImpl implements DeploymentManager {
           console.error(`清理临时目录失败 ${tempDir}:`, error);
         }
       }
-      
+
       // 从活动部署列表中移除
       this.activeDeployments.delete(deploymentId);
     } catch (error) {
@@ -443,7 +444,7 @@ export async function getMinecraftServerCategories(): Promise<MinecraftServerCat
     // 使用minecraft-server-api.ts中的API服务
     const { getServerCategories } = await import('./minecraft-server-api.js');
     const categories = await getServerCategories();
-    
+
     // 转换为统一函数库的格式
     return categories.map(cat => ({
       name: cat.name,
@@ -495,11 +496,11 @@ export async function getMinecraftDownloadInfo(server: string, version: string):
 export async function validateJavaEnvironment(): Promise<boolean> {
   return new Promise((resolve) => {
     const javaProcess = spawn('java', ['-version'], { stdio: 'pipe' });
-    
+
     javaProcess.on('close', (code) => {
       resolve(code === 0);
     });
-    
+
     javaProcess.on('error', () => {
       resolve(false);
     });
@@ -510,9 +511,9 @@ export async function validateJavaEnvironment(): Promise<boolean> {
  * 下载文件
  */
 export async function downloadFile(
-  url: string, 
-  filePath: string, 
-  onProgress?: ProgressCallback, 
+  url: string,
+  filePath: string,
+  onProgress?: ProgressCallback,
   onLog?: LogCallback
 ): Promise<void> {
   try {
@@ -526,7 +527,7 @@ export async function downloadFile(
     let downloadedLength = 0;
 
     const writer = createWriteStream(filePath);
-    
+
     response.data.on('data', (chunk: Buffer) => {
       downloadedLength += chunk.length;
       if (onProgress && totalLength > 0) {
@@ -557,10 +558,10 @@ export async function downloadFile(
  * 支持取消的下载文件函数
  */
 export async function downloadFileWithCancellation(
-  url: string, 
-  filePath: string, 
-  deployment: ActiveDeployment, 
-  onProgress?: ProgressCallback, 
+  url: string,
+  filePath: string,
+  deployment: ActiveDeployment,
+  onProgress?: ProgressCallback,
   onLog?: LogCallback
 ): Promise<void> {
   const controller = new AbortController();
@@ -573,9 +574,9 @@ export async function downloadFileWithCancellation(
 
   try {
     deployment.cancellationToken.throwIfCancelled();
-    
+
     if (onLog) onLog(`开始下载: ${url}`, 'info');
-    
+
     const response = await axios({
       method: 'GET',
       url: url,
@@ -628,7 +629,7 @@ export async function downloadFileWithCancellation(
     }
 
     if (error instanceof Error && (error.name === 'AbortError' || error.message === '操作已被取消')) {
-       if (onLog) onLog(`下载被取消: ${url}`, 'warn');
+      if (onLog) onLog(`下载被取消: ${url}`, 'warn');
       throw new Error('操作已被取消');
     }
     throw new Error(`下载文件失败: ${error instanceof Error ? error.message : String(error)}`);
@@ -639,12 +640,12 @@ export async function downloadFileWithCancellation(
  * 部署Minecraft服务器
  */
 export async function deployMinecraftServer(options: MinecraftDeployOptions): Promise<DeploymentResult> {
-  const { 
-    server, 
-    version, 
-    targetDirectory, 
+  const {
+    server,
+    version,
+    targetDirectory,
     deploymentId,
-    skipJavaCheck = false, 
+    skipJavaCheck = false,
     skipServerRun = false,
     onProgress,
     onLog
@@ -654,7 +655,7 @@ export async function deployMinecraftServer(options: MinecraftDeployOptions): Pr
   const onLogCallback = (message: string, type?: LogLevel) => {
     if (onLog) onLog(message, type);
   };
-  
+
   onLogCallback(`开始部署Minecraft服务器: ${server} ${version}`, 'info');
   onLogCallback(`部署ID: ${deployment.id}`, 'info');
 
@@ -671,16 +672,16 @@ export async function deployMinecraftServer(options: MinecraftDeployOptions): Pr
     } else {
       onLogCallback('已跳过Java环境验证', 'warn');
     }
-    
+
     // 获取下载信息
     onLogCallback('正在获取下载地址...', 'info');
     deployment.cancellationToken.throwIfCancelled();
     const downloadData = await getMinecraftDownloadInfo(server, version);
     onLogCallback('下载地址获取成功。', 'success');
-    
+
     // 确保目标目录存在
     await fs.ensureDir(targetDirectory);
-    
+
     // 下载服务端核心
     const jarPath = path.join(targetDirectory, downloadData.filename);
     onLogCallback(`正在下载服务端核心到: ${jarPath}`, 'info');
@@ -697,8 +698,8 @@ export async function deployMinecraftServer(options: MinecraftDeployOptions): Pr
     }
 
     onLogCallback('Minecraft服务器部署成功！', 'success');
-    return { 
-      success: true, 
+    return {
+      success: true,
       message: '部署成功',
       targetDirectory,
       deploymentId: deployment.id
@@ -709,8 +710,8 @@ export async function deployMinecraftServer(options: MinecraftDeployOptions): Pr
     if (errorMessage.includes('操作已被取消')) {
       return { success: false, message: '部署已取消', deploymentId: deployment.id };
     }
-    return { 
-      success: false, 
+    return {
+      success: false,
       message: `部署失败: ${errorMessage}`,
       deploymentId: deployment.id
     };
@@ -727,7 +728,7 @@ export async function deployMinecraftServer(options: MinecraftDeployOptions): Pr
 async function runMinecraftServerOnce(jarPath: string, workingDir: string, onLog?: LogCallback): Promise<void> {
   return new Promise((resolve, reject) => {
     if (onLog) onLog('正在启动服务端...', 'info');
-    
+
     const serverProcess = spawn('java', ['-jar', path.basename(jarPath)], {
       cwd: workingDir,
       stdio: ['pipe', 'pipe', 'pipe']
@@ -738,9 +739,9 @@ async function runMinecraftServerOnce(jarPath: string, workingDir: string, onLog
     serverProcess.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       if (onLog) onLog(output, 'info');
-      
-      if (output.toLowerCase().includes('eula') || 
-          output.toLowerCase().includes('you need to agree to the eula')) {
+
+      if (output.toLowerCase().includes('eula') ||
+        output.toLowerCase().includes('you need to agree to the eula')) {
         hasEulaMessage = true;
         if (onLog) onLog('检测到EULA协议提示，正在关闭服务端...', 'info');
         serverProcess.kill('SIGTERM');
@@ -750,7 +751,7 @@ async function runMinecraftServerOnce(jarPath: string, workingDir: string, onLog
     serverProcess.stderr?.on('data', (data: Buffer) => {
       const output = data.toString();
       if (onLog) onLog(output, 'error');
-      
+
       if (output.toLowerCase().includes('eula')) {
         hasEulaMessage = true;
         if (onLog) onLog('检测到EULA协议提示，正在关闭服务端...', 'info');
@@ -789,16 +790,16 @@ async function runMinecraftServerOnce(jarPath: string, workingDir: string, onLog
  * 支持取消的运行Minecraft服务器函数
  */
 async function runMinecraftServerOnceWithCancellation(
-  jarPath: string, 
-  workingDir: string, 
-  deployment: ActiveDeployment, 
+  jarPath: string,
+  workingDir: string,
+  deployment: ActiveDeployment,
   onLog?: LogCallback
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     if (onLog) onLog('正在启动服务端...', 'info');
-    
+
     const serverProcess = spawn('java', ['-jar', path.basename(jarPath)], {
       cwd: workingDir,
       stdio: ['pipe', 'pipe', 'pipe']
@@ -827,12 +828,12 @@ async function runMinecraftServerOnceWithCancellation(
 
     serverProcess.stdout?.on('data', (data: Buffer) => {
       if (deployment.cancellationToken.isCancelled) return;
-      
+
       const output = data.toString();
       if (onLog) onLog(output, 'info');
-      
-      if (output.toLowerCase().includes('eula') || 
-          output.toLowerCase().includes('you need to agree to the eula')) {
+
+      if (output.toLowerCase().includes('eula') ||
+        output.toLowerCase().includes('you need to agree to the eula')) {
         hasEulaMessage = true;
         if (onLog) onLog('检测到EULA协议提示，正在关闭服务端...', 'info');
         serverProcess.kill('SIGTERM');
@@ -841,10 +842,10 @@ async function runMinecraftServerOnceWithCancellation(
 
     serverProcess.stderr?.on('data', (data: Buffer) => {
       if (deployment.cancellationToken.isCancelled) return;
-      
+
       const output = data.toString();
       if (onLog) onLog(output, 'error');
-      
+
       if (output.toLowerCase().includes('eula')) {
         hasEulaMessage = true;
         if (onLog) onLog('检测到EULA协议提示，正在关闭服务端...', 'info');
@@ -855,18 +856,18 @@ async function runMinecraftServerOnceWithCancellation(
     serverProcess.on('close', (code: number | null) => {
       if (isResolved) return;
       isResolved = true;
-      
+
       // 从进程列表中移除
       const processIndex = deployment.processes.indexOf(serverProcess);
       if (processIndex > -1) {
         deployment.processes.splice(processIndex, 1);
       }
-      
+
       if (deployment.cancellationToken.isCancelled) {
         reject(new Error('操作已被取消'));
         return;
       }
-      
+
       if (hasEulaMessage) {
         if (onLog) onLog('服务端已关闭，EULA协议检测完成。', 'success');
         resolve();
@@ -881,13 +882,13 @@ async function runMinecraftServerOnceWithCancellation(
     serverProcess.on('error', (error: Error) => {
       if (isResolved) return;
       isResolved = true;
-      
+
       // 从进程列表中移除
       const processIndex = deployment.processes.indexOf(serverProcess);
       if (processIndex > -1) {
         deployment.processes.splice(processIndex, 1);
       }
-      
+
       reject(new Error(`启动服务端失败: ${error.message}`));
     });
 
@@ -913,9 +914,9 @@ async function runMinecraftServerWithCancellation(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     let isResolved = false;
-    
+
     // 注册取消回调
     deployment.cancellationToken.onCancelled(() => {
       if (!isResolved) {
@@ -924,9 +925,9 @@ async function runMinecraftServerWithCancellation(
         reject(new Error('操作已被取消'));
       }
     });
-    
+
     // 使用FileManager运行服务器
-     FileManager.runServerUntilEula(jarPath, onLog)
+    FileManager.runServerUntilEula(jarPath, onLog)
       .then(() => {
         if (!isResolved) {
           isResolved = true;
@@ -951,7 +952,7 @@ export async function getTModLoaderInfo(): Promise<TModLoaderInfo> {
   try {
     const response = await axios.get('https://api.github.com/repos/tModLoader/tModLoader/releases/latest');
     const assets = response.data.assets;
-    
+
     // 查找服务端文件
     const patterns = [
       /tmodloader.*server.*\.zip$/i,
@@ -959,7 +960,7 @@ export async function getTModLoaderInfo(): Promise<TModLoaderInfo> {
       /.*server.*\.zip$/i,
       /^(?!.*example).*\.zip$/i
     ];
-    
+
     let downloadUrl = '';
     for (const pattern of patterns) {
       const asset = assets.find((a: any) => pattern.test(a.name));
@@ -968,11 +969,11 @@ export async function getTModLoaderInfo(): Promise<TModLoaderInfo> {
         break;
       }
     }
-    
+
     if (!downloadUrl) {
       throw new Error('未找到tModLoader服务端下载链接');
     }
-    
+
     return {
       version: response.data.tag_name,
       downloadUrl
@@ -987,44 +988,44 @@ export async function getTModLoaderInfo(): Promise<TModLoaderInfo> {
  */
 export async function deployTModLoaderServer(options: TModLoaderDeployOptions): Promise<DeploymentResult> {
   const { targetDirectory, options: tmodOptions = {}, deploymentId, onProgress } = options;
-  
+
   // 创建部署实例
   const deployment = globalDeploymentManager.createDeployment('tmodloader', targetDirectory, onProgress, deploymentId);
-  
+
   try {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     // 获取版本信息
     if (onProgress) onProgress('获取tModLoader版本信息...', 'info');
     const { downloadUrl, version } = await getTModLoaderInfo();
     if (onProgress) onProgress(`找到版本: ${version}`, 'success');
-    
+
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     // 创建临时目录
     const tempDir = await createTempDirectory(deployment, 'tmodloader-');
-    
+
     // 下载文件
     const zipPath = path.join(tempDir, 'tmodloader.zip');
     if (onProgress) onProgress('正在下载tModLoader...', 'info');
     await downloadFileWithCancellation(downloadUrl, zipPath, deployment, undefined, onProgress);
     if (onProgress) onProgress('下载完成', 'success');
-    
+
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     // 确保目标目录存在
     await fs.ensureDir(targetDirectory);
-    
+
     // 解压文件
     if (onProgress) onProgress('正在解压文件...', 'info');
     await extractZipFileWithCancellation(zipPath, targetDirectory, deployment);
     if (onProgress) onProgress('解压完成', 'success');
-    
+
     // 延迟清理部署（给用户一些时间来取消操作）
     setTimeout(() => {
       globalDeploymentManager.cleanupDeployment(deployment.id);
     }, 30000); // 30秒后清理
-    
+
     return {
       success: true,
       message: 'tModLoader服务器部署成功',
@@ -1040,7 +1041,7 @@ export async function deployTModLoaderServer(options: TModLoaderDeployOptions): 
     setTimeout(() => {
       globalDeploymentManager.cleanupDeployment(deployment.id);
     }, 30000); // 30秒后清理
-    
+
     if (error instanceof Error && error.message === '操作已被取消') {
       return {
         success: false,
@@ -1048,7 +1049,7 @@ export async function deployTModLoaderServer(options: TModLoaderDeployOptions): 
         deploymentId: deployment.id
       };
     }
-    
+
     return {
       success: false,
       message: `tModLoader服务器部署失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -1064,40 +1065,40 @@ export async function deployTModLoaderServer(options: TModLoaderDeployOptions): 
  */
 export async function deployFactorioServer(options: FactorioDeployOptions): Promise<DeploymentResult> {
   const { targetDirectory, tempDir, deploymentId, onProgress } = options;
-  
+
   // 创建部署实例
   const deployment = globalDeploymentManager.createDeployment('factorio', targetDirectory, onProgress, deploymentId);
-  
+
   try {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     const downloadUrl = 'https://factorio.com/get-download/stable/headless/linux64';
     const workingTempDir = tempDir || await createTempDirectory(deployment, 'factorio-');
     const tempFilePath = path.join(workingTempDir, 'factorio-server.tar.xz');
-    
+
     // 下载服务端
     if (onProgress) onProgress('正在下载Factorio服务端...', 'info');
     await downloadFileWithCancellation(downloadUrl, tempFilePath, deployment, undefined, onProgress);
     if (onProgress) onProgress('下载完成', 'success');
-    
+
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     // 确保目标目录存在
     await fs.ensureDir(targetDirectory);
-    
+
     // 解压文件
     if (onProgress) onProgress('正在解压文件...', 'info');
     await extractTarXzFileWithCancellation(tempFilePath, targetDirectory, deployment);
     if (onProgress) onProgress('解压完成', 'success');
-    
+
     // 查找服务端可执行文件
     const serverExecutablePath = await findFactorioExecutable(targetDirectory);
-    
+
     // 延迟清理部署（给用户一些时间来取消操作）
     setTimeout(() => {
       globalDeploymentManager.cleanupDeployment(deployment.id);
     }, 30000); // 30秒后清理
-    
+
     return {
       success: true,
       message: 'Factorio服务器部署成功',
@@ -1113,7 +1114,7 @@ export async function deployFactorioServer(options: FactorioDeployOptions): Prom
     setTimeout(() => {
       globalDeploymentManager.cleanupDeployment(deployment.id);
     }, 30000); // 30秒后清理
-    
+
     if (error instanceof Error && error.message === '操作已被取消') {
       return {
         success: false,
@@ -1121,7 +1122,7 @@ export async function deployFactorioServer(options: FactorioDeployOptions): Prom
         deploymentId: deployment.id
       };
     }
-    
+
     return {
       success: false,
       message: `Factorio服务器部署失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -1139,13 +1140,13 @@ async function findFactorioExecutable(extractPath: string): Promise<string | und
     path.join(extractPath, 'bin', 'x64', 'factorio'),
     path.join(extractPath, 'factorio')
   ];
-  
+
   for (const execPath of possiblePaths) {
     if (await fs.pathExists(execPath)) {
       return execPath;
     }
   }
-  
+
   return undefined;
 }
 
@@ -1178,39 +1179,39 @@ export async function downloadAndParseMrpack(mrpackUrl: string): Promise<MrpackI
  */
 export async function deployMrpackServer(options: MrpackDeployOptions): Promise<DeploymentResult> {
   const { projectId, versionId, mrpackUrl, targetDirectory, onProgress } = options;
-  
+
   // 创建部署实例
   const deployment = globalDeploymentManager.createDeployment('mrpack', targetDirectory, onProgress, options.deploymentId);
-  
+
   try {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     let finalMrpackUrl = mrpackUrl;
-    
+
     // 验证参数：必须提供mrpackUrl或者同时提供projectId和versionId
     if (!finalMrpackUrl && (!projectId || !versionId)) {
       throw new Error('必须提供mrpackUrl或者同时提供projectId和versionId');
     }
-    
+
     // 验证versionId格式（Modrinth版本ID通常是8位字符的字符串）
     if (!finalMrpackUrl && versionId && typeof versionId === 'string') {
       if (versionId.length < 8 || !/^[a-zA-Z0-9]+$/.test(versionId)) {
         throw new Error(`无效的版本ID格式: ${versionId}。版本ID应该是至少8位的字母数字字符串。`);
       }
     }
-    
+
     // 如果没有提供mrpackUrl，则通过projectId和versionId获取
     if (!finalMrpackUrl && projectId && versionId) {
       if (onProgress) {
         onProgress('正在获取整合包下载链接...', 'info');
       }
-      
+
       try {
         // 从Modrinth API获取版本信息
         if (onProgress) {
           onProgress(`正在请求版本信息: ${versionId}`, 'info');
         }
-        
+
         const versionResponse = await axios.get(`https://api.modrinth.com/v2/version/${versionId}`, {
           headers: {
             'User-Agent': 'GSM3/1.0.0'
@@ -1218,22 +1219,22 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
           timeout: 10000
         });
         const versionData = versionResponse.data;
-        
+
         if (onProgress) {
           onProgress(`获取到版本数据，查找mrpack文件...`, 'info');
         }
-        
+
         // 查找mrpack文件
-        const mrpackFile = versionData.files?.find((file: any) => 
+        const mrpackFile = versionData.files?.find((file: any) =>
           file.filename?.endsWith('.mrpack') || file.primary === true
         );
-        
+
         if (!mrpackFile || !mrpackFile.url) {
           throw new Error(`未找到有效的mrpack文件下载链接。版本ID: ${versionId}, 可用文件: ${JSON.stringify(versionData.files?.map((f: any) => f.filename) || [])}`);
         }
-        
+
         finalMrpackUrl = mrpackFile.url;
-        
+
         if (onProgress) {
           onProgress(`找到整合包文件: ${mrpackFile.filename}`, 'info');
         }
@@ -1247,19 +1248,19 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
         throw new Error(`获取整合包下载链接失败: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    
+
     if (!finalMrpackUrl) {
       throw new Error('缺少整合包下载链接');
     }
-    
+
     // 使用 MrpackServerAPI 进行部署
     const mrpackAPI = new MrpackServerAPI();
-    
+
     // 设置取消监听
     deployment.cancellationToken.onCancelled(() => {
       mrpackAPI.cancel();
     });
-    
+
     // 调用 MrpackServerAPI 的部署方法
     const deployResult = await mrpackAPI.deployModpack({
       mrpackUrl: finalMrpackUrl,
@@ -1269,10 +1270,10 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
       minecraftVersion: options.minecraftVersion,
       loaderType: options.loaderType
     });
-    
+
     // 清理部署
     await globalDeploymentManager.cleanupDeployment(deployment.id);
-    
+
     if (deployResult.success) {
       return {
         success: true,
@@ -1296,7 +1297,7 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
   } catch (error) {
     // 清理部署
     await globalDeploymentManager.cleanupDeployment(deployment.id);
-    
+
     if (error instanceof Error && error.message === '操作已被取消') {
       return {
         success: false,
@@ -1304,7 +1305,7 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
         deploymentId: deployment.id
       };
     }
-    
+
     return {
       success: false,
       message: `Mrpack整合包部署失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -1325,7 +1326,7 @@ export async function extractZipFile(zipPath: string, extractPath: string): Prom
         reject(err || new Error('无法打开ZIP文件'));
         return;
       }
-      
+
       zipfile.readEntry();
       zipfile.on('entry', (entry) => {
         if (entry.fileName.endsWith('/')) {
@@ -1339,7 +1340,7 @@ export async function extractZipFile(zipPath: string, extractPath: string): Prom
               reject(err || new Error('无法读取文件'));
               return;
             }
-            
+
             const filePath = path.join(extractPath, entry.fileName);
             fs.ensureDir(path.dirname(filePath))
               .then(() => {
@@ -1352,7 +1353,7 @@ export async function extractZipFile(zipPath: string, extractPath: string): Prom
           });
         }
       });
-      
+
       zipfile.on('end', () => resolve());
       zipfile.on('error', reject);
     });
@@ -1365,7 +1366,7 @@ export async function extractZipFile(zipPath: string, extractPath: string): Prom
 export async function extractZipFileWithCancellation(zipPath: string, extractPath: string, deployment: ActiveDeployment): Promise<void> {
   return new Promise((resolve, reject) => {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
       if (err || !zipfile) {
         reject(err || new Error('无法打开ZIP文件'));
@@ -1373,7 +1374,7 @@ export async function extractZipFileWithCancellation(zipPath: string, extractPat
       }
 
       let isResolved = false;
-      
+
       // 注册取消回调
       deployment.cancellationToken.onCancelled(() => {
         if (!isResolved) {
@@ -1382,7 +1383,7 @@ export async function extractZipFileWithCancellation(zipPath: string, extractPat
           reject(new Error('操作已被取消'));
         }
       });
-      
+
       zipfile.readEntry();
       zipfile.on('entry', (entry) => {
         if (deployment.cancellationToken.isCancelled) {
@@ -1393,7 +1394,7 @@ export async function extractZipFileWithCancellation(zipPath: string, extractPat
           }
           return;
         }
-        
+
         if (entry.fileName.endsWith('/')) {
           // 目录
           const dirPath = path.join(extractPath, entry.fileName);
@@ -1411,7 +1412,7 @@ export async function extractZipFileWithCancellation(zipPath: string, extractPat
               reject(err || new Error('无法读取文件'));
               return;
             }
-            
+
             const filePath = path.join(extractPath, entry.fileName);
             fs.ensureDir(path.dirname(filePath))
               .then(() => {
@@ -1419,16 +1420,16 @@ export async function extractZipFileWithCancellation(zipPath: string, extractPat
                   readStream.destroy();
                   return;
                 }
-                
+
                 const writeStream = createWriteStream(filePath);
-                
+
                 // 注册取消回调
                 deployment.cancellationToken.onCancelled(() => {
                   readStream.destroy();
                   writeStream.destroy();
-                  fsPromises.unlink(filePath).catch(() => {});
+                  fsPromises.unlink(filePath).catch(() => { });
                 });
-                
+
                 writeStream.on('finish', () => {
                   if (!deployment.cancellationToken.isCancelled) {
                     zipfile.readEntry();
@@ -1441,7 +1442,7 @@ export async function extractZipFileWithCancellation(zipPath: string, extractPat
           });
         }
       });
-      
+
       zipfile.on('end', () => {
         if (!isResolved) {
           isResolved = true;
@@ -1466,8 +1467,9 @@ export async function extractTarXzFile(filePath: string, extractPath: string): P
     await tar.extract({
       file: filePath,
       cwd: extractPath,
-      strip: 1 // 去掉顶层目录
-    });
+      strip: 1, // 去掉顶层目录
+      filter: createTarSecurityFilter({ cwd: extractPath })
+    } as any);
   } catch (error) {
     throw new Error(`解压tar.xz文件失败: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -1480,63 +1482,63 @@ async function validateTarXzFile(filePath: string): Promise<{ isValid: boolean; 
   try {
     const stats = await fsPromises.stat(filePath);
     const fileSize = stats.size;
-    
+
     // 检查文件大小
     if (fileSize === 0) {
       return { isValid: false, fileSize, error: '文件为空 (0字节)，可能下载失败或被中断' };
     }
-    
+
     if (fileSize < 100) {
       return { isValid: false, fileSize, error: '文件过小，可能不是有效的tar.xz文件或下载不完整' };
     }
-    
+
     // 检查文件大小是否合理（Factorio服务端通常大于50MB）
     if (fileSize < 50 * 1024 * 1024) {
       return { isValid: false, fileSize, error: `文件大小异常小 (${Math.round(fileSize / 1024 / 1024)}MB)，Factorio服务端通常大于50MB，可能下载不完整` };
     }
-    
+
     // 读取文件头部分析魔数
     const buffer = Buffer.alloc(12);
     const fd = await fsPromises.open(filePath, 'r');
-    
+
     try {
       await fd.read(buffer, 0, 12, 0);
-      
+
       // XZ文件头魔数: FD 37 7A 58 5A 00
       const xzMagic = Buffer.from([0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]);
       if (buffer.subarray(0, 6).equals(xzMagic)) {
         return { isValid: true, fileSize };
       }
-      
+
       // 检查是否为其他常见格式
       const fileHeader = buffer.toString('hex').toUpperCase();
       let detectedFormat = 'unknown';
-      
+
       if (buffer.subarray(0, 2).equals(Buffer.from([0x1F, 0x8B]))) {
         detectedFormat = 'gzip';
       } else if (buffer.subarray(0, 3).equals(Buffer.from([0x42, 0x5A, 0x68]))) {
         detectedFormat = 'bzip2';
-      } else if (buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4B, 0x03, 0x04])) || 
-                 buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4B, 0x05, 0x06]))) {
+      } else if (buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4B, 0x03, 0x04])) ||
+        buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4B, 0x05, 0x06]))) {
         detectedFormat = 'zip';
-      } else if (buffer.subarray(0, 8).toString() === 'ustar\x00\x00\x00' || 
-                 buffer.subarray(257, 262).toString() === 'ustar') {
+      } else if (buffer.subarray(0, 8).toString() === 'ustar\x00\x00\x00' ||
+        buffer.subarray(257, 262).toString() === 'ustar') {
         detectedFormat = 'tar';
       }
-      
-      return { 
-        isValid: false, 
-        fileSize, 
-        error: `文件不是有效的tar.xz格式。检测到的格式: ${detectedFormat}，文件头: ${fileHeader}` 
+
+      return {
+        isValid: false,
+        fileSize,
+        error: `文件不是有效的tar.xz格式。检测到的格式: ${detectedFormat}，文件头: ${fileHeader}`
       };
     } finally {
       await fd.close();
     }
   } catch (error) {
-    return { 
-      isValid: false, 
-      fileSize: 0, 
-      error: `文件验证失败: ${error instanceof Error ? error.message : String(error)}` 
+    return {
+      isValid: false,
+      fileSize: 0,
+      error: `文件验证失败: ${error instanceof Error ? error.message : String(error)}`
     };
   }
 }
@@ -1545,7 +1547,7 @@ async function validateTarXzFile(filePath: string): Promise<{ isValid: boolean; 
  * 检查系统是否支持tar.xz解压
  */
 async function checkSystemTarXzSupport(): Promise<boolean> {
-  
+
   try {
     // 检查tar命令是否可用
     await new Promise<void>((resolve, reject) => {
@@ -1560,7 +1562,7 @@ async function checkSystemTarXzSupport(): Promise<boolean> {
       tarCheck.on('error', reject);
       setTimeout(() => reject(new Error('timeout')), 5000);
     });
-    
+
     // 检查xz命令是否可用
     await new Promise<void>((resolve, reject) => {
       const xzCheck = spawn('xz', ['--version'], { stdio: 'pipe' });
@@ -1574,7 +1576,7 @@ async function checkSystemTarXzSupport(): Promise<boolean> {
       xzCheck.on('error', reject);
       setTimeout(() => reject(new Error('timeout')), 5000);
     });
-    
+
     return true;
   } catch (error) {
     return false;
@@ -1585,12 +1587,12 @@ async function checkSystemTarXzSupport(): Promise<boolean> {
  * 使用系统命令解压tar.xz文件
  */
 async function extractTarXzWithSystemCommand(filePath: string, extractPath: string, deployment: ActiveDeployment): Promise<void> {
-  
+
   return new Promise((resolve, reject) => {
     const isWindows = process.platform === 'win32';
     let command: string;
     let args: string[];
-    
+
     if (isWindows) {
       // Windows: 尝试使用tar命令（Windows 10 1803+支持）
       command = 'tar';
@@ -1600,22 +1602,22 @@ async function extractTarXzWithSystemCommand(filePath: string, extractPath: stri
       command = 'sh';
       args = ['-c', `xz -dc "${filePath}" | tar -xf - -C "${extractPath}"`];
     }
-    
+
     if (deployment.onProgress) {
       deployment.onProgress(`执行解压命令: ${command} ${args.join(' ')}`, 'info');
     }
-    
+
     const extractProcess = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe']
     });
-    
+
     // 注册到部署管理器
     deployment.processes.push(extractProcess);
-    
+
     let stdout = '';
     let stderr = '';
     let isResolved = false;
-    
+
     // 注册取消回调
     deployment.cancellationToken.onCancelled(() => {
       if (!extractProcess.killed && !isResolved) {
@@ -1629,30 +1631,30 @@ async function extractTarXzWithSystemCommand(filePath: string, extractPath: stri
         reject(new Error('操作已被取消'));
       }
     });
-    
+
     extractProcess.stdout?.on('data', (data) => {
       stdout += data.toString();
     });
-    
+
     extractProcess.stderr?.on('data', (data) => {
       stderr += data.toString();
     });
-    
+
     extractProcess.on('close', (code: number) => {
       if (isResolved) return;
       isResolved = true;
-      
+
       // 从进程列表中移除
       const processIndex = deployment.processes.indexOf(extractProcess);
       if (processIndex > -1) {
         deployment.processes.splice(processIndex, 1);
       }
-      
+
       if (deployment.cancellationToken.isCancelled) {
         reject(new Error('操作已被取消'));
         return;
       }
-      
+
       if (code === 0) {
         if (deployment.onProgress) {
           deployment.onProgress('tar.xz文件解压完成', 'success');
@@ -1666,17 +1668,17 @@ async function extractTarXzWithSystemCommand(filePath: string, extractPath: stri
         reject(new Error(errorMsg));
       }
     });
-    
+
     extractProcess.on('error', (error: Error) => {
       if (isResolved) return;
       isResolved = true;
-      
+
       // 从进程列表中移除
       const processIndex = deployment.processes.indexOf(extractProcess);
       if (processIndex > -1) {
         deployment.processes.splice(processIndex, 1);
       }
-      
+
       reject(new Error(`执行解压命令失败: ${error.message}`));
     });
   });
@@ -1688,19 +1690,19 @@ async function extractTarXzWithSystemCommand(filePath: string, extractPath: stri
 export async function extractTarXzFileWithCancellation(filePath: string, extractPath: string, deployment: ActiveDeployment): Promise<void> {
   try {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     // 验证文件格式
     if (deployment.onProgress) {
       deployment.onProgress('正在验证tar.xz文件格式...', 'info');
     }
-    
+
     const validation = await validateTarXzFile(filePath);
     if (!validation.isValid) {
       let errorMsg = `Factorio服务器部署失败: 解压tar.xz文件失败: TAR_BAD_ARCHIVE: ${validation.error || 'Unrecognized archive format'}. 文件大小: ${validation.fileSize} bytes, 文件路径: ${filePath}`;
-      
+
       if (deployment.onProgress) {
         deployment.onProgress(errorMsg, 'error');
-        
+
         // 根据文件大小提供不同的建议
         if (validation.fileSize === 0) {
           deployment.onProgress('建议: 1) 检查网络连接是否稳定 2) 重新尝试下载 3) 检查磁盘空间是否充足 4) 验证下载URL是否有效', 'warn');
@@ -1712,12 +1714,12 @@ export async function extractTarXzFileWithCancellation(filePath: string, extract
       }
       throw new Error(errorMsg);
     }
-    
+
     if (deployment.onProgress) {
       deployment.onProgress(`文件验证通过，大小: ${validation.fileSize} bytes`, 'success');
       deployment.onProgress('注意: Node.js tar库不原生支持xz压缩，将尝试系统命令解压', 'warn');
     }
-    
+
     // 由于Node.js的tar库不支持xz压缩，我们需要使用系统命令
     // 首先尝试检查系统是否有必要的工具
     const hasSystemSupport = await checkSystemTarXzSupport();
@@ -1731,10 +1733,10 @@ export async function extractTarXzFileWithCancellation(filePath: string, extract
       }
       throw new Error(errorMsg);
     }
-    
+
     // 使用系统命令解压
     await extractTarXzWithSystemCommand(filePath, extractPath, deployment);
-    
+
   } catch (error) {
     if (error instanceof Error && error.message === '操作已被取消') {
       throw error;
@@ -1767,23 +1769,23 @@ export interface UnifiedDeployOptions {
   game: GameType;
   targetDirectory: string;
   platform?: 'windows' | 'linux';
-  
+
   // Minecraft特定选项
   server?: string;
   version?: string;
   skipJavaCheck?: boolean;
   skipServerRun?: boolean;
-  
+
   // tModLoader特定选项
   tmodOptions?: TModLoaderOptions;
-  
+
   // Factorio特定选项
   tempDir?: string;
-  
+
   // Mrpack特定选项
   mrpackUrl?: string;
   minecraftVersion?: string;
-  
+
   // 通用选项
   onProgress?: LogCallback;
 }
@@ -1793,21 +1795,21 @@ export interface UnifiedDeployOptions {
  */
 export async function deployGameServer(options: UnifiedDeployOptions): Promise<DeploymentResult> {
   const { game, targetDirectory, onProgress } = options;
-  
+
   // 验证必需参数
   if (!game || !targetDirectory) {
     throw new Error('缺少必需参数: game和targetDirectory');
   }
-  
+
   // 创建部署实例
   const deployment = globalDeploymentManager.createDeployment(game, targetDirectory, onProgress);
   const cancellationToken = deployment.cancellationToken;
-  
+
   try {
     (cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     let result: DeploymentResult;
-    
+
     switch (game) {
       case 'minecraft':
         if (!options.server || !options.version) {
@@ -1823,7 +1825,7 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
           onLog: onProgress
         });
         break;
-        
+
       case 'tmodloader':
         result = await deployTModLoaderServer({
           targetDirectory,
@@ -1831,7 +1833,7 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
           onProgress
         });
         break;
-        
+
       case 'factorio':
         result = await deployFactorioServer({
           targetDirectory,
@@ -1839,7 +1841,7 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
           onProgress
         });
         break;
-        
+
       case 'mrpack':
         if (!options.mrpackUrl) {
           throw new Error('Mrpack部署缺少必需参数: mrpackUrl');
@@ -1851,7 +1853,7 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
           onProgress
         });
         break;
-        
+
       case 'bedrock':
         result = await deployBedrockServer({
           targetDirectory,
@@ -1859,22 +1861,22 @@ export async function deployGameServer(options: UnifiedDeployOptions): Promise<D
           onProgress
         });
         break;
-        
+
       default:
         throw new Error(`不支持的游戏类型: ${game}`);
     }
-    
+
     // 确保结果包含部署ID
     result.deploymentId = deployment.id;
-    
+
     // 清理部署
     await globalDeploymentManager.cleanupDeployment(deployment.id);
-    
+
     return result;
   } catch (error) {
     // 清理部署
     await globalDeploymentManager.cleanupDeployment(deployment.id);
-    
+
     if (error instanceof Error && error.message === '操作已被取消') {
       throw new Error('统一部署操作已被取消');
     }
@@ -1893,17 +1895,17 @@ async function downloadBedrockServerFile(
   onProgress?: LogCallback
 ): Promise<void> {
   const controller = new AbortController();
-  
+
   deployment.cancellationToken.onCancelled(() => {
     if (onProgress) onProgress('接收到取消信号，正在中止下载...', 'warn');
     controller.abort();
   });
-  
+
   try {
     deployment.cancellationToken.throwIfCancelled();
-    
+
     if (onProgress) onProgress(`开始下载: ${url}`, 'info');
-    
+
     const response = await axios({
       method: 'GET',
       url: url,
@@ -1919,29 +1921,29 @@ async function downloadBedrockServerFile(
       // 验证状态码
       validateStatus: (status) => status >= 200 && status < 400
     });
-    
+
     const totalLength = parseInt(response.headers['content-length'] || '0', 10);
     let downloadedLength = 0;
     let lastLogTime = Date.now();
-    
+
     if (onProgress) {
       if (totalLength > 0) {
         onProgress(`文件大小: ${(totalLength / 1024 / 1024).toFixed(2)}MB`, 'info');
       }
       onProgress('开始接收数据...', 'info');
     }
-    
+
     const writer = createWriteStream(filePath);
-    
+
     response.data.on('data', (chunk: Buffer) => {
       if (deployment.cancellationToken.isCancelled) {
         response.data.destroy();
         writer.end();
         return;
       }
-      
+
       downloadedLength += chunk.length;
-      
+
       // 每2秒输出一次进度
       const now = Date.now();
       if (onProgress && totalLength > 0 && now - lastLogTime > 2000) {
@@ -1952,9 +1954,9 @@ async function downloadBedrockServerFile(
         lastLogTime = now;
       }
     });
-    
+
     response.data.pipe(writer);
-    
+
     await new Promise<void>((resolve, reject) => {
       writer.on('finish', () => {
         if (onProgress) {
@@ -1962,11 +1964,11 @@ async function downloadBedrockServerFile(
         }
         resolve();
       });
-      
+
       writer.on('error', (err) => {
         reject(err);
       });
-      
+
       response.data.on('error', (err: any) => {
         if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
           reject(new Error('操作已被取消'));
@@ -1975,7 +1977,7 @@ async function downloadBedrockServerFile(
         }
       });
     });
-    
+
   } catch (error: any) {
     // 清理可能已创建的部分文件
     try {
@@ -1983,12 +1985,12 @@ async function downloadBedrockServerFile(
     } catch (unlinkError) {
       // 忽略删除文件时的错误
     }
-    
+
     if (error.name === 'AbortError' || error.code === 'ERR_CANCELED' || error.message === '操作已被取消') {
       if (onProgress) onProgress('下载已被取消', 'warn');
       throw new Error('操作已被取消');
     }
-    
+
     if (onProgress) onProgress(`下载失败: ${error.message}`, 'error');
     throw new Error(`下载文件失败: ${error.message}`);
   }
@@ -1999,7 +2001,7 @@ async function downloadBedrockServerFile(
  */
 export async function getBedrockDownloadLinks(): Promise<BedrockVersionInfo> {
   const url = 'https://net-secondary.web.minecraft-services.net/api/v1.0/download/links';
-  
+
   try {
     const response = await axios.get(url, {
       headers: {
@@ -2011,11 +2013,11 @@ export async function getBedrockDownloadLinks(): Promise<BedrockVersionInfo> {
       },
       timeout: 30000
     });
-    
+
     if (response.data && response.data.result && response.data.result.links) {
       return { links: response.data.result.links };
     }
-    
+
     throw new Error('无效的API响应格式');
   } catch (error: any) {
     throw new Error(`获取基岩版下载链接失败: ${error.message}`);
@@ -2027,10 +2029,10 @@ export async function getBedrockDownloadLinks(): Promise<BedrockVersionInfo> {
  */
 export async function deployBedrockServer(options: BedrockDeployOptions): Promise<DeploymentResult> {
   const { targetDirectory, platform, versionType = 'stable', deploymentId, onProgress } = options;
-  
+
   // 在目标路径后面添加"Minecraft-bedrock-server"文件夹
   const finalTargetDirectory = path.join(targetDirectory, 'Minecraft-bedrock-server');
-  
+
   // 创建部署记录
   const deployment = globalDeploymentManager.createDeployment(
     'bedrock',
@@ -2038,12 +2040,12 @@ export async function deployBedrockServer(options: BedrockDeployOptions): Promis
     onProgress,
     deploymentId
   );
-  
+
   try {
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
-    
+
     if (onProgress) onProgress('开始部署Minecraft基岩版服务器...', 'info');
-    
+
     // 检测平台 - 优先使用系统检测，忽略可能不准确的前端传参
     const osPlatform = os.platform();
     // 如果没有明确传递platform参数，或者传递的参数与系统不匹配，使用系统检测结果
@@ -2051,28 +2053,28 @@ export async function deployBedrockServer(options: BedrockDeployOptions): Promis
     const currentPlatform = platform && (platform === detectedPlatform) ? platform : detectedPlatform;
     if (onProgress) onProgress(`检测到系统平台: ${osPlatform} (${currentPlatform})`, 'info');
     if (onProgress) onProgress(`选择版本类型: ${versionType === 'stable' ? '正式版' : '预览版'}`, 'info');
-    
+
     // 获取下载链接
     if (onProgress) onProgress('正在获取最新版本下载链接...', 'info');
     const versionInfo = await getBedrockDownloadLinks();
-    
+
     // 打印所有可用的下载链接以便调试
     if (onProgress) {
       onProgress(`可用的下载链接类型: ${versionInfo.links.map(l => l.downloadType).join(', ')}`, 'info');
     }
-    
+
     // 根据平台和版本类型选择下载链接
     let downloadLink;
     if (currentPlatform === 'windows') {
       if (versionType === 'preview') {
         // Windows预览版
-        downloadLink = versionInfo.links.find(link => 
-          link.downloadType.toLowerCase().includes('preview') && 
+        downloadLink = versionInfo.links.find(link =>
+          link.downloadType.toLowerCase().includes('preview') &&
           (link.downloadType.toLowerCase().includes('windows') || link.downloadType.toLowerCase().includes('win'))
         );
       } else {
         // Windows正式版 - 排除preview
-        downloadLink = versionInfo.links.find(link => 
+        downloadLink = versionInfo.links.find(link =>
           !link.downloadType.toLowerCase().includes('preview') &&
           (link.downloadType.toLowerCase().includes('windows') || link.downloadType.toLowerCase().includes('win'))
         );
@@ -2080,36 +2082,36 @@ export async function deployBedrockServer(options: BedrockDeployOptions): Promis
     } else {
       if (versionType === 'preview') {
         // Linux预览版
-        downloadLink = versionInfo.links.find(link => 
+        downloadLink = versionInfo.links.find(link =>
           link.downloadType.toLowerCase().includes('preview') &&
           (link.downloadType.toLowerCase().includes('linux') || link.downloadType.toLowerCase().includes('ubuntu'))
         );
       } else {
         // Linux正式版 - 排除preview
-        downloadLink = versionInfo.links.find(link => 
+        downloadLink = versionInfo.links.find(link =>
           !link.downloadType.toLowerCase().includes('preview') &&
           (link.downloadType.toLowerCase().includes('linux') || link.downloadType.toLowerCase().includes('ubuntu'))
         );
       }
     }
-    
+
     if (!downloadLink) {
       const availableTypes = versionInfo.links.map(l => l.downloadType).join(', ');
       throw new Error(`未找到${currentPlatform}平台的下载链接。可用类型: ${availableTypes}`);
     }
-    
+
     if (onProgress) onProgress(`找到下载链接: ${downloadLink.downloadUrl}`, 'success');
-    
+
     // 确保目标目录存在
     await fs.ensureDir(finalTargetDirectory);
     if (onProgress) onProgress(`创建目标目录: ${finalTargetDirectory}`, 'info');
-    
+
     // 下载文件
     const fileName = currentPlatform === 'windows' ? 'bedrock-server.zip' : 'bedrock-server.zip';
     const downloadPath = path.join(finalTargetDirectory, fileName);
-    
+
     if (onProgress) onProgress('正在下载服务端文件...', 'info');
-    
+
     // 使用特殊的下载方式处理Minecraft官方链接
     await downloadBedrockServerFile(
       downloadLink.downloadUrl,
@@ -2117,18 +2119,18 @@ export async function deployBedrockServer(options: BedrockDeployOptions): Promis
       deployment,
       onProgress
     );
-    
+
     if (onProgress) onProgress('下载完成，开始解压...', 'success');
-    
+
     // 解压文件
     await extractZipFileWithCancellation(downloadPath, finalTargetDirectory, deployment);
-    
+
     if (onProgress) onProgress('解压完成', 'success');
-    
+
     // 删除下载的压缩包
     await fs.remove(downloadPath);
     if (onProgress) onProgress('清理临时文件完成', 'info');
-    
+
     // 根据平台设置启动命令
     let startCommand = '';
     if (currentPlatform === 'windows') {
@@ -2144,13 +2146,13 @@ export async function deployBedrockServer(options: BedrockDeployOptions): Promis
       }
       startCommand = './bedrock_server';
     }
-    
+
     if (onProgress) onProgress(`推荐启动命令: ${startCommand}`, 'info');
     if (onProgress) onProgress('Minecraft基岩版服务端部署完成！', 'success');
-    
+
     // 清理部署记录
     await globalDeploymentManager.cleanupDeployment(deployment.id);
-    
+
     return {
       success: true,
       message: 'Minecraft基岩版服务端部署成功',
@@ -2162,16 +2164,16 @@ export async function deployBedrockServer(options: BedrockDeployOptions): Promis
         deploymentId: deployment.id
       }
     };
-    
+
   } catch (error: any) {
     // 清理部署记录
     await globalDeploymentManager.cleanupDeployment(deployment.id);
-    
+
     if (error instanceof Error && error.message === '操作已被取消') {
       if (onProgress) onProgress('部署已被取消', 'warn');
       throw new Error('基岩版部署操作已被取消');
     }
-    
+
     if (onProgress) onProgress(`部署失败: ${error.message}`, 'error');
     throw error;
   }

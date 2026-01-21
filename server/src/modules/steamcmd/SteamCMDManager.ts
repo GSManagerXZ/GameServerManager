@@ -8,28 +8,7 @@ import * as tar from 'tar'
 import winston from 'winston'
 import os from 'os'
 import { ConfigManager } from '../config/ConfigManager.js'
-
-/**
- * 安全过滤器：防止 CVE-2026-23745 漏洞
- */
-function createTarSecurityFilter(cwd: string) {
-  return (filePath: string, stat: any): boolean => {
-    // 阻止符号链接和硬链接的绝对路径或路径遍历
-    if (stat.type === 'SymbolicLink' || stat.type === 'Link') {
-      const linkpath = (stat as any).linkpath as string
-      if (linkpath && (path.isAbsolute(linkpath) || linkpath.includes('..'))) {
-        console.warn(`[安全过滤] 阻止危险链接: ${filePath} -> ${linkpath}`)
-        return false
-      }
-    }
-    // 阻止绝对路径和路径遍历
-    if (path.isAbsolute(filePath) || filePath.includes('..')) {
-      console.warn(`[安全过滤] 阻止危险路径: ${filePath}`)
-      return false
-    }
-    return true
-  }
-}
+import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
 
 export interface SteamCMDInstallOptions {
   installPath: string
@@ -285,11 +264,11 @@ export class SteamCMDManager {
       await tar.extract({
         file: tarPath,
         cwd: extractPath,
-        filter: createTarSecurityFilter(extractPath),
+        filter: createTarSecurityFilter({ cwd: extractPath }),
         onentry: (entry) => {
           this.logger.debug(`解压文件: ${entry.path}`)
         }
-      })
+      } as any)
 
       this.logger.info('tar.gz文件解压完成')
     } catch (error) {
