@@ -19,3 +19,4 @@ const possiblePaths = [
 14. 涉及交互弹窗的，不要使用浏览器的对话框 使用符合面板风格的弹窗组件
 15. 如果需要识别操作系统平台有专门的函数，你需要查找不需要单独写
 16. 编写完毕后需要运行npx tsc --noEmit进行检测
+17. 如果需要使用tar库进行解压缩操作，请务必使用 `server/src/utils/tarSecurityFilter.ts` 模块 安全拦截器，缓解路径穿越漏洞

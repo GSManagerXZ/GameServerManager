@@ -13,6 +13,7 @@ panel/public/
 .trae/
 .windsurf/
 .cursor/
+.kiro/
 
 config.json
 instances.json
