@@ -3061,7 +3061,7 @@ const GameDeploymentPage: React.FC = () => {
       {/* 在线部署标签页内容 */}
       {activeTab === 'online-deploy' && (
         <div className="space-y-6">
-          {/* GSManager在线部署服务网络状态提示 */}
+          {/* GSManager功能服务网络状态提示 */}
           <NetworkStatusBanner categoryId="gsmanager" itemId="gsm-deploy" autoCheck={true} />
           
           {/* 赞助者密钥状态 */}

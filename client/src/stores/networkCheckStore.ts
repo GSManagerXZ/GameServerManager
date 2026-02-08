@@ -83,15 +83,15 @@ const initialCategories: NetworkCheckCategory[] = [
     items: [
       {
         id: 'gsm-deploy',
-        name: 'GSManager在线部署服务',
+        name: 'GSManager功能服务',
         url: 'http://api.gsm.xiaozhuhouses.asia:10002/',
         status: 'pending',
-        errorMessage: 'GSManager在线部署服务 连接失败，您将无法使用在线部署和赞助者密钥功能'
+        errorMessage: 'GSManager功能服务 连接失败，您将无法使用在线部署和赞助者密钥功能'
       },
       {
         id: 'gsm-mirror',
         name: 'GSManager镜像服务器',
-        url: 'http://download.xiaozhuhouses.asia:8082/',
+        url: 'https://download.xiaozhuhouses.asia/',
         status: 'pending',
         errorMessage: 'GSManager镜像服务器 连接失败，您将无法使用环境管理中加速下载'
       }
