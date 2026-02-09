@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import MusicPlayer from '@/components/MusicPlayer'
 import NetworkCheck from '@/components/NetworkCheck'
+import { getCityNameByCode } from '@/data/cityData'
 
 // 主机名和IP地址组件
 interface HostnameWithIPProps {
@@ -187,44 +188,6 @@ const HostnameWithIP: React.FC<HostnameWithIPProps> = ({ systemInfo }) => {
     </>
   )
 }
-
-// 城市代码映射
-const cityOptions = [
-  { value: '101010100', label: '北京市' },
-  { value: '101020100', label: '上海市' },
-  { value: '101280101', label: '广州市' },
-  { value: '101280601', label: '深圳市' },
-  { value: '101210101', label: '杭州市' },
-  { value: '101030100', label: '天津市' },
-  { value: '101200101', label: '武汉市' },
-  { value: '101270101', label: '成都市' },
-  { value: '101110101', label: '西安市' },
-  { value: '101190401', label: '苏州市' },
-  { value: '101230101', label: '福州市' },
-  { value: '101040100', label: '重庆市' },
-  { value: '101250101', label: '长沙市' },
-  { value: '101230201', label: '厦门市' },
-  { value: '101180101', label: '郑州市' },
-  { value: '101120101', label: '济南市' },
-  { value: '101190101', label: '南京市' },
-  { value: '101260101', label: '合肥市' },
-  { value: '101300101', label: '南宁市' },
-  { value: '101310101', label: '海口市' },
-  { value: '101320101', label: '石家庄市' },
-  { value: '101330101', label: '太原市' },
-  { value: '101340101', label: '沈阳市' },
-  { value: '101050101', label: '哈尔滨市' },
-  { value: '101060101', label: '长春市' },
-  { value: '101070101', label: '呼和浩特市' },
-  { value: '101080101', label: '乌鲁木齐市' },
-  { value: '101090101', label: '银川市' },
-  { value: '101100101', label: '西宁市' },
-  { value: '101150101', label: '兰州市' },
-  { value: '101160101', label: '拉萨市' },
-  { value: '101240101', label: '南昌市' },
-  { value: '101290101', label: '昆明市' },
-  { value: '101170101', label: '贵阳市' }
-]
 
 const HomePage: React.FC = () => {
   const { user } = useAuthStore()
@@ -799,7 +762,7 @@ const HomePage: React.FC = () => {
             ) : weatherData ? (
               <div>
                 <div className="text-2xl font-bold text-black dark:text-white mb-1">
-                  {cityOptions.find(city => city.value === weatherData.selectedCityCode)?.label || weatherData.cityInfo?.city || '北京'}
+                  {getCityNameByCode(weatherData.selectedCityCode) || weatherData.cityInfo?.city || '北京'}
                 </div>
                 <div className="flex items-center justify-center space-x-2 mb-2">
                   <span className="text-3xl font-bold text-orange-500">

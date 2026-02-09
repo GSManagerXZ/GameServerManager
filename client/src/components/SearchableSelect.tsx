@@ -28,6 +28,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [displayValue, setDisplayValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const isSelectingRef = useRef(false) // 标记是否正在通过点击选项触发
 
   // 过滤选项
   const filteredOptions = options.filter(option =>
@@ -70,7 +71,9 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   // 处理选项点击
   const handleOptionClick = (option: Option) => {
+    isSelectingRef.current = true // 标记正在选择，防止 blur 覆盖显示值
     onChange(option.id)
+    setDisplayValue(option.name)
     setIsOpen(false)
     setSearchTerm('')
     inputRef.current?.blur()
@@ -88,6 +91,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const handleInputBlur = (e: React.FocusEvent) => {
     // 延迟关闭，允许点击选项
     setTimeout(() => {
+      // 如果是通过点击选项触发的 blur，跳过恢复逻辑
+      if (isSelectingRef.current) {
+        isSelectingRef.current = false
+        return
+      }
       if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
         setIsOpen(false)
         // 如果没有选中值，恢复显示值
@@ -128,7 +136,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
   }, [])
 
   return (
-    <div className={`relative ${className}`} ref={dropdownRef}>
+    <div className={`relative z-20 ${className}`} ref={dropdownRef}>
       <div className="relative">
         <input
           ref={inputRef}
