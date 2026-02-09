@@ -90,10 +90,10 @@ const initialCategories: NetworkCheckCategory[] = [
       },
       {
         id: 'gsm-mirror',
-        name: 'GSManager镜像服务器',
+        name: 'GSManager镜像服务',
         url: 'https://download.xiaozhuhouses.asia/',
         status: 'pending',
-        errorMessage: 'GSManager镜像服务器 连接失败，您将无法使用环境管理中加速下载'
+        errorMessage: 'GSManager镜像服务 连接失败，您将无法使用环境管理中加速下载'
       }
     ]
   },
