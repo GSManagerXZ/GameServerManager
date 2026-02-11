@@ -2022,15 +2022,18 @@ const GameDeploymentPage: React.FC = () => {
   // 自动生成和更新SteamCMD命令
   useEffect(() => {
     if (showInstallModal && selectedGame) {
+      const forceInstallDir = `force_install_dir "${installPath.trim()}"`
+
       const loginCommand = useAnonymous
         ? 'login anonymous'
         : `login ${steamUsername.trim()} ${steamPassword.trim()}`
 
-      const installCommand = validateGameIntegrity
-        ? `force_install_dir "${installPath.trim()}" +app_update ${selectedGame.info.appid} validate`
-        : `force_install_dir "${installPath.trim()}" +app_update ${selectedGame.info.appid}`
+      const appUpdateCommand = validateGameIntegrity
+        ? `app_update ${selectedGame.info.appid} validate`
+        : `app_update ${selectedGame.info.appid}`
 
-      const fullCommand = `steamcmd +${loginCommand} +${installCommand} +quit`
+      // force_install_dir 必须在 login 之前，否则 SteamCMD 会报错
+      const fullCommand = `steamcmd +${forceInstallDir} +${loginCommand} +${appUpdateCommand} +quit`
       setSteamcmdCommand(fullCommand)
     }
   }, [showInstallModal, selectedGame, useAnonymous, steamUsername, steamPassword, validateGameIntegrity, installPath])
