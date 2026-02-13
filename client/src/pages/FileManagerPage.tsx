@@ -50,7 +50,9 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
   StarOutlined,
-  StarFilled
+  StarFilled,
+  SortAscendingOutlined,
+  SortDescendingOutlined
 } from '@ant-design/icons'
 import { useFileStore } from '@/stores/fileStore'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -285,6 +287,13 @@ const FileManagerPage: React.FC = () => {
     return (saved as 'grid' | 'list') || 'grid'
   })
 
+  // 排序模式
+  type SortMode = 'name-asc' | 'name-desc' | 'time-asc' | 'time-desc'
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    const saved = localStorage.getItem('fileManager_sortMode')
+    return (saved as SortMode) || 'name-asc'
+  })
+
   // 保存视图模式到localStorage
   const handleViewModeChange = (mode: 'grid' | 'list') => {
     // 小屏模式强制使用列表视图
@@ -295,6 +304,12 @@ const FileManagerPage: React.FC = () => {
       setViewMode(mode)
       localStorage.setItem('fileManager_viewMode', mode)
     }
+  }
+
+  // 保存排序模式到localStorage
+  const handleSortModeChange = (mode: SortMode) => {
+    setSortMode(mode)
+    localStorage.setItem('fileManager_sortMode', mode)
   }
 
   // 监听触摸适配状态变化，自动切换到列表视图
@@ -1382,12 +1397,38 @@ const FileManagerPage: React.FC = () => {
     }
   }, [currentPath])
 
-  // 过滤文件
-  const filteredFiles = recursiveSearch && searchQuery.trim()
-    ? searchResults
-    : files.filter(file =>
-      file.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+  // 过滤和排序文件
+  const filteredFiles = React.useMemo(() => {
+    // 先过滤
+    let result = recursiveSearch && searchQuery.trim()
+      ? searchResults
+      : files.filter(file =>
+        file.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+
+    // 再排序
+    const sorted = [...result].sort((a, b) => {
+      // 文件夹始终排在前面
+      if (a.type === 'directory' && b.type !== 'directory') return -1
+      if (a.type !== 'directory' && b.type === 'directory') return 1
+
+      // 根据排序模式排序
+      switch (sortMode) {
+        case 'name-asc':
+          return a.name.localeCompare(b.name, 'zh-CN')
+        case 'name-desc':
+          return b.name.localeCompare(a.name, 'zh-CN')
+        case 'time-asc':
+          return new Date(a.modified).getTime() - new Date(b.modified).getTime()
+        case 'time-desc':
+          return new Date(b.modified).getTime() - new Date(a.modified).getTime()
+        default:
+          return 0
+      }
+    })
+
+    return sorted
+  }, [files, searchResults, searchQuery, recursiveSearch, sortMode])
 
   // 获取任务状态图标
   const getTaskStatusIcon = (status: string) => {
@@ -1504,6 +1545,48 @@ const FileManagerPage: React.FC = () => {
               </Tooltip>
             </Space>
           )}
+
+          {/* 排序选择 */}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'name-asc',
+                  icon: <SortAscendingOutlined />,
+                  label: '名称升序',
+                  onClick: () => handleSortModeChange('name-asc')
+                },
+                {
+                  key: 'name-desc',
+                  icon: <SortDescendingOutlined />,
+                  label: '名称降序',
+                  onClick: () => handleSortModeChange('name-desc')
+                },
+                {
+                  key: 'time-asc',
+                  icon: <SortAscendingOutlined />,
+                  label: '修改时间升序',
+                  onClick: () => handleSortModeChange('time-asc')
+                },
+                {
+                  key: 'time-desc',
+                  icon: <SortDescendingOutlined />,
+                  label: '修改时间降序',
+                  onClick: () => handleSortModeChange('time-desc')
+                }
+              ],
+              selectedKeys: [sortMode]
+            }}
+            trigger={['click']}
+          >
+            <Tooltip title="排序方式">
+              <Button icon={sortMode.includes('asc') ? <SortAscendingOutlined /> : <SortDescendingOutlined />}>
+                {!touchAdaptation.shouldShowMobileUI && (
+                  sortMode.startsWith('name') ? '名称' : '时间'
+                )}
+              </Button>
+            </Tooltip>
+          </Dropdown>
 
           {/* 搜索 */}
           <Popover
