@@ -55,6 +55,7 @@ const SettingsPage: React.FC = () => {
   const { systemInfo, fetchSystemInfo } = useSystemStore()
   const { settings: wallpaperSettings, setSettings: setWallpaperSettings, updateMainWallpaper, updateLoginWallpaper } = useWallpaperStore()
   const [showDeveloperWarning, setShowDeveloperWarning] = useState(false)
+  const [isHttpAccess, setIsHttpAccess] = useState(false)
 
   // 城市选择选项（从统一城市数据模块获取）
   const citySelectOptions = getCitySelectOptions()
@@ -145,6 +146,7 @@ const SettingsPage: React.FC = () => {
     tokenResetRule: 'startup' | 'expire'
     tokenExpireHours: number | null
   } | null>(null)
+  const [tokenExpireDebounceTimer, setTokenExpireDebounceTimer] = useState<NodeJS.Timeout | null>(null)
 
   // 面板日志 - 使用全局 store（切换页面不会断开）
   const consoleLogStore = useConsoleLogStore()
@@ -602,6 +604,34 @@ const SettingsPage: React.FC = () => {
     }
   }
 
+  // 检测是否为 HTTP 访问，并强制设置为启动时重置
+  React.useEffect(() => {
+    const isHttp = window.location.protocol === 'http:'
+    setIsHttpAccess(isHttp)
+    
+    // 如果是 HTTP 访问，强制设置为启动时重置
+    if (isHttp && securityConfig.tokenResetRule !== 'startup') {
+      const forceUpdate = async () => {
+        try {
+          await saveSecurityConfig({
+            tokenResetRule: 'startup',
+            tokenExpireHours: securityConfig.tokenExpireHours && securityConfig.tokenExpireHours <= 24 
+              ? securityConfig.tokenExpireHours 
+              : 24
+          })
+          addNotification({
+            type: 'info',
+            title: '安全配置已调整',
+            message: '检测到 HTTP 访问，已自动切换为启动时重置模式'
+          })
+        } catch (error) {
+          console.error('强制更新安全配置失败:', error)
+        }
+      }
+      forceUpdate()
+    }
+  }, [securityConfig.tokenResetRule])
+
   // 页面加载时获取SteamCMD状态和本地设置
   React.useEffect(() => {
     fetchSteamCMDStatus()
@@ -923,16 +953,72 @@ const SettingsPage: React.FC = () => {
   const handleSecurityConfigChange = (updates: Partial<typeof securityConfig>) => {
     const newConfig = { ...securityConfig, ...updates }
 
+    // HTTP 访问时禁止修改重置规则
+    if (isHttpAccess && updates.tokenResetRule !== undefined && updates.tokenResetRule !== 'startup') {
+      addNotification({
+        type: 'warning',
+        title: '操作受限',
+        message: 'HTTP 访问时只能使用启动时重置规则，请使用 HTTPS 访问以修改'
+      })
+      return
+    }
+
+    // HTTP 访问时限制最大 24 小时
+    if (isHttpAccess && updates.tokenExpireHours !== null && updates.tokenExpireHours !== undefined) {
+      if (updates.tokenExpireHours > 24) {
+        addNotification({
+          type: 'warning',
+          title: '设置受限',
+          message: 'HTTP 访问时令牌到期时间最大为 24 小时'
+        })
+        newConfig.tokenExpireHours = 24
+      }
+    }
+
+    // HTTP 访问时禁止设置永不到期
+    if (isHttpAccess && updates.tokenExpireHours === null) {
+      addNotification({
+        type: 'warning',
+        title: '操作受限',
+        message: 'HTTP 访问时不允许设置永不到期，请使用 HTTPS 访问'
+      })
+      return
+    }
+
     // 检查是否设置为永不到期
     if (updates.tokenExpireHours === null) {
       setPendingSecurityConfig(newConfig)
       setShowSecurityWarning(true)
-    } else {
+    } else if (updates.tokenExpireHours !== undefined) {
+      // 令牌到期时间变更：使用防抖，3秒后保存
       setSecurityConfig(newConfig)
-      // 立即保存非永不到期的配置
+      
+      // 清除之前的定时器
+      if (tokenExpireDebounceTimer) {
+        clearTimeout(tokenExpireDebounceTimer)
+      }
+      
+      // 设置新的定时器
+      const timer = setTimeout(() => {
+        saveSecurityConfig(newConfig)
+      }, 3000)
+      
+      setTokenExpireDebounceTimer(timer)
+    } else {
+      // 其他配置变更：立即保存
+      setSecurityConfig(newConfig)
       saveSecurityConfig(newConfig)
     }
   }
+
+  // 清理定时器
+  React.useEffect(() => {
+    return () => {
+      if (tokenExpireDebounceTimer) {
+        clearTimeout(tokenExpireDebounceTimer)
+      }
+    }
+  }, [tokenExpireDebounceTimer])
 
   const confirmSecurityConfig = async () => {
     if (!pendingSecurityConfig) return
@@ -2101,6 +2187,37 @@ const SettingsPage: React.FC = () => {
             <h2 className="text-lg font-semibold text-black dark:text-white">安全配置</h2>
           </div>
 
+          {/* HTTP 访问安全警告 */}
+          {isHttpAccess && (
+            <div className="mb-6 p-4 bg-orange-500/10 border-2 border-orange-500/30 rounded-lg animate-fade-in">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-orange-600 dark:text-orange-400 mb-1">
+                    当前访问环境存在安全风险
+                  </h4>
+                  <p className="text-xs text-gray-700 dark:text-gray-300 mb-2">
+                    您正在使用 HTTP 协议访问面板，为确保安全，系统对安全配置进行了限制。
+                  </p>
+                  <div className="bg-orange-50 dark:bg-orange-900/20 p-2 rounded mt-2">
+                    <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">
+                      🔒 HTTP 访问限制：
+                    </p>
+                    <ul className="text-xs text-orange-600 dark:text-orange-400 mt-1 ml-4 space-y-0.5">
+                      <li>• 令牌重置规则：锁定为"启动时重置"</li>
+                      <li>• 令牌到期时间：最大 24 小时（可调整）</li>
+                      <li>• 永不到期选项：已禁用</li>
+                      <li>• 重置令牌：可用</li>
+                    </ul>
+                  </div>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                    💡 建议：配置 HTTPS 证书以解除限制，或在可信的内网环境中操作。
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-6">
             {/* 令牌重置规则 */}
             <div>
@@ -2108,7 +2225,7 @@ const SettingsPage: React.FC = () => {
                 令牌重置规则
               </label>
               <div className="space-y-3">
-                <label className="flex items-center space-x-3 cursor-pointer">
+                <label className={`flex items-center space-x-3 ${isHttpAccess ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                   <input
                     type="radio"
                     name="tokenResetRule"
@@ -2118,11 +2235,12 @@ const SettingsPage: React.FC = () => {
                       tokenResetRule: e.target.value as 'startup' | 'expire'
                     })}
                     className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                    disabled={securityLoading}
+                    disabled={securityLoading || isHttpAccess}
                   />
                   <div>
                     <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
                       启动时重置（默认）
+                      {isHttpAccess && <span className="text-orange-500 ml-2">(已锁定)</span>}
                     </span>
                     <p className="text-xs text-gray-600 dark:text-gray-400">
                       面板启动时自动重新生成新的令牌，所有现有令牌将失效
@@ -2130,7 +2248,7 @@ const SettingsPage: React.FC = () => {
                   </div>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer">
+                <label className={`flex items-center space-x-3 ${isHttpAccess ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                   <input
                     type="radio"
                     name="tokenResetRule"
@@ -2140,7 +2258,7 @@ const SettingsPage: React.FC = () => {
                       tokenResetRule: e.target.value as 'startup' | 'expire'
                     })}
                     className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                    disabled={securityLoading}
+                    disabled={securityLoading || isHttpAccess}
                   />
                   <div>
                     <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
@@ -2164,22 +2282,27 @@ const SettingsPage: React.FC = () => {
                   <input
                     type="number"
                     min="1"
-                    max="8760"
+                    max={isHttpAccess ? 24 : 8760}
                     value={securityConfig.tokenExpireHours || ''}
                     onChange={(e) => {
                       const value = e.target.value ? parseInt(e.target.value) : null
                       if (value !== null && value > 0) {
-                        handleSecurityConfigChange({ tokenExpireHours: value })
+                        // HTTP 访问时限制最大 24 小时
+                        const maxHours = isHttpAccess ? 24 : 8760
+                        const finalValue = Math.min(value, maxHours)
+                        handleSecurityConfigChange({ tokenExpireHours: finalValue })
                       }
                     }}
-                    className="w-24 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-24 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     placeholder="24"
                     disabled={securityLoading}
                   />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">小时</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    小时 {isHttpAccess && <span className="text-orange-500">(最大 24)</span>}
+                  </span>
                 </div>
 
-                <label className="flex items-center space-x-3 cursor-pointer">
+                <label className={`flex items-center space-x-3 ${isHttpAccess ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     checked={securityConfig.tokenExpireHours === null}
@@ -2191,7 +2314,7 @@ const SettingsPage: React.FC = () => {
                       }
                     }}
                     className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                    disabled={securityLoading}
+                    disabled={securityLoading || isHttpAccess}
                   />
                   <div>
                     <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
@@ -2206,6 +2329,16 @@ const SettingsPage: React.FC = () => {
 
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
                 当前设置: {securityConfig.tokenExpireHours === null ? '永不到期' : `${securityConfig.tokenExpireHours}小时`}
+                {isHttpAccess && (
+                  <span className="text-orange-500 ml-2">
+                    (HTTP 访问限制最大 24 小时)
+                  </span>
+                )}
+                {tokenExpireDebounceTimer && (
+                  <span className="text-blue-500 ml-2 animate-pulse">
+                    (3秒后自动保存...)
+                  </span>
+                )}
               </p>
             </div>
 

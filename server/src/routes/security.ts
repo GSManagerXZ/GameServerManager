@@ -88,28 +88,18 @@ router.post('/config', authenticateToken, async (req: Request, res: Response) =>
   }
 })
 
-// 重置JWT密钥（根据重置规则）
+// 重置JWT密钥（随时可用）
 router.post('/reset-token', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const securityConfig = configManager.getSecurityConfig()
+    // 重新生成JWT密钥，使所有现有令牌失效
+    await configManager.regenerateJWTSecret()
     
-    if (securityConfig.tokenResetRule === 'startup') {
-      // 启动时重置：重新生成JWT密钥
-      await configManager.regenerateJWTSecret()
-      
-      logger.info('JWT密钥已重新生成（启动时重置规则）')
-      
-      res.json({
-        success: true,
-        message: 'JWT密钥已重新生成，所有现有令牌将失效'
-      })
-    } else {
-      // 过期自动重置：不需要立即操作
-      res.json({
-        success: true,
-        message: '当前设置为过期自动重置，无需立即操作'
-      })
-    }
+    logger.info('JWT密钥已手动重新生成，所有现有令牌已失效')
+    
+    res.json({
+      success: true,
+      message: 'JWT密钥已重新生成，所有现有令牌将失效，请重新登录'
+    })
   } catch (error) {
     logger.error('重置令牌失败:', error)
     res.status(500).json({

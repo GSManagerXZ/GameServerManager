@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useWallpaperStore } from '@/stores/wallpaperStore'
-import { Eye, EyeOff, Gamepad2, Sun, Moon, Loader2, RefreshCw, UserPlus, HelpCircle } from 'lucide-react'
+import { Eye, EyeOff, Gamepad2, Sun, Moon, Loader2, RefreshCw, UserPlus, HelpCircle, AlertTriangle } from 'lucide-react'
 import apiClient from '@/utils/api'
 import { CaptchaData } from '@/types'
 import LoginTransition from '@/components/LoginTransition'
@@ -28,6 +28,8 @@ const LoginPage: React.FC = () => {
   const [checkingUsers, setCheckingUsers] = useState(true)
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false)
   const [isClosingModal, setIsClosingModal] = useState(false)
+  const [showHttpWarning, setShowHttpWarning] = useState(false)
+  const [httpWarningDismissed, setHttpWarningDismissed] = useState(false)
   const { login, loading, error } = useAuthStore()
   const { addNotification } = useNotificationStore()
   const { theme, toggleTheme } = useThemeStore()
@@ -40,6 +42,37 @@ const LoginPage: React.FC = () => {
     }, 100)
     return () => clearTimeout(timer)
   }, [])
+
+  // 检测 HTTP 访问并显示安全警告（仅首次）
+  useEffect(() => {
+    const isHttp = window.location.protocol === 'http:'
+    const dismissed = localStorage.getItem('httpWarningDismissed') === 'true'
+    
+    if (isHttp) {
+      setShowHttpWarning(true)
+      if (!dismissed) {
+        // 首次访问，延迟显示弹窗
+        const timer = setTimeout(() => {
+          setHttpWarningDismissed(false)
+        }, 500)
+        return () => clearTimeout(timer)
+      } else {
+        // 已经确认过，不自动弹出
+        setHttpWarningDismissed(true)
+      }
+    }
+  }, [])
+
+  // 关闭 HTTP 警告弹窗
+  const handleDismissHttpWarning = () => {
+    setHttpWarningDismissed(true)
+    localStorage.setItem('httpWarningDismissed', 'true')
+  }
+
+  // 手动打开 HTTP 警告弹窗
+  const handleShowHttpWarning = () => {
+    setHttpWarningDismissed(false)
+  }
 
   // 检查是否有用户存在
   useEffect(() => {
@@ -310,6 +343,24 @@ const LoginPage: React.FC = () => {
       >
         {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
       </button>
+
+      {/* HTTP 环境不安全警告按钮（常驻） */}
+      {showHttpWarning && (
+        <button
+          onClick={handleShowHttpWarning}
+          className={`
+            fixed top-4 left-4 px-4 py-2 bg-orange-600/90 hover:bg-orange-700/90 
+            text-white rounded-lg transition-all duration-200 z-20
+            flex items-center space-x-2 shadow-lg backdrop-blur-sm
+            ${isAnimating ? 'opacity-0 translate-y-[-20px]' : 'opacity-100 translate-y-0 animate-form-field-slide-in animate-delay-500'}
+            animate-pulse-slow
+          `}
+          title="点击查看安全警告详情"
+        >
+          <AlertTriangle className="w-4 h-4" />
+          <span className="text-sm font-medium">环境不安全</span>
+        </button>
+      )}
       
       <div className={`
         w-full max-w-md transition-all duration-600 relative z-10
@@ -652,6 +703,92 @@ const LoginPage: React.FC = () => {
                 "
               >
                 我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* HTTP 安全警告模态框 */}
+    {showHttpWarning && !httpWarningDismissed && (
+      <div 
+        className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60] animate-fade-in backdrop-blur-sm"
+        onClick={handleDismissHttpWarning}
+      >
+        <div 
+          className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4 shadow-2xl animate-modal-slide-in border-2 border-orange-500"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-center">
+            <div className="mb-4">
+              <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
+                <AlertTriangle className="w-10 h-10 text-orange-600 dark:text-orange-400 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200">
+                安全警告
+              </h3>
+            </div>
+            
+            <div className="text-left mb-6 space-y-4">
+              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+                <p className="text-gray-700 dark:text-gray-300 text-sm mb-3">
+                  您正在使用 <span className="font-bold text-orange-600 dark:text-orange-400">HTTP 协议</span> 访问本面板，这可能存在以下安全风险：
+                </p>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2 ml-4">
+                  <li className="flex items-start">
+                    <span className="text-orange-500 mr-2">•</span>
+                    <span>数据传输未加密，可能被窃听或篡改</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-orange-500 mr-2">•</span>
+                    <span>登录凭证可能被中间人攻击截获</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-orange-500 mr-2">•</span>
+                    <span>敏感操作可能被恶意监控</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">
+                  安全建议：
+                </h4>
+                <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1 ml-4">
+                  <li className="flex items-start">
+                    <span className="mr-2">✓</span>
+                    <span>建议配置 HTTPS 证书以启用加密传输</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">✓</span>
+                    <span>仅在可信的内网环境中使用 HTTP 访问</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">✓</span>
+                    <span>定期更换密码以降低安全风险</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+                <p className="text-gray-600 dark:text-gray-400 text-xs">
+                  💡 提示：为保障安全，使用 HTTP 访问时，部分安全配置将被限制修改。
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={handleDismissHttpWarning}
+                className="
+                  flex-1 px-4 py-2 bg-orange-600 hover:bg-orange-700
+                  text-white rounded-lg font-medium
+                  transition-all duration-200
+                  hover:scale-105 active:scale-95
+                "
+              >
+                我已了解风险
               </button>
             </div>
           </div>
