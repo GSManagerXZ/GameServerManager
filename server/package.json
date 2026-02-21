@@ -40,6 +40,9 @@
     "yaml": "^2.3.4",
     "yauzl": "^2.10.0"
   },
+  "overrides": {
+    "minimatch": ">=10.2.1"
+  },
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
     "@types/archiver": "^6.0.2",
