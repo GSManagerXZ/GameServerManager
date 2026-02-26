@@ -129,37 +129,41 @@ export class FileApiClient {
   }
 
   // 复制文件或目录
-  async copyItem(sourcePath: string, targetPath: string): Promise<FileOperationResult> {
+  async copyItem(sourcePath: string, targetPath: string, conflictStrategy?: string): Promise<FileOperationResult> {
     const response = await this.client.post(`${API_BASE}/copy`, {
       sourcePath,
-      targetPath
+      targetPath,
+      conflictStrategy
     })
     return response.data
   }
 
   // 批量复制文件或目录
-  async copyItems(sourcePaths: string[], targetPath: string): Promise<FileOperationResult> {
+  async copyItems(sourcePaths: string[], targetPath: string, conflictStrategy?: string): Promise<FileOperationResult> {
     const response = await this.client.post(`${API_BASE}/copy`, {
       sourcePaths,
-      targetPath
+      targetPath,
+      conflictStrategy
     })
     return response.data
   }
 
   // 移动文件或目录
-  async moveItem(sourcePath: string, targetPath: string): Promise<FileOperationResult> {
+  async moveItem(sourcePath: string, targetPath: string, conflictStrategy?: string): Promise<FileOperationResult> {
     const response = await this.client.post(`${API_BASE}/move`, {
       sourcePath,
-      targetPath
+      targetPath,
+      conflictStrategy
     })
     return response.data
   }
 
   // 批量移动文件或目录
-  async moveItems(sourcePaths: string[], targetPath: string): Promise<FileOperationResult> {
+  async moveItems(sourcePaths: string[], targetPath: string, conflictStrategy?: string): Promise<FileOperationResult> {
     const response = await this.client.post(`${API_BASE}/move`, {
       sourcePaths,
-      targetPath
+      targetPath,
+      conflictStrategy
     })
     return response.data
   }
@@ -324,6 +328,28 @@ export class FileApiClient {
           console.error('下载失败:', error)
         })
     }
+  }
+
+  // 检查粘贴文件冲突
+  async checkPasteConflicts(
+    sourcePaths: string[],
+    targetPath: string
+  ): Promise<{
+    hasConflicts: boolean
+    conflicts: Array<{
+      fileName: string
+      sourcePath: string
+      exists: boolean
+      sourceIsDir: boolean
+      existingSize?: number
+      existingModified?: string
+    }>
+  }> {
+    const response = await this.client.post(`${API_BASE}/check-paste-conflict`, {
+      sourcePaths,
+      targetPath
+    })
+    return response.data.data
   }
 
   // 检查文件上传冲突

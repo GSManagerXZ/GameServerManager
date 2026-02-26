@@ -332,16 +332,23 @@ export class ConfigManager {
   // 检查并重置令牌（启动时调用）
   private async checkAndResetTokenOnStartup(): Promise<void> {
     const securityConfig = this.config.security
-    
+
+    // 开发模式下跳过JWT密钥重置，避免热重载导致token频繁失效
+    const isDevMode = process.env.DEV_MODE === 'true'
+    if (isDevMode) {
+      this.logger.info('开发模式下跳过JWT密钥重置，令牌将保持有效')
+      return
+    }
+
     if (securityConfig.tokenResetRule === 'startup') {
       // 检查是否有启动标记文件
       const startupFlagPath = path.join(path.dirname(this.configPath), '.last_startup')
-      
+
       try {
         const lastStartup = await fs.readFile(startupFlagPath, 'utf-8')
         const lastStartupTime = new Date(lastStartup)
         const now = new Date()
-        
+
         // 如果距离上次启动超过1分钟，则重置令牌
         const timeDiff = now.getTime() - lastStartupTime.getTime()
         if (timeDiff > 60000) { // 1分钟
@@ -359,7 +366,7 @@ export class ConfigManager {
           this.logger.error('检查启动标记文件失败:', error)
         }
       }
-      
+
       // 更新启动标记文件
       try {
         await fs.writeFile(startupFlagPath, new Date().toISOString(), 'utf-8')
@@ -368,4 +375,6 @@ export class ConfigManager {
       }
     }
   }
+
+
 }

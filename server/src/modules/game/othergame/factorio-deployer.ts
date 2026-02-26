@@ -8,6 +8,7 @@ import * as os from 'os';
 import { promisify } from 'util';
 import * as zlib from 'zlib';
 import { pipeline } from 'stream';
+import { zipToolsManager } from '../../../utils/zipToolsManager.js';
 import { createTarSecurityFilter } from '../../../utils/tarSecurityFilter.js';
 
 // ==================== 接口定义 ====================
@@ -882,58 +883,13 @@ export class FactorioDeployer {
    * 解压ZIP文件
    */
   private async extractZip(archivePath: string, extractPath: string): Promise<void> {
-    const yauzl = require('yauzl');
+    // 检查是否已取消
+    if (this.cancelled) {
+      throw new Error('操作已取消');
+    }
 
-    return new Promise((resolve, reject) => {
-      yauzl.open(archivePath, { lazyEntries: true }, (err: any, zipfile: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-
-        zipfile.readEntry();
-
-        zipfile.on('entry', async (entry: any) => {
-          if (this.cancelled) {
-            reject(new Error('操作已取消'));
-            return;
-          }
-
-          const entryPath = path.join(extractPath, entry.fileName);
-
-          if (/\/$/.test(entry.fileName)) {
-            // 目录
-            await fs.ensureDir(entryPath);
-            zipfile.readEntry();
-          } else {
-            // 文件
-            await fs.ensureDir(path.dirname(entryPath));
-
-            zipfile.openReadStream(entry, (err: any, readStream: any) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-
-              const writeStream = createWriteStream(entryPath);
-              readStream.pipe(writeStream);
-
-              writeStream.on('close', () => {
-                zipfile.readEntry();
-              });
-
-              writeStream.on('error', reject);
-            });
-          }
-        });
-
-        zipfile.on('end', () => {
-          resolve();
-        });
-
-        zipfile.on('error', reject);
-      });
-    });
+    // 使用 Zip-Tools 解压
+    await zipToolsManager.extractZip(archivePath, extractPath);
   }
 
   /**

@@ -261,6 +261,20 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 # 拷贝构建产物与默认数据
 COPY --from=builder /app/dist/package/ /root/
 COPY --from=builder /app/server/data/ /root/server/data/
+
+# 下载 Zip-Tools 二进制文件（从 GitHub Releases latest，构建时预置）
+RUN mkdir -p /root/data/lib && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        BINARY_NAME="file_zip_linux_x64"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        BINARY_NAME="file_zip_linux_arm64"; \
+    fi && \
+    echo "正在下载 Zip-Tools latest (${BINARY_NAME})..." && \
+    wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/data/lib/${BINARY_NAME} \
+        "https://github.com/MCSManager/Zip-Tools/releases/latest/download/${BINARY_NAME}" && \
+    chmod 755 /root/data/lib/${BINARY_NAME} && \
+    echo "Zip-Tools 下载完成: ${BINARY_NAME}"
 # 拷贝 Python 依赖清单并安装
 COPY --from=builder /app/server/src/Python/requirements.txt /tmp/requirements.txt
 # 安装Python依赖并配置最终权限

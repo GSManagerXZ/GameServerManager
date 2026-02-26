@@ -68,7 +68,7 @@ interface FileStore {
   // 剪贴板操作
   copyFiles: (filePaths: string[]) => void
   cutFiles: (filePaths: string[]) => void
-  pasteFiles: (targetPath: string) => Promise<{ taskId?: string; success: boolean; message: string }>
+  pasteFiles: (targetPath: string, conflictStrategy?: string) => Promise<{ taskId?: string; success: boolean; message: string }>
   clearClipboard: () => void
 
   // 压缩解压操作
@@ -539,7 +539,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   },
 
   // 粘贴文件
-  pasteFiles: async (targetPath: string): Promise<{ taskId?: string; success: boolean; message: string }> => {
+  pasteFiles: async (targetPath: string, conflictStrategy?: string): Promise<{ taskId?: string; success: boolean; message: string }> => {
     const { clipboard } = get()
     if (!clipboard.items.length) {
       return { success: false, message: '剪贴板为空' }
@@ -551,10 +551,10 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
       if (clipboard.operation === 'copy') {
         // 批量复制
-        result = await fileApiClient.copyItems(sourcePaths, targetPath)
+        result = await fileApiClient.copyItems(sourcePaths, targetPath, conflictStrategy)
       } else {
         // 批量移动
-        result = await fileApiClient.moveItems(sourcePaths, targetPath)
+        result = await fileApiClient.moveItems(sourcePaths, targetPath, conflictStrategy)
         // 移动操作后清空剪贴板
         set(state => ({
           clipboard: { items: [], operation: null }

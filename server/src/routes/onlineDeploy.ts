@@ -9,7 +9,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { createWriteStream, createReadStream } from 'fs'
 import { pipeline } from 'stream/promises'
-import unzipper from 'unzipper'
+import { zipToolsManager } from '../utils/zipToolsManager.js'
 
 const router = Router()
 let io: SocketIOServer
@@ -369,69 +369,8 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
           })
         }
 
-        // 解压ZIP文件
-        await new Promise<void>((resolve, reject) => {
-          let extractedFiles = 0
-          let totalFiles = 0
-
-          const stream = createReadStream(downloadPath)
-            .pipe(unzipper.Parse())
-
-          stream.on('entry', async (entry) => {
-            if (deploymentProcess.status === 'cancelled') {
-              entry.autodrain()
-              return
-            }
-
-            totalFiles++
-            const fileName = entry.path
-            const type = entry.type
-            const filePath = path.join(installPath, fileName)
-
-            if (type === 'File') {
-              try {
-                // 确保文件所在的目录存在
-                const fileDir = path.dirname(filePath)
-                await fs.mkdir(fileDir, { recursive: true })
-                
-                entry.pipe(createWriteStream(filePath))
-                entry.on('close', () => {
-                  extractedFiles++
-                  const progress = Math.floor((extractedFiles / totalFiles) * 15) + 80
-                  
-                  if (io && socketId) {
-                    io.to(socketId).emit('online-deploy-progress', {
-                      deploymentId,
-                      percentage: Math.min(95, progress),
-                      currentStep: `解压中... (${extractedFiles}/${totalFiles})`
-                    })
-                  }
-                })
-              } catch (error) {
-                console.error(`创建目录失败: ${path.dirname(filePath)}`, error)
-                entry.autodrain()
-              }
-            } else if (type === 'Directory') {
-              // 处理目录条目
-              try {
-                await fs.mkdir(filePath, { recursive: true })
-              } catch (error) {
-                console.error(`创建目录失败: ${filePath}`, error)
-              }
-              entry.autodrain()
-            } else {
-              entry.autodrain()
-            }
-          })
-
-          stream.on('close', () => {
-            resolve()
-          })
-
-          stream.on('error', (err) => {
-            reject(err)
-          })
-        })
+        // 使用 Zip-Tools 解压ZIP文件
+        await zipToolsManager.extractZip(downloadPath, installPath)
         
         // 删除下载的ZIP文件
         await fs.unlink(downloadPath)

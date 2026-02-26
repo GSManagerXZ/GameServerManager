@@ -2,7 +2,7 @@ import axios from 'axios';
 import * as fs from 'fs';
 import { createWriteStream } from 'fs';
 import * as path from 'path';
-import * as yauzl from 'yauzl';
+import { zipToolsManager } from '../../../utils/zipToolsManager.js';
 import { promisify } from 'util';
 
 export interface TModDownloaderOptions {
@@ -230,102 +230,13 @@ export class TModDownloader {
    * 解压文件
    */
   private async extractZip(zipPath: string, extractPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // 检查是否已取消
-      if (this.cancelled) {
-        reject(new Error('操作已取消'));
-        return;
-      }
+    // 检查是否已取消
+    if (this.cancelled) {
+      throw new Error('操作已取消');
+    }
 
-      yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-        if (err) {
-          reject(new Error(`打开压缩包失败: ${err}`));
-          return;
-        }
-
-        if (!zipfile) {
-          reject(new Error('压缩包为空'));
-          return;
-        }
-
-        // 确保解压目录存在
-        if (!fs.existsSync(extractPath)) {
-          fs.mkdirSync(extractPath, { recursive: true });
-        }
-
-        zipfile.readEntry();
-        zipfile.on('entry', (entry) => {
-          // 检查是否已取消
-          if (this.cancelled) {
-            zipfile.close();
-            reject(new Error('操作已取消'));
-            return;
-          }
-
-          const entryPath = path.join(extractPath, entry.fileName);
-          
-          if (/\/$/.test(entry.fileName)) {
-            // 目录
-            if (!fs.existsSync(entryPath)) {
-              fs.mkdirSync(entryPath, { recursive: true });
-            }
-            zipfile.readEntry();
-          } else {
-            // 文件
-            const dir = path.dirname(entryPath);
-            if (!fs.existsSync(dir)) {
-              fs.mkdirSync(dir, { recursive: true });
-            }
-            
-            zipfile.openReadStream(entry, (err, readStream) => {
-              if (err) {
-                reject(new Error(`读取文件失败: ${err}`));
-                return;
-              }
-              
-              if (!readStream) {
-                reject(new Error('读取流为空'));
-                return;
-              }
-              
-              // 检查是否已取消
-              if (this.cancelled) {
-                readStream.destroy();
-                reject(new Error('操作已取消'));
-                return;
-              }
-              
-              const writeStream = createWriteStream(entryPath);
-              readStream.pipe(writeStream);
-              
-              writeStream.on('close', () => {
-                if (this.cancelled) {
-                  reject(new Error('操作已取消'));
-                  return;
-                }
-                zipfile.readEntry();
-              });
-              
-              writeStream.on('error', (err) => {
-                reject(new Error(`写入文件失败: ${err}`));
-              });
-            });
-          }
-        });
-
-        zipfile.on('end', () => {
-          if (this.cancelled) {
-            reject(new Error('操作已取消'));
-            return;
-          }
-          resolve();
-        });
-
-        zipfile.on('error', (err) => {
-          reject(new Error(`解压失败: ${err}`));
-        });
-      });
-    });
+    // 使用 Zip-Tools 解压
+    await zipToolsManager.extractZip(zipPath, extractPath);
   }
 
   /**

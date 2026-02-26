@@ -74,6 +74,7 @@ import { MonacoEditor, type LineEndingType } from '@/components/MonacoEditor'
 import { ImagePreview } from '@/components/ImagePreview'
 import { EncodingConfirmDialog } from '@/components/EncodingConfirmDialog'
 import { FileChangedDialog } from '@/components/FileChangedDialog'
+import PasteConflictDialog from '@/components/PasteConflictDialog'
 import { FileItem } from '@/types/file'
 import socketClient from '@/utils/socket'
 import { fileApiClient } from '@/utils/fileApi'
@@ -230,6 +231,19 @@ const FileManagerPage: React.FC = () => {
     detectedEncoding: string
     confidence: number
   }>({ visible: false, filePath: '', fileName: '', detectedEncoding: '', confidence: 0 })
+
+  // 粘贴冲突弹窗状态
+  const [pasteConflictDialog, setPasteConflictDialog] = useState<{
+    visible: boolean
+    conflicts: Array<{
+      fileName: string
+      sourcePath: string
+      exists: boolean
+      sourceIsDir: boolean
+      existingSize?: number
+      existingModified?: string
+    }>
+  }>({ visible: false, conflicts: [] })
 
   // 监听活动文件变化，更新当前文件编码
   React.useEffect(() => {
@@ -503,7 +517,33 @@ const FileManagerPage: React.FC = () => {
       return
     }
 
-    const result = await pasteFiles(currentPath)
+    try {
+      // 先检测冲突
+      const conflictResult = await fileApiClient.checkPasteConflicts(clipboard.items, currentPath)
+      
+      if (conflictResult.hasConflicts) {
+        // 有冲突，弹出选择弹窗
+        setPasteConflictDialog({
+          visible: true,
+          conflicts: conflictResult.conflicts
+        })
+        return
+      }
+
+      // 无冲突，直接执行粘贴
+      await executePaste()
+    } catch (error: any) {
+      console.error('检测粘贴冲突失败:', error)
+      // 检测失败时直接执行粘贴
+      await executePaste()
+    }
+  }, [clipboard, currentPath])
+
+  // 执行粘贴操作（带冲突策略）
+  const executePaste = useCallback(async (conflictStrategy?: string) => {
+    if (!clipboard.operation || clipboard.items.length === 0) return
+
+    const result = await pasteFiles(currentPath, conflictStrategy)
     if (result.success) {
       const operationText = clipboard.operation === 'copy' ? '复制' : '移动'
       if (result.taskId) {
@@ -531,6 +571,22 @@ const FileManagerPage: React.FC = () => {
       })
     }
   }, [clipboard, pasteFiles, currentPath, addNotification, loadTasks])
+
+  // 粘贴冲突处理回调
+  const handlePasteConflictReplace = useCallback(async () => {
+    setPasteConflictDialog({ visible: false, conflicts: [] })
+    await executePaste('replace')
+  }, [executePaste])
+
+  const handlePasteConflictRename = useCallback(async () => {
+    setPasteConflictDialog({ visible: false, conflicts: [] })
+    await executePaste('rename')
+  }, [executePaste])
+
+  const handlePasteConflictSkip = useCallback(async () => {
+    setPasteConflictDialog({ visible: false, conflicts: [] })
+    await executePaste('skip')
+  }, [executePaste])
 
   const handleContextMenuView = useCallback(async (file: FileItem) => {
     if (isTextFile(file.name)) {
@@ -2248,6 +2304,17 @@ const FileManagerPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* 粘贴冲突弹窗 */}
+      <PasteConflictDialog
+        visible={pasteConflictDialog.visible}
+        conflicts={pasteConflictDialog.conflicts}
+        operation={clipboard.operation}
+        onReplace={handlePasteConflictReplace}
+        onRename={handlePasteConflictRename}
+        onSkip={handlePasteConflictSkip}
+        onCancel={() => setPasteConflictDialog({ visible: false, conflicts: [] })}
+      />
 
       {/* 收藏抽屉 */}
       <Drawer

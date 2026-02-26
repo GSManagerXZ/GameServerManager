@@ -5,7 +5,6 @@ import path from 'path'
 import multer from 'multer'
 import { createReadStream, createWriteStream } from 'fs'
 import archiver from 'archiver'
-import unzipper from 'unzipper'
 import * as tar from 'tar'
 import * as zlib from 'zlib'
 import mime from 'mime-types'
@@ -19,6 +18,7 @@ import { compressionWorker } from '../modules/task/compressionWorker.js'
 import { executeFileOperation } from '../modules/task/fileOperationWorker.js'
 import { ChunkUploadManager } from '../modules/chunkUploadManager.js'
 import { createTarSecurityFilter } from '../utils/tarSecurityFilter.js'
+import { zipToolsManager } from '../utils/zipToolsManager.js'
 
 const execAsync = promisify(exec)
 
@@ -732,9 +732,93 @@ router.post('/rename', authenticateToken, async (req: Request, res: Response) =>
 })
 
 // 复制文件或目录（异步任务）
+// 检查复制/移动文件冲突
+router.post('/check-paste-conflict', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { sourcePaths, targetPath } = req.body
+
+    if (!sourcePaths || !Array.isArray(sourcePaths) || sourcePaths.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少源文件路径'
+      })
+    }
+
+    if (!targetPath) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少目标路径'
+      })
+    }
+
+    const fixedTargetPath = fixWindowsPath(targetPath)
+
+    const conflicts: Array<{
+      fileName: string
+      sourcePath: string
+      exists: boolean
+      sourceIsDir: boolean
+      existingSize?: number
+      existingModified?: string
+    }> = []
+
+    for (const sourcePath of sourcePaths) {
+      const fixedSource = fixWindowsPath(sourcePath)
+      const fileName = path.basename(fixedSource)
+      const targetFilePath = path.join(fixedTargetPath, fileName)
+
+      // 检查源文件是否是目录
+      let sourceIsDir = false
+      try {
+        const sourceStats = await fs.stat(fixedSource)
+        sourceIsDir = sourceStats.isDirectory()
+      } catch {
+        // 源文件不存在，跳过
+        continue
+      }
+
+      try {
+        const stats = await fs.stat(targetFilePath)
+        conflicts.push({
+          fileName,
+          sourcePath: fixedSource,
+          exists: true,
+          sourceIsDir,
+          existingSize: stats.isFile() ? stats.size : undefined,
+          existingModified: stats.mtime.toISOString()
+        })
+      } catch {
+        // 目标文件不存在，无冲突
+        conflicts.push({
+          fileName,
+          sourcePath: fixedSource,
+          exists: false,
+          sourceIsDir
+        })
+      }
+    }
+
+    const hasConflicts = conflicts.some(c => c.exists)
+
+    res.json({
+      success: true,
+      data: {
+        hasConflicts,
+        conflicts
+      }
+    })
+  } catch (error: any) {
+    console.error('检查粘贴冲突失败:', error)
+    res.status(500).json({
+      success: false,
+      message: error.message
+    })
+  }
+})
+
 router.post('/copy', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { sourcePath, targetPath, sourcePaths } = req.body
+    const { sourcePath, targetPath, sourcePaths, conflictStrategy } = req.body
 
     // 支持单个文件或多个文件
     const sources = sourcePaths || [sourcePath]
@@ -798,7 +882,8 @@ router.post('/copy', authenticateToken, async (req: Request, res: Response) => {
     const taskId = taskManager.createTask('copy', {
       sourcePaths: fixedSources,
       targetPath: fixedTargetPath,
-      operation: 'copy'
+      operation: 'copy',
+      conflictStrategy: conflictStrategy || 'replace' // replace | rename | skip
     })
 
     // 异步执行文件复制
@@ -823,7 +908,7 @@ router.post('/copy', authenticateToken, async (req: Request, res: Response) => {
 // 移动文件或目录（异步任务）
 router.post('/move', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { sourcePath, targetPath, sourcePaths } = req.body
+    const { sourcePath, targetPath, sourcePaths, conflictStrategy } = req.body
 
     // 支持单个文件或多个文件
     const sources = sourcePaths || [sourcePath]
@@ -887,7 +972,8 @@ router.post('/move', authenticateToken, async (req: Request, res: Response) => {
     const taskId = taskManager.createTask('move', {
       sourcePaths: fixedSources,
       targetPath: fixedTargetPath,
-      operation: 'move'
+      operation: 'move',
+      conflictStrategy: conflictStrategy || 'replace' // replace | rename | skip
     })
 
     // 异步执行文件移动
@@ -1723,10 +1809,8 @@ async function extractArchive(archivePath: string, targetPath: string) {
       await fs.mkdir(targetPath, { recursive: true })
 
       if (ext === '.zip') {
-        createReadStream(archivePath)
-          .pipe(unzipper.Extract({ path: targetPath }))
-          .on('close', () => resolve())
-          .on('error', (err) => reject(err))
+        await zipToolsManager.extractZip(archivePath, targetPath)
+        resolve()
       } else if (ext === '.tar') {
         await tar.extract({
           file: archivePath,

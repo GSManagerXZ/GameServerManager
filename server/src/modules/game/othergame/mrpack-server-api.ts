@@ -3,7 +3,7 @@ import * as fs from 'fs-extra';
 import { promises as fsPromises, existsSync, readdirSync } from 'fs';
 import { createWriteStream } from 'fs';
 import * as path from 'path';
-import * as yauzl from 'yauzl';
+import { zipToolsManager } from '../../../utils/zipToolsManager.js';
 import { spawn, ChildProcess } from 'child_process';
 import { ApiService as MinecraftAPI, FileManager, LogCallback } from './minecraft-server-api.js';
 
@@ -232,124 +232,50 @@ export class MrpackServerAPI {
    * 从mrpack文件中提取modrinth.index.json
    */
   private async extractModrinthIndex(mrpackPath: string): Promise<ModrinthIndex> {
-    return new Promise((resolve, reject) => {
-      yauzl.open(mrpackPath, { lazyEntries: true }, (err, zipfile) => {
-        if (err) {
-          reject(new Error(`打开mrpack文件失败: ${err.message}`));
-          return;
-        }
-        
-        if (!zipfile) {
-          reject(new Error('mrpack文件为空'));
-          return;
-        }
-        
-        zipfile.readEntry();
-        zipfile.on('entry', (entry) => {
-          if (entry.fileName === 'modrinth.index.json') {
-            zipfile.openReadStream(entry, (err, readStream) => {
-              if (err) {
-                reject(new Error(`读取modrinth.index.json失败: ${err.message}`));
-                return;
-              }
-              
-              if (!readStream) {
-                reject(new Error('无法读取modrinth.index.json'));
-                return;
-              }
-              
-              let data = '';
-              readStream.on('data', (chunk) => {
-                data += chunk;
-              });
-              
-              readStream.on('end', () => {
-                try {
-                  const indexData: ModrinthIndex = JSON.parse(data);
-                  resolve(indexData);
-                } catch (parseError) {
-                  reject(new Error(`解析modrinth.index.json失败: ${parseError}`));
-                }
-              });
-              
-              readStream.on('error', (streamError) => {
-                reject(new Error(`读取流错误: ${streamError.message}`));
-              });
-            });
-          } else {
-            zipfile.readEntry();
-          }
-        });
-        
-        zipfile.on('end', () => {
-          reject(new Error('在mrpack文件中未找到modrinth.index.json'));
-        });
-      });
-    });
+    // 先将 mrpack 全量解压到临时目录，然后读取 modrinth.index.json
+    const tempDir = path.join(this.tempDir, `mrpack_index_${Date.now()}`);
+    try {
+      await fs.ensureDir(tempDir);
+      await zipToolsManager.extractZip(mrpackPath, tempDir);
+
+      const indexPath = path.join(tempDir, 'modrinth.index.json');
+      if (!await fs.pathExists(indexPath)) {
+        throw new Error('在mrpack文件中未找到modrinth.index.json');
+      }
+
+      const data = await fs.readFile(indexPath, 'utf-8');
+      const indexData: ModrinthIndex = JSON.parse(data);
+      return indexData;
+    } catch (error: any) {
+      if (error.message?.includes('modrinth.index.json')) {
+        throw error;
+      }
+      throw new Error(`解析mrpack文件失败: ${error.message || error}`);
+    } finally {
+      // 清理临时目录
+      await fs.remove(tempDir).catch(() => {});
+    }
   }
 
   /**
    * 提取overrides文件夹内容
    */
   private async extractOverrides(mrpackPath: string, targetDir: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const promises: Promise<void>[] = [];
+    // 先将 mrpack 全量解压到临时目录，然后复制 overrides/ 下的内容到目标目录
+    const tempDir = path.join(this.tempDir, `mrpack_overrides_${Date.now()}`);
+    try {
+      await fs.ensureDir(tempDir);
+      await zipToolsManager.extractZip(mrpackPath, tempDir);
 
-      // 使用 lazyEntries: false，yauzl会自动读取所有条目
-      yauzl.open(mrpackPath, { lazyEntries: false }, (err, zipfile) => {
-        if (err || !zipfile) {
-          return reject(err || new Error('无法打开mrpack文件。'));
-        }
-
-        zipfile.on('error', reject);
-
-        zipfile.on('end', () => {
-          // 所有条目都已处理，等待所有文件操作完成
-          Promise.all(promises).then(() => resolve()).catch(reject);
-        });
-
-        zipfile.on('entry', (entry: yauzl.Entry) => {
-          if (!entry.fileName.startsWith('overrides/')) {
-            return; // 忽略非overrides文件
-          }
-
-          const relativePath = entry.fileName.substring('overrides/'.length);
-          if (!relativePath) {
-            return; // 忽略overrides/ 目录本身
-          }
-
-          const outputPath = path.join(targetDir, relativePath);
-
-          // 为每个条目的处理创建一个Promise
-          const p = new Promise<void>((entryResolve, entryReject) => {
-            if (entry.fileName.endsWith('/')) {
-              // 是一个目录
-              fs.ensureDir(outputPath).then(entryResolve).catch(entryReject);
-            } else {
-              // 是一个文件
-              zipfile.openReadStream(entry, (err, readStream) => {
-                if (err || !readStream) {
-                  return entryReject(err || new Error(`无法为 ${entry.fileName} 打开读取流`));
-                }
-                readStream.on('error', entryReject);
-
-                // 确保父目录存在
-                fs.ensureDir(path.dirname(outputPath))
-                  .then(() => {
-                    const writeStream = createWriteStream(outputPath);
-                    writeStream.on('finish', entryResolve);
-                    writeStream.on('error', entryReject);
-                    readStream.pipe(writeStream);
-                  })
-                  .catch(entryReject);
-              });
-            }
-          });
-
-          promises.push(p);
-        });
-      });
-    });
+      const overridesDir = path.join(tempDir, 'overrides');
+      if (await fs.pathExists(overridesDir)) {
+        // 将 overrides/ 目录下的所有内容复制到目标目录
+        await fs.copy(overridesDir, targetDir, { overwrite: true });
+      }
+    } finally {
+      // 清理临时目录
+      await fs.remove(tempDir).catch(() => {});
+    }
   }
 
   /**

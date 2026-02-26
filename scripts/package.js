@@ -23,6 +23,98 @@ const outputFile = buildTarget
 
 const nodeVersion = '22.17.0'
 
+// Zip-Tools GitHub 下载配置（始终使用最新版本）
+const ZIP_TOOLS_GITHUB_URL = 'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
+
+/**
+ * 获取目标平台对应的 Zip-Tools 二进制文件名列表
+ * 打包时下载所有该平台支持的架构版本
+ */
+function getZipToolsBinaries(platform) {
+  if (platform === 'linux') {
+    return ['file_zip_linux_x64', 'file_zip_linux_arm64']
+  } else if (platform === 'windows') {
+    return ['file_zip_win32_x64.exe', 'file_zip_win32_arm64.exe']
+  }
+  // 未指定平台时下载所有版本
+  return [
+    'file_zip_linux_x64',
+    'file_zip_linux_arm64',
+    'file_zip_win32_x64.exe',
+    'file_zip_win32_arm64.exe',
+    'file_zip_darwin_amd64',
+    'file_zip_darwin_arm64',
+  ]
+}
+
+/**
+ * 从 GitHub Releases 下载单个文件（支持 302 重定向）
+ */
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destPath)
+    const request = (currentUrl) => {
+      https.get(currentUrl, (response) => {
+        // 处理 GitHub 的 302 重定向
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          request(response.headers.location)
+          return
+        }
+        if (response.statusCode !== 200) {
+          fs.unlink(destPath, () => {})
+          reject(new Error(`下载失败 (HTTP ${response.statusCode}): ${currentUrl}`))
+          return
+        }
+        response.pipe(file)
+        file.on('finish', () => {
+          file.close()
+          resolve(destPath)
+        })
+      }).on('error', (err) => {
+        fs.unlink(destPath, () => {})
+        reject(err)
+      })
+    }
+    request(url)
+  })
+}
+
+/**
+ * 下载 Zip-Tools 二进制文件到打包目录的 data/lib/
+ * 从 GitHub Releases 下载，确保打包产物内置 Zip-Tools
+ */
+async function downloadZipTools(platform) {
+  const binaries = getZipToolsBinaries(platform)
+  const libDir = path.join(packageDir, 'data', 'lib')
+  await fs.ensureDir(libDir)
+
+  console.log('📥 正在从 GitHub 下载 Zip-Tools (latest)...')
+
+  for (const binaryName of binaries) {
+    const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
+    const destPath = path.join(libDir, binaryName)
+
+    console.log(`   下载: ${binaryName}`)
+    try {
+      await downloadFile(url, destPath)
+      // 非 Windows 二进制文件设置可执行权限
+      if (!binaryName.endsWith('.exe')) {
+        try {
+          execSync(`chmod +x "${destPath}"`)
+        } catch (e) {
+          // Windows 构建环境无法 chmod，忽略
+        }
+      }
+      console.log(`   ✅ ${binaryName} 下载完成`)
+    } catch (err) {
+      console.error(`   ❌ ${binaryName} 下载失败: ${err.message}`)
+      throw err
+    }
+  }
+
+  console.log('✅ Zip-Tools 下载完成')
+}
+
 async function downloadNodejs(platform) {
   const nodeUrls = {
     linux: `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-linux-x64.tar.xz`,
@@ -183,6 +275,14 @@ async function createPackage() {
       await deployNodejs(buildTarget, downloadedNodeFile)
     } else {
       console.log('ℹ️  未指定目标平台，跳过Node.js下载')
+    }
+    
+    // 下载 Zip-Tools 二进制文件（从 GitHub Releases）
+    try {
+      await downloadZipTools(buildTarget)
+    } catch (error) {
+      console.error('⚠️  Zip-Tools 下载失败，打包产物中将不包含 Zip-Tools:', error.message)
+      console.log('   用户启动时会自动从镜像站下载')
     }
     
     console.log('📝 创建启动脚本...')

@@ -1,14 +1,13 @@
 import fs from 'fs/promises'
 import path from 'path'
 import https from 'https'
-import { createWriteStream, createReadStream } from 'fs'
-import { pipeline } from 'stream/promises'
-import { Extract } from 'unzipper'
+import { createWriteStream } from 'fs'
 import * as tar from 'tar'
 import winston from 'winston'
 import os from 'os'
 import { ConfigManager } from '../config/ConfigManager.js'
 import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
+import { zipToolsManager } from '../../utils/zipToolsManager.js'
 
 export interface SteamCMDInstallOptions {
   installPath: string
@@ -226,32 +225,9 @@ export class SteamCMDManager {
    * 解压ZIP文件
    */
   private async extractZip(zipPath: string, extractPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.logger.info(`开始解压ZIP文件: ${zipPath} -> ${extractPath}`)
-
-      const readStream = createReadStream(zipPath)
-      const extractStream = Extract({ path: extractPath })
-
-      readStream
-        .pipe(extractStream)
-        .on('close', () => {
-          this.logger.info('ZIP文件解压完成')
-          resolve()
-        })
-        .on('error', (error) => {
-          this.logger.error('ZIP文件解压失败:', error)
-          reject(error)
-        })
-
-      readStream.on('error', (error) => {
-        this.logger.error('读取ZIP文件失败:', error)
-        reject(error)
-      })
-
-      extractStream.on('entry', (entry) => {
-        this.logger.debug(`解压文件: ${entry.path}`)
-      })
-    })
+    this.logger.info(`开始解压ZIP文件: ${zipPath} -> ${extractPath}`)
+    await zipToolsManager.extractZip(zipPath, extractPath)
+    this.logger.info('ZIP文件解压完成')
   }
 
   /**

@@ -7,7 +7,7 @@ import * as fs from 'fs-extra';
 import { createWriteStream, mkdtemp } from 'fs';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
-import * as yauzl from 'yauzl';
+import { zipToolsManager } from '../../../utils/zipToolsManager.js';
 import { spawn, ChildProcess } from 'child_process';
 import * as os from 'os';
 import * as tar from 'tar';
@@ -1320,143 +1320,19 @@ export async function deployMrpackServer(options: MrpackDeployOptions): Promise<
  * 解压ZIP文件
  */
 export async function extractZipFile(zipPath: string, extractPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-      if (err || !zipfile) {
-        reject(err || new Error('无法打开ZIP文件'));
-        return;
-      }
-
-      zipfile.readEntry();
-      zipfile.on('entry', (entry) => {
-        if (entry.fileName.endsWith('/')) {
-          // 目录
-          const dirPath = path.join(extractPath, entry.fileName);
-          fs.ensureDir(dirPath).then(() => zipfile.readEntry()).catch(reject);
-        } else {
-          // 文件
-          zipfile.openReadStream(entry, (err, readStream) => {
-            if (err || !readStream) {
-              reject(err || new Error('无法读取文件'));
-              return;
-            }
-
-            const filePath = path.join(extractPath, entry.fileName);
-            fs.ensureDir(path.dirname(filePath))
-              .then(() => {
-                const writeStream = createWriteStream(filePath);
-                writeStream.on('finish', () => zipfile.readEntry());
-                writeStream.on('error', reject);
-                readStream.pipe(writeStream);
-              })
-              .catch(reject);
-          });
-        }
-      });
-
-      zipfile.on('end', () => resolve());
-      zipfile.on('error', reject);
-    });
-  });
+  // 使用 Zip-Tools 解压
+  await zipToolsManager.extractZip(zipPath, extractPath);
 }
 
 /**
  * 支持取消的解压ZIP文件函数
  */
 export async function extractZipFileWithCancellation(zipPath: string, extractPath: string, deployment: ActiveDeployment): Promise<void> {
-  return new Promise((resolve, reject) => {
-    (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
+  // 检查是否已取消
+  (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
 
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-      if (err || !zipfile) {
-        reject(err || new Error('无法打开ZIP文件'));
-        return;
-      }
-
-      let isResolved = false;
-
-      // 注册取消回调
-      deployment.cancellationToken.onCancelled(() => {
-        if (!isResolved) {
-          isResolved = true;
-          zipfile.close();
-          reject(new Error('操作已被取消'));
-        }
-      });
-
-      zipfile.readEntry();
-      zipfile.on('entry', (entry) => {
-        if (deployment.cancellationToken.isCancelled) {
-          if (!isResolved) {
-            isResolved = true;
-            zipfile.close();
-            reject(new Error('操作已被取消'));
-          }
-          return;
-        }
-
-        if (entry.fileName.endsWith('/')) {
-          // 目录
-          const dirPath = path.join(extractPath, entry.fileName);
-          fs.ensureDir(dirPath)
-            .then(() => {
-              if (!deployment.cancellationToken.isCancelled) {
-                zipfile.readEntry();
-              }
-            })
-            .catch(reject);
-        } else {
-          // 文件
-          zipfile.openReadStream(entry, (err, readStream) => {
-            if (err || !readStream) {
-              reject(err || new Error('无法读取文件'));
-              return;
-            }
-
-            const filePath = path.join(extractPath, entry.fileName);
-            fs.ensureDir(path.dirname(filePath))
-              .then(() => {
-                if (deployment.cancellationToken.isCancelled) {
-                  readStream.destroy();
-                  return;
-                }
-
-                const writeStream = createWriteStream(filePath);
-
-                // 注册取消回调
-                deployment.cancellationToken.onCancelled(() => {
-                  readStream.destroy();
-                  writeStream.destroy();
-                  fsPromises.unlink(filePath).catch(() => { });
-                });
-
-                writeStream.on('finish', () => {
-                  if (!deployment.cancellationToken.isCancelled) {
-                    zipfile.readEntry();
-                  }
-                });
-                writeStream.on('error', reject);
-                readStream.pipe(writeStream);
-              })
-              .catch(reject);
-          });
-        }
-      });
-
-      zipfile.on('end', () => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve();
-        }
-      });
-      zipfile.on('error', (error) => {
-        if (!isResolved) {
-          isResolved = true;
-          reject(error);
-        }
-      });
-    });
-  });
+  // 使用 Zip-Tools 解压
+  await zipToolsManager.extractZip(zipPath, extractPath);
 }
 
 /**

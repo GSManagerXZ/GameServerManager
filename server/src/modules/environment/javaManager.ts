@@ -2,10 +2,10 @@ import path from 'path'
 import fs from 'fs-extra'
 import os from 'os'
 import axios from 'axios'
-import AdmZip from 'adm-zip'
 import * as tar from 'tar'
 import logger from '../../utils/logger.js'
 import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
+import { zipToolsManager } from '../../utils/zipToolsManager.js'
 
 export interface JavaEnvironment {
   version: string
@@ -176,9 +176,8 @@ export class JavaManager {
     logger.info(`正在解压文件: ${fileName}`)
 
     if (fileName.endsWith('.zip')) {
-      // 解压ZIP文件
-      const zip = new AdmZip(filePath)
-      zip.extractAllTo(extractDir, true)
+      // 使用 Zip-Tools 解压ZIP文件
+      await zipToolsManager.extractZip(filePath, extractDir)
     } else if (fileName.endsWith('.tar.gz')) {
       // 解压TAR.GZ文件
       await tar.x({

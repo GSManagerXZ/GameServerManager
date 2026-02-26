@@ -3,9 +3,9 @@ import axios from 'axios'
 import { authenticateToken } from '../middleware/auth.js'
 import path from 'path'
 import fs from 'fs-extra'
-import AdmZip from 'adm-zip'
 import { pipeline } from 'stream/promises'
 import { createWriteStream } from 'fs'
+import { zipToolsManager } from '../utils/zipToolsManager.js'
 
 const router = Router()
 
@@ -152,9 +152,8 @@ router.post('/download', authenticateToken, async (req, res) => {
       createWriteStream(tempFilePath)
     )
 
-    // 4. 解压文件
-    const zip = new AdmZip(tempFilePath)
-    zip.extractAllTo(targetPath, true)
+    // 4. 使用 Zip-Tools 解压文件
+    await zipToolsManager.extractZip(tempFilePath, targetPath)
 
     // 5. 删除临时文件
     await fs.remove(tempFilePath)
