@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "vitest --run",
+    "test:fault": "vitest --run chunkUpload.fault",
+    "test:preservation": "vitest --run chunkUpload.preservation"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
@@ -43,7 +46,9 @@
     "postcss": "^8.4.32",
     "tailwindcss": "^3.3.6",
     "typescript": "^5.2.2",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^3.2.1",
+    "fast-check": "^4.1.1"
   },
   "overrides": {
     "esbuild": "0.25.0",

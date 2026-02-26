@@ -99,6 +99,12 @@ export class ChunkUploader {
   private currentBatch: number = 0
   private totalBatches: number = 0
   private chunksProgressMap: Map<number, ChunkProgressInfo> = new Map()
+  // 滑动窗口速度样本
+  private speedSamples: Array<{ time: number, bytes: number }> = []
+  // 已报告的最大百分比，确保单调递增
+  private maxPercentage: number = 0
+  // 滑动窗口时长（5秒）
+  private readonly SPEED_WINDOW_MS = 5000
 
   constructor(options: ChunkUploadOptions) {
     this.file = options.file
@@ -175,16 +181,55 @@ export class ChunkUploader {
   }
 
   /**
+   * 获取有效已上传量（已完成分片 + 正在上传中分片的已传输字节数）
+   */
+  private getEffectiveUploadedSize(): number {
+    let inFlightBytes = 0
+    for (const chunkProgress of this.chunksProgressMap.values()) {
+      if (chunkProgress.status === 'uploading' && chunkProgress.uploadedSize > 0) {
+        inFlightBytes += chunkProgress.uploadedSize
+      }
+    }
+    return this.uploadedSize + inFlightBytes
+  }
+
+  /**
    * 发送详细进度
    */
   private sendDetailProgress(phase: UploadDetailProgress['phase'], phaseText: string, extra?: Partial<UploadDetailProgress>) {
     if (!this.onDetailProgress) return
 
-    const elapsed = Date.now() - this.uploadStartTime
-    const speed = elapsed > 0 ? (this.uploadedSize / elapsed) * 1000 : 0
-    const remainingSize = this.file.size - this.uploadedSize
+    const now = Date.now()
+    const effectiveUploaded = this.getEffectiveUploadedSize()
+
+    // 使用滑动窗口计算速度
+    this.speedSamples.push({ time: now, bytes: effectiveUploaded })
+    // 移除超过窗口时长的旧样本
+    const windowStart = now - this.SPEED_WINDOW_MS
+    while (this.speedSamples.length > 0 && this.speedSamples[0].time < windowStart) {
+      this.speedSamples.shift()
+    }
+    // 计算滑动窗口内的速度
+    let speed = 0
+    if (this.speedSamples.length >= 2) {
+      const oldest = this.speedSamples[0]
+      const newest = this.speedSamples[this.speedSamples.length - 1]
+      const timeDiff = newest.time - oldest.time
+      if (timeDiff > 0) {
+        speed = ((newest.bytes - oldest.bytes) / timeDiff) * 1000
+      }
+    }
+
+    const remainingSize = this.file.size - effectiveUploaded
     const remainingTime = speed > 0 ? remainingSize / speed : 0
-    const percentage = this.file.size > 0 ? Math.round((this.uploadedSize / this.file.size) * 100) : 0
+
+    // 计算百分比并确保单调递增
+    let percentage = this.file.size > 0 ? Math.round((effectiveUploaded / this.file.size) * 100) : 0
+    if (percentage > this.maxPercentage) {
+      this.maxPercentage = percentage
+    } else {
+      percentage = this.maxPercentage
+    }
 
     // 获取所有分片进度（按索引排序）
     const chunksProgress = Array.from(this.chunksProgressMap.values())
@@ -478,7 +523,14 @@ export class ChunkUploader {
    */
   private updateProgress(): void {
     if (this.onProgress) {
-      const percentage = Math.round((this.uploadedSize / this.file.size) * 100)
+      const effectiveUploaded = this.getEffectiveUploadedSize()
+      let percentage = Math.round((effectiveUploaded / this.file.size) * 100)
+      // 确保百分比单调递增
+      if (percentage > this.maxPercentage) {
+        this.maxPercentage = percentage
+      } else {
+        percentage = this.maxPercentage
+      }
       this.onProgress(percentage)
     }
   }
@@ -639,13 +691,19 @@ export class ChunkUploader {
    * 获取当前上传进度信息
    */
   getProgress(): UploadProgress {
-    const uploadedSize = Array.from(this.uploadedChunks)
-      .map(idx => this.chunks[idx]?.chunkSize || 0)
-      .reduce((sum, size) => sum + size, 0)
+    const uploadedSize = this.getEffectiveUploadedSize()
 
     const percentage = this.file.size > 0 ? Math.round((uploadedSize / this.file.size) * 100) : 0
-    const elapsed = Date.now() - this.uploadStartTime
-    const speed = elapsed > 0 ? (uploadedSize / elapsed) * 1000 : 0 // bytes/s
+    // 使用滑动窗口速度
+    let speed = 0
+    if (this.speedSamples.length >= 2) {
+      const oldest = this.speedSamples[0]
+      const newest = this.speedSamples[this.speedSamples.length - 1]
+      const timeDiff = newest.time - oldest.time
+      if (timeDiff > 0) {
+        speed = ((newest.bytes - oldest.bytes) / timeDiff) * 1000
+      }
+    }
     const remainingSize = this.file.size - uploadedSize
     const remainingTime = speed > 0 ? remainingSize / speed : 0
 
