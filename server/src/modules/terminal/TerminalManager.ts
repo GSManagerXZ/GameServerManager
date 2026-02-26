@@ -11,6 +11,7 @@ import { promisify } from 'util'
 import { exec } from 'child_process'
 import { TerminalSessionManager, PersistedTerminalSession } from './TerminalSessionManager.js'
 import { ConfigManager } from '../config/ConfigManager.js'
+import { ptyManager } from '../../utils/ptyManager.js'
 
 const execAsync = promisify(exec)
 
@@ -72,47 +73,8 @@ export class TerminalManager {
     this.configManager = configManager
     this.sessionManager = new TerminalSessionManager(logger)
     
-    // 根据操作系统和架构选择PTY程序路径
-    const platform = os.platform()
-    const arch = os.arch()
-    const baseDir = process.cwd()
-    
-    let ptyFileName: string
-    if (platform === 'win32') {
-      ptyFileName = 'pty_win32_x64.exe'
-    } else {
-      // Linux平台根据架构选择对应的PTY文件
-      if (arch === 'arm64' || arch === 'aarch64') {
-        ptyFileName = 'pty_linux_arm64'
-      } else {
-        ptyFileName = 'pty_linux_x64'
-      }
-    }
-    
-    // 尝试多个可能的路径来查找 PTY 文件
-    const possiblePaths = [
-      path.join(baseDir, 'PTY', ptyFileName),                    // 打包后的路径
-      path.join(baseDir, 'server', 'PTY', ptyFileName),          // 开发环境路径
-    ]
-    
+    // PTY 路径将在 initialize() 中通过 ptyManager 异步获取
     this.ptyPath = ''
-    for (const possiblePath of possiblePaths) {
-      try {
-        fs.accessSync(possiblePath, fs.constants.F_OK)
-        this.ptyPath = possiblePath
-        break
-      } catch {
-        // 继续尝试下一个路径
-      }
-    }
-    
-    if (!this.ptyPath) {
-      this.logger.error(`无法找到 PTY 文件: ${ptyFileName}`)
-      // 使用默认路径作为最后的备用
-      this.ptyPath = path.resolve(__dirname, '../../PTY', ptyFileName)
-    }
-    
-    this.logger.info(`终端管理器初始化完成，PTY路径: ${this.ptyPath}`)
     
     // 定期清理不活跃的会话 - 已禁用
     // setInterval(() => {
@@ -127,9 +89,26 @@ export class TerminalManager {
   
   /**
    * 初始化终端管理器
+   * 通过 ptyManager 获取 PTY 二进制文件路径
    */
   async initialize(): Promise<void> {
     await this.sessionManager.initialize()
+    
+    // 通过 ptyManager 获取 PTY 路径（已在启动时确保下载）
+    try {
+      this.ptyPath = await ptyManager.getPtyPath()
+      this.logger.info(`终端管理器初始化完成，PTY路径: ${this.ptyPath}`)
+    } catch (error: any) {
+      this.logger.error(`无法找到 PTY 文件: ${error.message}`)
+      // 使用 ptyManager 获取平台对应的文件名作为备用路径
+      try {
+        const ptyFileName = ptyManager.getBinaryName()
+        this.ptyPath = path.join(process.cwd(), 'data', 'lib', ptyFileName)
+        this.logger.warn(`使用备用 PTY 路径: ${this.ptyPath}`)
+      } catch (nameError: any) {
+        this.logger.error(`无法获取 PTY 文件名: ${nameError.message}`)
+      }
+    }
   }
 
   /**

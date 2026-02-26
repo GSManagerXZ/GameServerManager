@@ -121,7 +121,7 @@ if test "$install_type" = "1"; then
 	echo "下载完毕，解压中，请稍等"
 	tar -xzf gsm3.tgz -C "$install_path"
 	rm -rf gsm3.tgz
-	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" "$install_path"/server/PTY/pty*
+	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" "$install_path"/data/lib/pty* 2>/dev/null || true
 	echo "SERVER_PORT=$server_port" >> "$install_path/.env"
 	if test "$install_to_systemd" = "yes"; then
 		mkdir -pv /usr/local/lib/systemd/system

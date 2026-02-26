@@ -143,8 +143,8 @@ GSManager3/
 │   │   └── Python/           # Python 脚本
 │   ├── data/                 # 数据存储目录
 │   │   ├── games/            # 游戏数据
+│   │   ├── lib/              # 运行依赖（PTY、Zip-Tools 等二进制文件）
 │   │   └── plugins/          # 插件数据
-│   ├── PTY/                  # 伪终端程序
 │   └── package.json          # 后端依赖
 ├── scripts/                   # 构建脚本
 ├── docker-compose.yml         # Docker 编排文件

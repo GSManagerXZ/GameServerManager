@@ -50,6 +50,7 @@ import networkRouter from './routes/network.js'
 import cloudBuildRouter from './routes/cloudBuild.js'
 import { consoleLogBuffer } from './utils/logger.js'
 import { zipToolsManager } from './utils/zipToolsManager.js'
+import { ptyManager } from './utils/ptyManager.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -623,6 +624,15 @@ async function startServer() {
       logger.info('Zip-Tools 已就绪')
     } catch (error: any) {
       logger.warn('Zip-Tools 下载失败，ZIP 相关功能可能不可用:', error.message || error)
+      // 不阻塞启动
+    }
+
+    // 检测并下载 PTY
+    try {
+      await ptyManager.ensureInstalled()
+      logger.info('PTY 已就绪')
+    } catch (error: any) {
+      logger.warn('PTY 下载失败，终端功能可能不可用:', error.message || error)
       // 不阻塞启动
     }
 

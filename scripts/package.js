@@ -26,6 +26,9 @@ const nodeVersion = '22.17.0'
 // Zip-Tools GitHub 下载配置（始终使用最新版本）
 const ZIP_TOOLS_GITHUB_URL = 'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
 
+// PTY GitHub 下载配置（使用 latest 标签）
+const PTY_GITHUB_URL = 'https://github.com/MCSManager/PTY/releases/tag/latest/download/'
+
 /**
  * 获取目标平台对应的 Zip-Tools 二进制文件名列表
  * 打包时下载所有该平台支持的架构版本
@@ -113,6 +116,60 @@ async function downloadZipTools(platform) {
   }
 
   console.log('✅ Zip-Tools 下载完成')
+}
+
+/**
+ * 获取目标平台对应的 PTY 二进制文件名列表
+ * 打包时下载所有该平台支持的架构版本
+ */
+function getPtyBinaries(platform) {
+  if (platform === 'linux') {
+    return ['pty_linux_x64', 'pty_linux_arm64']
+  } else if (platform === 'windows') {
+    return ['pty_win32_x64.exe']
+  }
+  // 未指定平台时下载所有版本
+  return [
+    'pty_linux_x64',
+    'pty_linux_arm64',
+    'pty_win32_x64.exe',
+  ]
+}
+
+/**
+ * 下载 PTY 二进制文件到打包目录的 data/lib/
+ * 从 GitHub Releases 下载，确保打包产物内置 PTY
+ */
+async function downloadPty(platform) {
+  const binaries = getPtyBinaries(platform)
+  const libDir = path.join(packageDir, 'data', 'lib')
+  await fs.ensureDir(libDir)
+
+  console.log('📥 正在从 GitHub 下载 PTY (latest)...')
+
+  for (const binaryName of binaries) {
+    const url = `${PTY_GITHUB_URL}${binaryName}`
+    const destPath = path.join(libDir, binaryName)
+
+    console.log(`   下载: ${binaryName}`)
+    try {
+      await downloadFile(url, destPath)
+      // 非 Windows 二进制文件设置可执行权限
+      if (!binaryName.endsWith('.exe')) {
+        try {
+          execSync(`chmod +x "${destPath}"`)
+        } catch (e) {
+          // Windows 构建环境无法 chmod，忽略
+        }
+      }
+      console.log(`   ✅ ${binaryName} 下载完成`)
+    } catch (err) {
+      console.error(`   ❌ ${binaryName} 下载失败: ${err.message}`)
+      throw err
+    }
+  }
+
+  console.log('✅ PTY 下载完成')
 }
 
 async function downloadNodejs(platform) {
@@ -207,11 +264,7 @@ async function createPackage() {
       path.join(packageDir, 'server', 'package.json')
     )
     
-    // 复制PTY文件
-    await fs.copy(
-      path.join(__dirname, '..', 'server', 'PTY'),
-      path.join(packageDir, 'server', 'PTY')
-    )
+    // PTY 文件不再从本地复制，改为从 GitHub 下载到 data/lib/ 目录
     
     // 复制环境变量配置文件
     await fs.copy(
@@ -285,6 +338,14 @@ async function createPackage() {
       console.log('   用户启动时会自动从镜像站下载')
     }
     
+    // 下载 PTY 二进制文件（从 GitHub Releases）
+    try {
+      await downloadPty(buildTarget)
+    } catch (error) {
+      console.error('⚠️  PTY 下载失败，打包产物中将不包含 PTY:', error.message)
+      console.log('   用户启动时会自动从镜像站下载')
+    }
+    
     console.log('📝 创建启动脚本...')
     // 根据目标平台创建启动脚本
     if (buildTarget === 'windows') {
@@ -296,7 +357,7 @@ async function createPackage() {
     } else if (buildTarget === 'linux') {
       const startShScript = `#!/bin/bash
 echo "正在启动GSM3管理面板..."
-chmod +x server/PTY/pty_linux_x64
+# PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测
 node/bin/node server/index.js`
       
       await fs.writeFile(
@@ -326,7 +387,7 @@ pause`
       
       const startShScript = `#!/bin/bash
 echo "正在启动GSM3管理面板..."
-chmod +x server/PTY/pty_linux_x64
+# PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测
 node server/index.js`
       
       await fs.writeFile(

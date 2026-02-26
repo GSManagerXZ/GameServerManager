@@ -14,16 +14,17 @@ if [ -f "server/index.js" ]; then
     echo "📍 默认账户: admin / admin123"
     echo
     
-    # 设置PTY可执行权限（根据架构选择）
+    # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
+    # 如果 data/lib/ 中存在 PTY 文件，设置可执行权限
     ARCH=$(uname -m)
-    if [ "$ARCH" = "x86_64" ] && [ -f "server/PTY/pty_linux_x64" ]; then
-        chmod +x server/PTY/pty_linux_x64
+    if [ "$ARCH" = "x86_64" ] && [ -f "data/lib/pty_linux_x64" ]; then
+        chmod +x data/lib/pty_linux_x64
         echo "✅ PTY权限设置完成 (x64)"
-    elif [ "$ARCH" = "aarch64" ] && [ -f "server/PTY/pty_linux_arm64" ]; then
-        chmod +x server/PTY/pty_linux_arm64
+    elif [ "$ARCH" = "aarch64" ] && [ -f "data/lib/pty_linux_arm64" ]; then
+        chmod +x data/lib/pty_linux_arm64
         echo "✅ PTY权限设置完成 (arm64)"
     else
-        echo "⚠️  未找到对应架构的PTY文件，使用默认配置"
+        echo "ℹ️  PTY文件将在服务启动时自动下载"
     fi
     
     # 启动应用

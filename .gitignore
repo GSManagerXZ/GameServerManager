@@ -27,7 +27,9 @@ users.json
 favorites.json
 server/data/environment
 server/data/wallpapers/
+server/data/lib/
 data/wallpapers/
+data/lib/
 
 
 dist/
