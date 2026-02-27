@@ -291,7 +291,11 @@ const AboutProjectPage: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600 dark:text-gray-400">终端PTY:</span>
-                      <span className="text-black dark:text-white font-medium">MCSManager/PTY</span>
+                      <a href="https://github.com/MCSManager/PTY" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">MCSManager/PTY</a>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">压缩工具:</span>
+                      <a href="https://github.com/MCSManager/Zip-Tools" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">MCSManager/Zip-Tools</a>
                     </div>
                   </div>
                 </div>
