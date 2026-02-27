@@ -51,6 +51,24 @@ function getZipToolsBinaries(platform) {
 }
 
 /**
+ * 获取目标平台对应的 7z 二进制文件名列表
+ * 打包时下载所有该平台支持的架构版本
+ */
+function get7zBinaries(platform) {
+  if (platform === 'linux') {
+    return ['7z_linux_x64', '7z_linux_arm64']
+  } else if (platform === 'windows') {
+    return ['7z_win32_x64.exe', '7z_win32_arm64.exe']
+  }
+  // 未指定平台时下载所有版本
+  return [
+    '7z_linux_x64', '7z_linux_arm64', '7z_linux_386', '7z_linux_arm',
+    '7z_win32_x64.exe', '7z_win32_arm64.exe',
+    '7z_darwin_x64', '7z_darwin_arm64',
+  ]
+}
+
+/**
  * 从 GitHub Releases 下载单个文件（支持 302 重定向）
  */
 function downloadFile(url, destPath) {
@@ -116,6 +134,42 @@ async function downloadZipTools(platform) {
   }
 
   console.log('✅ Zip-Tools 下载完成')
+}
+
+/**
+ * 下载 7z 二进制文件到打包目录的 data/lib/
+ * 从 GitHub Releases 下载，确保打包产物内置 7z
+ */
+async function download7z(platform) {
+  const binaries = get7zBinaries(platform)
+  const libDir = path.join(packageDir, 'data', 'lib')
+  await fs.ensureDir(libDir)
+
+  console.log('📥 正在从 GitHub 下载 7z (latest)...')
+
+  for (const binaryName of binaries) {
+    const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
+    const destPath = path.join(libDir, binaryName)
+
+    console.log(`   下载: ${binaryName}`)
+    try {
+      await downloadFile(url, destPath)
+      // 非 Windows 二进制文件设置可执行权限
+      if (!binaryName.endsWith('.exe')) {
+        try {
+          execSync(`chmod +x "${destPath}"`)
+        } catch (e) {
+          // Windows 构建环境无法 chmod，忽略
+        }
+      }
+      console.log(`   ✅ ${binaryName} 下载完成`)
+    } catch (err) {
+      console.error(`   ❌ ${binaryName} 下载失败: ${err.message}`)
+      throw err
+    }
+  }
+
+  console.log('✅ 7z 下载完成')
 }
 
 /**
@@ -335,6 +389,14 @@ async function createPackage() {
       await downloadZipTools(buildTarget)
     } catch (error) {
       console.error('⚠️  Zip-Tools 下载失败，打包产物中将不包含 Zip-Tools:', error.message)
+      console.log('   用户启动时会自动从镜像站下载')
+    }
+    
+    // 下载 7z 二进制文件（从 GitHub Releases）
+    try {
+      await download7z(buildTarget)
+    } catch (error) {
+      console.error('⚠️  7z 下载失败，打包产物中将不包含 7z:', error.message)
       console.log('   用户启动时会自动从镜像站下载')
     }
     

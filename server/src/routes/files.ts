@@ -1811,6 +1811,10 @@ async function extractArchive(archivePath: string, targetPath: string) {
       if (ext === '.zip') {
         await zipToolsManager.extractZip(archivePath, targetPath)
         resolve()
+      } else if (ext === '.7z') {
+        // 使用 7z 二进制工具解压 .7z 格式
+        await zipToolsManager.extract7z(archivePath, targetPath)
+        resolve()
       } else if (ext === '.tar') {
         await tar.extract({
           file: archivePath,
@@ -1863,7 +1867,7 @@ async function extractArchive(archivePath: string, targetPath: string) {
         }
       } else {
         // 对于其他格式，返回不支持的错误
-        reject(new Error(`不支持的压缩格式: ${ext}。支持的格式: .zip, .tar, .tar.gz, .tar.xz`))
+        reject(new Error(`不支持的压缩格式: ${ext}。支持的格式: .zip, .7z, .tar, .tar.gz, .tar.xz`))
       }
     } catch (error) {
       reject(error)

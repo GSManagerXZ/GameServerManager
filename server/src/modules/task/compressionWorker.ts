@@ -31,6 +31,8 @@ export class CompressionWorker {
         await this.compressTarGz(taskId, sourcePaths, archivePath, compressionLevel)
       } else if (format === 'tar.xz') {
         await this.compressTarXz(taskId, sourcePaths, archivePath, compressionLevel)
+      } else if (format === '7z') {
+        await this.compress7z(taskId, sourcePaths, archivePath)
       } else {
         throw new Error(`不支持的压缩格式: ${format}`)
       }
@@ -190,6 +192,8 @@ export class CompressionWorker {
       // 根据文件扩展名选择解压方法
       if (ext === '.zip') {
         await this.extractZip(taskId, archivePath, targetPath)
+      } else if (ext === '.7z') {
+        await this.extract7z(taskId, archivePath, targetPath)
       } else if (ext === '.tar') {
         await this.extractTar(taskId, archivePath, targetPath)
       } else if (fileName.endsWith('.tar.gz') || fileName.endsWith('.tgz')) {
@@ -197,7 +201,7 @@ export class CompressionWorker {
       } else if (fileName.endsWith('.tar.xz') || fileName.endsWith('.txz')) {
         await this.extractTarXz(taskId, archivePath, targetPath)
       } else {
-        throw new Error(`不支持的压缩格式: ${ext}。支持的格式: .zip, .tar, .tar.gz, .tar.xz`)
+        throw new Error(`不支持的压缩格式: ${ext}。支持的格式: .zip, .7z, .tar, .tar.gz, .tar.xz`)
       }
 
       taskManager.updateTask(taskId, {
@@ -222,6 +226,35 @@ export class CompressionWorker {
     })
 
     await zipToolsManager.extractZip(archivePath, targetPath)
+  }
+
+  // 使用 7z 二进制工具压缩文件（不支持压缩级别参数）
+  private async compress7z(
+    taskId: string,
+    sourcePaths: string[],
+    archivePath: string
+  ) {
+    taskManager.updateTask(taskId, {
+      message: '正在使用 7z 压缩...',
+      progress: 5
+    })
+
+    // 确定工作目录（使用第一个源文件的父目录）
+    const cwd = path.dirname(sourcePaths[0])
+    // 将源路径转换为相对于工作目录的文件名
+    const files = sourcePaths.map(p => path.relative(cwd, p))
+
+    await zipToolsManager.compress7z(archivePath, files, cwd)
+  }
+
+  // 使用 7z 二进制工具解压文件
+  private async extract7z(taskId: string, archivePath: string, targetPath: string) {
+    taskManager.updateTask(taskId, {
+      message: '正在使用 7z 解压...',
+      progress: 10
+    })
+
+    await zipToolsManager.extract7z(archivePath, targetPath)
   }
 
   private async extractTar(taskId: string, archivePath: string, targetPath: string) {

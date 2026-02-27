@@ -369,10 +369,15 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
           })
         }
 
-        // 使用 Zip-Tools 解压ZIP文件
-        await zipToolsManager.extractZip(downloadPath, installPath)
+        // 根据文件扩展名自动选择解压方法
+        const ext = path.extname(downloadPath).toLowerCase()
+        if (ext === '.7z') {
+          await zipToolsManager.extract7z(downloadPath, installPath)
+        } else {
+          await zipToolsManager.extractZip(downloadPath, installPath)
+        }
         
-        // 删除下载的ZIP文件
+        // 删除下载的压缩文件
         await fs.unlink(downloadPath)
         
         if (deploymentProcess.status === 'cancelled') return

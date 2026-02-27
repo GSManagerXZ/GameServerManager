@@ -153,7 +153,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
 
   // 检查是否为支持的压缩文件
   const isArchiveFile = (fileName: string): boolean => {
-    const supportedFormats = ['.zip', '.tar', '.tar.gz', '.tar.xz', '.tgz']
+    const supportedFormats = ['.zip', '.7z', '.tar', '.tar.gz', '.tar.xz', '.tgz']
     return supportedFormats.some(format => 
       fileName.toLowerCase().endsWith(format)
     )

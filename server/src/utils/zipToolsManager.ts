@@ -201,6 +201,200 @@ class ZipToolsManager {
   }
 
   /**
+   * 获取当前平台对应的 7z 二进制文件名
+   * 规则: 7z_{platform}_{arch}，Windows 追加 .exe
+   *
+   * 与 file_zip 的命名规则不同：
+   *   - darwin/x64 直接使用 x64（不映射为 amd64）
+   *   - 其他平台/架构与 process.arch 一致
+   */
+  get7zBinaryName(): string {
+    const platform = process.platform
+    const arch = process.arch
+
+    if (!SUPPORTED_PLATFORMS.has(platform)) {
+      throw new Error(`不支持的操作系统平台: ${platform}`)
+    }
+    if (!SUPPORTED_ARCHS.has(arch)) {
+      throw new Error(`不支持的 CPU 架构: ${arch}`)
+    }
+
+    // 7z 的 darwin/x64 直接使用 x64，不映射为 amd64
+    const name = `7z_${platform}_${arch}`
+    return platform === 'win32' ? `${name}.exe` : name
+  }
+
+  /**
+   * 使用多路径尝试策略获取 7z 二进制文件绝对路径
+   * 依次尝试 data/lib/ 和 server/data/lib/ 目录
+   */
+  async get7zPath(): Promise<string> {
+    const binaryName = this.get7zBinaryName()
+    const candidates = this.getLibDirCandidates()
+
+    for (const libDir of candidates) {
+      const fullPath = path.join(libDir, binaryName)
+      try {
+        await fs.access(fullPath)
+        return fullPath
+      } catch {
+        // 该路径不存在，尝试下一个
+      }
+    }
+
+    throw new Error(
+      `未找到 7z 二进制文件 (${binaryName})，已尝试路径: ${candidates.map(d => path.join(d, binaryName)).join(', ')}`
+    )
+  }
+
+  /**
+   * 检测 7z 二进制文件是否存在
+   */
+  async is7zInstalled(): Promise<boolean> {
+    try {
+      await this.get7zPath()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 下载 7z 二进制文件到第一个可写的 lib 目录
+   * 优先从自建镜像下载，失败后回退到 GitHub Releases latest
+   * 非 Windows 平台设置 chmod 0o755
+   */
+  async download7z(): Promise<void> {
+    const binaryName = this.get7zBinaryName()
+    const candidates = this.getLibDirCandidates()
+
+    // 选择第一个可用的 lib 目录（优先打包后路径）
+    let targetDir: string | null = null
+    for (const dir of candidates) {
+      try {
+        await fs.mkdir(dir, { recursive: true })
+        targetDir = dir
+        break
+      } catch {
+        // 无法创建该目录，尝试下一个
+      }
+    }
+
+    if (!targetDir) {
+      throw new Error(`无法创建 lib 目录，已尝试: ${candidates.join(', ')}`)
+    }
+
+    const targetPath = path.join(targetDir, binaryName)
+    const primaryUrl = `${this.DOWNLOAD_BASE_URL}${binaryName}`
+    const fallbackUrl = `${this.FALLBACK_DOWNLOAD_URL}${binaryName}`
+
+    // 优先从自建镜像下载
+    logger.info(`正在从自建镜像下载 7z: ${primaryUrl}`)
+    try {
+      await this.downloadFromUrl(primaryUrl, targetPath)
+      logger.info(`7z 下载完成: ${targetPath}`)
+      return
+    } catch (primaryError: any) {
+      logger.warn(`自建镜像下载 7z 失败: ${primaryError.message || primaryError}，尝试 GitHub 备用地址...`)
+      // 清理可能的残留文件
+      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
+    }
+
+    // 回退到 GitHub Releases latest
+    logger.info(`正在从 GitHub 下载 7z: ${fallbackUrl}`)
+    try {
+      await this.downloadFromUrl(fallbackUrl, targetPath)
+      logger.info(`7z 下载完成（GitHub 备用）: ${targetPath}`)
+    } catch (fallbackError: any) {
+      // 清理可能的残留文件
+      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
+      const message = `7z 下载失败（两个源均不可用）: ${fallbackError.message || fallbackError}`
+      logger.error(message)
+      throw new Error(message)
+    }
+  }
+
+  /**
+   * 确保 7z 二进制文件可用（检测 + 自动下载）
+   * 服务端启动时调用
+   */
+  async ensure7zInstalled(): Promise<void> {
+    if (await this.is7zInstalled()) {
+      logger.info('7z 已存在，跳过下载')
+      return
+    }
+    await this.download7z()
+  }
+
+  /**
+   * 执行 7z 子进程并等待完成
+   * 退出码为 0 表示成功，非 0 抛出包含 stderr 的异常
+   * 实现模式与 executeZipTools 一致
+   */
+  private execute7z(toolPath: string, args: string[], cwd?: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(toolPath, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+
+      let stderr = ''
+
+      child.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString()
+      })
+
+      child.on('error', (error: Error) => {
+        reject(new Error(`7z 进程启动失败: ${error.message}`))
+      })
+
+      child.on('close', (code: number | null) => {
+        if (code === 0) {
+          resolve()
+        } else {
+          reject(
+            new Error(
+              `7z 执行失败 (退出码: ${code}): ${stderr.trim() || '未知错误'}`
+            )
+          )
+        }
+      })
+    })
+  }
+
+  /**
+   * 执行 7z 解压操作
+   * 命令: 7z x {archivePath} -o{targetDir}
+   * 注意: -o 和目标目录之间没有空格（7z 标准格式）
+   * 调用前自动 ensure7zInstalled() 并创建目标目录
+   */
+  async extract7z(archivePath: string, targetDir: string): Promise<void> {
+    await this.ensure7zInstalled()
+    const toolPath = await this.get7zPath()
+
+    // 确保目标目录存在
+    await fs.mkdir(targetDir, { recursive: true })
+
+    // -o 和目标目录之间没有空格，这是 7z 的标准格式
+    const args = ['x', archivePath, `-o${path.resolve(targetDir)}`]
+
+    await this.execute7z(toolPath, args)
+  }
+
+  /**
+   * 执行 7z 压缩操作
+   * 命令: 7z a {archivePath} {file1} {file2} ...
+   * cwd 设置为待压缩文件所在目录
+   * 调用前自动 ensure7zInstalled()
+   */
+  async compress7z(archivePath: string, files: string[], cwd: string): Promise<void> {
+    await this.ensure7zInstalled()
+    const toolPath = await this.get7zPath()
+
+    const args = ['a', archivePath, ...files]
+
+    await this.execute7z(toolPath, args, cwd)
+  }
+
+
+  /**
    * 执行 ZIP 解压操作
    * 命令: file_zip -mode 2 -zipPath {文件名} -distDirPath {目标目录} -code utf-8
    * cwd 设置为 ZIP 文件所在目录

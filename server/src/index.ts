@@ -627,6 +627,15 @@ async function startServer() {
       // 不阻塞启动
     }
 
+    // 检测并下载 7z
+    try {
+      await zipToolsManager.ensure7zInstalled()
+      logger.info('7z 已就绪')
+    } catch (error: any) {
+      logger.warn('7z 下载失败，7z 相关功能可能不可用:', error.message || error)
+      // 不阻塞启动
+    }
+
     // 检测并下载 PTY
     try {
       await ptyManager.ensureInstalled()
