@@ -569,7 +569,7 @@ async function startServer() {
     } catch (error: any) {
       // 文件不存在时忽略错误
       if (error.code !== 'ENOENT') {
-        logger.warn('删除终端会话文件时出错:', error.message)
+        logger.warn(`删除终端会话文件时出错: ${error.message}`)
       }
     }
 
@@ -598,6 +598,16 @@ async function startServer() {
     // 初始化配置和认证
     await configManager.initialize()
     await authManager.initialize()
+
+    // 在终端管理器初始化前，确保 PTY 二进制文件已就绪
+    try {
+      await ptyManager.ensureInstalled()
+      logger.info('PTY 已就绪')
+    } catch (error: any) {
+      logger.warn(`PTY 下载失败，终端功能可能不可用: ${error.message || error}`)
+      // 不阻塞启动
+    }
+
     await terminalManager.initialize()
     await instanceManager.initialize()
     await pluginManager.loadPlugins()
@@ -623,7 +633,7 @@ async function startServer() {
       await zipToolsManager.ensureInstalled()
       logger.info('Zip-Tools 已就绪')
     } catch (error: any) {
-      logger.warn('Zip-Tools 下载失败，ZIP 相关功能可能不可用:', error.message || error)
+      logger.warn(`Zip-Tools 下载失败，ZIP 相关功能可能不可用: ${error.message || error}`)
       // 不阻塞启动
     }
 
@@ -632,16 +642,7 @@ async function startServer() {
       await zipToolsManager.ensure7zInstalled()
       logger.info('7z 已就绪')
     } catch (error: any) {
-      logger.warn('7z 下载失败，7z 相关功能可能不可用:', error.message || error)
-      // 不阻塞启动
-    }
-
-    // 检测并下载 PTY
-    try {
-      await ptyManager.ensureInstalled()
-      logger.info('PTY 已就绪')
-    } catch (error: any) {
-      logger.warn('PTY 下载失败，终端功能可能不可用:', error.message || error)
+      logger.warn(`7z 下载失败，7z 相关功能可能不可用: ${error.message || error}`)
       // 不阻塞启动
     }
 
