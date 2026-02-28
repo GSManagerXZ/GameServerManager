@@ -549,6 +549,27 @@ async function startServer() {
     // 检测并生成.env文件
     await ensureEnvFile()
 
+    // Linux 环境下检测 /home/steam 目录，若存在则创建必要子目录
+    if (os.platform() === 'linux') {
+      const steamHome = '/home/steam'
+      try {
+        await fs.access(steamHome)
+        // 目录存在，创建 .local 和 .config 并设置 777 权限
+        const dirsToCreate = [
+          path.join(steamHome, '.local'),
+          path.join(steamHome, '.config')
+        ]
+        for (const dir of dirsToCreate) {
+          await fs.mkdir(dir, { recursive: true })
+          await fs.chmod(dir, 0o777)
+        }
+        logger.info(`已在 ${steamHome} 下创建 .local 和 .config 目录并设置 777 权限`)
+      } catch {
+        // /home/steam 不存在，跳过
+        logger.info('/home/steam 目录不存在，跳过 Steam 目录初始化')
+      }
+    }
+
     // 输出艺术字
     printAsciiArt()
 
