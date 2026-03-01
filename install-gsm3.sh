@@ -121,7 +121,58 @@ if test "$install_type" = "1"; then
 	echo "下载完毕，解压中，请稍等"
 	tar -xzf gsm3.tgz -C "$install_path"
 	rm -rf gsm3.tgz
-	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" "$install_path"/data/lib/pty* 2>/dev/null || true
+	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" 2>/dev/null || true
+
+	# 验证并修复PTY二进制文件
+	ARCH=$(uname -m)
+	if [ "$ARCH" = "x86_64" ]; then
+		PTY_NAME="pty_linux_x64"
+	elif [ "$ARCH" = "aarch64" ]; then
+		PTY_NAME="pty_linux_arm64"
+	else
+		PTY_NAME=""
+	fi
+
+	if [ -n "$PTY_NAME" ]; then
+		PTY_FILE="$install_path/data/lib/$PTY_NAME"
+		PTY_VALID=false
+
+		# 检查PTY文件是否存在且为有效的ELF二进制文件
+		if [ -f "$PTY_FILE" ]; then
+			if file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
+				PTY_VALID=true
+			else
+				echo -e "\x1b[33mPTY文件无效（非ELF二进制），将重新下载...\x1b[0m"
+				rm -f "$PTY_FILE"
+			fi
+		fi
+
+		if [ "$PTY_VALID" = "false" ]; then
+			echo -e "\x1b[33m正在下载PTY二进制文件...\x1b[0m"
+			mkdir -p "$install_path/data/lib"
+			PTY_URL="https://github.com/MCSManager/PTY/releases/download/latest/$PTY_NAME"
+			if command -v curl &>/dev/null; then
+				curl -Lo "$PTY_FILE" "$PTY_URL"
+			elif command -v wget &>/dev/null; then
+				wget -O "$PTY_FILE" "$PTY_URL"
+			fi
+			if [ -f "$PTY_FILE" ] && file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
+				echo -e "\x1b[32mPTY下载完成\x1b[0m"
+			else
+				echo -e "\x1b[33mPTY下载失败，终端功能将在服务启动时自动重试下载\x1b[0m"
+				rm -f "$PTY_FILE" 2>/dev/null
+			fi
+		fi
+
+		# 设置可执行权限
+		if [ -f "$PTY_FILE" ]; then
+			chmod 755 "$PTY_FILE"
+		fi
+	fi
+
+	# 设置其他lib文件权限
+	chmod 755 "$install_path"/data/lib/file_zip_* "$install_path"/data/lib/7z_* 2>/dev/null || true
+
 	echo "SERVER_PORT=$server_port" >> "$install_path/.env"
 	if test "$install_to_systemd" = "yes"; then
 		mkdir -pv /usr/local/lib/systemd/system

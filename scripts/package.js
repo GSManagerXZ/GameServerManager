@@ -74,11 +74,30 @@ function get7zBinaries(platform) {
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath)
-    const request = (currentUrl) => {
-      https.get(currentUrl, (response) => {
-        // 处理 GitHub 的 302 重定向
+    const request = (currentUrl, redirectCount = 0) => {
+      // 防止无限重定向
+      if (redirectCount > 10) {
+        fs.unlink(destPath, () => {})
+        reject(new Error(`重定向次数过多: ${url}`))
+        return
+      }
+      const options = {
+        headers: {
+          'User-Agent': 'GSM3-Packager/1.0',
+          'Accept': 'application/octet-stream'
+        }
+      }
+      // 解析URL并合并options
+      const parsedUrl = new URL(currentUrl)
+      options.hostname = parsedUrl.hostname
+      options.path = parsedUrl.pathname + parsedUrl.search
+      options.port = parsedUrl.port || 443
+
+      https.get(options, (response) => {
+        // 处理 GitHub 的 301/302 重定向
         if (response.statusCode === 301 || response.statusCode === 302) {
-          request(response.headers.location)
+          response.resume() // 消费响应体，释放连接
+          request(response.headers.location, redirectCount + 1)
           return
         }
         if (response.statusCode !== 200) {
@@ -88,8 +107,20 @@ function downloadFile(url, destPath) {
         }
         response.pipe(file)
         file.on('finish', () => {
-          file.close()
-          resolve(destPath)
+          file.close(() => {
+            // 验证下载的文件不是HTML页面
+            const fd = require('fs').openSync(destPath, 'r')
+            const buf = Buffer.alloc(16)
+            require('fs').readSync(fd, buf, 0, 16, 0)
+            require('fs').closeSync(fd)
+            const header = buf.toString('utf8', 0, 16)
+            if (header.includes('<') || header.includes('<!DOCTYPE') || header.includes('<html')) {
+              fs.unlink(destPath, () => {})
+              reject(new Error(`下载到的是HTML页面而非二进制文件: ${url}`))
+              return
+            }
+            resolve(destPath)
+          })
         })
       }).on('error', (err) => {
         fs.unlink(destPath, () => {})

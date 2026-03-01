@@ -15,14 +15,25 @@ if [ -f "server/index.js" ]; then
     echo
     
     # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
-    # 如果 data/lib/ 中存在 PTY 文件，设置可执行权限
+    # 如果 data/lib/ 中存在 PTY 文件，验证并设置可执行权限
     ARCH=$(uname -m)
-    if [ "$ARCH" = "x86_64" ] && [ -f "data/lib/pty_linux_x64" ]; then
-        chmod +x data/lib/pty_linux_x64
-        echo "✅ PTY权限设置完成 (x64)"
-    elif [ "$ARCH" = "aarch64" ] && [ -f "data/lib/pty_linux_arm64" ]; then
-        chmod +x data/lib/pty_linux_arm64
-        echo "✅ PTY权限设置完成 (arm64)"
+    if [ "$ARCH" = "x86_64" ]; then
+        PTY_FILE="data/lib/pty_linux_x64"
+    elif [ "$ARCH" = "aarch64" ]; then
+        PTY_FILE="data/lib/pty_linux_arm64"
+    else
+        PTY_FILE=""
+    fi
+
+    if [ -n "$PTY_FILE" ] && [ -f "$PTY_FILE" ]; then
+        # 验证是否为有效的ELF二进制文件
+        if file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
+            chmod +x "$PTY_FILE"
+            echo "✅ PTY权限设置完成 ($ARCH)"
+        else
+            echo "⚠️  PTY文件无效（非ELF二进制），已删除，服务启动时将自动重新下载"
+            rm -f "$PTY_FILE"
+        fi
     else
         echo "ℹ️  PTY文件将在服务启动时自动下载"
     fi
