@@ -37,7 +37,8 @@
   },
   "overrides": {
     "esbuild": "0.25.0",
-    "glob": "^10.5.0"
+    "glob": "^10.5.0",
+    "minimatch": ">=5.1.8"
   },
   "keywords": [
     "game",
