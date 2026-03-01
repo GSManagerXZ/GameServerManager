@@ -808,5 +808,22 @@
     ],
     "system_info": [],
     "ports": []
+  },
+  "Smalland: Survive the Wilds": {
+    "game_nameCN": "小小世界: 原野求生",
+    "appid": "808040",
+    "tip": "请使用非root用户启动\n游戏启动脚本存在问题，请在启动前修改启动脚本的27行前面注释 将下面一行前面的set删除 最终是\n# Disable tamed creature death (0 or 1)\nTAMEDCREATURESIMMORTAL=0",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/768200/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/768200/_/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "ports": [
+      {
+        "port": 7777,
+        "protocol": "udp"
+      }
+    ]
   }
 }
