@@ -24,9 +24,9 @@ class PtyManager {
   private readonly DOWNLOAD_BASE_URL =
     'https://download.xiaozhuhouses.asia/%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE/GSManager/GSManager3/%E8%BF%90%E8%A1%8C%E4%BE%9D%E8%B5%96/PTY/'
 
-  /** GitHub Releases 备用下载 URL */
+  /** GitHub Releases 备用下载 URL（tag 名为 latest） */
   private readonly FALLBACK_DOWNLOAD_URL =
-    'https://github.com/MCSManager/PTY/releases/tag/latest/download/'
+    'https://github.com/MCSManager/PTY/releases/download/latest/'
 
   /**
    * 获取当前平台对应的 PTY 二进制文件名

@@ -1,5 +1,4 @@
 @echo off
-echo 正在启动GSM3管理面板...
-cd server
-node.exe index.js
+echo 姝ｅ湪鍚姩GSM3绠＄悊闈㈡澘...
+node.exe server/index.js
 pause

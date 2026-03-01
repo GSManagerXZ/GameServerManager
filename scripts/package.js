@@ -26,8 +26,8 @@ const nodeVersion = '22.17.0'
 // Zip-Tools GitHub 下载配置（始终使用最新版本）
 const ZIP_TOOLS_GITHUB_URL = 'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
 
-// PTY GitHub 下载配置（使用 latest 标签）
-const PTY_GITHUB_URL = 'https://github.com/MCSManager/PTY/releases/tag/latest/download/'
+// PTY GitHub 下载配置（tag 名为 latest）
+const PTY_GITHUB_URL = 'https://github.com/MCSManager/PTY/releases/download/latest/'
 
 /**
  * 获取目标平台对应的 Zip-Tools 二进制文件名列表
@@ -37,14 +37,14 @@ function getZipToolsBinaries(platform) {
   if (platform === 'linux') {
     return ['file_zip_linux_x64', 'file_zip_linux_arm64']
   } else if (platform === 'windows') {
-    return ['file_zip_win32_x64.exe', 'file_zip_win32_arm64.exe']
+    // GitHub Releases 上 Zip-Tools 只有 win32_x64 版本
+    return ['file_zip_win32_x64.exe']
   }
   // 未指定平台时下载所有版本
   return [
     'file_zip_linux_x64',
     'file_zip_linux_arm64',
     'file_zip_win32_x64.exe',
-    'file_zip_win32_arm64.exe',
     'file_zip_darwin_amd64',
     'file_zip_darwin_arm64',
   ]
@@ -110,6 +110,7 @@ async function downloadZipTools(platform) {
   await fs.ensureDir(libDir)
 
   console.log('📥 正在从 GitHub 下载 Zip-Tools (latest)...')
+  let hasSuccess = false
 
   for (const binaryName of binaries) {
     const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
@@ -127,12 +128,15 @@ async function downloadZipTools(platform) {
         }
       }
       console.log(`   ✅ ${binaryName} 下载完成`)
+      hasSuccess = true
     } catch (err) {
-      console.error(`   ❌ ${binaryName} 下载失败: ${err.message}`)
-      throw err
+      console.error(`   ⚠️ ${binaryName} 下载失败（跳过）: ${err.message}`)
     }
   }
 
+  if (!hasSuccess) {
+    throw new Error('所有 Zip-Tools 文件下载均失败')
+  }
   console.log('✅ Zip-Tools 下载完成')
 }
 
@@ -146,6 +150,7 @@ async function download7z(platform) {
   await fs.ensureDir(libDir)
 
   console.log('📥 正在从 GitHub 下载 7z (latest)...')
+  let hasSuccess = false
 
   for (const binaryName of binaries) {
     const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
@@ -163,12 +168,15 @@ async function download7z(platform) {
         }
       }
       console.log(`   ✅ ${binaryName} 下载完成`)
+      hasSuccess = true
     } catch (err) {
-      console.error(`   ❌ ${binaryName} 下载失败: ${err.message}`)
-      throw err
+      console.error(`   ⚠️ ${binaryName} 下载失败（跳过）: ${err.message}`)
     }
   }
 
+  if (!hasSuccess) {
+    throw new Error('所有 7z 文件下载均失败')
+  }
   console.log('✅ 7z 下载完成')
 }
 
@@ -200,6 +208,7 @@ async function downloadPty(platform) {
   await fs.ensureDir(libDir)
 
   console.log('📥 正在从 GitHub 下载 PTY (latest)...')
+  let hasSuccess = false
 
   for (const binaryName of binaries) {
     const url = `${PTY_GITHUB_URL}${binaryName}`
@@ -217,12 +226,15 @@ async function downloadPty(platform) {
         }
       }
       console.log(`   ✅ ${binaryName} 下载完成`)
+      hasSuccess = true
     } catch (err) {
-      console.error(`   ❌ ${binaryName} 下载失败: ${err.message}`)
-      throw err
+      console.error(`   ⚠️ ${binaryName} 下载失败（跳过）: ${err.message}`)
     }
   }
 
+  if (!hasSuccess) {
+    throw new Error('所有 PTY 文件下载均失败')
+  }
   console.log('✅ PTY 下载完成')
 }
 
@@ -284,13 +296,11 @@ async function deployNodejs(platform, downloadedFile) {
     }
   } else if (platform === 'windows') {
     console.log('📦 正在部署 Windows Node.js...')
-    // 直接复制node.exe到server目录
-    const targetDir = path.join(packageDir, 'server')
-    const targetFile = path.join(targetDir, 'node.exe')
+    // 复制node.exe到打包根目录（start.bat不再cd server，cwd为根目录）
+    const targetFile = path.join(packageDir, 'node.exe')
     
-    await fs.ensureDir(targetDir)
     await fs.copy(downloadedFile, targetFile)
-    console.log('✅ Windows Node.js 部署到 server/node.exe')
+    console.log('✅ Windows Node.js 部署到打包根目录/node.exe')
   }
   
   // 清理下载的文件
@@ -330,28 +340,29 @@ async function createPackage() {
     await fs.ensureDir(path.join(packageDir, 'server', 'uploads'))
     console.log('📁 创建uploads目录...')
     
-    // 复制server/data/games目录（包含游戏配置文件）
+    // 复制server/data/games目录（包含游戏配置文件）到打包根目录的data/下
+    // 修复：Windows打包后不再cd server，process.cwd()为根目录，数据统一放在data/下
     const serverGamesPath = path.join(__dirname, '..', 'server', 'data', 'games')
     if (await fs.pathExists(serverGamesPath)) {
-      await fs.ensureDir(path.join(packageDir, 'server', 'data'))
+      await fs.ensureDir(path.join(packageDir, 'data'))
       await fs.copy(
         serverGamesPath,
-        path.join(packageDir, 'server', 'data', 'games')
+        path.join(packageDir, 'data', 'games')
       )
       console.log('📋 复制游戏配置文件...')
     } else {
       console.log('⚠️  警告: server/data/games 目录不存在，跳过复制')
     }
 
-        // 复制server/data/gameconfig目录（包含游戏配置文件）
+    // 复制server/data/gameconfig目录（包含游戏配置模板文件）到打包根目录的data/下
     const serverGamesConfigPath = path.join(__dirname, '..', 'server', 'data', 'gameconfig')
     if (await fs.pathExists(serverGamesConfigPath)) {
-      await fs.ensureDir(path.join(packageDir, 'server', 'data'))
+      await fs.ensureDir(path.join(packageDir, 'data'))
       await fs.copy(
         serverGamesConfigPath,
-        path.join(packageDir, 'server', 'data', 'gameconfig')
+        path.join(packageDir, 'data', 'gameconfig')
       )
-      console.log('📋 复制游戏配置文件...')
+      console.log('📋 复制游戏配置模板文件...')
     } else {
       console.log('⚠️  警告: server/data/gameconfig 目录不存在，跳过复制')
     }
@@ -437,8 +448,7 @@ node/bin/node server/index.js`
       // 默认创建通用启动脚本（需要系统已安装Node.js）
       const startScript = `@echo off
 echo 正在启动GSM3管理面板...
-cd server
-node index.js
+node server/index.js
 pause`
       
       await fs.writeFile(
