@@ -70,11 +70,11 @@ export interface UploadProgress {
 }
 
 export class ChunkUploader {
-  private static readonly DEFAULT_CHUNK_SIZE = 50 * 1024 * 1024 // 50MB
+  private static readonly DEFAULT_CHUNK_SIZE = 20 * 1024 * 1024 // 20MB
   private static readonly MIN_CHUNK_SIZE = 1 * 1024 * 1024 // 1MB
   private static readonly MAX_RETRIES = 5 // 增加重试次数
   private static readonly CONCURRENT_UPLOADS = 3 // 并发数
-  private static readonly CHUNK_UPLOAD_TIMEOUT = 300000 // 单个分片上传超时时间：5分钟（50MB需要更长时间）
+  private static readonly CHUNK_UPLOAD_TIMEOUT = 1800000 // 单个分片上传超时时间：30分钟（弱网环境下20MB分片需要更长时间）
   private static readonly RETRY_BASE_DELAY = 2000 // 重试基础延迟：2秒
 
   private file: File
@@ -683,8 +683,8 @@ export class ChunkUploader {
    * 判断文件是否需要分片上传
    */
   static shouldUseChunkUpload(fileSize: number): boolean {
-    // 大于10MB的文件使用分片上传（提高阈值，减少小文件使用分片）
-    return fileSize > 10 * 1024 * 1024
+    // 大于20MB的文件使用分片上传
+    return fileSize > 20 * 1024 * 1024
   }
 
   /**

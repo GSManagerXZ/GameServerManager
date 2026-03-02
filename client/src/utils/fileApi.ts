@@ -426,7 +426,7 @@ export class FileApiClient {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
-        timeout: 300000, // 5分钟超时
+        timeout: 1800000, // 30分钟超时（避免弱网环境下上传超时）
         signal: controller.signal,
         onUploadProgress: (progressEvent) => {
           if (onProgress && progressEvent.total) {
@@ -477,7 +477,7 @@ export class FileApiClient {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
-      timeout: 300000, // 5分钟超时
+      timeout: 1800000, // 30分钟超时（避免弱网环境下上传超时）
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
