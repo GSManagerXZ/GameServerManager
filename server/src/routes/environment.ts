@@ -115,17 +115,17 @@ function getSponsorDownloadUrl(version: string, platform: string, arch?: string)
     java17: {
       windows: 'openjdk-17.0.0.1+2_windows-x64_bin.zip',
       linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
-      arm: 'openjdk-17.0.2_macos-aarch64_bin.tar.gz'
+      arm: 'openjdk-17.0.2_linux-aarch64_bin.tar.gz'
     },
     java21: {
       windows: 'openjdk-21+35_windows-x64_bin.zip',
       linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
-      arm: 'openjdk-21_macos-aarch64_bin.tar.gz'
+      arm: 'openjdk-21_linux-aarch64_bin.tar.gz'
     },
     java25: {
       windows: 'openjdk-25+36_windows-x64_bin.zip',
       linux: 'openjdk-25+36_linux-x64_bin.tar.gz',
-      arm: 'openjdk-25_macos-aarch64_bin.tar.gz'
+      arm: 'openjdk-25.0.2_linux-aarch64_bin.tar.gz'
     }
   }
 

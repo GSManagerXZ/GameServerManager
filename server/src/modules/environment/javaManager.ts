@@ -43,39 +43,43 @@ export class JavaManager {
   }
 
   /**
-   * 查找Java可执行文件
+   * 查找Java可执行文件（递归搜索，最多3层深度）
+   * 兼容不同JDK包的目录结构：
+   * - Linux: jdk-XX/bin/java
+   * - macOS: jdk-XX.jdk/Contents/Home/bin/java
    */
   private async findJavaExecutable(versionDir: string): Promise<string | null> {
     const platform = os.platform()
     const javaExe = platform === 'win32' ? 'java.exe' : 'java'
 
-    // 首先在bin目录中查找
-    const binDir = path.join(versionDir, 'bin')
-    const directJavaPath = path.join(binDir, javaExe)
+    // 递归搜索bin目录中的Java可执行文件
+    const searchForJava = async (dir: string, depth: number): Promise<string | null> => {
+      if (depth > 3) return null // 最多搜索3层
 
-    if (await fs.pathExists(directJavaPath)) {
-      return directJavaPath
-    }
+      try {
+        // 检查当前目录下的bin/java
+        const binDir = path.join(dir, 'bin')
+        const javaPath = path.join(binDir, javaExe)
+        if (await fs.pathExists(javaPath)) {
+          return javaPath
+        }
 
-    // 在子目录中查找
-    try {
-      const subDirs = await fs.readdir(versionDir)
-      for (const subDir of subDirs) {
-        const subDirPath = path.join(versionDir, subDir)
-        const stat = await fs.stat(subDirPath)
-        if (stat.isDirectory()) {
-          const subBinDir = path.join(subDirPath, 'bin')
-          const subJavaPath = path.join(subBinDir, javaExe)
-          if (await fs.pathExists(subJavaPath)) {
-            return subJavaPath
+        // 递归搜索子目录
+        const entries = await fs.readdir(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const result = await searchForJava(path.join(dir, entry.name), depth + 1)
+            if (result) return result
           }
         }
+      } catch (error) {
+        logger.warn(`搜索Java可执行文件失败 (depth=${depth}):`, error)
       }
-    } catch (error) {
-      logger.warn(`查找Java可执行文件失败:`, error)
+
+      return null
     }
 
-    return null
+    return searchForJava(versionDir, 0)
   }
 
   /**

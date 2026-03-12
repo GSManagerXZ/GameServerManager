@@ -150,7 +150,7 @@ const EnvironmentManagerPage: React.FC = () => {
       description: 'Java 17 (OpenJDK 17.0.0.1)',
       windows: 'https://download.java.net/openjdk/jdk17.0.0.1/ri/openjdk-17.0.0.1+2_windows-x64_bin.zip',
       linux: 'https://download.java.net/openjdk/jdk17.0.0.1/ri/openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
-      arm: 'https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_macos-aarch64_bin.tar.gz'
+      arm: 'https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-aarch64_bin.tar.gz'
     },
     {
       version: 'Java 21',
@@ -158,7 +158,7 @@ const EnvironmentManagerPage: React.FC = () => {
       description: 'Java 21 (OpenJDK 21)',
       windows: 'https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_windows-x64_bin.zip',
       linux: 'https://download.java.net/openjdk/jdk21/ri/openjdk-21+35_linux-x64_bin.tar.gz',
-      arm: 'https://download.java.net/java/GA/jdk21/fd2272bbf8e04c3dbaee13770090416c/35/GPL/openjdk-21_macos-aarch64_bin.tar.gz'
+      arm: 'https://download.java.net/java/GA/jdk21/fd2272bbf8e04c3dbaee13770090416c/35/GPL/openjdk-21_linux-aarch64_bin.tar.gz'
     },
     {
       version: 'Java 25',
@@ -166,7 +166,7 @@ const EnvironmentManagerPage: React.FC = () => {
       description: 'Java 25 (OpenJDK 25+36)',
       windows: 'https://download.java.net/openjdk/jdk25/ri/openjdk-25+36_windows-x64_bin.zip',
       linux: 'https://download.java.net/openjdk/jdk25/ri/openjdk-25+36_linux-x64_bin.tar.gz',
-      arm: 'https://download.java.net/java/GA/jdk25/bd75d5f9689641da8e1daabeccb5528b/36/GPL/openjdk-25_macos-aarch64_bin.tar.gz'
+      arm: 'https://download.java.net/java/GA/jdk25.0.2/b1e0dfa218384cb9959bdcb897162d4e/10/GPL/openjdk-25.0.2_linux-aarch64_bin.tar.gz'
     }
   ]
 
