@@ -1279,7 +1279,7 @@ const EnvironmentManagerPage: React.FC = () => {
                   <>
                     Java环境安装现已支持赞助者专享国内高速服务器下载，您当前还不是赞助者，欢迎前往
                     <a
-                      href="https://afdian.com/a/xiaozhuhouses"
+                      href="https://ifdian.net/a/xiaozhuhouses"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline ml-1"

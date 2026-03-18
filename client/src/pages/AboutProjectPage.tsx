@@ -210,7 +210,7 @@ const AboutProjectPage: React.FC = () => {
               {/* 爱发电嵌入页面 */}
               <div className="w-full h-[600px] border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
                 <iframe
-                  src="https://afdian.com/a/xiaozhuhouses"
+                  src="https://ifdian.net/a/xiaozhuhouses"
                   className="w-full h-full"
                   title="爱发电支持页面"
                   frameBorder="0"
@@ -222,12 +222,12 @@ const AboutProjectPage: React.FC = () => {
                 <p className="text-sm text-red-800 dark:text-red-200">
                   <strong>感谢支持：</strong> 如果您觉得这个项目对您有帮助，欢迎通过爱发电支持开发者！
                   <a 
-                    href="https://afdian.com/a/xiaozhuhouses" 
+                    href="https://ifdian.net/a/xiaozhuhouses" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="ml-2 text-red-600 dark:text-red-400 hover:underline"
                   >
-                    https://afdian.com/a/xiaozhuhouses
+                    https://ifdian.net/a/xiaozhuhouses
                   </a>
                 </p>
               </div>
