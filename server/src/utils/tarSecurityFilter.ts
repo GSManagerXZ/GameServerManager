@@ -11,6 +11,8 @@
 import path from 'path'
 import * as tar from 'tar'
 
+type TarExtractOptions = Parameters<typeof tar.extract>[0]
+
 /**
  * 过滤选项
  */
@@ -140,14 +142,14 @@ export function createSimpleTarSecurityFilter(cwd: string) {
 export function createSafeTarExtractOptions(
   file: string, 
   cwd: string, 
-  additionalOptions?: Partial<tar.ExtractOptions>
-): tar.ExtractOptions {
+  additionalOptions?: Partial<TarExtractOptions>
+): TarExtractOptions {
   return {
     file,
     cwd,
     filter: createTarSecurityFilter({ cwd, blockSymbolicLinks: true, blockHardLinks: true }),
     ...additionalOptions
-  } as tar.ExtractOptions
+  } as TarExtractOptions
 }
 
 export default {
