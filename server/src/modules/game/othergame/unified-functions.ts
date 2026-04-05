@@ -3,7 +3,7 @@
 // 移除所有API相关代码，专注于核心功能
 
 import axios from 'axios';
-import * as fs from 'fs-extra';
+import fs from '../../../utils/fsExtraCompat.js';
 import { createWriteStream, mkdtemp } from 'fs';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';

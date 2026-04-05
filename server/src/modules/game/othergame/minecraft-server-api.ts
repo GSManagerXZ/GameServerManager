@@ -1,5 +1,5 @@
 import axios from 'axios';
-import * as fs from 'fs-extra';
+import fs from '../../../utils/fsExtraCompat.js';
 import { promises as fsPromises, existsSync, readdirSync } from 'fs';
 import { createWriteStream } from 'fs';
 import * as path from 'path';
