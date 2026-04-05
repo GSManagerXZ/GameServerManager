@@ -1,11 +1,12 @@
-name: PR 自动审查与分流
+name: PR 代码语法检查
 
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
-  contents: write
+  contents: read
+  issues: write
   pull-requests: write
 
 concurrency:
@@ -14,17 +15,16 @@ concurrency:
 
 jobs:
   pr-flow:
-    name: PR 自动化流程
+    name: PR 语法检查
     runs-on: ubuntu-latest
 
     steps:
-      - name: 初始评论 - 正在进行自动化审查
+      - name: 初始评论 - 正在进行语法检查
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo, number } = context.issue;
 
-            // 获取 PR 变更的文件列表
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner, repo, pull_number: number, per_page: 100
             });
@@ -34,7 +34,7 @@ jobs:
 
             await github.rest.issues.createComment({
               owner, repo, issue_number: number,
-              body: `⚠ 本 PR 已进入自动化审查流程，正在进行代码审查，请稍后\n\n**本次变更文件 (${fileCount} 个):**\n${fileList}\n\n正在进行变更类型识别与 TypeScript 语法检查...`
+              body: `⚠ 本 PR 已进入自动化语法检查流程，请稍后\n\n**本次变更文件 (${fileCount} 个):**\n${fileList}\n\n正在进行 TypeScript 语法检查...`
             });
 
       - name: 检出 PR 提交代码
@@ -66,10 +66,8 @@ jobs:
             const { owner, repo, number } = context.issue;
             await github.rest.issues.createComment({
               owner, repo, issue_number: number,
-              body: '📝 本次提交仅为纯文档/文本变更。请等待作者最终审核。'
+              body: '📝 本次提交仅为纯文档/文本变更，已跳过代码语法检查。'
             });
-
-
 
       - name: 设置 Node 版本
         if: ${{ steps.flags.outputs.docs_only != 'true' }}
@@ -115,7 +113,7 @@ jobs:
           if [ $rc -ne 0 ]; then echo "failed=true" >> $GITHUB_OUTPUT; else echo "failed=false" >> $GITHUB_OUTPUT; fi
           exit 0
 
-      - name: 类型检查失败时回复 PR
+      - name: 语法检查失败时回复 PR
         if: ${{ (steps.tsc_server.outputs.failed == 'true' || steps.tsc_client.outputs.failed == 'true') && steps.flags.outputs.docs_only != 'true' }}
         uses: actions/github-script@v7
         with:
@@ -125,85 +123,29 @@ jobs:
 
             let errorDetails = '';
 
-            // 读取 server 端错误信息
             if ('${{ steps.tsc_server.outputs.failed }}' === 'true') {
               try {
                 const serverErrors = fs.readFileSync('tsc_server_output.txt', 'utf8');
                 if (serverErrors.trim()) {
-                  errorDetails += '**Server 端类型错误:**\n```\n' + serverErrors.trim() + '\n```\n\n';
+                  errorDetails += '**Server 端语法错误:**\n```\n' + serverErrors.trim() + '\n```\n\n';
                 }
               } catch (e) {
-                errorDetails += '**Server 端类型检查失败**（无法读取详细错误信息）\n\n';
+                errorDetails += '**Server 端语法检查失败**（无法读取详细错误信息）\n\n';
               }
             }
 
-            // 读取 client 端错误信息
             if ('${{ steps.tsc_client.outputs.failed }}' === 'true') {
               try {
                 const clientErrors = fs.readFileSync('tsc_client_output.txt', 'utf8');
                 if (clientErrors.trim()) {
-                  errorDetails += '**Client 端类型错误:**\n```\n' + clientErrors.trim() + '\n```\n\n';
+                  errorDetails += '**Client 端语法错误:**\n```\n' + clientErrors.trim() + '\n```\n\n';
                 }
               } catch (e) {
-                errorDetails += '**Client 端类型检查失败**（无法读取详细错误信息）\n\n';
+                errorDetails += '**Client 端语法检查失败**（无法读取详细错误信息）\n\n';
               }
             }
 
             await github.rest.issues.createComment({
               owner, repo, issue_number: number,
-              body: `❌ 自动化类型检查未通过。命令：\`npx tsc --noEmit\`\n\n${errorDetails}请根据上述错误信息修复类型错误后再次提交，系统会重新审查～`
+              body: `❌ 自动化语法检查未通过。命令：\`npx tsc --noEmit\`\n\n${errorDetails}请根据上述错误信息修复后再次提交，系统会重新检查。`
             });
-
-      - name: 确保 base 仓库存在 feature 分支
-        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.failed != 'true' && steps.tsc_client.outputs.failed != 'true' }}
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.ACTIONS_PAT }}
-          script: |
-            const { owner, repo } = context.issue;
-            async function ensureFeature() {
-              try {
-                await github.rest.git.getRef({ owner, repo, ref: 'heads/feature' });
-              } catch (err) {
-                if (err.status === 404) {
-                  const baseRef = await github.rest.git.getRef({ owner, repo, ref: 'heads/main' });
-                  await github.rest.git.createRef({ owner, repo, ref: 'refs/heads/feature', sha: baseRef.data.object.sha });
-                } else {
-                  throw err;
-                }
-              }
-            }
-            await ensureFeature();
-
-      - name: 如目标为 main，则将 PR 目标分支切换为 feature
-        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.failed != 'true' && steps.tsc_client.outputs.failed != 'true' && github.event.pull_request.base.ref == 'main' }}
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.ACTIONS_PAT }}
-          script: |
-            const { owner, repo, number } = context.issue;
-            await github.rest.pulls.update({ owner, repo, pull_number: number, base: 'feature' });
-
-      - name: 合并 PR（目标为 feature 时直接合并）
-        if: ${{ success() && steps.flags.outputs.docs_only != 'true' && steps.tsc_server.outputs.failed != 'true' && steps.tsc_client.outputs.failed != 'true' }}
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.ACTIONS_PAT }}
-          script: |
-            const { owner, repo, number } = context.issue;
-            try {
-              const pr = await github.rest.pulls.get({ owner, repo, pull_number: number });
-              if (pr.data.state !== 'open') {
-                return await github.rest.issues.createComment({ owner, repo, issue_number: number, body: '⚠️ PR 当前非 open 状态，自动合并已跳过。' });
-              }
-              await github.rest.pulls.merge({ owner, repo, pull_number: number, merge_method: 'merge' });
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: number,
-                body: '✅ 您的 PR 已通过自动化检查，现已合并至 feature测试分支。\n维护者将进行最终检查，若无问题会合并到 main 分支并在下个版本发布时包含。感谢贡献！❤'
-              });
-            } catch (e) {
-              const msg = (e && e.message) ? e.message : String(e);
-              await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `⚠️ 自动合并失败，请维护者查看：\n\n\`\`\`\n${msg}\n\`\`\`` });
-              core.setFailed('Auto merge failed');
-            }
-
