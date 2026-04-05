@@ -1,6 +1,6 @@
 import axios from 'axios';
 import express, { Request, Response } from 'express';
-import * as fs from 'fs-extra';
+import fs from '../../../utils/fsExtraCompat.js';
 import { promises as fsPromises, existsSync } from 'fs';
 import { createWriteStream, createReadStream } from 'fs';
 import * as path from 'path';
