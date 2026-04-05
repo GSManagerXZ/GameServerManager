@@ -78,6 +78,7 @@ interface FileStore {
   // 编辑器操作
   openFile: (path: string, encoding?: string) => Promise<{ isIncompatible: boolean; detectedEncoding: string; confidence: number; content: string }>
   closeFile: (path: string) => void
+  closeAllFiles: () => void
   saveFile: (path: string, content: string, encoding?: string) => Promise<boolean>
   setActiveFile: (path: string | null) => void
   updateFileContent: (path: string, content: string) => void
@@ -467,9 +468,6 @@ export const useFileStore = create<FileStore>((set, get) => ({
     newOriginalFiles.delete(path)
     newFileEncodings.delete(path)
 
-    // 停止监视该文件
-    get().unwatchFile(path)
-
     const newActiveFile = activeFile === path ?
       (newOpenFiles.size > 0 ? Array.from(newOpenFiles.keys())[0] : null) :
       activeFile
@@ -479,6 +477,15 @@ export const useFileStore = create<FileStore>((set, get) => ({
       originalFiles: newOriginalFiles,
       fileEncodings: newFileEncodings,
       activeFile: newActiveFile
+    })
+  },
+
+  closeAllFiles: () => {
+    set({
+      openFiles: new Map(),
+      originalFiles: new Map(),
+      fileEncodings: new Map(),
+      activeFile: null
     })
   },
 

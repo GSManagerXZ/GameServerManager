@@ -125,6 +125,7 @@ const FileManagerPage: React.FC = () => {
     extractArchive,
     openFile,
     closeFile,
+    closeAllFiles,
     saveFile,
     setActiveFile,
     setError,
@@ -244,6 +245,11 @@ const FileManagerPage: React.FC = () => {
       existingModified?: string
     }>
   }>({ visible: false, conflicts: [] })
+
+  const handleCloseEditorModal = useCallback(() => {
+    closeAllFiles()
+    setEditorModalVisible(false)
+  }, [closeAllFiles])
 
   // 监听活动文件变化，更新当前文件编码
   React.useEffect(() => {
@@ -2144,12 +2150,13 @@ const FileManagerPage: React.FC = () => {
       <Modal
         title="文本编辑器"
         open={editorModalVisible}
-        onCancel={() => setEditorModalVisible(false)}
+        onCancel={handleCloseEditorModal}
+        destroyOnHidden
         width="90%"
         style={{ top: 20 }}
         styles={{ body: { height: '80vh', padding: 0 } }}
         footer={[
-          <Button key="close" onClick={() => setEditorModalVisible(false)}>
+          <Button key="close" onClick={handleCloseEditorModal}>
             关闭
           </Button>,
           <Button
@@ -2178,7 +2185,7 @@ const FileManagerPage: React.FC = () => {
                 } else if (action === 'add') {
                   // 点击+号创建新文件
                   setCreateDialog({ visible: true, type: 'file' })
-                  setEditorModalVisible(false)
+                  handleCloseEditorModal()
                 }
               }}
               className="flex-1"
