@@ -24,6 +24,7 @@ interface FileStore {
   openFiles: Map<string, string> // path -> content
   originalFiles: Map<string, string> // path -> original content
   fileEncodings: Map<string, string> // path -> encoding
+  fileBomEncodings: Map<string, string | null> // path -> bom encoding
   activeFile: string | null
 
   // 文件监视相关
@@ -130,6 +131,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   openFiles: new Map(),
   originalFiles: new Map(),
   fileEncodings: new Map(),
+  fileBomEncodings: new Map(),
   activeFile: null,
   watchedFiles: new Set(),
   fileChangedDialog: null,
@@ -406,7 +408,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   // 打开文件
   openFile: async (path: string, encoding?: string) => {
-    const { openFiles, originalFiles, fileEncodings } = get()
+    const { openFiles, originalFiles, fileEncodings, fileBomEncodings } = get()
 
     if (openFiles.has(path)) {
       set({ activeFile: path })
@@ -430,16 +432,19 @@ export const useFileStore = create<FileStore>((set, get) => ({
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)
       const newFileEncodings = new Map(fileEncodings)
+      const newFileBomEncodings = new Map(fileBomEncodings)
 
       newOpenFiles.set(path, fileContent.content || '')
       newOriginalFiles.set(path, fileContent.content || '')
       // 保存文件的原始编码
       newFileEncodings.set(path, fileContent.encoding || 'utf-8')
+      newFileBomEncodings.set(path, fileContent.bomEncoding || null)
 
       set({
         openFiles: newOpenFiles,
         originalFiles: newOriginalFiles,
         fileEncodings: newFileEncodings,
+        fileBomEncodings: newFileBomEncodings,
         activeFile: path
       })
 
@@ -459,14 +464,16 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   // 关闭文件
   closeFile: (path: string) => {
-    const { openFiles, originalFiles, fileEncodings, activeFile } = get()
+    const { openFiles, originalFiles, fileEncodings, fileBomEncodings, activeFile } = get()
     const newOpenFiles = new Map(openFiles)
     const newOriginalFiles = new Map(originalFiles)
     const newFileEncodings = new Map(fileEncodings)
+    const newFileBomEncodings = new Map(fileBomEncodings)
 
     newOpenFiles.delete(path)
     newOriginalFiles.delete(path)
     newFileEncodings.delete(path)
+    newFileBomEncodings.delete(path)
 
     const newActiveFile = activeFile === path ?
       (newOpenFiles.size > 0 ? Array.from(newOpenFiles.keys())[0] : null) :
@@ -476,6 +483,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       openFiles: newOpenFiles,
       originalFiles: newOriginalFiles,
       fileEncodings: newFileEncodings,
+      fileBomEncodings: newFileBomEncodings,
       activeFile: newActiveFile
     })
   },
@@ -485,6 +493,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       openFiles: new Map(),
       originalFiles: new Map(),
       fileEncodings: new Map(),
+      fileBomEncodings: new Map(),
       activeFile: null
     })
   },
@@ -492,16 +501,25 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 保存文件
   saveFile: async (path: string, content: string, encoding: string = 'utf-8') => {
     try {
-      await fileApiClient.saveFile(path, content, encoding)
-      const { openFiles, originalFiles } = get()
+      const { openFiles, originalFiles, fileEncodings, fileBomEncodings } = get()
+      const currentBomEncoding = fileBomEncodings.get(path) || null
+
+      await fileApiClient.saveFile(path, content, encoding, currentBomEncoding)
+
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)
+      const newFileEncodings = new Map(fileEncodings)
+      const newFileBomEncodings = new Map(fileBomEncodings)
       newOpenFiles.set(path, content)
       newOriginalFiles.set(path, content) // 保存后更新原始内容
+      newFileEncodings.set(path, encoding || 'utf-8')
+      newFileBomEncodings.set(path, currentBomEncoding === (encoding || 'utf-8') ? currentBomEncoding : null)
 
       set({
         openFiles: newOpenFiles,
-        originalFiles: newOriginalFiles
+        originalFiles: newOriginalFiles,
+        fileEncodings: newFileEncodings,
+        fileBomEncodings: newFileBomEncodings
       })
       return true
     } catch (error: any) {
@@ -745,22 +763,28 @@ export const useFileStore = create<FileStore>((set, get) => ({
   // 重新加载已变化的文件
   reloadChangedFile: async (filePath: string) => {
     try {
-      const { fileEncodings } = get()
-      const encoding = fileEncodings.get(filePath)
+      const { fileEncodings: currentFileEncodings } = get()
+      const encoding = currentFileEncodings.get(filePath)
 
       // 重新读取文件内容
       const fileContent = await fileApiClient.readFile(filePath, encoding)
 
-      const { openFiles, originalFiles } = get()
+      const { openFiles, originalFiles, fileEncodings, fileBomEncodings } = get()
       const newOpenFiles = new Map(openFiles)
       const newOriginalFiles = new Map(originalFiles)
+      const newFileEncodings = new Map(fileEncodings)
+      const newFileBomEncodings = new Map(fileBomEncodings)
 
       newOpenFiles.set(filePath, fileContent.content || '')
       newOriginalFiles.set(filePath, fileContent.content || '')
+      newFileEncodings.set(filePath, fileContent.encoding || 'utf-8')
+      newFileBomEncodings.set(filePath, fileContent.bomEncoding || null)
 
       set({
         openFiles: newOpenFiles,
         originalFiles: newOriginalFiles,
+        fileEncodings: newFileEncodings,
+        fileBomEncodings: newFileBomEncodings,
         fileChangedDialog: null
       })
     } catch (error: any) {

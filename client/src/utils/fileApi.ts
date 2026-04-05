@@ -84,11 +84,12 @@ export class FileApiClient {
   }
 
   // 保存文件内容
-  async saveFile(path: string, content: string, encoding: string = 'utf-8'): Promise<FileOperationResult> {
+  async saveFile(path: string, content: string, encoding: string = 'utf-8', bomEncoding?: string | null): Promise<FileOperationResult> {
     const response = await this.client.post(`${API_BASE}/save`, {
       path,
       content,
-      encoding: encoding || 'utf-8'
+      encoding: encoding || 'utf-8',
+      bomEncoding: bomEncoding ?? null
     })
     return response.data
   }

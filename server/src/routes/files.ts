@@ -156,6 +156,151 @@ const fixWindowsPath = (filePath: string): string => {
   return decodedPath
 }
 
+type BomEncoding = 'utf-8' | 'utf-16le' | 'utf-16be' | null
+
+const normalizeTextEncoding = (encoding?: string | null): string => {
+  if (!encoding) {
+    return 'utf-8'
+  }
+
+  const trimmedEncoding = encoding.toLowerCase().trim()
+  const compactEncoding = trimmedEncoding.replace(/[_-]/g, '')
+
+  if (compactEncoding.includes('utf16') || compactEncoding.includes('ucs2')) {
+    if (compactEncoding.includes('be')) {
+      return 'utf-16be'
+    }
+
+    return 'utf-16le'
+  }
+
+  if (compactEncoding.includes('utf8')) {
+    return 'utf-8'
+  }
+
+  if (compactEncoding.includes('gbk') || compactEncoding.includes('gb2312') || compactEncoding.includes('cp936')) {
+    return 'gbk'
+  }
+
+  if (compactEncoding.includes('big5')) {
+    return 'big5'
+  }
+
+  if (compactEncoding.includes('ascii')) {
+    return 'utf-8'
+  }
+
+  if (compactEncoding.includes('windows1252') || compactEncoding === 'cp1252') {
+    return 'windows-1252'
+  }
+
+  if (compactEncoding.includes('iso88591') || compactEncoding === 'latin1') {
+    return 'iso-8859-1'
+  }
+
+  return trimmedEncoding
+}
+
+const detectBomEncoding = (buffer: Buffer): BomEncoding => {
+  if (buffer.length >= 3 &&
+    buffer[0] === 0xEF &&
+    buffer[1] === 0xBB &&
+    buffer[2] === 0xBF) {
+    return 'utf-8'
+  }
+
+  if (buffer.length >= 2) {
+    if (buffer[0] === 0xFF && buffer[1] === 0xFE) {
+      return 'utf-16le'
+    }
+
+    if (buffer[0] === 0xFE && buffer[1] === 0xFF) {
+      return 'utf-16be'
+    }
+  }
+
+  return null
+}
+
+const detectUtf16EncodingByNullPattern = (buffer: Buffer): 'utf-16le' | 'utf-16be' | null => {
+  if (buffer.length < 4) {
+    return null
+  }
+
+  const sampleLength = Math.min(buffer.length, 4096)
+  let evenZeroCount = 0
+  let oddZeroCount = 0
+  let evenByteCount = 0
+  let oddByteCount = 0
+
+  for (let index = 0; index < sampleLength; index++) {
+    if (index % 2 === 0) {
+      evenByteCount++
+      if (buffer[index] === 0x00) {
+        evenZeroCount++
+      }
+    } else {
+      oddByteCount++
+      if (buffer[index] === 0x00) {
+        oddZeroCount++
+      }
+    }
+  }
+
+  if (evenByteCount === 0 || oddByteCount === 0) {
+    return null
+  }
+
+  const evenZeroRatio = evenZeroCount / evenByteCount
+  const oddZeroRatio = oddZeroCount / oddByteCount
+
+  // 对于大量 ASCII 文本的 UTF-16，零字节会明显集中在同一侧。
+  if (oddZeroRatio >= 0.6 && evenZeroRatio <= 0.2) {
+    return 'utf-16le'
+  }
+
+  if (evenZeroRatio >= 0.6 && oddZeroRatio <= 0.2) {
+    return 'utf-16be'
+  }
+
+  return null
+}
+
+const prependEncodingBom = (buffer: Buffer, encoding: string, bomEncoding: BomEncoding): Buffer => {
+  if (!bomEncoding || bomEncoding !== encoding) {
+    return buffer
+  }
+
+  if (encoding === 'utf-8') {
+    if (buffer.length >= 3 &&
+      buffer[0] === 0xEF &&
+      buffer[1] === 0xBB &&
+      buffer[2] === 0xBF) {
+      return buffer
+    }
+
+    return Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), buffer])
+  }
+
+  if (encoding === 'utf-16le') {
+    if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+      return buffer
+    }
+
+    return Buffer.concat([Buffer.from([0xFF, 0xFE]), buffer])
+  }
+
+  if (encoding === 'utf-16be') {
+    if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+      return buffer
+    }
+
+    return Buffer.concat([Buffer.from([0xFE, 0xFF]), buffer])
+  }
+
+  return buffer
+}
+
 // 获取目录列表
 router.get('/list', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -290,7 +435,7 @@ router.get('/read', authenticateToken, async (req: Request, res: Response) => {
 // 读取文本文件内容（JSON格式）
 router.get('/read-content', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { path: filePath, encoding: requestedEncoding } = req.query
+    const { path: filePath } = req.query
 
     if (!isValidPath(filePath as string)) {
       return res.status(400).json({
@@ -314,48 +459,21 @@ router.get('/read-content', authenticateToken, async (req: Request, res: Respons
     const buffer = await fs.readFile(fixedFilePath)
 
     // 检测文件编码
+    const bomEncoding = detectBomEncoding(buffer)
+    const nullPatternEncoding = bomEncoding ? null : detectUtf16EncodingByNullPattern(buffer)
     const detected = jschardet.detect(buffer)
-    let detectedEncoding = detected.encoding?.toLowerCase() || 'utf-8'
-    const confidence = detected.confidence || 0
+    let detectedEncoding = 'utf-8'
+    let confidence = detected.confidence || 0
 
-    // 标准化编码名称
-    const normalizeEncoding = (enc: string): string => {
-      const normalized = enc.toLowerCase().replace(/[_-]/g, '')
-      if (normalized.includes('utf16') || normalized.includes('ucs2')) {
-        // 检测 BOM 来确定字节序
-        if (buffer.length >= 2) {
-          if (buffer[0] === 0xFF && buffer[1] === 0xFE) {
-            return 'utf-16le'
-          } else if (buffer[0] === 0xFE && buffer[1] === 0xFF) {
-            return 'utf-16be'
-          }
-        }
-        return 'utf-16le' // 默认使用 LE
-      }
-      if (normalized.includes('utf8')) {
-        return 'utf-8'
-      }
-      if (normalized.includes('gbk') || normalized.includes('gb2312') || normalized.includes('cp936')) {
-        return 'gbk'
-      }
-      if (normalized.includes('big5')) {
-        return 'big5'
-      }
-      if (normalized.includes('ascii')) {
-        return 'utf-8' // ASCII 是 UTF-8 的子集
-      }
-      // ANSI 编码处理（Windows代码页）
-      if (normalized.includes('windows1252') || normalized === 'cp1252') {
-        return 'windows-1252'
-      }
-      if (normalized.includes('iso88591') || normalized === 'latin1') {
-        return 'iso-8859-1'
-      }
-      return enc
+    if (bomEncoding) {
+      detectedEncoding = bomEncoding
+      confidence = 1
+    } else if (nullPatternEncoding) {
+      detectedEncoding = nullPatternEncoding
+      confidence = Math.max(confidence, 0.99)
+    } else if (detected.encoding) {
+      detectedEncoding = normalizeTextEncoding(detected.encoding)
     }
-
-    // 标准化检测到的编码
-    detectedEncoding = normalizeEncoding(detectedEncoding)
 
     // 定义编辑器支持的编码列表
     const supportedEncodings = [
@@ -411,6 +529,7 @@ router.get('/read-content', authenticateToken, async (req: Request, res: Respons
         content: content,
         encoding: finalEncoding,
         detectedEncoding: detectedEncoding,
+        bomEncoding: bomEncoding,
         confidence: confidence,
         isIncompatible: isIncompatible,
         size: stats.size,
@@ -596,7 +715,7 @@ router.post('/create', authenticateToken, async (req: Request, res: Response) =>
 // 保存文件内容
 router.post('/save', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { path: filePath, content, encoding = 'utf-8' } = req.body
+    const { path: filePath, content, encoding = 'utf-8', bomEncoding = null } = req.body
 
     if (!isValidPath(filePath)) {
       return res.status(400).json({
@@ -614,11 +733,14 @@ router.post('/save', authenticateToken, async (req: Request, res: Response) => {
       fileWatchManager.ignoreNextChange(fixedFilePath)
     }
 
+    const normalizedEncoding = normalizeTextEncoding(encoding)
+    const normalizedBomEncoding = bomEncoding ? normalizeTextEncoding(bomEncoding) as BomEncoding : null
+
     // 使用iconv-lite进行编码转换
     let buffer: Buffer
     try {
-      if (iconv.encodingExists(encoding)) {
-        buffer = iconv.encode(content, encoding)
+      if (iconv.encodingExists(normalizedEncoding)) {
+        buffer = iconv.encode(content, normalizedEncoding)
       } else {
         // 如果不支持该编码，使用UTF-8
         buffer = Buffer.from(content, 'utf-8')
@@ -628,12 +750,15 @@ router.post('/save', authenticateToken, async (req: Request, res: Response) => {
       buffer = Buffer.from(content, 'utf-8')
     }
 
+    buffer = prependEncodingBom(buffer, normalizedEncoding, normalizedBomEncoding)
+
     await fs.writeFile(fixedFilePath, buffer)
 
     res.json({
       status: 'success',
       message: '文件保存成功',
-      encoding: encoding
+      encoding: normalizedEncoding,
+      bomEncoding: normalizedBomEncoding
     })
   } catch (error: any) {
     res.status(500).json({

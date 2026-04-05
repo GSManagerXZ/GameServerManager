@@ -43,6 +43,7 @@ export interface FileSearchResult {
 export interface FileContent {
   content: string
   encoding: string
+  bomEncoding?: string | null
   detectedEncoding?: string
   confidence?: number
   isIncompatible?: boolean
