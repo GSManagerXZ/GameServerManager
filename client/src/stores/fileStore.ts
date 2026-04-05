@@ -73,7 +73,7 @@ interface FileStore {
   clearClipboard: () => void
 
   // 压缩解压操作
-  compressFiles: (filePaths: string[], archiveName: string, format?: string) => Promise<boolean>
+  compressFiles: (filePaths: string[], archiveName: string, format?: string, compressionLevel?: number) => Promise<boolean>
   extractArchive: (archivePath: string) => Promise<boolean>
 
   // 编辑器操作
@@ -614,13 +614,17 @@ export const useFileStore = create<FileStore>((set, get) => ({
   },
 
   // 压缩文件
-  compressFiles: async (filePaths: string[], archiveName: string, format: string = 'zip') => {
+  compressFiles: async (
+    filePaths: string[],
+    archiveName: string,
+    format: string = 'zip',
+    compressionLevel: number = 6
+  ) => {
     const { currentPath } = get()
 
     try {
-      const result = await fileApiClient.compressFiles(filePaths, currentPath, archiveName, format)
-      // 立即刷新活动任务列表
-      await get().loadActiveTasks()
+      await fileApiClient.compressFiles(filePaths, currentPath, archiveName, format, compressionLevel)
+      await Promise.all([get().loadActiveTasks(), get().loadTasks()])
       return true
     } catch (error: any) {
       set({ error: error.message || '压缩文件失败' })
@@ -633,9 +637,8 @@ export const useFileStore = create<FileStore>((set, get) => ({
     const { currentPath } = get()
 
     try {
-      const result = await fileApiClient.extractArchive(archivePath, currentPath)
-      // 立即刷新活动任务列表
-      await get().loadActiveTasks()
+      await fileApiClient.extractArchive(archivePath, currentPath)
+      await Promise.all([get().loadActiveTasks(), get().loadTasks()])
       return true
     } catch (error: any) {
       set({ error: error.message || '解压文件失败' })

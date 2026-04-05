@@ -75,7 +75,7 @@ import { ImagePreview } from '@/components/ImagePreview'
 import { EncodingConfirmDialog } from '@/components/EncodingConfirmDialog'
 import { FileChangedDialog } from '@/components/FileChangedDialog'
 import PasteConflictDialog from '@/components/PasteConflictDialog'
-import { FileItem } from '@/types/file'
+import { FileItem, Task } from '@/types/file'
 import socketClient from '@/utils/socket'
 import { fileApiClient } from '@/utils/fileApi'
 import { isTextFile, isImageFile } from '@/utils/format'
@@ -193,6 +193,7 @@ const FileManagerPage: React.FC = () => {
   const [searchResults, setSearchResults] = useState<FileItem[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const previousActiveTaskCountRef = useRef(0)
 
   // 历史记录
   const [history, setHistory] = useState<string[]>([])
@@ -774,6 +775,7 @@ const FileManagerPage: React.FC = () => {
 
     // 初始加载任务列表
     loadActiveTasks()
+    loadTasks()
 
     // 加载系统盘符
     loadDrives()
@@ -783,7 +785,7 @@ const FileManagerPage: React.FC = () => {
 
     // 预加载系统信息（用于右键菜单权限判断）
     fetchSystemInfo()
-  }, [searchParams, setCurrentPath, loadFiles, fetchSystemInfo, loadFavorites])
+  }, [searchParams, setCurrentPath, loadFiles, loadActiveTasks, loadTasks, fetchSystemInfo, loadFavorites])
 
   // 当路径变化时更新选中的盘符
   useEffect(() => {
@@ -795,23 +797,26 @@ const FileManagerPage: React.FC = () => {
     }
   }, [currentPath, drives, selectedDrive, findDriveForPath])
 
-  // 定期刷新活动任务
+  // 定期刷新任务状态
   useEffect(() => {
     const interval = setInterval(() => {
-      if (activeTasks.length > 0) {
+      if (taskDrawerVisible || activeTasks.length > 0) {
         loadActiveTasks()
-        // 如果有任务完成，刷新文件列表
-        const hasCompletedTasks = activeTasks.some(task =>
-          task.status === 'completed' || task.status === 'failed'
-        )
-        if (hasCompletedTasks) {
-          loadFiles(undefined, true) // 重置分页
-        }
+        loadTasks()
       }
     }, 2000) // 每2秒刷新一次
 
     return () => clearInterval(interval)
-  }, [activeTasks, loadFiles])
+  }, [activeTasks.length, taskDrawerVisible, loadActiveTasks, loadTasks])
+
+  useEffect(() => {
+    if (previousActiveTaskCountRef.current > 0 && activeTasks.length === 0) {
+      loadTasks()
+      loadFiles(undefined, true)
+    }
+
+    previousActiveTaskCountRef.current = activeTasks.length
+  }, [activeTasks.length, loadFiles, loadTasks])
 
   // 键盘快捷键
   useEffect(() => {
@@ -1268,7 +1273,7 @@ const FileManagerPage: React.FC = () => {
 
   const handleCompressConfirm = async (archiveName: string, format: string, compressionLevel: number) => {
     const filePaths = compressDialog.files.map(file => file.path)
-    const success = await compressFiles(filePaths, archiveName, format)
+    const success = await compressFiles(filePaths, archiveName, format, compressionLevel)
     if (success) {
       addNotification({
         type: 'success',
@@ -1523,6 +1528,42 @@ const FileManagerPage: React.FC = () => {
         return '未知'
     }
   }
+
+  const getTaskTypeText = (type: Task['type']) => {
+    switch (type) {
+      case 'compress':
+        return '压缩'
+      case 'extract':
+        return '解压'
+      case 'copy':
+        return '复制'
+      case 'move':
+        return '移动'
+      case 'download':
+        return '下载'
+      default:
+        return type
+    }
+  }
+
+  const getTaskTargetText = (task: Task) => {
+    const archivePath = typeof task.data?.archivePath === 'string' ? task.data.archivePath : ''
+    const targetPath = typeof task.data?.targetPath === 'string' ? task.data.targetPath : ''
+
+    if ((task.type === 'compress' || task.type === 'extract') && archivePath) {
+      return getBasename(archivePath)
+    }
+
+    if (task.type === 'download' && targetPath) {
+      return getBasename(targetPath)
+    }
+
+    return ''
+  }
+
+  const visibleTasks = [...tasks]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 12)
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-900">
@@ -2426,27 +2467,30 @@ const FileManagerPage: React.FC = () => {
         width={400}
       >
         <div className="space-y-4">
-          {activeTasks.length === 0 ? (
+          {visibleTasks.length === 0 ? (
             <Empty
-              description="暂无活动任务"
+              description="暂无任务"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
-            activeTasks.map((task) => (
+            visibleTasks.map((task) => (
               <Card key={task.id} size="small" className="mb-2">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    {getTaskStatusIcon(task.status)}
-                    <span className="font-medium">
-                      {task.type === 'compress' ? '压缩' :
-                        task.type === 'extract' ? '解压' :
-                          task.type === 'copy' ? '复制' :
-                            task.type === 'move' ? '移动' :
-                              task.type === 'download' ? '下载' : task.type}
-                    </span>
-                    <span className="text-gray-500">
-                      {getTaskStatusText(task.status)}
-                    </span>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      {getTaskStatusIcon(task.status)}
+                      <span className="font-medium">
+                        {getTaskTypeText(task.type)}
+                      </span>
+                      <span className="text-gray-500">
+                        {getTaskStatusText(task.status)}
+                      </span>
+                    </div>
+                    {getTaskTargetText(task) && (
+                      <div className="text-xs text-gray-500 mt-1 break-all">
+                        {getTaskTargetText(task)}
+                      </div>
+                    )}
                   </div>
                   {(task.status === 'completed' || task.status === 'failed') && (
                     <Button
@@ -2509,7 +2553,7 @@ const FileManagerPage: React.FC = () => {
             ))
           )}
 
-          {activeTasks.length > 0 && (
+          {visibleTasks.length > 0 && (
             <div className="text-center pt-4">
               <Button
                 type="primary"

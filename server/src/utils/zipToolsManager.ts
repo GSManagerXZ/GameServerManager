@@ -326,6 +326,30 @@ class ZipToolsManager {
     await this.download7z()
   }
 
+  private buildProcessStartError(
+    toolName: string,
+    toolPath: string,
+    error: NodeJS.ErrnoException
+  ): Error {
+    const resolvedToolPath = path.resolve(toolPath)
+
+    if (error.code === 'EACCES') {
+      return new Error(
+        `${toolName} 无法启动：压缩工具缺少执行权限，请为该文件添加可执行权限后重试。参考命令: chmod +x "${resolvedToolPath}"。工具路径: ${resolvedToolPath}`
+      )
+    }
+
+    if (error.code === 'ENOENT') {
+      return new Error(
+        `${toolName} 无法启动：未找到压缩工具文件，请检查文件是否存在或重新下载依赖。工具路径: ${resolvedToolPath}`
+      )
+    }
+
+    return new Error(
+      `${toolName} 进程启动失败: ${error.message || '未知错误'}。工具路径: ${resolvedToolPath}`
+    )
+  }
+
   /**
    * 执行 7z 子进程并等待完成
    * 退出码为 0 表示成功，非 0 抛出包含 stderr 的异常
@@ -341,8 +365,8 @@ class ZipToolsManager {
         stderr += data.toString()
       })
 
-      child.on('error', (error: Error) => {
-        reject(new Error(`7z 进程启动失败: ${error.message}`))
+      child.on('error', (error: NodeJS.ErrnoException) => {
+        reject(this.buildProcessStartError('7z', toolPath, error))
       })
 
       child.on('close', (code: number | null) => {
@@ -453,8 +477,8 @@ class ZipToolsManager {
         stderr += data.toString()
       })
 
-      child.on('error', (error: Error) => {
-        reject(new Error(`Zip-Tools 进程启动失败: ${error.message}`))
+      child.on('error', (error: NodeJS.ErrnoException) => {
+        reject(this.buildProcessStartError('Zip-Tools', toolPath, error))
       })
 
       child.on('close', (code: number | null) => {
