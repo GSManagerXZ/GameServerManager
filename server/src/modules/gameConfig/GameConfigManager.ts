@@ -1,14 +1,10 @@
 import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import YAML from 'yaml'
 import PropertiesReader from 'properties-reader'
 import TOML from 'smol-toml'
 import logger from '../../utils/logger.js'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
 
 export interface GameConfigField {
   name: string
@@ -40,6 +36,12 @@ export interface ParsedConfigData {
   [sectionKey: string]: {
     [fieldName: string]: any
   }
+}
+
+type RawConfigValue = string | number | boolean | bigint | null | undefined | Date | RawConfigObject | RawConfigValue[]
+
+interface RawConfigObject {
+  [key: string]: RawConfigValue
 }
 
 export class GameConfigManager {
@@ -195,22 +197,24 @@ export class GameConfigManager {
       const configDir = path.dirname(fullConfigPath)
       await fs.mkdir(configDir, { recursive: true })
 
+      const mergedConfig = await this.mergeConfigWithExistingFile(fullConfigPath, configData, configSchema, parserType)
+
       switch (parserType) {
         case 'properties':
-          await this.saveWithProperties(fullConfigPath, configData, configSchema)
+          await this.saveWithProperties(fullConfigPath, mergedConfig, configSchema)
           break
         case 'configobj':
-          await this.saveWithConfigObj(fullConfigPath, configData, configSchema)
+          await this.saveWithConfigObj(fullConfigPath, mergedConfig, configSchema)
           break
         case 'yaml':
         case 'ruamel.yaml':
-          await this.saveWithYaml(fullConfigPath, configData, configSchema)
+          await this.saveWithYaml(fullConfigPath, mergedConfig, configSchema)
           break
         case 'json':
-          await this.saveWithJson(fullConfigPath, configData, configSchema)
+          await this.saveWithJson(fullConfigPath, mergedConfig, configSchema)
           break
         case 'toml':
-          await this.saveWithToml(fullConfigPath, configData, configSchema)
+          await this.saveWithToml(fullConfigPath, mergedConfig, configSchema)
           break
         default:
           throw new Error(`不支持的解析器类型: ${parserType}`)
@@ -478,20 +482,274 @@ export class GameConfigManager {
     }
   }
 
+  private async mergeConfigWithExistingFile(
+    configPath: string,
+    configData: ParsedConfigData,
+    configSchema: GameConfigSchema,
+    parserType: string
+  ): Promise<RawConfigObject> {
+    const existingConfig = await this.readRawConfig(configPath, parserType)
+
+    switch (parserType) {
+      case 'properties':
+        return this.mergePropertiesConfig(existingConfig, configData, configSchema)
+      case 'configobj':
+        return this.mergeConfigObjConfig(existingConfig, configData, configSchema)
+      case 'yaml':
+      case 'ruamel.yaml':
+      case 'json':
+      case 'toml':
+        return this.mergeStructuredConfig(existingConfig, configData, configSchema)
+      default:
+        throw new Error(`不支持的解析器类型: ${parserType}`)
+    }
+  }
+
+  private async readRawConfig(configPath: string, parserType: string): Promise<RawConfigObject> {
+    try {
+      await fs.access(configPath)
+    } catch {
+      return {}
+    }
+
+    switch (parserType) {
+      case 'properties':
+        return await this.parseRawProperties(configPath)
+      case 'configobj':
+        return await this.parseRawConfigObj(configPath)
+      case 'yaml':
+      case 'ruamel.yaml':
+        return await this.parseRawYaml(configPath)
+      case 'json':
+        return await this.parseRawJson(configPath)
+      case 'toml':
+        return await this.parseRawToml(configPath)
+      default:
+        return {}
+    }
+  }
+
+  private async parseRawProperties(configPath: string): Promise<RawConfigObject> {
+    const properties = PropertiesReader(configPath)
+    const rawData = properties.getAllProperties() || {}
+    return this.cloneRawObject(rawData)
+  }
+
+  private async parseRawConfigObj(configPath: string): Promise<RawConfigObject> {
+    const content = await fs.readFile(configPath, 'utf-8')
+    const lines = content.split(/\r?\n/)
+    const parsedData: RawConfigObject = {}
+    let currentSection = ''
+
+    for (const line of lines) {
+      const trimmedLine = line.trim()
+      if (!trimmedLine || trimmedLine.startsWith('#') || trimmedLine.startsWith(';')) {
+        continue
+      }
+
+      const sectionMatch = trimmedLine.match(/^\[(.+)\]$/)
+      if (sectionMatch) {
+        currentSection = sectionMatch[1]
+        if (!this.isPlainObject(parsedData[currentSection])) {
+          parsedData[currentSection] = {}
+        }
+        continue
+      }
+
+      const keyValueMatch = trimmedLine.match(/^([^=]+)=(.*)$/)
+      if (keyValueMatch && currentSection) {
+        const key = keyValueMatch[1].trim()
+        const value = keyValueMatch[2].trim()
+        const sectionData = this.ensureObjectContainer(parsedData, currentSection)
+        sectionData[key] = value
+      }
+    }
+
+    return parsedData
+  }
+
+  private async parseRawYaml(configPath: string): Promise<RawConfigObject> {
+    const content = await fs.readFile(configPath, 'utf-8')
+    const rawData = YAML.parse(content) || {}
+    return this.cloneRawObject(rawData)
+  }
+
+  private async parseRawJson(configPath: string): Promise<RawConfigObject> {
+    const content = await fs.readFile(configPath, 'utf-8')
+    const rawData = JSON.parse(content)
+    return this.cloneRawObject(rawData || {})
+  }
+
+  private async parseRawToml(configPath: string): Promise<RawConfigObject> {
+    const content = await fs.readFile(configPath, 'utf-8')
+    const rawData = TOML.parse(content) || {}
+    return this.cloneRawObject(rawData)
+  }
+
+  private mergePropertiesConfig(
+    existingConfig: RawConfigObject,
+    configData: ParsedConfigData,
+    configSchema: GameConfigSchema
+  ): RawConfigObject {
+    const mergedConfig = this.cloneRawObject(existingConfig)
+
+    for (const section of configSchema.sections) {
+      const sectionData = configData[section.key] || {}
+
+      for (const field of section.fields) {
+        const value = sectionData[field.name]
+        if (value === undefined) {
+          continue
+        }
+
+        mergedConfig[field.name] = field.type === 'nested' && field.nested_fields
+          ? this.formatNestedValue(value, field.nested_fields, existingConfig[field.name])
+          : this.normalizeScalarValue(value, field.type)
+      }
+    }
+
+    return mergedConfig
+  }
+
+  private mergeConfigObjConfig(
+    existingConfig: RawConfigObject,
+    configData: ParsedConfigData,
+    configSchema: GameConfigSchema
+  ): RawConfigObject {
+    const mergedConfig = this.cloneRawObject(existingConfig)
+
+    for (const section of configSchema.sections) {
+      const sectionData = configData[section.key] || {}
+      const targetSection = this.ensureObjectContainer(mergedConfig, section.key)
+      const existingSection = this.isPlainObject(existingConfig[section.key]) ? existingConfig[section.key] as RawConfigObject : {}
+
+      for (const field of section.fields) {
+        const value = sectionData[field.name]
+        if (value === undefined) {
+          continue
+        }
+
+        if (field.type === 'nested' && field.nested_fields) {
+          targetSection[field.name] = this.formatNestedValue(value, field.nested_fields, existingSection[field.name])
+        } else {
+          targetSection[field.name] = this.normalizeScalarValue(value, field.type)
+        }
+      }
+    }
+
+    return mergedConfig
+  }
+
+  private mergeStructuredConfig(
+    existingConfig: RawConfigObject,
+    configData: ParsedConfigData,
+    configSchema: GameConfigSchema
+  ): RawConfigObject {
+    const mergedConfig = this.cloneRawObject(existingConfig)
+
+    for (const section of configSchema.sections) {
+      const sectionData = configData[section.key] || {}
+      const targetContainer = section.key === ''
+        ? mergedConfig
+        : this.ensureObjectContainer(mergedConfig, section.key)
+      const existingContainer = section.key === ''
+        ? existingConfig
+        : (this.isPlainObject(existingConfig[section.key]) ? existingConfig[section.key] as RawConfigObject : {})
+
+      for (const field of section.fields) {
+        const value = sectionData[field.name]
+        if (value === undefined) {
+          continue
+        }
+
+        if (field.type === 'nested' && field.nested_fields && this.isPlainObject(value)) {
+          const existingNested = this.isPlainObject(existingContainer[field.name])
+            ? existingContainer[field.name] as RawConfigObject
+            : {}
+          targetContainer[field.name] = {
+            ...this.cloneRawObject(existingNested),
+            ...value
+          }
+        } else {
+          targetContainer[field.name] = value
+        }
+      }
+    }
+
+    return mergedConfig
+  }
+
+  private isPlainObject(value: unknown): value is RawConfigObject {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+  }
+
+  private ensureObjectContainer(target: RawConfigObject, key: string): RawConfigObject {
+    if (!this.isPlainObject(target[key])) {
+      target[key] = {}
+    }
+
+    return target[key] as RawConfigObject
+  }
+
+  private cloneRawObject<T>(value: T): T {
+    if (value === null || value === undefined) {
+      return value
+    }
+
+    return structuredClone(value)
+  }
+
+  private normalizeScalarValue(value: any, type: string): string | number | boolean {
+    switch (type) {
+      case 'number':
+        return Number(value)
+      case 'boolean':
+        return Boolean(value)
+      case 'string':
+      case 'select':
+      default:
+        return String(value)
+    }
+  }
+
+  private parseLooseNestedPairs(value: any): RawConfigObject {
+    const result: RawConfigObject = {}
+
+    if (typeof value !== 'string') {
+      return result
+    }
+
+    const cleanValue = value.replace(/^\(|\)$/g, '')
+    if (!cleanValue) {
+      return result
+    }
+
+    const pairs = cleanValue.split(',')
+    for (const pair of pairs) {
+      const equalIndex = pair.indexOf('=')
+      if (equalIndex === -1) {
+        continue
+      }
+
+      const key = pair.slice(0, equalIndex).trim()
+      const fieldValue = pair.slice(equalIndex + 1).trim()
+      if (key) {
+        result[key] = fieldValue
+      }
+    }
+
+    return result
+  }
+
   /**
    * 保存为Properties格式
    */
-  private async saveWithProperties(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
+  private async saveWithProperties(configPath: string, configData: RawConfigObject, configSchema: GameConfigSchema): Promise<void> {
     const lines: string[] = []
-    
-    for (const section of configSchema.sections) {
-      const sectionData = configData[section.key] || {}
-      
-      for (const field of section.fields) {
-        const value = sectionData[field.name]
-        if (value !== undefined) {
-          lines.push(`${field.name}=${value}`)
-        }
+
+    for (const [key, value] of Object.entries(configData)) {
+      if (value !== undefined && !this.isPlainObject(value)) {
+        lines.push(`${key}=${value}`)
       }
     }
 
@@ -501,25 +759,22 @@ export class GameConfigManager {
   /**
    * 保存为ConfigObj格式（INI格式）
    */
-  private async saveWithConfigObj(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
+  private async saveWithConfigObj(configPath: string, configData: RawConfigObject, configSchema: GameConfigSchema): Promise<void> {
     const lines: string[] = []
-    
-    for (const section of configSchema.sections) {
-      lines.push(`[${section.key}]`)
-      const sectionData = configData[section.key] || {}
-      
-      for (const field of section.fields) {
-        const value = sectionData[field.name]
-        if (value !== undefined) {
-          if (field.type === 'nested' && field.nested_fields) {
-            // 处理嵌套字段
-            const nestedValue = this.formatNestedValue(value, field.nested_fields)
-            lines.push(`${field.name}=${nestedValue}`)
-          } else {
-            lines.push(`${field.name}=${value}`)
-          }
+
+    for (const [sectionKey, sectionValue] of Object.entries(configData)) {
+      if (!this.isPlainObject(sectionValue)) {
+        continue
+      }
+
+      lines.push(`[${sectionKey}]`)
+
+      for (const [fieldName, fieldValue] of Object.entries(sectionValue)) {
+        if (fieldValue !== undefined) {
+          lines.push(`${fieldName}=${fieldValue}`)
         }
       }
+
       lines.push('')
     }
 
@@ -529,7 +784,7 @@ export class GameConfigManager {
   /**
    * 保存为YAML格式
    */
-  private async saveWithYaml(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
+  private async saveWithYaml(configPath: string, configData: RawConfigObject, configSchema: GameConfigSchema): Promise<void> {
     const yamlContent = YAML.stringify(configData)
     await fs.writeFile(configPath, yamlContent, 'utf-8')
   }
@@ -537,14 +792,14 @@ export class GameConfigManager {
   /**
    * 保存为JSON格式
    */
-  private async saveWithJson(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
+  private async saveWithJson(configPath: string, configData: RawConfigObject, configSchema: GameConfigSchema): Promise<void> {
     // 检查是否为扁平结构（section.key 为空字符串）
     const isFlat = configSchema.sections.length === 1 && configSchema.sections[0].key === ''
     
     let jsonData: any
     if (isFlat) {
       // 扁平结构：直接将字段写入 JSON 根级别
-      jsonData = configData[''] || {}
+      jsonData = configData
     } else {
       // 嵌套结构：保持原有结构
       jsonData = configData
@@ -557,17 +812,30 @@ export class GameConfigManager {
   /**
    * 格式化嵌套值
    */
-  private formatNestedValue(value: any, nestedFields: GameConfigField[]): string {
+  private formatNestedValue(value: any, nestedFields: GameConfigField[], existingValue?: any): string {
     if (typeof value === 'object' && value !== null) {
+      const existingPairs = this.parseLooseNestedPairs(existingValue)
+      const mergedPairs: RawConfigObject = {
+        ...existingPairs,
+        ...value
+      }
       const pairs: string[] = []
-      
+
+      const schemaFieldNames = new Set(nestedFields.map(field => field.name))
+
       for (const field of nestedFields) {
-        const fieldValue = value[field.name]
+        const fieldValue = mergedPairs[field.name]
         if (fieldValue !== undefined) {
           pairs.push(`${field.name}=${fieldValue}`)
         }
       }
-      
+
+      for (const [key, fieldValue] of Object.entries(mergedPairs)) {
+        if (!schemaFieldNames.has(key) && fieldValue !== undefined) {
+          pairs.push(`${key}=${fieldValue}`)
+        }
+      }
+
       return `(${pairs.join(',')})`
     }
     
@@ -607,7 +875,7 @@ export class GameConfigManager {
   /**
    * 保存为TOML格式
    */
-  private async saveWithToml(configPath: string, configData: ParsedConfigData, configSchema: GameConfigSchema): Promise<void> {
+  private async saveWithToml(configPath: string, configData: RawConfigObject, configSchema: GameConfigSchema): Promise<void> {
     try {
       const tomlContent = TOML.stringify(configData)
       await fs.writeFile(configPath, tomlContent, 'utf-8')
