@@ -31,7 +31,7 @@
     "properties-reader": "^2.3.0",
     "smol-toml": "^1.4.2",
     "socket.io": "^4.8.3",
-    "tar": "^6.2.1",
+    "tar": "^7.5.13",
     "tar-stream": "^3.1.8",
     "uuid": "^9.0.1",
     "winston": "^3.19.0",
