@@ -12,6 +12,7 @@ import { exec } from 'child_process'
 import { TerminalSessionManager, PersistedTerminalSession } from './TerminalSessionManager.js'
 import { ConfigManager } from '../config/ConfigManager.js'
 import { ptyManager } from '../../utils/ptyManager.js'
+import { buildUtf8LocaleEnv } from '../../utils/filenameEncoding.js'
 
 const execAsync = promisify(exec)
 
@@ -200,6 +201,12 @@ export class TerminalManager {
         '-size', `${cols},${rows}`,
         '-coder', 'UTF-8'
       ]
+
+      const terminalEnv = buildUtf8LocaleEnv({
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor'
+      })
       
       // 根据操作系统设置默认shell
       if (os.platform() === 'win32') {
@@ -216,8 +223,14 @@ export class TerminalManager {
             if (sudoExists) {
               // 如果sudo存在，使用sudo切换用户，使用简化的方式
               args.push('-cmd', JSON.stringify([
-                'sudo', '-u', defaultUser, '/bin/bash', '-c', 
-                `cd "${workingDirectory}" && /bin/bash --login`
+                'sudo', '-u', defaultUser,
+                'env',
+                'LANG=zh_CN.UTF-8',
+                'LANGUAGE=zh_CN:zh',
+                'LC_ALL=zh_CN.UTF-8',
+                'LC_CTYPE=zh_CN.UTF-8',
+                '/bin/bash', '-c',
+                `cd "${workingDirectory}" && exec /bin/bash --login`
               ]))
               this.logger.info(`使用sudo切换到默认用户启动终端: ${defaultUser}，工作目录: ${workingDirectory}`)
             } else {
@@ -228,7 +241,8 @@ export class TerminalManager {
                 // 使用su命令切换用户，使用简化的方式
                 args.push('-cmd', JSON.stringify([
                   'su', defaultUser, '-c', 
-                  `cd "${workingDirectory}" && /bin/bash --login`
+                  'export LANG=zh_CN.UTF-8 LANGUAGE=zh_CN:zh LC_ALL=zh_CN.UTF-8 LC_CTYPE=zh_CN.UTF-8; ' +
+                  `cd "${workingDirectory}" && exec /bin/bash --login`
                 ]))
                 this.logger.info(`使用su切换到默认用户启动终端: ${defaultUser}，工作目录: ${workingDirectory}`)
               } else {
@@ -254,11 +268,7 @@ export class TerminalManager {
       const ptyProcess = spawn(this.ptyPath, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: workingDirectory,
-        env: {
-          ...process.env,
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor'
-        },
+        env: terminalEnv,
         // Linux下创建新的进程组，确保信号正确传递
         detached: os.platform() !== 'win32'
       })
@@ -1492,6 +1502,12 @@ export class TerminalManager {
         '-size', '100,30', // 使用默认大小
         '-coder', 'UTF-8'
       ]
+
+      const terminalEnv = buildUtf8LocaleEnv({
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor'
+      })
       
       // 使用默认bash，不切换用户
       args.push('-cmd', JSON.stringify(['/bin/bash', '--login']))
@@ -1503,11 +1519,7 @@ export class TerminalManager {
       const ptyProcess = spawn(this.ptyPath, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: workingDirectory,
-        env: {
-          ...process.env,
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor'
-        },
+        env: terminalEnv,
         detached: os.platform() !== 'win32'
       })
       

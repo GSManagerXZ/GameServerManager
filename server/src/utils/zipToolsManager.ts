@@ -4,6 +4,26 @@ import fs from 'fs/promises'
 import { createWriteStream } from 'fs'
 import { pipeline } from 'stream/promises'
 import logger from './logger.js'
+import { directoryContainsCorruptedNames } from './filenameEncoding.js'
+
+const ZIP_FILENAME_ENCODINGS = ['utf-8', 'gbk'] as const
+
+async function mergeDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
+  await fs.mkdir(targetDir, { recursive: true })
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name)
+    const targetPath = path.join(targetDir, entry.name)
+
+    if (entry.isDirectory()) {
+      await mergeDirectoryContents(sourcePath, targetPath)
+      continue
+    }
+
+    await fs.copyFile(sourcePath, targetPath)
+  }
+}
 
 /**
  * 支持的操作系统平台列表
@@ -396,11 +416,12 @@ class ZipToolsManager {
 
   /**
    * 执行 ZIP 解压操作
-   * 命令: file_zip -mode 2 -zipPath {文件名} -distDirPath {目标目录} -code utf-8
+   * 命令: file_zip -mode 2 -zipPath {文件名} -distDirPath {目标目录} -code {encoding}
    * cwd 设置为 ZIP 文件所在目录
    *
    * 注意参数格式（Go flag 包仅支持单横线前缀）：
    *   -mode / -zipPath / -distDirPath / -code 均使用单横线 + 空格分隔值
+   * 优先尝试 UTF-8，若检测到损坏文件名或首次解压失败则回退到 GBK
    */
   async extractZip(zipPath: string, targetDir: string): Promise<void> {
     const toolPath = await this.getZipToolsPath()
@@ -409,15 +430,60 @@ class ZipToolsManager {
 
     // 确保目标目录存在
     await fs.mkdir(targetDir, { recursive: true })
+    const tempBaseName = `.gsm3-zip-extract-${Date.now()}`
+    let chosenTempDir = ''
+    let sawCorruptedNames = false
+    let fallbackError: Error | null = null
 
-    const args = [
-      '-mode', '2',
-      '-zipPath', zipFileName,
-      '-distDirPath', path.resolve(targetDir),
-      '-code', 'utf-8',
-    ]
+    for (let index = 0; index < ZIP_FILENAME_ENCODINGS.length; index++) {
+      const encoding = ZIP_FILENAME_ENCODINGS[index]
+      const tempTargetDir = path.join(path.dirname(targetDir), `${tempBaseName}-${index}`)
 
-    await this.executeZipTools(toolPath, args, zipDir)
+      await fs.rm(tempTargetDir, { recursive: true, force: true })
+      await fs.mkdir(tempTargetDir, { recursive: true })
+
+      const args = [
+        '-mode', '2',
+        '-zipPath', zipFileName,
+        '-distDirPath', path.resolve(tempTargetDir),
+        '-code', encoding,
+      ]
+
+      try {
+        await this.executeZipTools(toolPath, args, zipDir)
+      } catch (error: any) {
+        await fs.rm(tempTargetDir, { recursive: true, force: true })
+        fallbackError = error instanceof Error ? error : new Error(String(error))
+        logger.warn(`ZIP 解压尝试失败 (${encoding}): ${fallbackError.message}`)
+        continue
+      }
+
+      const hasCorruptedNames = await directoryContainsCorruptedNames(tempTargetDir)
+      if (!hasCorruptedNames) {
+        chosenTempDir = tempTargetDir
+        break
+      }
+
+      sawCorruptedNames = true
+      logger.warn(`ZIP 解压检测到损坏文件名，准备使用下一种编码重试: ${zipPath} (${encoding})`)
+
+      if (index === ZIP_FILENAME_ENCODINGS.length - 1) {
+        chosenTempDir = tempTargetDir
+      } else {
+        await fs.rm(tempTargetDir, { recursive: true, force: true })
+      }
+    }
+
+    if (!chosenTempDir) {
+      throw fallbackError ?? new Error(`ZIP 解压失败: ${zipPath}`)
+    }
+
+    await mergeDirectoryContents(chosenTempDir, targetDir)
+    await fs.rm(chosenTempDir, { recursive: true, force: true })
+
+    if (sawCorruptedNames) {
+      logger.warn(`ZIP 文件 ${zipPath} 在 UTF-8 解压下出现损坏文件名，已尝试使用 GBK 回退`)
+    }
   }
 
   /**
