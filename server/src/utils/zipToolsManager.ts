@@ -25,6 +25,10 @@ async function mergeDirectoryContents(sourceDir: string, targetDir: string): Pro
   }
 }
 
+async function createZipExtractTempDir(targetDir: string): Promise<string> {
+  return fs.mkdtemp(path.join(path.dirname(targetDir), '.gsm3-zip-extract-'))
+}
+
 /**
  * 支持的操作系统平台列表
  * 二进制文件名直接使用 process.platform 值（win32, linux, darwin）
@@ -430,17 +434,13 @@ class ZipToolsManager {
 
     // 确保目标目录存在
     await fs.mkdir(targetDir, { recursive: true })
-    const tempBaseName = `.gsm3-zip-extract-${Date.now()}`
     let chosenTempDir = ''
     let sawCorruptedNames = false
     let fallbackError: Error | null = null
 
     for (let index = 0; index < ZIP_FILENAME_ENCODINGS.length; index++) {
       const encoding = ZIP_FILENAME_ENCODINGS[index]
-      const tempTargetDir = path.join(path.dirname(targetDir), `${tempBaseName}-${index}`)
-
-      await fs.rm(tempTargetDir, { recursive: true, force: true })
-      await fs.mkdir(tempTargetDir, { recursive: true })
+      const tempTargetDir = await createZipExtractTempDir(targetDir)
 
       const args = [
         '-mode', '2',
