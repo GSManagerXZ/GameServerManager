@@ -32,6 +32,7 @@ jest.mock('fs/promises', () => ({
   mkdtemp: jest.fn(async (prefix: string) => `${prefix}mock-temp-dir`),
   rm: jest.fn().mockResolvedValue(undefined),
   readdir: jest.fn().mockResolvedValue([]),
+  rename: jest.fn().mockResolvedValue(undefined),
   copyFile: jest.fn().mockResolvedValue(undefined),
   stat: jest.fn().mockResolvedValue({ size: 1024 }),
   unlink: jest.fn().mockResolvedValue(undefined),
@@ -141,6 +142,33 @@ describe('extract7z / compress7z 参数构建', () => {
       expect(fs.mkdtemp).toHaveBeenCalledWith(
         path.join(path.dirname(targetDir), '.gsm3-zip-extract-')
       )
+    })
+
+    it('解压成功后应优先通过 rename 移动内容，而不是再次整树 copy', async () => {
+      const zipPath = '/data/test/archive.zip'
+      const targetDir = '/data/test/output'
+      const tempDir = path.join(path.dirname(targetDir), '.gsm3-zip-extract-mock-temp-dir')
+
+      ;(fs.readdir as jest.Mock).mockImplementation(async (dirPath: string) => {
+        if (dirPath === tempDir) {
+          return [
+            {
+              name: 'large.zip.entry',
+              isDirectory: () => false,
+            },
+          ]
+        }
+
+        return []
+      })
+
+      await manager.extractZip(zipPath, targetDir)
+
+      expect(fs.rename).toHaveBeenCalledWith(
+        path.join(tempDir, 'large.zip.entry'),
+        path.join(targetDir, 'large.zip.entry')
+      )
+      expect(fs.copyFile).not.toHaveBeenCalled()
     })
   })
 

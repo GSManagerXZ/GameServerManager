@@ -8,7 +8,7 @@ import { directoryContainsCorruptedNames } from './filenameEncoding.js'
 
 const ZIP_FILENAME_ENCODINGS = ['utf-8', 'gbk'] as const
 
-async function mergeDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
+async function copyDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
   await fs.mkdir(targetDir, { recursive: true })
   const entries = await fs.readdir(sourceDir, { withFileTypes: true })
 
@@ -17,11 +17,54 @@ async function mergeDirectoryContents(sourceDir: string, targetDir: string): Pro
     const targetPath = path.join(targetDir, entry.name)
 
     if (entry.isDirectory()) {
-      await mergeDirectoryContents(sourcePath, targetPath)
+      await copyDirectoryContents(sourcePath, targetPath)
       continue
     }
 
     await fs.copyFile(sourcePath, targetPath)
+  }
+}
+
+async function moveExtractedEntry(sourcePath: string, targetPath: string, isDirectory: boolean): Promise<void> {
+  try {
+    await fs.rename(sourcePath, targetPath)
+    return
+  } catch (error: any) {
+    if (error?.code === 'EXDEV') {
+      if (isDirectory) {
+        await copyDirectoryContents(sourcePath, targetPath)
+        await fs.rm(sourcePath, { recursive: true, force: true })
+      } else {
+        await fs.copyFile(sourcePath, targetPath)
+        await fs.rm(sourcePath, { force: true })
+      }
+      return
+    }
+
+    if (isDirectory && ['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(error?.code)) {
+      await moveDirectoryContents(sourcePath, targetPath)
+      await fs.rm(sourcePath, { recursive: true, force: true })
+      return
+    }
+
+    if (!isDirectory && ['EEXIST', 'EPERM'].includes(error?.code)) {
+      await fs.rm(targetPath, { force: true })
+      await fs.rename(sourcePath, targetPath)
+      return
+    }
+
+    throw error
+  }
+}
+
+async function moveDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
+  await fs.mkdir(targetDir, { recursive: true })
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name)
+    const targetPath = path.join(targetDir, entry.name)
+    await moveExtractedEntry(sourcePath, targetPath, entry.isDirectory())
   }
 }
 
@@ -478,7 +521,7 @@ class ZipToolsManager {
       throw fallbackError ?? new Error(`ZIP 解压失败: ${zipPath}`)
     }
 
-    await mergeDirectoryContents(chosenTempDir, targetDir)
+    await moveDirectoryContents(chosenTempDir, targetDir)
     await fs.rm(chosenTempDir, { recursive: true, force: true })
 
     if (sawCorruptedNames) {
