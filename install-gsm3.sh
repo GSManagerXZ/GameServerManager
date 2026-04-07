@@ -172,6 +172,7 @@ if test "$install_type" = "1"; then
 
 	# 设置其他lib文件权限
 	chmod 755 "$install_path"/data/lib/file_zip_* "$install_path"/data/lib/7z_* 2>/dev/null || true
+	chmod -R 777 "$install_path" 2>/dev/null || true
 
 	echo "SERVER_PORT=$server_port" >> "$install_path/.env"
 	if test "$install_to_systemd" = "yes"; then
@@ -254,4 +255,5 @@ EOF
 	echo -e "启动命令：\x1b[33mcd '$install_path'; docker compose up -d\x1b[0m"
 	echo -e "停止命令：\x1b[33mcd '$install_path'; docker compose down\x1b[0m"
 	echo -e "一键卸载命令：\x1b[31mcd '$install_path'; docker compose down; docker rmi xiaozhu674/gameservermanager:latest\x1b[0m"
+	chmod -R 777 "$install_path" 2>/dev/null || true
 fi

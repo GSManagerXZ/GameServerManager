@@ -741,7 +741,7 @@ async function startServer() {
     app.use('/api/network', networkRouter)
 
     // 云构建部署路由
-    app.use('/api', cloudBuildRouter)
+    app.use('/api/cloud-build', cloudBuildRouter)
 
     // 设置安全配置路由
     const { setSecurityConfigManager } = await import('./routes/security.js')

@@ -284,15 +284,16 @@ const GameDeploymentPage: React.FC = () => {
   const [helpModalAnimating, setHelpModalAnimating] = useState(false)
 
   // 云构建部署相关状态
-  const [cloudBuildType, setCloudBuildType] = useState('msl_Official')
-  const [cloudBuildCores, setCloudBuildCores] = useState<any[]>([])
-  const [cloudBuildCoresLoading, setCloudBuildCoresLoading] = useState(false)
-  const [selectedCloudCore, setSelectedCloudCore] = useState<any>(null)
+  const [activeCloudBuildSubTab, setActiveCloudBuildSubTab] = useState('java-core')
+  const [cloudBuildCoreTypes, setCloudBuildCoreTypes] = useState<string[]>([])
+  const [cloudBuildCatalogLoading, setCloudBuildCatalogLoading] = useState(false)
+  const [selectedCloudCoreType, setSelectedCloudCoreType] = useState<string>('')
+  const [cloudBuildVersions, setCloudBuildVersions] = useState<string[]>([])
   const [selectedCloudVersion, setSelectedCloudVersion] = useState<string>('')
+  const [cloudBuildMcVersion, setCloudBuildMcVersion] = useState<string>('')
   const [cloudBuildPath, setCloudBuildPath] = useState('')
-  const [cloudBuildStats, setCloudBuildStats] = useState<any>(null)
   const [buildingCloud, setBuildingCloud] = useState(false)
-  const [cloudBuildTask, setCloudBuildTask] = useState<any>(null)
+  const [cloudBuildTaskSession, setCloudBuildTaskSession] = useState<{ requestId: string; accessToken: string } | null>(null)
   const [cloudBuildProgress, setCloudBuildProgress] = useState<number>(0)
   const [cloudBuildLogs, setCloudBuildLogs] = useState<string[]>([])
   const [cloudBuildComplete, setCloudBuildComplete] = useState(false)
@@ -303,12 +304,6 @@ const GameDeploymentPage: React.FC = () => {
   const [cloudInstanceDescription, setCloudInstanceDescription] = useState('')
   const [cloudInstanceStartCommand, setCloudInstanceStartCommand] = useState('')
   const [creatingCloudInstance, setCreatingCloudInstance] = useState(false)
-
-  // Modrinth 整合包相关状态
-  const [modrinthPackId, setModrinthPackId] = useState('')
-  const [modrinthVersion, setModrinthVersion] = useState('')
-  const [modrinthCacheList, setModrinthCacheList] = useState<any[]>([])
-  const [modrinthCacheLoading, setModrinthCacheLoading] = useState(false)
 
   // SteamCMD高级选项
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -433,244 +428,210 @@ const GameDeploymentPage: React.FC = () => {
     }
   }
 
-  // 获取云构建核心列表
-  const fetchCloudBuildCores = async () => {
-    try {
-      setCloudBuildCoresLoading(true)
-      const response = await apiClient.getCloudBuildCores(cloudBuildType)
+  const resetCloudBuildState = () => {
+    setCloudBuildTaskSession(null)
+    setCloudBuildProgress(0)
+    setCloudBuildLogs([])
+    setCloudBuildComplete(false)
+    setCloudBuildResult(null)
+  }
 
-      if (response.success && response.data) {
-        setCloudBuildCores(response.data)
-      } else {
-        addNotification({
-          type: 'error',
-          title: '获取核心列表失败',
-          message: response.message || '无法获取可用的服务端核心列表'
-        })
+  const appendCloudBuildLog = (message: string) => {
+    setCloudBuildLogs(prev => {
+      if (prev[prev.length - 1] === message) {
+        return prev
       }
+      return [...prev, message]
+    })
+  }
+
+  const fetchCloudBuildCoreTypes = async () => {
+    try {
+      setCloudBuildCatalogLoading(true)
+      const response = await apiClient.getCloudBuildCatalog()
+
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '无法获取核心类型列表')
+      }
+
+      const coreTypes = Array.isArray(response.data.coreTypes) ? response.data.coreTypes : []
+      setCloudBuildCoreTypes(coreTypes)
+
+      if (coreTypes.length === 0) {
+        setSelectedCloudCoreType('')
+        setCloudBuildVersions([])
+        addNotification({
+          type: 'warning',
+          title: '暂无核心类型',
+          message: '当前未获取到可用的云构建核心类型'
+        })
+        return
+      }
+
+      setSelectedCloudCoreType(prev => coreTypes.includes(prev) ? prev : coreTypes[0])
     } catch (error: any) {
-      console.error('获取云构建核心列表失败:', error)
+      console.error('获取云构建核心类型失败:', error)
       addNotification({
         type: 'error',
-        title: '获取核心列表失败',
+        title: '获取核心类型失败',
         message: error.message || '网络请求失败'
       })
     } finally {
-      setCloudBuildCoresLoading(false)
+      setCloudBuildCatalogLoading(false)
     }
   }
 
-  // 获取云构建统计数据
-  const fetchCloudBuildStats = async () => {
+  const fetchCloudBuildVersions = async (coreType: string) => {
     try {
-      const response = await apiClient.getCloudBuildStats()
-      if (response.success && response.data) {
-        setCloudBuildStats(response.data)
-      }
-    } catch (error) {
-      console.error('获取云构建统计数据失败:', error)
-    }
-  }
+      setCloudBuildCatalogLoading(true)
+      const response = await apiClient.getCloudBuildCatalog(coreType)
 
-  // 获取 Modrinth 缓存列表
-  const fetchModrinthCache = async () => {
-    try {
-      setModrinthCacheLoading(true)
-      const response = await apiClient.getModrinthCache()
-      if (response.success && response.data) {
-        setModrinthCacheList(response.data)
-      } else {
-        addNotification({
-          type: 'error',
-          title: '获取缓存列表失败',
-          message: response.message || '无法获取 Modrinth 缓存列表'
-        })
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '无法获取核心版本列表')
       }
+
+      const versions = Array.isArray(response.data.versions) ? response.data.versions : []
+      setCloudBuildVersions(versions)
     } catch (error: any) {
-      console.error('获取 Modrinth 缓存列表失败:', error)
+      console.error('获取云构建核心版本失败:', error)
       addNotification({
         type: 'error',
-        title: '获取缓存列表失败',
-        message: error.message || '网络请求失败'
+        title: '获取版本失败',
+        message: error.message || '无法获取核心版本列表'
       })
+      setCloudBuildVersions([])
     } finally {
-      setModrinthCacheLoading(false)
+      setCloudBuildCatalogLoading(false)
     }
   }
 
-  // 开始云构建
   const handleCloudBuild = async () => {
-    // Modrinth 类型的验证
-    if (cloudBuildType === 'modrinth') {
-      if (!modrinthPackId || !modrinthVersion) {
-        addNotification({
-          type: 'warning',
-          title: '请填写整合包信息',
-          message: '请填写整合包 ID/URL 和版本号'
-        })
-        return
-      }
-
-      if (!cloudBuildPath) {
-        addNotification({
-          type: 'warning',
-          title: '请选择部署路径',
-          message: '请先选择整合包部署路径'
-        })
-        return
-      }
-
-      try {
-        setBuildingCloud(true)
-        setCloudBuildLogs(['开始构建 Modrinth 整合包任务...'])
-        setCloudBuildComplete(false)
-        setCloudBuildResult(null)
-
-        const response = await apiClient.createCloudBuildTask({
-          coreName: modrinthPackId,
-          version: modrinthVersion,
-          type: 'modrinth'
-        })
-
-        if (response.success && response.data) {
-          if (response.data.fileName) {
-            // 缓存命中，使用 fileName 让后端生成下载链接
-            setCloudBuildLogs(prev => [...prev, '从缓存获取整合包文件...'])
-            await handleCloudDownload(response.data.fileName, true)
-          } else if (response.data.taskId) {
-            // 需要构建，开始监控进度
-            setCloudBuildTask(response.data)
-            setCloudBuildLogs(prev => [...prev, '构建任务已创建，正在查询状态...'])
-            monitorCloudBuildProgress(response.data.taskId)
-          } else {
-            throw new Error('无效的响应数据')
-          }
-        } else {
-          throw new Error(response.message || '创建构建任务失败')
-        }
-      } catch (error: any) {
-        console.error('Modrinth 整合包构建失败:', error)
-        addNotification({
-          type: 'error',
-          title: '构建失败',
-          message: error.message || '创建构建任务失败'
-        })
-        setBuildingCloud(false)
-      }
-      return
-    }
-
-    // msl_Official 类型的验证
-    if (!selectedCloudCore || !selectedCloudVersion) {
+    if (!selectedCloudCoreType || !selectedCloudVersion) {
       addNotification({
         type: 'warning',
-        title: '请选择核心和版本',
-        message: '请先选择服务端核心和版本'
+        title: '请选择核心类型和版本',
+        message: '请先选择要构建的核心类型和核心版本'
       })
       return
     }
 
-    if (!cloudBuildPath) {
+    if (!cloudBuildMcVersion.trim()) {
+      addNotification({
+        type: 'warning',
+        title: '请输入MC版本',
+        message: 'MC版本不能为空'
+      })
+      return
+    }
+
+    if (!cloudBuildPath.trim()) {
       addNotification({
         type: 'warning',
         title: '请选择部署路径',
-        message: '请先选择服务端部署路径'
+        message: '请先填写开服包部署路径'
       })
       return
     }
 
     try {
       setBuildingCloud(true)
-      setCloudBuildLogs(['开始构建任务...'])
+      setCloudBuildProgress(0)
       setCloudBuildComplete(false)
       setCloudBuildResult(null)
+      setCloudBuildTaskSession(null)
+      setCloudBuildLogs(['开始提交我的世界Java核心开服包任务...'])
 
       const response = await apiClient.createCloudBuildTask({
-        coreName: selectedCloudCore.name,
+        coreType: selectedCloudCoreType,
         version: selectedCloudVersion,
-        type: cloudBuildType
+        mcVersion: cloudBuildMcVersion.trim()
       })
 
-      if (response.success && response.data) {
-        if (response.data.fileName) {
-          // 缓存命中，使用 fileName 让后端生成下载链接
-          setCloudBuildLogs(prev => [...prev, '从缓存获取服务端文件...'])
-          await handleCloudDownload(response.data.fileName, true)
-        } else if (response.data.taskId) {
-          // 需要构建，开始监控进度
-          setCloudBuildTask(response.data)
-          setCloudBuildLogs(prev => [...prev, '构建任务已创建，正在查询状态...'])
-          monitorCloudBuildProgress(response.data.taskId)
-        } else {
-          throw new Error('无效的响应数据')
-        }
-      } else {
-        throw new Error(response.message || '创建构建任务失败')
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '创建云构建任务失败')
       }
+
+      const requestId = String(response.data.requestId || '').trim()
+      const accessToken = String(response.data.accessToken || '').trim()
+
+      if (!requestId || !accessToken) {
+        throw new Error('云构建任务已创建，但缺少 requestId 或 accessToken')
+      }
+
+      setCloudBuildTaskSession({ requestId, accessToken })
+      appendCloudBuildLog(`任务已创建，请求编号：${requestId}`)
+
+      await monitorCloudBuildProgress(requestId, accessToken)
     } catch (error: any) {
-      console.error('云构建失败:', error)
+      console.error('创建云构建任务失败:', error)
       addNotification({
         type: 'error',
         title: '构建失败',
-        message: error.message || '创建构建任务失败'
+        message: error.message || '创建云构建任务失败'
       })
       setBuildingCloud(false)
     }
   }
 
-  // 监控云构建进度
-  const monitorCloudBuildProgress = async (taskId: string) => {
+  const monitorCloudBuildProgress = async (requestId: string, accessToken: string) => {
     let isMonitoring = true
-    
+
     const checkProgress = async () => {
-      // 如果已经停止监控，直接返回
       if (!isMonitoring) return
-      
+
       try {
-        const response = await apiClient.getCloudBuildTaskStatus(taskId)
-        
-        if (response.success && response.data) {
-          const { status, progress, message, downloadUrl } = response.data
-          
-          setCloudBuildProgress(progress || 0)
-          
-          // 只在消息变化时添加日志
-          if (message) {
-            setCloudBuildLogs(prev => {
-              // 避免重复添加相同的消息
-              if (prev[prev.length - 1] !== message) {
-                return [...prev, message]
-              }
-              return prev
-            })
+        const response = await apiClient.getCloudBuildTaskStatus(requestId, accessToken)
+
+        if (!response.success || !response.data) {
+          throw new Error(response.message || '查询云构建任务状态失败')
+        }
+
+        const taskPayload = response.data
+        const taskData = taskPayload.data || {}
+        const status = String(taskPayload.status || '').toUpperCase()
+        const taskMessage = taskPayload.message || response.message || ''
+
+        if (taskMessage) {
+          appendCloudBuildLog(taskMessage)
+        }
+
+        if (typeof taskPayload.queueAheadCount === 'number') {
+          appendCloudBuildLog(`当前前方排队数量：${taskPayload.queueAheadCount}`)
+        }
+
+        if (status === 'SUCCESS') {
+          isMonitoring = false
+          setCloudBuildProgress(100)
+
+          if (!taskData.downloadUrl) {
+            throw new Error('任务已完成，但未返回下载地址')
           }
 
-          if (status === 'COMPLETED') {
-            // 停止监控
-            isMonitoring = false
-            if (downloadUrl) {
-              setCloudBuildLogs(prev => [...prev, '构建完成，开始下载...'])
-              // 使用返回的 downloadUrl 直接下载
-              await handleCloudDownload(downloadUrl, false)
-            } else {
-              throw new Error('任务完成但未返回下载链接')
-            }
-          } else if (status === 'FAILED') {
-            // 停止监控
-            isMonitoring = false
-            throw new Error(message || '构建失败')
-          } else if (status === 'PROCESSING' || status === 'QUEUED') {
-            // 继续监控
-            setTimeout(() => checkProgress(), 2000)
-          }
+          appendCloudBuildLog('任务构建完成，开始下载开服包...')
+          await handleCloudDownload(taskData.downloadUrl, taskData.archiveFileName)
+          return
         }
+
+        if (status === 'FAILED' || status === 'CANCELLED') {
+          isMonitoring = false
+          throw new Error(taskMessage || (status === 'CANCELLED' ? '云构建任务已取消' : '云构建任务失败'))
+        }
+
+        setCloudBuildProgress(prev => {
+          const nextProgress = prev + 5
+          return nextProgress >= 95 ? 95 : nextProgress
+        })
+
+        setTimeout(() => {
+          checkProgress()
+        }, 2000)
       } catch (error: any) {
         isMonitoring = false
-        console.error('检查构建进度失败:', error)
+        console.error('查询云构建任务状态失败:', error)
         addNotification({
           type: 'error',
           title: '构建失败',
-          message: error.message || '构建过程中出现错误'
+          message: error.message || '查询云构建任务状态失败'
         })
         setBuildingCloud(false)
       }
@@ -679,55 +640,49 @@ const GameDeploymentPage: React.FC = () => {
     checkProgress()
   }
 
-  // 下载并解压云构建文件
-  const handleCloudDownload = async (downloadUrlOrFileName: string, isFileName: boolean = false) => {
+  const handleCloudDownload = async (downloadUrl: string, archiveFileName?: string) => {
     try {
-      const isModrinth = cloudBuildType === 'modrinth'
-      setCloudBuildLogs(prev => [...prev, `开始下载${isModrinth ? '整合包' : '服务端'}文件...`])
+      appendCloudBuildLog('开始下载云端生成的开服包文件...')
 
       const response = await apiClient.downloadAndExtractCloudBuild({
-        downloadUrl: isFileName ? undefined : downloadUrlOrFileName,
-        fileName: isFileName ? downloadUrlOrFileName : undefined,
-        coreName: isModrinth ? modrinthPackId : selectedCloudCore.name,
-        version: isModrinth ? modrinthVersion : selectedCloudVersion,
-        targetPath: cloudBuildPath
+        downloadUrl,
+        targetPath: cloudBuildPath,
+        archiveFileName
       })
 
-      if (response.success && response.data) {
-        setCloudBuildLogs(prev => [...prev, '文件下载完成！'])
-        setCloudBuildLogs(prev => [...prev, '正在解压到部署目录...'])
-        setCloudBuildLogs(prev => [...prev, `已解压 ${response.data.files} 个文件`])
-        setCloudBuildLogs(prev => [...prev, '部署完成！'])
-
-        // 使用后端检测到的启动命令
-        // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
-        const startCommand = response.data.startCommand ||
-          (isWindowsPlatform(systemInfo) ? '.\\start.bat' : 'bash start.sh')
-
-        setCloudBuildComplete(true)
-        setCloudBuildResult({
-          coreName: isModrinth ? modrinthPackId : selectedCloudCore.name,
-          version: isModrinth ? modrinthVersion : selectedCloudVersion,
-          path: cloudBuildPath,
-          startCommand,
-          type: cloudBuildType
-        })
-        setBuildingCloud(false)
-
-        addNotification({
-          type: 'success',
-          title: '部署完成',
-          message: `${isModrinth ? '整合包' : '服务端'}文件已成功下载并解压到部署目录`
-        })
-      } else {
-        throw new Error(response.message || '下载并解压失败')
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '下载并解压云构建文件失败')
       }
+
+      appendCloudBuildLog('文件下载完成，正在解压到部署目录...')
+      appendCloudBuildLog(`已解压 ${response.data.files} 个文件`)
+      appendCloudBuildLog('部署完成，可以继续创建实例')
+
+      const startCommand = response.data.startCommand ||
+        (isWindowsPlatform(systemInfo) ? '.\\start.bat' : 'bash start.sh')
+
+      setCloudBuildComplete(true)
+      setCloudBuildProgress(100)
+      setCloudBuildResult({
+        coreName: selectedCloudCoreType,
+        version: selectedCloudVersion,
+        mcVersion: cloudBuildMcVersion.trim(),
+        path: cloudBuildPath,
+        startCommand
+      })
+      setBuildingCloud(false)
+
+      addNotification({
+        type: 'success',
+        title: '部署完成',
+        message: '我的世界Java核心开服包已成功下载并解压到部署目录'
+      })
     } catch (error: any) {
-      console.error('下载失败:', error)
+      console.error('下载云构建文件失败:', error)
       addNotification({
         type: 'error',
         title: '下载失败',
-        message: error.message || `下载${cloudBuildType === 'modrinth' ? '整合包' : '服务端'}文件失败`
+        message: error.message || '下载云构建文件失败'
       })
       setBuildingCloud(false)
     }
@@ -739,7 +694,7 @@ const GameDeploymentPage: React.FC = () => {
 
     const instanceName = `${cloudBuildResult.coreName}-${cloudBuildResult.version}`
     setCloudInstanceName(instanceName)
-    setCloudInstanceDescription(`${cloudBuildResult.coreName} ${cloudBuildResult.version} 服务端`)
+    setCloudInstanceDescription(`${cloudBuildResult.coreName} ${cloudBuildResult.version} 服务端${cloudBuildResult.mcVersion ? ` (MC ${cloudBuildResult.mcVersion})` : ''}`)
 
     // 使用后端检测到的启动命令，如果没有则使用默认值
     // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
@@ -810,8 +765,10 @@ const GameDeploymentPage: React.FC = () => {
         setCloudBuildComplete(false)
         setCloudBuildResult(null)
         setCloudBuildLogs([])
-        setSelectedCloudCore(null)
         setSelectedCloudVersion('')
+        setCloudBuildMcVersion('')
+        setCloudBuildTaskSession(null)
+        setCloudBuildProgress(0)
       } else {
         throw new Error(response.message || '创建实例失败')
       }
@@ -1918,8 +1875,8 @@ const GameDeploymentPage: React.FC = () => {
       }
     }
     if (activeTab === 'cloud-build') {
-      fetchCloudBuildCores()
-      fetchCloudBuildStats()
+      setActiveCloudBuildSubTab('java-core')
+      fetchCloudBuildCoreTypes()
       // 确保云构建标签页有默认路径
       if (defaultGamePath && !cloudBuildPath) {
         setCloudBuildPath(defaultGamePath)
@@ -1974,50 +1931,25 @@ const GameDeploymentPage: React.FC = () => {
     }
   }, [])
 
-  // 当云构建平台类型或标签页变化时，加载对应数据
+  // 当切换云构建核心类型时，加载对应版本列表
   useEffect(() => {
-    if (activeTab === 'cloud-build') {
-      if (cloudBuildType === 'modrinth') {
-        fetchModrinthCache()
-      } else if (cloudBuildType === 'msl_Official') {
-        fetchCloudBuildCores()
-        fetchCloudBuildStats()
-      }
+    if (activeTab === 'cloud-build' && activeCloudBuildSubTab === 'java-core' && selectedCloudCoreType) {
+      fetchCloudBuildVersions(selectedCloudCoreType)
     }
-  }, [cloudBuildType, activeTab])
+  }, [activeTab, activeCloudBuildSubTab, selectedCloudCoreType])
 
-  // 当 Modrinth 整合包 ID 和版本变化时，自动更新路径
   useEffect(() => {
-    if (cloudBuildType === 'modrinth' && modrinthPackId && modrinthVersion && defaultGamePath) {
-      // 清理整合包 ID，移除特殊字符和 URL 前缀
-      let cleanPackId = modrinthPackId
-      // 如果是 URL，提取最后的 ID 部分
-      if (cleanPackId.includes('/')) {
-        const parts = cleanPackId.split('/')
-        cleanPackId = parts[parts.length - 1]
-      }
-      // 移除特殊字符
-      cleanPackId = cleanPackId.replace(/[<>:"|?*]/g, '').trim()
-      const cleanVersion = modrinthVersion.replace(/[<>:"|?*]/g, '').trim()
-      
-      if (cleanPackId && cleanVersion) {
-        // 组合文件夹名称
-        const folderName = `modrinth-${cleanPackId}-${cleanVersion}`
-        
-        // 根据平台使用正确的路径分隔符
-        // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
-        const isWindows = isWindowsPlatform(systemInfo)
-        const separator = isWindows ? '\\' : '/'
-        
-        // 确保基础路径以分隔符结尾
-        const normalizedBasePath = defaultGamePath.endsWith(separator) || defaultGamePath.endsWith('/') || defaultGamePath.endsWith('\\')
-          ? defaultGamePath
-          : defaultGamePath + separator
-        
-        setCloudBuildPath(normalizedBasePath + folderName)
-      }
+    if (!selectedCloudCoreType) {
+      setCloudBuildVersions([])
+      setSelectedCloudVersion('')
+      setCloudBuildMcVersion('')
+      return
     }
-  }, [modrinthPackId, modrinthVersion, cloudBuildType, defaultGamePath, systemInfo])
+
+    setSelectedCloudVersion('')
+    setCloudBuildMcVersion('')
+    resetCloudBuildState()
+  }, [selectedCloudCoreType])
 
   // 自动生成和更新SteamCMD命令
   useEffect(() => {
@@ -2750,6 +2682,247 @@ const GameDeploymentPage: React.FC = () => {
   // 检查是否为ARM架构，如果是则隐藏SteamCMD、更多游戏部署和在线部署标签页
   const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
 
+  const renderCloudBuildSection = () => (
+    <div className="space-y-6">
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+        <div className="flex items-start space-x-3">
+          <Cloud className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
+              云构建部署
+            </h3>
+            <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
+              使用新的开放接口在云端组装我的世界 Java 核心开服包，适合在本地环境不稳定或依赖不完整时快速完成部署。
+            </p>
+            <a
+              href="https://tools.xiaozhuhouses.asia/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>访问开放接口服务</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <NetworkStatusBanner categoryId="gsmanager-cloud" autoCheck={true} />
+
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-3">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveCloudBuildSubTab('java-core')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeCloudBuildSubTab === 'java-core'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            我的世界Java核心开服包
+          </button>
+        </div>
+      </div>
+
+      {activeCloudBuildSubTab === 'java-core' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                核心参数
+              </h3>
+              <button
+                onClick={fetchCloudBuildCoreTypes}
+                disabled={cloudBuildCatalogLoading}
+                className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 flex items-center space-x-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${cloudBuildCatalogLoading ? 'animate-spin' : ''}`} />
+                <span>刷新</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  核心类型
+                </label>
+                <select
+                  value={selectedCloudCoreType}
+                  onChange={(e) => {
+                    setSelectedCloudCoreType(e.target.value)
+                    setCloudBuildVersions([])
+                    setSelectedCloudVersion('')
+                    setCloudBuildMcVersion('')
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  disabled={buildingCloud || cloudBuildCatalogLoading}
+                >
+                  <option value="">请选择核心类型</option>
+                  {cloudBuildCoreTypes.map((coreType) => (
+                    <option key={coreType} value={coreType}>
+                      {coreType}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  核心版本
+                </label>
+                <select
+                  value={selectedCloudVersion}
+                  onChange={(e) => {
+                    const nextVersion = e.target.value
+                    setSelectedCloudVersion(nextVersion)
+                    setCloudBuildMcVersion(nextVersion)
+                    resetCloudBuildState()
+
+                    if (nextVersion && selectedCloudCoreType) {
+                      setCloudBuildPath(generateMinecraftPath(selectedCloudCoreType, nextVersion))
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  disabled={buildingCloud || cloudBuildCatalogLoading || !selectedCloudCoreType}
+                >
+                  <option value="">请选择核心版本</option>
+                  {cloudBuildVersions.map((version) => (
+                    <option key={version} value={version}>
+                      {version}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  MC版本
+                </label>
+                <input
+                  type="text"
+                  value={cloudBuildMcVersion}
+                  onChange={(e) => {
+                    setCloudBuildMcVersion(e.target.value)
+                    resetCloudBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="默认会自动跟随核心版本，可手动修改"
+                  disabled={buildingCloud}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  默认会自动填充为当前所选核心版本，如需特殊版本号可手动覆盖。
+                </p>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-sm text-gray-600 dark:text-gray-400">
+                <p>当前流程：查询目录 {'->'} 提交构建 {'->'} 轮询任务 {'->'} 下载并解压</p>
+                {cloudBuildTaskSession && (
+                  <p className="mt-2 break-all">
+                    最近任务编号：{cloudBuildTaskSession.requestId}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              部署配置
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  部署路径
+                </label>
+                <input
+                  type="text"
+                  value={cloudBuildPath}
+                  onChange={(e) => {
+                    setCloudBuildPath(e.target.value)
+                    resetCloudBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="输入开服包部署路径"
+                  disabled={buildingCloud}
+                />
+              </div>
+
+              <button
+                onClick={handleCloudBuild}
+                disabled={!selectedCloudCoreType || !selectedCloudVersion || !cloudBuildMcVersion.trim() || !cloudBuildPath.trim() || buildingCloud}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+              >
+                {buildingCloud ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    <span>构建中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Cloud className="w-4 h-4" />
+                    <span>开始构建部署</span>
+                  </>
+                )}
+              </button>
+
+              {(buildingCloud || cloudBuildProgress > 0) && (
+                <div className="space-y-2">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${cloudBuildProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+                    {cloudBuildProgress}%
+                  </p>
+                </div>
+              )}
+
+              {cloudBuildLogs.length > 0 && (
+                <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto">
+                  {cloudBuildLogs.map((log, index) => (
+                    <div key={index} className="mb-1 break-all">
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {cloudBuildComplete && cloudBuildResult && (
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">
+                        部署完成
+                      </h4>
+                      <div className="text-sm text-green-700 dark:text-green-300 space-y-1 mb-3">
+                        <p>核心类型：{cloudBuildResult.coreName}</p>
+                        <p>核心版本：{cloudBuildResult.version}</p>
+                        <p>MC版本：{cloudBuildResult.mcVersion}</p>
+                        <p>部署路径：{cloudBuildResult.path}</p>
+                        <p>启动命令：{cloudBuildResult.startCommand}</p>
+                      </div>
+                      <button
+                        onClick={handleOpenCreateCloudInstanceModal}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                      >
+                        <Server className="w-4 h-4" />
+                        <span>创建实例</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   const tabs = [
     // 只有在非ARM架构时才显示SteamCMD标签页
     ...(isArmArchitecture ? [] : [{ id: 'steamcmd', name: 'SteamCMD', icon: Download }]),
@@ -3278,394 +3451,7 @@ const GameDeploymentPage: React.FC = () => {
       )}
 
       {/* 云构建部署标签页内容 */}
-      {activeTab === 'cloud-build' && (
-        <div className="space-y-6">
-          {/* 云构建说明 */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-start space-x-3">
-              <Cloud className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
-                  云构建部署
-                </h3>
-                <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
-                  通过GSManager云端构建服务在云端直接运行核心成功后将其打包，拥有接近百分百的开服成功率，从根源解决因本地环境和问题造成的启动失败等疑难杂症。
-                </p>
-                <a
-                  href="https://download.mc.xiaozhuhouses.asia:4433/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center space-x-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>访问云构建缓存节点</span>
-                </a>
-              </div>
-            </div>
-          </div>
-
-          {/* 云构建服务网络状态提示 */}
-          <NetworkStatusBanner categoryId="gsmanager-cloud" autoCheck={true} />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 左侧：服务端选择 */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                选择构建平台
-              </h3>
-
-              <div className="space-y-4">
-                {/* 构建平台类型 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    构建平台
-                  </label>
-                  <select
-                    value={cloudBuildType}
-                    onChange={(e) => {
-                      setCloudBuildType(e.target.value)
-                      // 重置选择状态
-                      setSelectedCloudCore(null)
-                      setSelectedCloudVersion('')
-                      setModrinthPackId('')
-                      setModrinthVersion('')
-                      setCloudBuildComplete(false)
-                      setCloudBuildResult(null)
-                      setCloudBuildLogs([])
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    disabled={buildingCloud}
-                  >
-                    <option value="msl_Official">我的世界原版Java部署</option>
-                    <option value="modrinth">Modrinth 整合包部署</option>
-                  </select>
-                </div>
-
-                {/* Modrinth 整合包 ID 输入 */}
-                {cloudBuildType === 'modrinth' ? (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        整合包 ID 或 URL
-                      </label>
-                      <input
-                        type="text"
-                        value={modrinthPackId}
-                        onChange={(e) => setModrinthPackId(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="例如: AANobbMI 或 https://modrinth.com/modpack/xxx"
-                        disabled={buildingCloud}
-                      />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        可以输入整合包 ID 或完整的 Modrinth URL
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        整合包版本
-                      </label>
-                      <input
-                        type="text"
-                        value={modrinthVersion}
-                        onChange={(e) => setModrinthVersion(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="例如: 5.2.5 或 latest"
-                        disabled={buildingCloud}
-                      />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        输入版本号
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {/* 核心选择 */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        服务端核心
-                      </label>
-                      {cloudBuildCoresLoading ? (
-                        <div className="flex items-center justify-center py-4">
-                          <Loader className="w-5 h-5 animate-spin text-blue-500" />
-                          <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">加载核心列表...</span>
-                        </div>
-                      ) : (
-                        <select
-                          value={selectedCloudCore?.name || ''}
-                          onChange={(e) => {
-                            const core = cloudBuildCores.find(c => c.name === e.target.value)
-                            setSelectedCloudCore(core || null)
-                            setSelectedCloudVersion('')
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          disabled={buildingCloud}
-                        >
-                          <option value="">请选择服务端核心</option>
-                          {cloudBuildCores.map((core) => (
-                            <option key={core.name} value={core.name}>
-                              {core.displayName} - {core.description}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {/* 版本选择 - 仅在 msl_Official 模式下显示 */}
-                {cloudBuildType === 'msl_Official' && selectedCloudCore && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Minecraft版本
-                    </label>
-                    <select
-                      value={selectedCloudVersion}
-                      onChange={(e) => {
-                        setSelectedCloudVersion(e.target.value)
-                        // 自动更新部署路径
-                        if (e.target.value && selectedCloudCore) {
-                          setCloudBuildPath(generateMinecraftPath(selectedCloudCore.name, e.target.value))
-                        }
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      disabled={buildingCloud}
-                    >
-                      <option value="">请选择版本</option>
-                      {selectedCloudCore.versions.map((version: string) => (
-                        <option key={version} value={version}>
-                          {version}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* 下载统计 - 仅在 msl_Official 模式下显示 */}
-                {cloudBuildType === 'msl_Official' && cloudBuildStats && selectedCloudCore && (
-                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                      {(() => {
-                        const coreStat = cloudBuildStats.find((s: any) => s.coreName === selectedCloudCore.name)
-                        if (coreStat) {
-                          return (
-                            <>
-                              <div className="flex justify-between mb-1">
-                                <span>总下载次数:</span>
-                                <span className="font-medium">{coreStat.totalDownloads}</span>
-                              </div>
-                              {selectedCloudVersion && coreStat.versions[selectedCloudVersion] && (
-                                <div className="flex justify-between">
-                                  <span>当前版本下载:</span>
-                                  <span className="font-medium">{coreStat.versions[selectedCloudVersion]}</span>
-                                </div>
-                              )}
-                            </>
-                          )
-                        }
-                        return '暂无统计数据'
-                      })()}
-                    </div>
-                  </div>
-                )}
-
-                {/* Modrinth 缓存列表 - 仅在 modrinth 模式下显示 */}
-                {cloudBuildType === 'modrinth' && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        缓存列表（点击快速部署）
-                      </label>
-                      <button
-                        onClick={fetchModrinthCache}
-                        disabled={modrinthCacheLoading}
-                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${modrinthCacheLoading ? 'animate-spin' : ''}`} />
-                        <span>刷新</span>
-                      </button>
-                    </div>
-                    {modrinthCacheLoading ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader className="w-5 h-5 animate-spin text-blue-500" />
-                        <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">加载缓存列表...</span>
-                      </div>
-                    ) : modrinthCacheList.length > 0 ? (
-                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 max-h-48 overflow-y-auto">
-                        <div className="space-y-2">
-                          {modrinthCacheList.map((cache, index) => (
-                            <button
-                              key={index}
-                              onClick={() => {
-                                setModrinthPackId(cache.packUrl)
-                                setModrinthVersion(cache.version)
-                                
-                                // 自动生成包含整合包名称的路径
-                                const basePath = cloudBuildPath || defaultGamePath || ''
-                                if (basePath) {
-                                  // 清理整合包 ID，移除特殊字符和 URL 前缀
-                                  let cleanPackId = cache.packUrl
-                                  // 如果是 URL，提取最后的 ID 部分
-                                  if (cleanPackId.includes('/')) {
-                                    const parts = cleanPackId.split('/')
-                                    cleanPackId = parts[parts.length - 1]
-                                  }
-                                  // 移除特殊字符
-                                  cleanPackId = cleanPackId.replace(/[<>:"|?*]/g, '').trim()
-                                  const cleanVersion = cache.version.replace(/[<>:"|?*]/g, '').trim()
-                                  
-                                  // 组合文件夹名称
-                                  const folderName = `modrinth-${cleanPackId}-${cleanVersion}`
-                                  
-                                  // 根据平台使用正确的路径分隔符
-                                  // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
-                                  const isWindows = isWindowsPlatform(systemInfo)
-                                  const separator = isWindows ? '\\' : '/'
-                                  
-                                  // 确保基础路径以分隔符结尾
-                                  const normalizedBasePath = basePath.endsWith(separator) || basePath.endsWith('/') || basePath.endsWith('\\')
-                                    ? basePath
-                                    : basePath + separator
-                                  
-                                  setCloudBuildPath(normalizedBasePath + folderName)
-                                }
-                                
-                                addNotification({
-                                  type: 'info',
-                                  title: '已选择缓存',
-                                  message: `已自动填充：${cache.packUrl} v${cache.version}`
-                                })
-                              }}
-                              disabled={buildingCloud}
-                              className="w-full text-left text-xs text-gray-600 dark:text-gray-400 p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <div className="flex justify-between items-start mb-1">
-                                <span className="font-medium text-gray-800 dark:text-gray-200">{cache.packUrl}</span>
-                                <span className="text-green-600 dark:text-green-400 font-semibold">{cache.version}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-500 dark:text-gray-400">下载次数: {cache.downloadCount}</span>
-                                <span className="text-gray-500 dark:text-gray-400">{(cache.fileSize / 1024 / 1024).toFixed(2)} MB</span>
-                              </div>
-                              <div className="mt-1 text-blue-600 dark:text-blue-400 text-[10px] flex items-center space-x-1">
-                                <Download className="w-3 h-3" />
-                                <span>点击填充信息</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">暂无缓存</p>
-                      </div>
-                    )}
-                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                      💡 缓存时间: 48小时 | 点击缓存项可快速填充部署信息
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 右侧：部署配置 */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                部署配置
-              </h3>
-
-              <div className="space-y-4">
-                {/* 部署路径 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    部署路径
-                  </label>
-                  <input
-                    type="text"
-                    value={cloudBuildPath}
-                    onChange={(e) => setCloudBuildPath(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    placeholder="输入部署路径"
-                    disabled={buildingCloud}
-                  />
-                </div>
-
-                {/* 构建按钮 */}
-                <button
-                  onClick={handleCloudBuild}
-                  disabled={
-                    cloudBuildType === 'modrinth'
-                      ? (!modrinthPackId.trim() || !modrinthVersion.trim() || !cloudBuildPath.trim() || buildingCloud)
-                      : (!selectedCloudCore || !selectedCloudVersion || !cloudBuildPath.trim() || buildingCloud)
-                  }
-                  className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
-                >
-                  {buildingCloud ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      <span>构建中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Cloud className="w-4 h-4" />
-                      <span>开始构建部署</span>
-                    </>
-                  )}
-                </button>
-
-                {/* 构建进度 */}
-                {buildingCloud && (
-                  <div className="space-y-2">
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${cloudBuildProgress}%` }}
-                      ></div>
-                    </div>
-                    <p className="text-sm text-center text-gray-600 dark:text-gray-400">
-                      {cloudBuildProgress}%
-                    </p>
-                  </div>
-                )}
-
-                {/* 构建日志 */}
-                {cloudBuildLogs.length > 0 && (
-                  <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto">
-                    {cloudBuildLogs.map((log, index) => (
-                      <div key={index} className="mb-1">
-                        {log}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* 构建完成 - 创建实例 */}
-                {cloudBuildComplete && cloudBuildResult && (
-                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                    <div className="flex items-start space-x-3">
-                      <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <h4 className="text-sm font-medium text-green-800 dark:text-green-200 mb-1">
-                          部署完成！
-                        </h4>
-                        <p className="text-sm text-green-700 dark:text-green-300 mb-3">
-                          服务端文件已成功下载到：{cloudBuildResult.path}
-                        </p>
-                        <button
-                          onClick={handleOpenCreateCloudInstanceModal}
-                          className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
-                        >
-                          <Server className="w-4 h-4" />
-                          <span>创建实例</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 'cloud-build' && renderCloudBuildSection()}
 
       {/* Minecraft 标签页内容 */}
       {activeTab === 'minecraft' && (

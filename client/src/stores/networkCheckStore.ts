@@ -104,16 +104,16 @@ const initialCategories: NetworkCheckCategory[] = [
       {
         id: 'gsm-cloud-build',
         name: 'GSManager 云构建服务',
-        url: 'http://api.mc.xiaozhuhouses.asia:10003',
+        url: 'https://tools.xiaozhuhouses.asia/',
         status: 'pending',
         errorMessage: 'GSManager 云构建服务 连接失败，您将无法使用云构建部署功能'
       },
       {
         id: 'gsm-cloud-cache',
-        name: 'GSManager 云构建缓存节点',
-        url: 'https://download.mc.xiaozhuhouses.asia:4433',
+        name: 'GSManager 云构建资源站',
+        url: 'https://rs.xiaozhuhouses.asia/modules/minecraft',
         status: 'pending',
-        errorMessage: 'GSManager 云构建缓存节点 连接失败，云构建下载速度可能会受到影响'
+        errorMessage: 'GSManager 云构建资源站 连接失败，您可能无法下载或访问云构建产物'
       }
     ]
   }

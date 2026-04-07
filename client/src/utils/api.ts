@@ -944,38 +944,32 @@ class ApiClient {
   }
 
   // 云构建部署API
-  async getCloudBuildCores(type: string = 'msl_Official') {
-    return this.get(`/${type}/cores`)
+  async getCloudBuildCatalog(coreType?: string) {
+    return this.get('/cloud-build/catalog', {
+      params: coreType ? { coreType } : undefined
+    })
   }
 
   async createCloudBuildTask(data: {
-    coreName: string
+    coreType: string
     version: string
-    type?: string
+    mcVersion: string
   }) {
-    return this.post('/build', data)
+    return this.post('/cloud-build/build', data)
   }
 
-  async getCloudBuildTaskStatus(taskId: string) {
-    return this.get(`/build/${taskId}`)
+  async getCloudBuildTaskStatus(requestId: string, accessToken: string) {
+    return this.get(`/cloud-build/build/${encodeURIComponent(requestId)}`, {
+      params: { accessToken }
+    })
   }
 
   async downloadAndExtractCloudBuild(data: {
-    downloadUrl?: string
-    fileName?: string
-    coreName: string
-    version: string
+    downloadUrl: string
     targetPath: string
+    archiveFileName?: string
   }) {
-    return this.post('/download', data)
-  }
-
-  async getCloudBuildStats() {
-    return this.get('/stats')
-  }
-
-  async getModrinthCache() {
-    return this.get('/cache/modrinth')
+    return this.post('/cloud-build/download', data)
   }
 }
 
