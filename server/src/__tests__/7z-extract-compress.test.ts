@@ -9,6 +9,7 @@
 
 import { ZipToolsManager } from '../utils/zipToolsManager.js'
 import path from 'path'
+import fs from 'fs/promises'
 
 // mock logger
 jest.mock('../utils/logger.js', () => ({
@@ -20,10 +21,19 @@ jest.mock('../utils/logger.js', () => ({
   },
 }))
 
+jest.mock('../utils/filenameEncoding.js', () => ({
+  directoryContainsCorruptedNames: jest.fn().mockResolvedValue(false),
+}))
+
 // mock fs/promises（避免真实文件系统操作）
 jest.mock('fs/promises', () => ({
   access: jest.fn().mockResolvedValue(undefined),
   mkdir: jest.fn().mockResolvedValue(undefined),
+  mkdtemp: jest.fn(async (prefix: string) => `${prefix}mock-temp-dir`),
+  rm: jest.fn().mockResolvedValue(undefined),
+  readdir: jest.fn().mockResolvedValue([]),
+  rename: jest.fn().mockResolvedValue(undefined),
+  copyFile: jest.fn().mockResolvedValue(undefined),
   stat: jest.fn().mockResolvedValue({ size: 1024 }),
   unlink: jest.fn().mockResolvedValue(undefined),
   chmod: jest.fn().mockResolvedValue(undefined),
@@ -115,6 +125,50 @@ describe('extract7z / compress7z 参数构建', () => {
       expect(oArg.startsWith('-o')).toBe(true)
       const resolvedDir = oArg.substring(2)
       expect(path.isAbsolute(resolvedDir)).toBe(true)
+    })
+  })
+
+  describe('extractZip', () => {
+    beforeEach(() => {
+      jest.spyOn(manager, 'getZipToolsPath').mockResolvedValue('/mock/path/to/file_zip_linux_x64')
+    })
+
+    it('应通过 mkdtemp 创建唯一的临时解压目录，避免并发冲突', async () => {
+      const zipPath = '/data/test/archive.zip'
+      const targetDir = '/data/test/output'
+
+      await manager.extractZip(zipPath, targetDir)
+
+      expect(fs.mkdtemp).toHaveBeenCalledWith(
+        path.join(path.dirname(targetDir), '.gsm3-zip-extract-')
+      )
+    })
+
+    it('解压成功后应优先通过 rename 移动内容，而不是再次整树 copy', async () => {
+      const zipPath = '/data/test/archive.zip'
+      const targetDir = '/data/test/output'
+      const tempDir = path.join(path.dirname(targetDir), '.gsm3-zip-extract-mock-temp-dir')
+
+      ;(fs.readdir as jest.Mock).mockImplementation(async (dirPath: string) => {
+        if (dirPath === tempDir) {
+          return [
+            {
+              name: 'large.zip.entry',
+              isDirectory: () => false,
+            },
+          ]
+        }
+
+        return []
+      })
+
+      await manager.extractZip(zipPath, targetDir)
+
+      expect(fs.rename).toHaveBeenCalledWith(
+        path.join(tempDir, 'large.zip.entry'),
+        path.join(targetDir, 'large.zip.entry')
+      )
+      expect(fs.copyFile).not.toHaveBeenCalled()
     })
   })
 
