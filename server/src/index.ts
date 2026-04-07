@@ -793,6 +793,14 @@ async function startServer() {
     io.on('connection', (socket) => {
       logger.info(`客户端连接: ${socket.id} - 用户: ${socket.data.user?.username}`)
 
+      const runDisconnectCleanupStep = (label: string, action: () => void) => {
+        try {
+          action()
+        } catch (error) {
+          logger.error(`客户端断开清理失败(${label}):`, error)
+        }
+      }
+
       // 终端相关事件
       socket.on('create-pty', async (data) => {
         // 将前端的cwd参数映射到后端的workingDirectory
@@ -943,21 +951,50 @@ async function startServer() {
         }
       })
 
+      socket.on('disconnecting', (reason) => {
+        const joinedRooms = Array.from(socket.rooms).filter(room => room !== socket.id)
+        logger.info(`客户端准备断开连接: ${socket.id}, 原因: ${reason}, 房间: ${joinedRooms.join(', ') || '无'}`)
+      })
+
       // 断开连接处理
       socket.on('disconnect', (reason) => {
         logger.info(`客户端断开连接: ${socket.id}, 原因: ${reason}`)
-        terminalManager.handleDisconnect(socket)
-        socket.leave('system-stats')
-        socket.leave('system-ports')
-        socket.leave('system-processes')
-        socket.leave('terminal-processes')
-        socket.leave('console-logs')
-        // 通知系统管理器客户端已断开连接
-        systemManager.handleClientDisconnect()
-        // 通知终端管理器客户端已断开连接
-        terminalManager.handleClientDisconnect()
-        // 清理文件监视
-        fileWatchManager.unwatchAllFilesForSocket(socket)
+
+        runDisconnectCleanupStep('terminalManager.handleDisconnect', () => {
+          terminalManager.handleDisconnect(socket)
+        })
+
+        runDisconnectCleanupStep('leave system-stats', () => {
+          socket.leave('system-stats')
+        })
+
+        runDisconnectCleanupStep('leave system-ports', () => {
+          socket.leave('system-ports')
+        })
+
+        runDisconnectCleanupStep('leave system-processes', () => {
+          socket.leave('system-processes')
+        })
+
+        runDisconnectCleanupStep('leave terminal-processes', () => {
+          socket.leave('terminal-processes')
+        })
+
+        runDisconnectCleanupStep('leave console-logs', () => {
+          socket.leave('console-logs')
+        })
+
+        runDisconnectCleanupStep('systemManager.handleClientDisconnect', () => {
+          systemManager.handleClientDisconnect()
+        })
+
+        runDisconnectCleanupStep('terminalManager.handleClientDisconnect', () => {
+          terminalManager.handleClientDisconnect()
+        })
+
+        runDisconnectCleanupStep('fileWatchManager.unwatchAllFilesForSocket', () => {
+          fileWatchManager.unwatchAllFilesForSocket(socket)
+        })
       })
 
       // 错误处理

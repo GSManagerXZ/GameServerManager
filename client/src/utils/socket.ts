@@ -7,12 +7,14 @@ class SocketClient {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private listeners: Map<string, Function[]> = new Map()
   private isInitialized = false
   private isLowPowerMode = false
   private lowPowerModeCallbacks: Function[] = []
   private visibilityChangeHandler?: () => void
   private intersectionObserver?: IntersectionObserver
+  private disconnectContext: 'manual' | 'low-power' | 'auth-update' | null = null
 
   constructor() {
     // 不在构造函数中立即连接，等待用户登录后再连接
@@ -21,89 +23,178 @@ class SocketClient {
   // 初始化连接（仅在用户登录后调用）
   initialize() {
     if (!this.isInitialized) {
-      this.connect()
-      this.isInitialized = true
+      const connected = this.connect()
+      this.isInitialized = connected
     }
   }
 
-  private connect() {
+  private connect(forceRecreate = false): boolean {
     const token = localStorage.getItem('gsm3_token')
 
     // 如果没有token，不建立连接
     if (!token) {
       console.log('没有找到认证token，跳过Socket连接')
-      return
+      return false
     }
 
-    this.socket = io(config.serverUrl, {
+    if (this.socket && !forceRecreate) {
+      this.socket.auth = { token }
+      if (!this.socket.connected) {
+        this.socket.connect()
+      }
+      return true
+    }
+
+    this.clearReconnectTimer()
+    this.destroySocket()
+
+    const nextSocket = io(config.serverUrl, {
       auth: {
         token,
       },
       transports: ['websocket', 'polling'],
       timeout: config.socketTimeout,
       forceNew: true,
+      reconnection: false,
     })
 
-    this.setupEventListeners()
+    this.socket = nextSocket
+    this.setupEventListeners(nextSocket)
+    this.attachStoredListeners(nextSocket)
+    return true
   }
 
-  private setupEventListeners() {
-    if (!this.socket) return
-
-    this.socket.on('connect', () => {
-      console.log('Socket连接成功:', this.socket?.id)
+  private setupEventListeners(socket: Socket) {
+    socket.on('connect', () => {
+      console.log('Socket连接成功:', socket.id)
+      this.disconnectContext = null
+      this.clearReconnectTimer()
       this.reconnectAttempts = 0
       this.emit('connection-status', { connected: true })
     })
 
-    this.socket.on('disconnect', (reason) => {
+    socket.on('disconnect', (reason) => {
       console.log('Socket断开连接:', reason)
       this.emit('connection-status', { connected: false, reason })
 
-      if (reason === 'io server disconnect') {
-        // 服务器主动断开，需要重新连接
-        this.reconnect()
+      if (this.shouldReconnect(reason)) {
+        this.reconnect(reason)
       }
+
+      this.disconnectContext = null
     })
 
-    this.socket.on('connect_error', (error) => {
+    socket.on('connect_error', (error) => {
       console.error('Socket连接错误:', error)
       this.emit('connection-status', { connected: false, reason: 'connect_error' })
       this.emit('connection-error', { error: error.message })
-      this.reconnect()
+
+      if (this.isAuthError(error.message)) {
+        this.handleAuthError(error.message)
+        return
+      }
+
+      this.reconnect('connect_error')
     })
 
-    this.socket.on('error', (error) => {
+    socket.on('error', (error) => {
       console.error('Socket错误:', error)
       this.emit('socket-error', { error })
     })
 
     // 认证错误处理
-    this.socket.on('auth-error', (error) => {
+    socket.on('auth-error', (error) => {
+      const errorMessage = typeof error === 'string' ? error : error?.message || '认证失败'
       console.error('Socket认证错误:', error)
-      this.emit('auth-error', { error })
-      // 清除token并重定向到登录页
-      localStorage.removeItem('gsm3_token')
-      window.location.href = '/login'
+      this.handleAuthError(errorMessage)
     })
   }
 
-  private reconnect() {
+  private attachStoredListeners(socket: Socket) {
+    this.listeners.forEach((callbacks, event) => {
+      callbacks.forEach(callback => {
+        socket.on(event, callback as any)
+      })
+    })
+  }
+
+  private destroySocket() {
+    if (!this.socket) {
+      return
+    }
+
+    this.socket.removeAllListeners()
+    this.socket.disconnect()
+    this.socket = null
+  }
+
+  private clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+  }
+
+  private shouldReconnect(reason?: string) {
+    if (this.isLowPowerMode) {
+      return false
+    }
+
+    if (this.disconnectContext === 'manual' || this.disconnectContext === 'low-power') {
+      return false
+    }
+
+    // 客户端主动断开通常不需要重连，但这里保留兜底，
+    // 以处理意外进入该状态后无法恢复的情况。
+    return reason !== 'io client disconnect'
+  }
+
+  private isAuthError(message?: string) {
+    if (!message) {
+      return false
+    }
+
+    return message.includes('Authentication error') || message.includes('Invalid token')
+  }
+
+  private handleAuthError(message: string) {
+    this.disconnectContext = 'manual'
+    this.clearReconnectTimer()
+    this.emit('auth-error', { error: message })
+    localStorage.removeItem('gsm3_token')
+    window.location.href = '/login'
+  }
+
+  private reconnect(reason?: string) {
+    const token = localStorage.getItem('gsm3_token')
+    if (!token) {
+      console.warn('缺少认证token，取消重连')
+      return
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('达到最大重连次数，停止重连')
       this.emit('max-reconnect-attempts', {})
       return
     }
 
+    this.clearReconnectTimer()
     this.reconnectAttempts++
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1)
+    const shouldRecreateSocket = reason === 'client namespace disconnect' || reason === 'connect_error'
 
     console.log(`${delay}ms后尝试第${this.reconnectAttempts}次重连...`)
 
-    setTimeout(() => {
-      if (this.socket) {
-        this.socket.connect()
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+
+      if (shouldRecreateSocket || !this.socket) {
+        this.connect(true)
+        return
       }
+
+      this.socket.auth = { token }
+      this.socket.connect()
     }, delay)
   }
 
@@ -192,15 +283,16 @@ class SocketClient {
   // 手动重连
   reconnectManually() {
     this.reconnectAttempts = 0
-    if (this.socket) {
-      this.socket.connect()
-    } else {
-      this.initialize()
-    }
+    this.disconnectContext = null
+    this.clearReconnectTimer()
+    this.connect(true)
+    this.isInitialized = !!this.socket
   }
 
   // 断开连接
   disconnect() {
+    this.disconnectContext = 'manual'
+    this.clearReconnectTimer()
     if (this.socket) {
       this.socket.disconnect()
       this.socket = null
@@ -211,9 +303,12 @@ class SocketClient {
 
   // 更新认证token
   updateAuth(token: string) {
+    localStorage.setItem('gsm3_token', token)
+
     if (this.socket) {
-      this.socket.auth = { token }
-      this.socket.disconnect().connect()
+      this.disconnectContext = 'auth-update'
+      this.clearReconnectTimer()
+      this.isInitialized = this.connect(true)
     } else {
       // 如果socket不存在，初始化连接
       this.initialize()
@@ -321,6 +416,8 @@ class SocketClient {
 
       // 断开WebSocket连接
       if (this.socket) {
+        this.disconnectContext = 'low-power'
+        this.clearReconnectTimer()
         this.socket.disconnect()
       }
 

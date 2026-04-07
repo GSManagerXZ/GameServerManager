@@ -1715,12 +1715,16 @@ export class TerminalManager {
    * 处理客户端断开连接
    */
   public handleClientDisconnect(): void {
-    if (this.io) {
-      const room = this.io.sockets.adapter.rooms.get('terminal-processes')
-      if (!room || room.size === 0) {
-        // 没有客户端订阅了，停止监控
-        this.stopActiveProcessesMonitoring()
+    try {
+      if (this.io) {
+        const room = this.io.sockets.adapter.rooms.get('terminal-processes')
+        if (!room || room.size === 0) {
+          // 没有客户端订阅了，停止监控
+          this.stopActiveProcessesMonitoring()
+        }
       }
+    } catch (error) {
+      this.logger.error('处理客户端断开后的终端进程订阅检查失败:', error)
     }
   }
 }

@@ -2231,14 +2231,18 @@ export class SystemManager extends EventEmitter {
   public handleClientDisconnect(): void {
     // 延迟检查，给socket.leave()一些时间完成
     setTimeout(() => {
-      const hasStatsSubscribers = this.hasSubscribers('system-stats')
-      const hasPortsSubscribers = this.hasSubscribers('system-ports')
-      const hasProcessesSubscribers = this.hasSubscribers('system-processes')
+      try {
+        const hasStatsSubscribers = this.hasSubscribers('system-stats')
+        const hasPortsSubscribers = this.hasSubscribers('system-ports')
+        const hasProcessesSubscribers = this.hasSubscribers('system-processes')
 
-      if (!hasStatsSubscribers && !hasPortsSubscribers && !hasProcessesSubscribers) {
-        this.logger.info('所有客户端已断开连接，系统监控将在下次有订阅者时恢复资源收集')
-      } else {
-        this.logger.debug(`当前订阅状态 - 系统状态: ${hasStatsSubscribers}, 端口信息: ${hasPortsSubscribers}, 进程信息: ${hasProcessesSubscribers}`)
+        if (!hasStatsSubscribers && !hasPortsSubscribers && !hasProcessesSubscribers) {
+          this.logger.info('所有客户端已断开连接，系统监控将在下次有订阅者时恢复资源收集')
+        } else {
+          this.logger.debug(`当前订阅状态 - 系统状态: ${hasStatsSubscribers}, 端口信息: ${hasPortsSubscribers}, 进程信息: ${hasProcessesSubscribers}`)
+        }
+      } catch (error) {
+        this.logger.error('处理客户端断开后的系统订阅检查失败:', error)
       }
     }, 100)
   }
