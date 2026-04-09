@@ -21,3 +21,4 @@ const possiblePaths = [
 16. 编写完毕后需要运行npx tsc --noEmit进行检测
 17. 如果需要使用tar库进行解压缩操作，请务必使用 `server/src/utils/tarSecurityFilter.ts` 模块 安全拦截器，缓解路径穿越漏洞
 18. 本项目编写测试代码后应当测试成功后删除
+19. 升级依赖时要注意兼容问题，不要做大版本升级，尽量修复依赖漏洞。
