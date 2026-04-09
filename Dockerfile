@@ -129,7 +129,7 @@ FROM dependencies AS tools
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && npm config set registry https://registry.npmmirror.com \
-    && npm install -g npm@latest \
+    && npm --version \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装Java 21（支持多架构）
