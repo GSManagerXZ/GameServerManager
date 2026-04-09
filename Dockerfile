@@ -263,17 +263,20 @@ COPY --from=builder /app/dist/package/ /root/
 COPY --from=builder /app/server/data/ /root/server/data/
 
 # 下载 Zip-Tools 二进制文件（从 GitHub Releases latest，构建时预置）
-RUN mkdir -p /root/data/lib && \
+RUN mkdir -p /root/server/data/lib && \
     if [ "$TARGETARCH" = "amd64" ]; then \
         BINARY_NAME="file_zip_linux_x64"; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         BINARY_NAME="file_zip_linux_arm64"; \
     fi && \
-    echo "正在下载 Zip-Tools latest (${BINARY_NAME})..." && \
-    wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
-        -O /root/data/lib/${BINARY_NAME} \
-        "https://github.com/MCSManager/Zip-Tools/releases/latest/download/${BINARY_NAME}" && \
-    chmod 755 /root/data/lib/${BINARY_NAME} && \
+    echo "正在下载 Zip-Tools (${BINARY_NAME})..." && \
+    (wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/server/data/lib/${BINARY_NAME} \
+        "https://download.xiaozhuhouses.asia/%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE/GSManager/GSManager3/%E8%BF%90%E8%A1%8C%E4%BE%9D%E8%B5%96/Zip-Tools/${BINARY_NAME}" \
+     || wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/server/data/lib/${BINARY_NAME} \
+        "https://github.com/MCSManager/Zip-Tools/releases/latest/download/${BINARY_NAME}") && \
+    chmod 755 /root/server/data/lib/${BINARY_NAME} && \
     echo "Zip-Tools 下载完成: ${BINARY_NAME}"
 
 # 下载 7z 二进制文件（从 GitHub Releases latest，构建时预置）
@@ -282,11 +285,14 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         BINARY_7Z="7z_linux_arm64"; \
     fi && \
-    echo "正在下载 7z latest (${BINARY_7Z})..." && \
-    wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
-        -O /root/data/lib/${BINARY_7Z} \
-        "https://github.com/MCSManager/Zip-Tools/releases/latest/download/${BINARY_7Z}" && \
-    chmod 755 /root/data/lib/${BINARY_7Z} && \
+    echo "正在下载 7z (${BINARY_7Z})..." && \
+    (wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/server/data/lib/${BINARY_7Z} \
+        "https://download.xiaozhuhouses.asia/%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE/GSManager/GSManager3/%E8%BF%90%E8%A1%8C%E4%BE%9D%E8%B5%96/Zip-Tools/${BINARY_7Z}" \
+     || wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/server/data/lib/${BINARY_7Z} \
+        "https://github.com/MCSManager/Zip-Tools/releases/latest/download/${BINARY_7Z}") && \
+    chmod 755 /root/server/data/lib/${BINARY_7Z} && \
     echo "7z 下载完成: ${BINARY_7Z}"
 
 # 下载 PTY 二进制文件（从 GitHub Releases latest，构建时预置）
@@ -295,11 +301,14 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         PTY_NAME="pty_linux_arm64"; \
     fi && \
-    echo "正在下载 PTY latest (${PTY_NAME})..." && \
-    wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
-        -O /root/data/lib/${PTY_NAME} \
-        "https://github.com/MCSManager/PTY/releases/tag/latest/download/${PTY_NAME}" && \
-    chmod 755 /root/data/lib/${PTY_NAME} && \
+    echo "正在下载 PTY (${PTY_NAME})..." && \
+    (wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/server/data/lib/${PTY_NAME} \
+        "https://download.xiaozhuhouses.asia/%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE/GSManager/GSManager3/%E8%BF%90%E8%A1%8C%E4%BE%9D%E8%B5%96/PTY/${PTY_NAME}" \
+     || wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
+        -O /root/server/data/lib/${PTY_NAME} \
+        "https://github.com/MCSManager/PTY/releases/download/latest/${PTY_NAME}") && \
+    chmod 755 /root/server/data/lib/${PTY_NAME} && \
     echo "PTY 下载完成: ${PTY_NAME}"
 # 拷贝 Python 依赖清单并安装
 COPY --from=builder /app/server/src/Python/requirements.txt /tmp/requirements.txt

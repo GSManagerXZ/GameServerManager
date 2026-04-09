@@ -108,6 +108,30 @@ docker run -d \
 - `./game_file` → `/home/steam/.config` 和 `/home/steam/.local` - 游戏配置
 - `./gsm3_data` → `/home/steam/server/data` - GSM3 应用数据
 
+## 运行依赖预置目录说明
+
+为避免容器启动后重复下载运行依赖，Docker 构建阶段下载的二进制文件（如 `file_zip_linux_x64`、`7z_linux_x64`、`pty_linux_x64`）需要预置到以下目录：
+
+- `/root/server/data/lib`
+
+原因：
+
+- 服务启动时会优先从 `/root/server/data/lib` 检测依赖是否就绪。
+- 若构建阶段写入了其他目录（例如 `/root/data/lib`），启动时仍会触发二次下载。
+
+### 下载源策略
+
+Docker 构建阶段对 `Zip-Tools`、`7z`、`PTY` 采用双源下载策略：
+
+1. 优先使用自建镜像源 `download.xiaozhuhouses.asia`
+2. 失败后回退到 GitHub Releases
+
+其中 PTY 的 GitHub 回退地址使用：
+
+- `https://github.com/MCSManager/PTY/releases/download/latest/<binary>`
+
+说明：`PTY` 项目发布资产不保证支持 `releases/latest/download/<binary>` 形式，使用 `releases/download/latest/<binary>` 更稳定。
+
 ## 访问管理界面
 
 构建并启动容器后，可通过以下地址访问：
