@@ -8,7 +8,8 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  AlertCircle
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react'
 
 const NetworkCheck: React.FC = () => {
@@ -205,6 +206,20 @@ const NetworkCheck: React.FC = () => {
                         </div>
                       </div>
                     ))}
+                    {category.id === 'gsmanager' && (
+                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20">
+                        <a
+                          href="http://status.xiaozhuhouses.asia/status/game"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center space-x-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                        >
+                          <span>星辰云基础设施健康看板（点击查看更多服务状态）</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

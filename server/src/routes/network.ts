@@ -8,11 +8,16 @@ import { URL } from 'url'
 const router = Router()
 
 // 网络检测项配置
+type NetworkCheckType = 'auto' | 'tcp' | 'http'
+
 interface NetworkCheckItem {
   id: string
   name: string
   url: string
   status: 'pending' | 'checking' | 'success' | 'failed'
+  checkType?: NetworkCheckType
+  port?: number
+  expectedStatusCode?: number
   responseTime?: number
   errorMessage?: string
 }
@@ -30,10 +35,8 @@ const networkCheckItems: NetworkCheckItem[] = [
   { id: 'mojang-session', name: 'Mojang 会话服务器', url: 'sessionserver.mojang.com', status: 'pending' },
   { id: 'msl-api', name: 'MSL API', url: 'https://api.mslmc.cn/v3', status: 'pending' },
   // GSManager
-  { id: 'gsm-deploy', name: 'GSManager功能服务', url: 'http://api.gsm.xiaozhuhouses.asia:10002/', status: 'pending' },
-  { id: 'gsm-mirror', name: 'GSManager镜像服务', url: 'https://download.xiaozhuhouses.asia/', status: 'pending' },
-  { id: 'gsm-cloud-build', name: 'GSManager 云构建服务', url: 'https://tools.xiaozhuhouses.asia/', status: 'pending' },
-  { id: 'gsm-cloud-cache', name: 'GSManager 云构建资源站', url: 'https://rs.xiaozhuhouses.asia/modules/minecraft', status: 'pending' }
+  { id: 'gsm-deploy', name: 'GSManager功能服务', url: 'langlangy2.server.xiaozhuhouses.asia', status: 'pending', checkType: 'tcp', port: 443 },
+  { id: 'gsm-mirror', name: '文件边缘下载服务', url: 'https://download.xiaozhuhouses.asia', status: 'pending', checkType: 'http', expectedStatusCode: 200 }
 ]
 
 // TCP Ping 函数
@@ -71,7 +74,11 @@ function tcpPing(host: string, port: number, timeout: number = 10000): Promise<{
 }
 
 // HTTP/HTTPS Ping 函数
-function httpPing(url: string, timeout: number = 10000): Promise<{ success: boolean; responseTime?: number; error?: string }> {
+function httpPing(
+  url: string,
+  timeout: number = 10000,
+  expectedStatusCode?: number
+): Promise<{ success: boolean; responseTime?: number; error?: string }> {
   return new Promise((resolve) => {
     const startTime = Date.now()
     
@@ -98,8 +105,21 @@ function httpPing(url: string, timeout: number = 10000): Promise<{ success: bool
         }
       }, (res) => {
         const responseTime = Date.now() - startTime
+        const statusCode = res.statusCode ?? 0
+        const isStatusValid = expectedStatusCode !== undefined
+          ? statusCode === expectedStatusCode
+          : statusCode >= 200 && statusCode < 300
+
         res.resume() // 消费响应数据
-        resolve({ success: true, responseTime })
+        if (isStatusValid) {
+          resolve({ success: true, responseTime })
+          return
+        }
+
+        const expectedLabel = expectedStatusCode !== undefined
+          ? `，期望 ${expectedStatusCode}`
+          : '，期望 2xx'
+        resolve({ success: false, error: `HTTP状态码异常: ${statusCode}${expectedLabel}` })
       })
 
       req.on('error', (err) => {
@@ -118,15 +138,19 @@ function httpPing(url: string, timeout: number = 10000): Promise<{ success: bool
 }
 
 // 解析URL并检测
-async function checkUrl(url: string, timeout: number = 10000): Promise<{ success: boolean; responseTime?: number; error?: string }> {
+async function checkUrl(
+  url: string,
+  timeout: number = 10000,
+  expectedStatusCode?: number
+): Promise<{ success: boolean; responseTime?: number; error?: string }> {
   try {
     // 如果是完整的HTTP/HTTPS URL，使用HTTP ping
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      return await httpPing(url, timeout)
+      return await httpPing(url, timeout, expectedStatusCode)
     }
 
     // 对于域名，先尝试HTTP ping
-    const httpResult = await httpPing(url, timeout)
+    const httpResult = await httpPing(url, timeout, expectedStatusCode)
     if (httpResult.success) {
       return httpResult
     }
@@ -139,12 +163,39 @@ async function checkUrl(url: string, timeout: number = 10000): Promise<{ success
   }
 }
 
+function extractHost(target: string): string {
+  if (target.startsWith('http://') || target.startsWith('https://')) {
+    try {
+      return new URL(target).hostname
+    } catch {
+      return target
+    }
+  }
+
+  return target.replace(/^(https?:\/\/)/, '').split('/')[0].split(':')[0]
+}
+
+async function checkItem(
+  item: NetworkCheckItem,
+  timeout: number = 10000
+): Promise<{ success: boolean; responseTime?: number; error?: string }> {
+  if (item.checkType === 'tcp') {
+    return tcpPing(extractHost(item.url), item.port ?? 80, timeout)
+  }
+
+  if (item.checkType === 'http') {
+    return httpPing(item.url, timeout, item.expectedStatusCode)
+  }
+
+  return checkUrl(item.url, timeout, item.expectedStatusCode)
+}
+
 // 检测所有网络项
 router.get('/check-all', authenticateToken, async (req: Request, res: Response) => {
   try {
     const results = await Promise.all(
       networkCheckItems.map(async (item) => {
-        const result = await checkUrl(item.url, 10000)
+        const result = await checkItem(item, 10000)
         return {
           id: item.id,
           name: item.name,
@@ -176,7 +227,7 @@ router.get('/check-all', authenticateToken, async (req: Request, res: Response) 
 // 检测单个网络项
 router.post('/check-single', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { url } = req.body
+    const { url, id } = req.body
 
     if (!url) {
       return res.status(400).json({
@@ -185,11 +236,18 @@ router.post('/check-single', authenticateToken, async (req: Request, res: Respon
       })
     }
 
-    const result = await checkUrl(url, 10000)
+    const matchedItem = typeof id === 'string'
+      ? networkCheckItems.find((item) => item.id === id)
+      : undefined
+
+    const result = matchedItem
+      ? await checkItem(matchedItem, 10000)
+      : await checkUrl(url, 10000)
 
     res.json({
       success: true,
       data: {
+        id,
         url,
         status: result.success ? 'success' : 'failed',
         responseTime: result.responseTime,

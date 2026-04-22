@@ -3038,8 +3038,6 @@ const GameDeploymentPage: React.FC = () => {
         </div>
       </div>
 
-      <NetworkStatusBanner categoryId="gsmanager-cloud" autoCheck={true} />
-
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-3">
         <div className="flex flex-wrap gap-2">
           <button

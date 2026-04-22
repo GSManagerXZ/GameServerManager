@@ -939,8 +939,8 @@ class ApiClient {
     return this.get('/network/check-all')
   }
 
-  async checkSingleNetwork(url: string) {
-    return this.post('/network/check-single', { url })
+  async checkSingleNetwork(url: string, id?: string) {
+    return this.post('/network/check-single', { url, id })
   }
 
   // 云构建部署API
