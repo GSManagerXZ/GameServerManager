@@ -964,6 +964,20 @@ class ApiClient {
     })
   }
 
+  async createCloudModpackBuildTask(data: {
+    platform: string
+    source: string
+    version?: string
+  }) {
+    return this.post('/cloud-build/modpack/build', data)
+  }
+
+  async getCloudModpackBuildTaskStatus(requestId: string, accessToken: string) {
+    return this.get(`/cloud-build/modpack/build/${encodeURIComponent(requestId)}`, {
+      params: { accessToken }
+    })
+  }
+
   async downloadAndExtractCloudBuild(data: {
     downloadUrl: string
     targetPath: string

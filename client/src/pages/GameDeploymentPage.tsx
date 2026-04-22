@@ -69,6 +69,29 @@ const isWindowsPlatform = (systemInfo: any): boolean => {
   return false
 }
 
+const extractCloudModpackNameFromSource = (source: string): string => {
+  const trimmedSource = source.trim()
+  if (!trimmedSource) return ''
+
+  try {
+    const parsedUrl = new URL(trimmedSource)
+    const segments = parsedUrl.pathname.split('/').filter(Boolean)
+
+    if (segments[0] === 'modpack' && segments[1]) {
+      return segments[1]
+    }
+
+    if (segments[0] === 'project' && segments[1]) {
+      return segments[1]
+    }
+
+    return segments[segments.length - 1] || ''
+  } catch {
+    const segments = trimmedSource.split('/').filter(Boolean)
+    return segments[segments.length - 1] || trimmedSource
+  }
+}
+
 const GameDeploymentPage: React.FC = () => {
   const { addNotification } = useNotificationStore()
   const { systemInfo, fetchSystemInfo } = useSystemStore()
@@ -304,6 +327,22 @@ const GameDeploymentPage: React.FC = () => {
   const [cloudInstanceDescription, setCloudInstanceDescription] = useState('')
   const [cloudInstanceStartCommand, setCloudInstanceStartCommand] = useState('')
   const [creatingCloudInstance, setCreatingCloudInstance] = useState(false)
+  const [cloudModpackPlatform, setCloudModpackPlatform] = useState('modrinth')
+  const [cloudModpackSource, setCloudModpackSource] = useState('')
+  const [cloudModpackVersion, setCloudModpackVersion] = useState('')
+  const [cloudModpackPath, setCloudModpackPath] = useState('')
+  const [buildingCloudModpack, setBuildingCloudModpack] = useState(false)
+  const [cloudModpackTaskSession, setCloudModpackTaskSession] = useState<{ requestId: string; accessToken: string } | null>(null)
+  const [cloudModpackProgress, setCloudModpackProgress] = useState<number>(0)
+  const [cloudModpackLogs, setCloudModpackLogs] = useState<string[]>([])
+  const [cloudModpackComplete, setCloudModpackComplete] = useState(false)
+  const [cloudModpackResult, setCloudModpackResult] = useState<any>(null)
+  const [showCreateCloudModpackInstanceModal, setShowCreateCloudModpackInstanceModal] = useState(false)
+  const [createCloudModpackInstanceModalAnimating, setCreateCloudModpackInstanceModalAnimating] = useState(false)
+  const [cloudModpackInstanceName, setCloudModpackInstanceName] = useState('')
+  const [cloudModpackInstanceDescription, setCloudModpackInstanceDescription] = useState('')
+  const [cloudModpackInstanceStartCommand, setCloudModpackInstanceStartCommand] = useState('')
+  const [creatingCloudModpackInstance, setCreatingCloudModpackInstance] = useState(false)
 
   // SteamCMD高级选项
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -781,6 +820,295 @@ const GameDeploymentPage: React.FC = () => {
       })
     } finally {
       setCreatingCloudInstance(false)
+    }
+  }
+
+  const resetCloudModpackBuildState = () => {
+    setCloudModpackTaskSession(null)
+    setCloudModpackProgress(0)
+    setCloudModpackLogs([])
+    setCloudModpackComplete(false)
+    setCloudModpackResult(null)
+  }
+
+  const appendCloudModpackLog = (message: string) => {
+    setCloudModpackLogs(prev => {
+      if (prev[prev.length - 1] === message) {
+        return prev
+      }
+      return [...prev, message]
+    })
+  }
+
+  const handleCloudModpackBuild = async () => {
+    if (!cloudModpackSource.trim()) {
+      addNotification({
+        type: 'warning',
+        title: '请输入整合包来源',
+        message: '请填写 Modrinth 项目链接、版本链接、slug 或项目 ID'
+      })
+      return
+    }
+
+    if (!cloudModpackPath.trim()) {
+      addNotification({
+        type: 'warning',
+        title: '请选择部署路径',
+        message: '请先填写整合包部署路径'
+      })
+      return
+    }
+
+    try {
+      setBuildingCloudModpack(true)
+      setCloudModpackProgress(0)
+      setCloudModpackComplete(false)
+      setCloudModpackResult(null)
+      setCloudModpackTaskSession(null)
+      setCloudModpackLogs(['开始提交我的世界整合包构建任务...'])
+
+      const response = await apiClient.createCloudModpackBuildTask({
+        platform: cloudModpackPlatform,
+        source: cloudModpackSource.trim(),
+        version: cloudModpackVersion.trim() || undefined
+      })
+
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '创建整合包构建任务失败')
+      }
+
+      const requestId = String(response.data.requestId || '').trim()
+      const accessToken = String(response.data.accessToken || '').trim()
+
+      if (!requestId || !accessToken) {
+        throw new Error('整合包构建任务已创建，但缺少 requestId 或 accessToken')
+      }
+
+      setCloudModpackTaskSession({ requestId, accessToken })
+      appendCloudModpackLog(`任务已创建，请求编号：${requestId}`)
+
+      await monitorCloudModpackProgress(requestId, accessToken)
+    } catch (error: any) {
+      console.error('创建整合包构建任务失败:', error)
+      addNotification({
+        type: 'error',
+        title: '构建失败',
+        message: error.message || '创建整合包构建任务失败'
+      })
+      setBuildingCloudModpack(false)
+    }
+  }
+
+  const monitorCloudModpackProgress = async (requestId: string, accessToken: string) => {
+    let isMonitoring = true
+
+    const checkProgress = async () => {
+      if (!isMonitoring) return
+
+      try {
+        const response = await apiClient.getCloudModpackBuildTaskStatus(requestId, accessToken)
+
+        if (!response.success || !response.data) {
+          throw new Error(response.message || '查询整合包构建任务状态失败')
+        }
+
+        const taskPayload = response.data
+        const taskData = taskPayload.data || {}
+        const status = String(taskPayload.status || '').toUpperCase()
+        const taskMessage = taskPayload.message || response.message || ''
+
+        if (taskMessage) {
+          appendCloudModpackLog(taskMessage)
+        }
+
+        if (typeof taskPayload.queueAheadCount === 'number') {
+          appendCloudModpackLog(`当前前方排队数量：${taskPayload.queueAheadCount}`)
+        }
+
+        if (status === 'SUCCESS') {
+          isMonitoring = false
+          setCloudModpackProgress(100)
+
+          if (!taskData.downloadUrl) {
+            throw new Error('任务已完成，但未返回下载地址')
+          }
+
+          appendCloudModpackLog('任务构建完成，开始下载整合包服务端文件...')
+          await handleCloudModpackDownload(taskData)
+          return
+        }
+
+        if (status === 'FAILED' || status === 'CANCELLED') {
+          isMonitoring = false
+          throw new Error(taskMessage || (status === 'CANCELLED' ? '整合包构建任务已取消' : '整合包构建任务失败'))
+        }
+
+        setCloudModpackProgress(prev => {
+          const nextProgress = prev + 5
+          return nextProgress >= 95 ? 95 : nextProgress
+        })
+
+        setTimeout(() => {
+          checkProgress()
+        }, 2000)
+      } catch (error: any) {
+        isMonitoring = false
+        console.error('查询整合包构建任务状态失败:', error)
+        addNotification({
+          type: 'error',
+          title: '构建失败',
+          message: error.message || '查询整合包构建任务状态失败'
+        })
+        setBuildingCloudModpack(false)
+      }
+    }
+
+    checkProgress()
+  }
+
+  const handleCloudModpackDownload = async (taskData: any) => {
+    try {
+      appendCloudModpackLog('开始下载云端生成的整合包服务端文件...')
+
+      const response = await apiClient.downloadAndExtractCloudBuild({
+        downloadUrl: taskData.downloadUrl,
+        targetPath: cloudModpackPath,
+        archiveFileName: taskData.archiveFileName
+      })
+
+      if (!response.success || !response.data) {
+        throw new Error(response.message || '下载并解压整合包构建文件失败')
+      }
+
+      appendCloudModpackLog('文件下载完成，正在解压到部署目录...')
+      appendCloudModpackLog(`已解压 ${response.data.files} 个文件`)
+      appendCloudModpackLog('部署完成，可以继续创建实例')
+
+      const startCommand = response.data.startCommand ||
+        (isWindowsPlatform(systemInfo) ? '.\\start.bat' : 'bash start.sh')
+
+      setCloudModpackComplete(true)
+      setCloudModpackProgress(100)
+      setCloudModpackResult({
+        projectTitle: taskData.projectTitle || extractCloudModpackNameFromSource(cloudModpackSource),
+        versionNumber: taskData.versionNumber || cloudModpackVersion.trim(),
+        minecraftVersion: taskData.minecraftVersion || '',
+        loader: taskData.loader || '',
+        cacheHit: taskData.cacheHit,
+        path: cloudModpackPath,
+        startCommand,
+        source: cloudModpackSource.trim(),
+        platform: cloudModpackPlatform
+      })
+      setBuildingCloudModpack(false)
+
+      addNotification({
+        type: 'success',
+        title: '部署完成',
+        message: '我的世界整合包构建结果已成功下载并解压到部署目录'
+      })
+    } catch (error: any) {
+      console.error('下载整合包构建文件失败:', error)
+      addNotification({
+        type: 'error',
+        title: '下载失败',
+        message: error.message || '下载整合包构建文件失败'
+      })
+      setBuildingCloudModpack(false)
+    }
+  }
+
+  const handleOpenCreateCloudModpackInstanceModal = () => {
+    if (!cloudModpackResult) return
+
+    const projectTitle = cloudModpackResult.projectTitle || 'minecraft-modpack'
+    const versionLabel = cloudModpackResult.versionNumber ? `-${cloudModpackResult.versionNumber}` : ''
+    setCloudModpackInstanceName(`${projectTitle}${versionLabel}`)
+
+    const descriptionParts = [
+      cloudModpackResult.projectTitle || 'Minecraft整合包',
+      cloudModpackResult.versionNumber ? `版本 ${cloudModpackResult.versionNumber}` : '',
+      cloudModpackResult.minecraftVersion ? `MC ${cloudModpackResult.minecraftVersion}` : '',
+      cloudModpackResult.loader || ''
+    ].filter(Boolean)
+    setCloudModpackInstanceDescription(descriptionParts.join(' | '))
+
+    const startCommand = cloudModpackResult.startCommand ||
+      (isWindowsPlatform(systemInfo) ? '.\\start.bat' : 'bash start.sh')
+    setCloudModpackInstanceStartCommand(startCommand)
+
+    setShowCreateCloudModpackInstanceModal(true)
+    setTimeout(() => {
+      setCreateCloudModpackInstanceModalAnimating(true)
+    }, 10)
+  }
+
+  const handleCloseCreateCloudModpackInstanceModal = () => {
+    setCreateCloudModpackInstanceModalAnimating(false)
+    setTimeout(() => {
+      setShowCreateCloudModpackInstanceModal(false)
+      setCloudModpackInstanceName('')
+      setCloudModpackInstanceDescription('')
+      setCloudModpackInstanceStartCommand('')
+    }, 300)
+  }
+
+  const handleCreateCloudModpackInstance = async () => {
+    if (!cloudModpackInstanceName.trim()) {
+      addNotification({
+        type: 'warning',
+        title: '请输入实例名称',
+        message: '实例名称不能为空'
+      })
+      return
+    }
+
+    if (!cloudModpackInstanceStartCommand.trim()) {
+      addNotification({
+        type: 'warning',
+        title: '请输入启动命令',
+        message: '启动命令不能为空'
+      })
+      return
+    }
+
+    try {
+      setCreatingCloudModpackInstance(true)
+
+      const response = await apiClient.createInstance({
+        name: cloudModpackInstanceName,
+        description: cloudModpackInstanceDescription,
+        workingDirectory: cloudModpackPath,
+        startCommand: cloudModpackInstanceStartCommand,
+        autoStart: false,
+        stopCommand: 'stop'
+      })
+
+      if (response.success) {
+        addNotification({
+          type: 'success',
+          title: '创建成功',
+          message: '实例已成功创建'
+        })
+
+        handleCloseCreateCloudModpackInstanceModal()
+        setCloudModpackComplete(false)
+        setCloudModpackResult(null)
+        setCloudModpackLogs([])
+        setCloudModpackTaskSession(null)
+        setCloudModpackProgress(0)
+      } else {
+        throw new Error(response.message || '创建实例失败')
+      }
+    } catch (error: any) {
+      console.error('创建整合包实例失败:', error)
+      addNotification({
+        type: 'error',
+        title: '创建失败',
+        message: error.message || '创建整合包实例失败'
+      })
+    } finally {
+      setCreatingCloudModpackInstance(false)
     }
   }
 
@@ -1881,6 +2209,9 @@ const GameDeploymentPage: React.FC = () => {
       if (defaultGamePath && !cloudBuildPath) {
         setCloudBuildPath(defaultGamePath)
       }
+      if (defaultGamePath && !cloudModpackPath) {
+        setCloudModpackPath(defaultGamePath)
+      }
     }
   }, [activeTab, sponsorKeyValid, defaultGamePath, fetchSystemInfo])
 
@@ -2692,7 +3023,7 @@ const GameDeploymentPage: React.FC = () => {
               云构建部署
             </h3>
             <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
-              使用新的开放接口在云端组装我的世界 Java 核心开服包，适合在本地环境不稳定或依赖不完整时快速完成部署。
+              使用开放接口在云端完成我的世界服务端构建，当前支持 Java 核心开服包与整合包服务端构建，适合在本地环境不稳定或依赖不完整时快速完成部署。
             </p>
             <a
               href="https://tools.xiaozhuhouses.asia/"
@@ -2720,6 +3051,16 @@ const GameDeploymentPage: React.FC = () => {
             }`}
           >
             我的世界Java核心开服包
+          </button>
+          <button
+            onClick={() => setActiveCloudBuildSubTab('modpack')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeCloudBuildSubTab === 'modpack'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            我的世界整合包构建
           </button>
         </div>
       </div>
@@ -2907,6 +3248,188 @@ const GameDeploymentPage: React.FC = () => {
                       </div>
                       <button
                         onClick={handleOpenCreateCloudInstanceModal}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                      >
+                        <Server className="w-4 h-4" />
+                        <span>创建实例</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeCloudBuildSubTab === 'modpack' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                整合包参数
+              </h3>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                当前通过开放接口构建服务端整合包
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  来源平台
+                </label>
+                <select
+                  value={cloudModpackPlatform}
+                  onChange={(e) => {
+                    setCloudModpackPlatform(e.target.value)
+                    resetCloudModpackBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  disabled={buildingCloudModpack}
+                >
+                  <option value="modrinth">Modrinth</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  整合包来源
+                </label>
+                <input
+                  type="text"
+                  value={cloudModpackSource}
+                  onChange={(e) => {
+                    setCloudModpackSource(e.target.value)
+                    resetCloudModpackBuildState()
+                  }}
+                  onBlur={() => {
+                    const projectName = extractCloudModpackNameFromSource(cloudModpackSource)
+                    if (projectName && defaultGamePath && (!cloudModpackPath.trim() || cloudModpackPath === defaultGamePath)) {
+                      setCloudModpackPath(generatePath(projectName))
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="例如：https://modrinth.com/modpack/skyblock-plus?version=26.1"
+                  disabled={buildingCloudModpack}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  支持 Modrinth 项目页、版本页、slug 或项目 ID。
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  版本号（可选）
+                </label>
+                <input
+                  type="text"
+                  value={cloudModpackVersion}
+                  onChange={(e) => {
+                    setCloudModpackVersion(e.target.value)
+                    resetCloudModpackBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="留空时由上游自动选择默认版本"
+                  disabled={buildingCloudModpack}
+                />
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-sm text-gray-600 dark:text-gray-400">
+                <p>当前流程：提交构建 {'->'} 轮询任务 {'->'} 下载并解压 {'->'} 创建实例</p>
+                {cloudModpackTaskSession && (
+                  <p className="mt-2 break-all">
+                    最近任务编号：{cloudModpackTaskSession.requestId}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              部署配置
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  部署路径
+                </label>
+                <input
+                  type="text"
+                  value={cloudModpackPath}
+                  onChange={(e) => {
+                    setCloudModpackPath(e.target.value)
+                    resetCloudModpackBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="输入整合包服务端部署路径"
+                  disabled={buildingCloudModpack}
+                />
+              </div>
+
+              <button
+                onClick={handleCloudModpackBuild}
+                disabled={!cloudModpackSource.trim() || !cloudModpackPath.trim() || buildingCloudModpack}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+              >
+                {buildingCloudModpack ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    <span>构建中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Archive className="w-4 h-4" />
+                    <span>开始整合包构建</span>
+                  </>
+                )}
+              </button>
+
+              {(buildingCloudModpack || cloudModpackProgress > 0) && (
+                <div className="space-y-2">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${cloudModpackProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-center text-gray-600 dark:text-gray-400">
+                    {cloudModpackProgress}%
+                  </p>
+                </div>
+              )}
+
+              {cloudModpackLogs.length > 0 && (
+                <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto">
+                  {cloudModpackLogs.map((log, index) => (
+                    <div key={index} className="mb-1 break-all">
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {cloudModpackComplete && cloudModpackResult && (
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">
+                        部署完成
+                      </h4>
+                      <div className="text-sm text-green-700 dark:text-green-300 space-y-1 mb-3">
+                        <p>整合包：{cloudModpackResult.projectTitle || '未返回名称'}</p>
+                        <p>版本：{cloudModpackResult.versionNumber || '未指定'}</p>
+                        <p>MC版本：{cloudModpackResult.minecraftVersion || '未知'}</p>
+                        <p>加载器：{cloudModpackResult.loader || '未知'}</p>
+                        <p>缓存命中：{cloudModpackResult.cacheHit ? '是' : '否'}</p>
+                        <p>部署路径：{cloudModpackResult.path}</p>
+                        <p>启动命令：{cloudModpackResult.startCommand}</p>
+                      </div>
+                      <button
+                        onClick={handleOpenCreateCloudModpackInstanceModal}
                         className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
                       >
                         <Server className="w-4 h-4" />
@@ -4971,6 +5494,95 @@ const GameDeploymentPage: React.FC = () => {
                 className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
               >
                 {creatingCloudInstance ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    <span>创建中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Server className="w-4 h-4" />
+                    <span>创建实例</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateCloudModpackInstanceModal && cloudModpackResult && (
+        <div className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 transition-opacity duration-300 ${
+          createCloudModpackInstanceModalAnimating ? 'opacity-100' : 'opacity-0'
+        }`}>
+          <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 transform transition-all duration-300 ${
+            createCloudModpackInstanceModalAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+          }`}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                创建整合包构建实例
+              </h3>
+              <button
+                onClick={handleCloseCreateCloudModpackInstanceModal}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  实例名称
+                </label>
+                <input
+                  type="text"
+                  value={cloudModpackInstanceName}
+                  onChange={(e) => setCloudModpackInstanceName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="实例名称"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  描述（可选）
+                </label>
+                <textarea
+                  value={cloudModpackInstanceDescription}
+                  onChange={(e) => setCloudModpackInstanceDescription(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="实例描述"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  启动命令
+                </label>
+                <input
+                  type="text"
+                  value={cloudModpackInstanceStartCommand}
+                  onChange={(e) => setCloudModpackInstanceStartCommand(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="启动命令（自动生成，可手动修改）"
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={handleCloseCreateCloudModpackInstanceModal}
+                className="flex-1 px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateCloudModpackInstance}
+                disabled={!cloudModpackInstanceName.trim() || creatingCloudModpackInstance}
+                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+              >
+                {creatingCloudModpackInstance ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
                     <span>创建中...</span>

@@ -10,8 +10,18 @@ import { zipToolsManager } from '../utils/zipToolsManager.js'
 const router = Router()
 
 const CLOUD_BUILD_SERVER = 'https://tools.xiaozhuhouses.asia'
-const TOOL_KEY = 'minecraft-java-core-assembler'
 const DEFAULT_USER_AGENT = 'GSM3-CloudBuild/1.0'
+const CLOUD_BUILD_TOOLS = {
+  javaCore: {
+    key: 'minecraft-java-core-assembler',
+    label: '我的世界Java核心开服包'
+  },
+  modpack: {
+    key: 'minecraft-modpack-assembler',
+    label: '我的世界整合包构建'
+  }
+} as const
+const MODPACK_PLATFORMS = ['modrinth'] as const
 
 const buildHeaders = (extraHeaders: Record<string, string> = {}) => ({
   Accept: 'application/json',
@@ -112,19 +122,50 @@ const detectStartCommand = async (targetPath: string): Promise<{ startCommand: s
   }
 }
 
+const requestCatalog = async (coreType?: string) => {
+  const params = coreType ? { coreType } : undefined
+
+  return axios.get(
+    `${CLOUD_BUILD_SERVER}/api/tools/${CLOUD_BUILD_TOOLS.javaCore.key}/catalog`,
+    {
+      params,
+      timeout: 30000,
+      headers: buildHeaders()
+    }
+  )
+}
+
+const createBuildTask = async (toolKey: string, params: Record<string, string>) => {
+  return axios.post(
+    `${CLOUD_BUILD_SERVER}/api/open/tools/${toolKey}/execute`,
+    {
+      params
+    },
+    {
+      timeout: 60000,
+      headers: buildHeaders({
+        'Content-Type': 'application/json'
+      })
+    }
+  )
+}
+
+const queryBuildTaskStatus = async (toolKey: string, requestId: string, accessToken: string) => {
+  return axios.get(
+    `${CLOUD_BUILD_SERVER}/api/open/tools/${toolKey}/tasks/${encodeURIComponent(requestId)}`,
+    {
+      timeout: 30000,
+      headers: buildHeaders({
+        'X-Task-Access-Token': accessToken
+      })
+    }
+  )
+}
+
 router.get('/catalog', authenticateToken, async (req, res) => {
   try {
     const coreType = typeof req.query.coreType === 'string' ? req.query.coreType.trim() : ''
-    const params = coreType ? { coreType } : undefined
-
-    const response = await axios.get(
-      `${CLOUD_BUILD_SERVER}/api/tools/${TOOL_KEY}/catalog`,
-      {
-        params,
-        timeout: 30000,
-        headers: buildHeaders()
-      }
-    )
+    const response = await requestCatalog(coreType)
 
     res.json({
       success: true,
@@ -152,22 +193,11 @@ router.post('/build', authenticateToken, async (req, res) => {
       })
     }
 
-    const response = await axios.post(
-      `${CLOUD_BUILD_SERVER}/api/open/tools/${TOOL_KEY}/execute`,
-      {
-        params: {
-          coreType,
-          version,
-          mcVersion
-        }
-      },
-      {
-        timeout: 60000,
-        headers: buildHeaders({
-          'Content-Type': 'application/json'
-        })
-      }
-    )
+    const response = await createBuildTask(CLOUD_BUILD_TOOLS.javaCore.key, {
+      coreType,
+      version,
+      mcVersion
+    })
 
     res.json({
       success: true,
@@ -196,14 +226,10 @@ router.get('/build/:requestId', authenticateToken, async (req, res) => {
       })
     }
 
-    const response = await axios.get(
-      `${CLOUD_BUILD_SERVER}/api/open/tools/${TOOL_KEY}/tasks/${encodeURIComponent(requestId)}`,
-      {
-        timeout: 30000,
-        headers: buildHeaders({
-          'X-Task-Access-Token': accessToken
-        })
-      }
+    const response = await queryBuildTaskStatus(
+      CLOUD_BUILD_TOOLS.javaCore.key,
+      requestId,
+      accessToken
     )
 
     res.json({
@@ -216,6 +242,80 @@ router.get('/build/:requestId', authenticateToken, async (req, res) => {
     res.status(error.response?.status || 500).json({
       success: false,
       message: error.response?.data?.message || '查询云构建任务状态失败',
+      error: error.message
+    })
+  }
+})
+
+router.post('/modpack/build', authenticateToken, async (req, res) => {
+  try {
+    const platform = typeof req.body.platform === 'string' ? req.body.platform.trim().toLowerCase() : 'modrinth'
+    const source = typeof req.body.source === 'string' ? req.body.source.trim() : ''
+    const version = typeof req.body.version === 'string' ? req.body.version.trim() : ''
+
+    if (!source) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要参数：source'
+      })
+    }
+
+    if (!MODPACK_PLATFORMS.includes(platform as typeof MODPACK_PLATFORMS[number])) {
+      return res.status(400).json({
+        success: false,
+        message: `暂不支持的平台：${platform}`
+      })
+    }
+
+    const response = await createBuildTask(CLOUD_BUILD_TOOLS.modpack.key, {
+      platform,
+      source,
+      version
+    })
+
+    res.json({
+      success: true,
+      message: response.data?.message || '整合包构建任务已提交',
+      data: response.data
+    })
+  } catch (error: any) {
+    console.error('创建整合包构建任务失败:', error.message)
+    res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || '创建整合包构建任务失败',
+      error: error.message
+    })
+  }
+})
+
+router.get('/modpack/build/:requestId', authenticateToken, async (req, res) => {
+  try {
+    const { requestId } = req.params
+    const accessToken = typeof req.query.accessToken === 'string' ? req.query.accessToken.trim() : ''
+
+    if (!accessToken) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要参数：accessToken'
+      })
+    }
+
+    const response = await queryBuildTaskStatus(
+      CLOUD_BUILD_TOOLS.modpack.key,
+      requestId,
+      accessToken
+    )
+
+    res.json({
+      success: true,
+      message: response.data?.message || '查询整合包构建任务状态成功',
+      data: response.data
+    })
+  } catch (error: any) {
+    console.error('查询整合包构建任务状态失败:', error.message)
+    res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || '查询整合包构建任务状态失败',
       error: error.message
     })
   }
