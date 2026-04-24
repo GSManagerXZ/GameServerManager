@@ -23,9 +23,14 @@ const CLOUD_BUILD_TOOLS = {
 } as const
 const MODPACK_PLATFORMS = ['modrinth'] as const
 
-const buildHeaders = (extraHeaders: Record<string, string> = {}) => ({
+const normalizeUserAgent = (userAgent?: string): string => {
+  const trimmedUserAgent = typeof userAgent === 'string' ? userAgent.trim() : ''
+  return trimmedUserAgent || DEFAULT_USER_AGENT
+}
+
+const buildHeaders = (userAgent?: string, extraHeaders: Record<string, string> = {}) => ({
   Accept: 'application/json',
-  'User-Agent': DEFAULT_USER_AGENT,
+  'User-Agent': normalizeUserAgent(userAgent),
   ...extraHeaders
 })
 
@@ -122,7 +127,7 @@ const detectStartCommand = async (targetPath: string): Promise<{ startCommand: s
   }
 }
 
-const requestCatalog = async (coreType?: string) => {
+const requestCatalog = async (coreType?: string, userAgent?: string) => {
   const params = coreType ? { coreType } : undefined
 
   return axios.get(
@@ -130,12 +135,12 @@ const requestCatalog = async (coreType?: string) => {
     {
       params,
       timeout: 30000,
-      headers: buildHeaders()
+      headers: buildHeaders(userAgent)
     }
   )
 }
 
-const createBuildTask = async (toolKey: string, params: Record<string, string>) => {
+const createBuildTask = async (toolKey: string, params: Record<string, string>, userAgent?: string) => {
   return axios.post(
     `${CLOUD_BUILD_SERVER}/api/open/tools/${toolKey}/execute`,
     {
@@ -143,19 +148,19 @@ const createBuildTask = async (toolKey: string, params: Record<string, string>) 
     },
     {
       timeout: 60000,
-      headers: buildHeaders({
+      headers: buildHeaders(userAgent, {
         'Content-Type': 'application/json'
       })
     }
   )
 }
 
-const queryBuildTaskStatus = async (toolKey: string, requestId: string, accessToken: string) => {
+const queryBuildTaskStatus = async (toolKey: string, requestId: string, accessToken: string, userAgent?: string) => {
   return axios.get(
     `${CLOUD_BUILD_SERVER}/api/open/tools/${toolKey}/tasks/${encodeURIComponent(requestId)}`,
     {
       timeout: 30000,
-      headers: buildHeaders({
+      headers: buildHeaders(userAgent, {
         'X-Task-Access-Token': accessToken
       })
     }
@@ -165,7 +170,8 @@ const queryBuildTaskStatus = async (toolKey: string, requestId: string, accessTo
 router.get('/catalog', authenticateToken, async (req, res) => {
   try {
     const coreType = typeof req.query.coreType === 'string' ? req.query.coreType.trim() : ''
-    const response = await requestCatalog(coreType)
+    const userAgent = typeof req.query.userAgent === 'string' ? req.query.userAgent.trim() : ''
+    const response = await requestCatalog(coreType, userAgent)
 
     res.json({
       success: true,
@@ -185,6 +191,7 @@ router.get('/catalog', authenticateToken, async (req, res) => {
 router.post('/build', authenticateToken, async (req, res) => {
   try {
     const { coreType, version, mcVersion } = req.body
+    const userAgent = typeof req.body.userAgent === 'string' ? req.body.userAgent.trim() : ''
 
     if (!coreType || !version || !mcVersion) {
       return res.status(400).json({
@@ -197,7 +204,7 @@ router.post('/build', authenticateToken, async (req, res) => {
       coreType,
       version,
       mcVersion
-    })
+    }, userAgent)
 
     res.json({
       success: true,
@@ -218,6 +225,7 @@ router.get('/build/:requestId', authenticateToken, async (req, res) => {
   try {
     const { requestId } = req.params
     const accessToken = typeof req.query.accessToken === 'string' ? req.query.accessToken.trim() : ''
+    const userAgent = typeof req.query.userAgent === 'string' ? req.query.userAgent.trim() : ''
 
     if (!accessToken) {
       return res.status(400).json({
@@ -229,7 +237,8 @@ router.get('/build/:requestId', authenticateToken, async (req, res) => {
     const response = await queryBuildTaskStatus(
       CLOUD_BUILD_TOOLS.javaCore.key,
       requestId,
-      accessToken
+      accessToken,
+      userAgent
     )
 
     res.json({
@@ -252,6 +261,7 @@ router.post('/modpack/build', authenticateToken, async (req, res) => {
     const platform = typeof req.body.platform === 'string' ? req.body.platform.trim().toLowerCase() : 'modrinth'
     const source = typeof req.body.source === 'string' ? req.body.source.trim() : ''
     const version = typeof req.body.version === 'string' ? req.body.version.trim() : ''
+    const userAgent = typeof req.body.userAgent === 'string' ? req.body.userAgent.trim() : ''
 
     if (!source) {
       return res.status(400).json({
@@ -271,7 +281,7 @@ router.post('/modpack/build', authenticateToken, async (req, res) => {
       platform,
       source,
       version
-    })
+    }, userAgent)
 
     res.json({
       success: true,
@@ -292,6 +302,7 @@ router.get('/modpack/build/:requestId', authenticateToken, async (req, res) => {
   try {
     const { requestId } = req.params
     const accessToken = typeof req.query.accessToken === 'string' ? req.query.accessToken.trim() : ''
+    const userAgent = typeof req.query.userAgent === 'string' ? req.query.userAgent.trim() : ''
 
     if (!accessToken) {
       return res.status(400).json({
@@ -303,7 +314,8 @@ router.get('/modpack/build/:requestId', authenticateToken, async (req, res) => {
     const response = await queryBuildTaskStatus(
       CLOUD_BUILD_TOOLS.modpack.key,
       requestId,
-      accessToken
+      accessToken,
+      userAgent
     )
 
     res.json({
@@ -326,6 +338,7 @@ router.post('/download', authenticateToken, async (req, res) => {
 
   try {
     const { downloadUrl, targetPath, archiveFileName } = req.body
+    const userAgent = typeof req.body.userAgent === 'string' ? req.body.userAgent.trim() : ''
 
     if (!downloadUrl || !targetPath) {
       return res.status(400).json({
@@ -346,7 +359,7 @@ router.post('/download', authenticateToken, async (req, res) => {
     const downloadResponse = await axios.get(finalDownloadUrl, {
       responseType: 'stream',
       timeout: 300000,
-      headers: buildHeaders()
+      headers: buildHeaders(userAgent)
     })
 
     await pipeline(downloadResponse.data, createWriteStream(tempArchivePath))

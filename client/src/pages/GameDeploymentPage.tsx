@@ -306,6 +306,10 @@ const GameDeploymentPage: React.FC = () => {
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [helpModalAnimating, setHelpModalAnimating] = useState(false)
 
+  const CLOUD_BUILD_DEFAULT_USER_AGENT = 'GSM3-CloudBuild/1.0'
+  const CLOUD_BUILD_JAVA_UA_STORAGE_KEY = 'gsm3_cloud_build_java_user_agent'
+  const CLOUD_BUILD_MODPACK_UA_STORAGE_KEY = 'gsm3_cloud_build_modpack_user_agent'
+
   // 云构建部署相关状态
   const [activeCloudBuildSubTab, setActiveCloudBuildSubTab] = useState('java-core')
   const [cloudBuildCoreTypes, setCloudBuildCoreTypes] = useState<string[]>([])
@@ -314,6 +318,9 @@ const GameDeploymentPage: React.FC = () => {
   const [cloudBuildVersions, setCloudBuildVersions] = useState<string[]>([])
   const [selectedCloudVersion, setSelectedCloudVersion] = useState<string>('')
   const [cloudBuildMcVersion, setCloudBuildMcVersion] = useState<string>('')
+  const [cloudBuildJavaUserAgent, setCloudBuildJavaUserAgent] = useState(() => {
+    return localStorage.getItem(CLOUD_BUILD_JAVA_UA_STORAGE_KEY) || CLOUD_BUILD_DEFAULT_USER_AGENT
+  })
   const [cloudBuildPath, setCloudBuildPath] = useState('')
   const [buildingCloud, setBuildingCloud] = useState(false)
   const [cloudBuildTaskSession, setCloudBuildTaskSession] = useState<{ requestId: string; accessToken: string } | null>(null)
@@ -330,6 +337,9 @@ const GameDeploymentPage: React.FC = () => {
   const [cloudModpackPlatform, setCloudModpackPlatform] = useState('modrinth')
   const [cloudModpackSource, setCloudModpackSource] = useState('')
   const [cloudModpackVersion, setCloudModpackVersion] = useState('')
+  const [cloudModpackUserAgent, setCloudModpackUserAgent] = useState(() => {
+    return localStorage.getItem(CLOUD_BUILD_MODPACK_UA_STORAGE_KEY) || CLOUD_BUILD_DEFAULT_USER_AGENT
+  })
   const [cloudModpackPath, setCloudModpackPath] = useState('')
   const [buildingCloudModpack, setBuildingCloudModpack] = useState(false)
   const [cloudModpackTaskSession, setCloudModpackTaskSession] = useState<{ requestId: string; accessToken: string } | null>(null)
@@ -484,10 +494,20 @@ const GameDeploymentPage: React.FC = () => {
     })
   }
 
+  const getCloudBuildJavaUserAgent = () => {
+    const trimmedUserAgent = cloudBuildJavaUserAgent.trim()
+    return trimmedUserAgent || CLOUD_BUILD_DEFAULT_USER_AGENT
+  }
+
+  const getCloudModpackUserAgent = () => {
+    const trimmedUserAgent = cloudModpackUserAgent.trim()
+    return trimmedUserAgent || CLOUD_BUILD_DEFAULT_USER_AGENT
+  }
+
   const fetchCloudBuildCoreTypes = async () => {
     try {
       setCloudBuildCatalogLoading(true)
-      const response = await apiClient.getCloudBuildCatalog()
+      const response = await apiClient.getCloudBuildCatalog(undefined, getCloudBuildJavaUserAgent())
 
       if (!response.success || !response.data) {
         throw new Error(response.message || '无法获取核心类型列表')
@@ -523,7 +543,7 @@ const GameDeploymentPage: React.FC = () => {
   const fetchCloudBuildVersions = async (coreType: string) => {
     try {
       setCloudBuildCatalogLoading(true)
-      const response = await apiClient.getCloudBuildCatalog(coreType)
+      const response = await apiClient.getCloudBuildCatalog(coreType, getCloudBuildJavaUserAgent())
 
       if (!response.success || !response.data) {
         throw new Error(response.message || '无法获取核心版本列表')
@@ -583,7 +603,8 @@ const GameDeploymentPage: React.FC = () => {
       const response = await apiClient.createCloudBuildTask({
         coreType: selectedCloudCoreType,
         version: selectedCloudVersion,
-        mcVersion: cloudBuildMcVersion.trim()
+        mcVersion: cloudBuildMcVersion.trim(),
+        userAgent: getCloudBuildJavaUserAgent()
       })
 
       if (!response.success || !response.data) {
@@ -619,7 +640,7 @@ const GameDeploymentPage: React.FC = () => {
       if (!isMonitoring) return
 
       try {
-        const response = await apiClient.getCloudBuildTaskStatus(requestId, accessToken)
+        const response = await apiClient.getCloudBuildTaskStatus(requestId, accessToken, getCloudBuildJavaUserAgent())
 
         if (!response.success || !response.data) {
           throw new Error(response.message || '查询云构建任务状态失败')
@@ -686,7 +707,8 @@ const GameDeploymentPage: React.FC = () => {
       const response = await apiClient.downloadAndExtractCloudBuild({
         downloadUrl,
         targetPath: cloudBuildPath,
-        archiveFileName
+        archiveFileName,
+        userAgent: getCloudBuildJavaUserAgent()
       })
 
       if (!response.success || !response.data) {
@@ -870,7 +892,8 @@ const GameDeploymentPage: React.FC = () => {
       const response = await apiClient.createCloudModpackBuildTask({
         platform: cloudModpackPlatform,
         source: cloudModpackSource.trim(),
-        version: cloudModpackVersion.trim() || undefined
+        version: cloudModpackVersion.trim() || undefined,
+        userAgent: getCloudModpackUserAgent()
       })
 
       if (!response.success || !response.data) {
@@ -906,7 +929,7 @@ const GameDeploymentPage: React.FC = () => {
       if (!isMonitoring) return
 
       try {
-        const response = await apiClient.getCloudModpackBuildTaskStatus(requestId, accessToken)
+        const response = await apiClient.getCloudModpackBuildTaskStatus(requestId, accessToken, getCloudModpackUserAgent())
 
         if (!response.success || !response.data) {
           throw new Error(response.message || '查询整合包构建任务状态失败')
@@ -973,7 +996,8 @@ const GameDeploymentPage: React.FC = () => {
       const response = await apiClient.downloadAndExtractCloudBuild({
         downloadUrl: taskData.downloadUrl,
         targetPath: cloudModpackPath,
-        archiveFileName: taskData.archiveFileName
+        archiveFileName: taskData.archiveFileName,
+        userAgent: getCloudModpackUserAgent()
       })
 
       if (!response.success || !response.data) {
@@ -1505,6 +1529,14 @@ const GameDeploymentPage: React.FC = () => {
     setSelectedMrpackJava(javaVersion)
     localStorage.setItem('selectedMrpackJava', javaVersion)
   }
+
+  useEffect(() => {
+    localStorage.setItem(CLOUD_BUILD_JAVA_UA_STORAGE_KEY, cloudBuildJavaUserAgent)
+  }, [CLOUD_BUILD_JAVA_UA_STORAGE_KEY, cloudBuildJavaUserAgent])
+
+  useEffect(() => {
+    localStorage.setItem(CLOUD_BUILD_MODPACK_UA_STORAGE_KEY, cloudModpackUserAgent)
+  }, [CLOUD_BUILD_MODPACK_UA_STORAGE_KEY, cloudModpackUserAgent])
 
   // 验证保存的Java版本是否仍然有效
   const validateSavedJavaVersions = () => {
@@ -3172,6 +3204,26 @@ const GameDeploymentPage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  User-Agent（可选）
+                </label>
+                <input
+                  type="text"
+                  value={cloudBuildJavaUserAgent}
+                  onChange={(e) => {
+                    setCloudBuildJavaUserAgent(e.target.value)
+                    resetCloudBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder={CLOUD_BUILD_DEFAULT_USER_AGENT}
+                  disabled={buildingCloud}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  通常您不需要修改此处。请求将按照默认配额限制策略，若您需要更高的使用频率可联系项目作者。
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   部署路径
                 </label>
                 <input
@@ -3350,6 +3402,26 @@ const GameDeploymentPage: React.FC = () => {
             </h3>
 
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  User-Agent（可选）
+                </label>
+                <input
+                  type="text"
+                  value={cloudModpackUserAgent}
+                  onChange={(e) => {
+                    setCloudModpackUserAgent(e.target.value)
+                    resetCloudModpackBuildState()
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder={CLOUD_BUILD_DEFAULT_USER_AGENT}
+                  disabled={buildingCloudModpack}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  通常您不需要修改此处。请求将按照默认配额限制策略，若您需要更高的使用频率可联系项目作者。
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   部署路径

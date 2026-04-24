@@ -944,9 +944,12 @@ class ApiClient {
   }
 
   // 云构建部署API
-  async getCloudBuildCatalog(coreType?: string) {
+  async getCloudBuildCatalog(coreType?: string, userAgent?: string) {
     return this.get('/cloud-build/catalog', {
-      params: coreType ? { coreType } : undefined
+      params: {
+        ...(coreType ? { coreType } : {}),
+        ...(userAgent ? { userAgent } : {})
+      }
     })
   }
 
@@ -954,13 +957,17 @@ class ApiClient {
     coreType: string
     version: string
     mcVersion: string
+    userAgent?: string
   }) {
     return this.post('/cloud-build/build', data)
   }
 
-  async getCloudBuildTaskStatus(requestId: string, accessToken: string) {
+  async getCloudBuildTaskStatus(requestId: string, accessToken: string, userAgent?: string) {
     return this.get(`/cloud-build/build/${encodeURIComponent(requestId)}`, {
-      params: { accessToken }
+      params: {
+        accessToken,
+        ...(userAgent ? { userAgent } : {})
+      }
     })
   }
 
@@ -968,13 +975,17 @@ class ApiClient {
     platform: string
     source: string
     version?: string
+    userAgent?: string
   }) {
     return this.post('/cloud-build/modpack/build', data)
   }
 
-  async getCloudModpackBuildTaskStatus(requestId: string, accessToken: string) {
+  async getCloudModpackBuildTaskStatus(requestId: string, accessToken: string, userAgent?: string) {
     return this.get(`/cloud-build/modpack/build/${encodeURIComponent(requestId)}`, {
-      params: { accessToken }
+      params: {
+        accessToken,
+        ...(userAgent ? { userAgent } : {})
+      }
     })
   }
 
@@ -982,6 +993,7 @@ class ApiClient {
     downloadUrl: string
     targetPath: string
     archiveFileName?: string
+    userAgent?: string
   }) {
     return this.post('/cloud-build/download', data)
   }
