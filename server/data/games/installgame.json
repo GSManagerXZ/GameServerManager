@@ -825,5 +825,15 @@
         "protocol": "udp"
       }
     ]
+  },
+  "Windrose": {
+    "game_nameCN": "风启之旅",
+    "appid": "4129620",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/3041230/6c0d1a762a62736e6aa7eabad29bfece0846feae/header_schinese.jpg",
+    "url": "https://store.steampowered.com/app/3041230/Windrose/?l=schinese",
+    "system": [
+      "Windows"
+    ]
   }
 }
