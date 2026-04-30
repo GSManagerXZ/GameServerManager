@@ -3,6 +3,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { v4 as uuidv4 } from 'uuid'
+import type { ScheduledTask as CronScheduledTask } from 'node-cron'
 import winston from 'winston'
 import cron from 'node-cron'
 import cronParser from 'cron-parser'
@@ -40,7 +41,7 @@ export interface ScheduledTask {
 }
 
 interface ScheduledTaskWithJob extends ScheduledTask {
-  job?: cron.ScheduledTask
+  job?: CronScheduledTask
 }
 
 export class SchedulerManager extends EventEmitter {
@@ -174,11 +175,9 @@ export class SchedulerManager extends EventEmitter {
       }
 
       // 创建新的定时任务
-      task.job = cron.schedule(task.schedule, async () => {
+      task.job = cron.createTask(task.schedule, async () => {
         this.logger.info(`[Scheduler] Cron callback triggered for task: ${task.name} (${taskId})`);
         await this.executeTask(taskId)
-      }, {
-        scheduled: false
       })
 
       // 设置下次执行时间
