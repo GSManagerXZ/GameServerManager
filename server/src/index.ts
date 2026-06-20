@@ -345,9 +345,14 @@ function displayConnectionInfo(host: string, port: number) {
   for (const [interfaceName, interfaces] of Object.entries(networkInterfaces)) {
     if (interfaces) {
       for (const iface of interfaces) {
-        // 只显示IPv4地址，排除内部地址(127.x.x.x)和链路本地地址
+        // 显示IPv4地址，排除内部地址(127.x.x.x)和链路本地地址
         if (iface.family === 'IPv4' && !iface.internal && !iface.address.startsWith('169.254.')) {
           networkIPs.push(iface.address)
+        }
+        // 显示IPv6地址，排除内部地址(::1)和链路本地地址(fe80::)
+        if (iface.family === 'IPv6' && !iface.internal && !iface.address.startsWith('fe80:')) {
+          // IPv6地址在URL中需要用方括号包裹
+          networkIPs.push(`[${iface.address}]`)
         }
       }
     }
@@ -1004,7 +1009,7 @@ async function startServer() {
     })
 
     const PORT = parseInt(process.env.SERVER_PORT || process.env.PORT || '3001', 10)
-    const HOST = process.env.HOST || '0.0.0.0'
+    const HOST = process.env.HOST || '::'
 
     server.listen(PORT, HOST, () => {
       logger.info(`GSM3服务器启动成功!`)
