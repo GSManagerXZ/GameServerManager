@@ -523,7 +523,7 @@ export async function downloadFile(
       responseType: 'stream'
     });
 
-    const totalLength = parseInt(response.headers['content-length'] || '0', 10);
+    const totalLength = parseInt(String(response.headers['content-length'] || '0'), 10);
     let downloadedLength = 0;
 
     const writer = createWriteStream(filePath);
@@ -584,7 +584,7 @@ export async function downloadFileWithCancellation(
       signal: controller.signal
     });
 
-    const totalLength = parseInt(response.headers['content-length'] || '0', 10);
+    const totalLength = parseInt(String(response.headers['content-length'] || '0'), 10);
     let downloadedLength = 0;
 
     const stream = response.data.pipe(writer);
@@ -1798,7 +1798,7 @@ async function downloadBedrockServerFile(
       validateStatus: (status) => status >= 200 && status < 400
     });
 
-    const totalLength = parseInt(response.headers['content-length'] || '0', 10);
+    const totalLength = parseInt(String(response.headers['content-length'] || '0'), 10);
     let downloadedLength = 0;
     let lastLogTime = Date.now();
 

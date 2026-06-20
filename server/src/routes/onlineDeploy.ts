@@ -320,7 +320,7 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
           timeout: 300000 // 5分钟超时
         })
 
-        const totalSize = parseInt(response.headers['content-length'] || '0')
+        const totalSize = parseInt(String(response.headers['content-length'] || '0'), 10)
         let downloadedSize = 0
 
         const writer = createWriteStream(downloadPath)

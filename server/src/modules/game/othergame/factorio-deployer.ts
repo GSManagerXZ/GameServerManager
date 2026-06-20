@@ -301,7 +301,7 @@ export class FactorioDeployer {
       });
 
       // 检查响应头以确定文件类型
-      const contentType = response.headers['content-type'];
+      const contentType = String(response.headers['content-type'] || '');
       const contentDisposition = response.headers['content-disposition'];
 
       console.log(`Content-Type: ${contentType}`);

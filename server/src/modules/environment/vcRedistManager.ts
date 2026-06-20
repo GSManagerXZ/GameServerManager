@@ -287,7 +287,7 @@ export class VcRedistManager {
       timeout: 300000, // 5分钟超时
     })
 
-    const totalLength = parseInt(response.headers['content-length'] || '0', 10)
+    const totalLength = parseInt(String(response.headers['content-length'] || '0'), 10)
     let downloadedLength = 0
 
     const writer = fs.createWriteStream(filePath)
