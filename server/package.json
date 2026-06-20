@@ -16,7 +16,6 @@
     "cors": "^2.8.6",
     "cron-parser": "^4.9.0",
     "dotenv": "^16.6.1",
-    "esbuild": "^0.28.1",
     "express": "^4.22.1",
     "express-rate-limit": "^7.5.1",
     "form-data": "^4.0.5",
@@ -39,6 +38,8 @@
     "yaml": "^2.8.3"
   },
   "overrides": {
+    "esbuild": "0.28.1",
+    "js-yaml": "4.2.0",
     "follow-redirects": "1.16.0",
     "minimatch": ">=10.2.3"
   },
