@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.GameDeployPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <Grid Padding="24,16,24,16" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Title -->
+            <TextBlock
+                Grid.Row="0"
+                Style="{StaticResource TitleTextBlockStyle}"
+                Text="游戏部署" />
+
+            <!-- SteamCMD Status -->
+            <InfoBar
+                x:Name="SteamCmdStatus"
+                Grid.Row="1"
+                IsClosable="False"
+                IsOpen="True"
+                Message="SteamCMD 状态: 未安装"
+                Severity="Warning"
+                Title="SteamCMD">
+                <InfoBar.ActionButton>
+                    <Button
+                        x:Name="InstallSteamCmdButton"
+                        Click="InstallSteamCmdButton_Click"
+                        Content="安装 SteamCMD" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <!-- Game Categories -->
+            <Border
+                Grid.Row="2"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <TextBlock
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="游戏分类" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <RadioButton
+                            x:Name="CategorySteam"
+                            Click="Category_Click"
+                            Content="Steam 游戏"
+                            GroupName="GameCategory"
+                            IsChecked="True"
+                            Style="{StaticResource DefaultRadioButtonStyle}" />
+                        <RadioButton
+                            x:Name="CategoryMinecraft"
+                            Click="Category_Click"
+                            Content="Minecraft"
+                            GroupName="GameCategory"
+                            Style="{StaticResource DefaultRadioButtonStyle}" />
+                        <RadioButton
+                            x:Name="CategoryOther"
+                            Click="Category_Click"
+                            Content="其他"
+                            GroupName="GameCategory"
+                            Style="{StaticResource DefaultRadioButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Available Games List -->
+            <Border
+                Grid.Row="3"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock
+                        Grid.Row="0"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="可用游戏" />
+
+                    <ListView
+                        x:Name="GameListView"
+                        Grid.Row="1"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Padding="4,8" Spacing="4">
+                                    <TextBlock
+                                        FontWeight="Bold"
+                                        Text="{Binding Name}" />
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{Binding Description}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        Text="{Binding AppId}"
+                                        Visibility="{Binding AppIdVisibility}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Border>
+
+            <!-- Deploy Section -->
+            <Border
+                Grid.Row="4"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <TextBlock
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="部署设置" />
+
+                    <TextBox
+                        x:Name="InstallPathBox"
+                        Header="安装路径"
+                        PlaceholderText="例如: C:\GameServers\MyServer" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="DeployButton"
+                            Click="DeployButton_Click"
+                            Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon FontSize="16" Glyph="&#xE896;" />
+                                <TextBlock Text="部署" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            x:Name="BrowsePathButton"
+                            Click="BrowsePathButton_Click"
+                            Content="浏览..." />
+                    </StackPanel>
+
+                    <ProgressBar
+                        x:Name="DeployProgress"
+                        IsIndeterminate="False"
+                        Visibility="Collapsed" />
+
+                    <TextBlock
+                        x:Name="DeployStatusText"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text=""
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+</Page>

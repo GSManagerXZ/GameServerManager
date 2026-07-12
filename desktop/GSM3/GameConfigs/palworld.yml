@@ -1,0 +1,132 @@
+meta:
+  game_name: "PalWorld"
+  config_file: "PalWorldSettings.ini"
+  parser: "ini"
+  section: "/Script/Pal.PalGameWorldSettings"
+
+sections:
+  - name: "服务器基础设置"
+    fields:
+      - key: "ServerName"
+        label: "服务器名称"
+        type: "string"
+        default: "Default Palworld Server"
+      - key: "ServerDescription"
+        label: "服务器描述"
+        type: "string"
+        default: ""
+      - key: "AdminPassword"
+        label: "管理员密码"
+        type: "string"
+        default: ""
+      - key: "ServerPassword"
+        label: "服务器密码"
+        type: "string"
+        default: ""
+      - key: "ServerPlayerMaxNum"
+        label: "最大玩家数"
+        type: "number"
+        default: 32
+        min: 1
+        max: 64
+      - key: "PublicPort"
+        label: "公开端口"
+        type: "number"
+        default: 8211
+      - key: "RCONPort"
+        label: "RCON端口"
+        type: "number"
+        default: 25575
+      - key: "RCONEnabled"
+        label: "启用RCON"
+        type: "boolean"
+        default: true
+
+  - name: "游戏难度设置"
+    fields:
+      - key: "DayTimeSpeedRate"
+        label: "白天速度倍率"
+        type: "number"
+        default: 1.0
+        min: 0.1
+        max: 5.0
+        step: 0.1
+      - key: "NightTimeSpeedRate"
+        label: "夜晚速度倍率"
+        type: "number"
+        default: 1.0
+        min: 0.1
+        max: 5.0
+        step: 0.1
+      - key: "ExpRate"
+        label: "经验倍率"
+        type: "number"
+        default: 1.0
+        min: 0.1
+        max: 20.0
+        step: 0.1
+      - key: "PalCaptureRate"
+        label: "帕鲁捕获倍率"
+        type: "number"
+        default: 1.0
+        min: 0.1
+        max: 10.0
+        step: 0.1
+      - key: "PalSpawnNumRate"
+        label: "帕鲁生成倍率"
+        type: "number"
+        default: 1.0
+        min: 0.1
+        max: 5.0
+        step: 0.1
+      - key: "PalDamageRateAttack"
+        label: "帕鲁攻击伤害倍率"
+        type: "number"
+        default: 1.0
+        min: 0.1
+        max: 5.0
+        step: 0.1
+      - key: "PalDamageRateDefense"
+        label: "帕鲁防御倍率"
+        type: "number"
+        default: 1.0
+      - key: "PlayerDamageRateAttack"
+        label: "玩家攻击伤害倍率"
+        type: "number"
+        default: 1.0
+      - key: "PlayerDamageRateDefense"
+        label: "玩家防御倍率"
+        type: "number"
+        default: 1.0
+      - key: "DeathPenalty"
+        label: "死亡惩罚"
+        type: "select"
+        default: "All"
+        options:
+          - value: "None"
+            label: "无惩罚"
+          - value: "Item"
+            label: "掉落物品"
+          - value: "ItemAndEquipment"
+            label: "掉落物品和装备"
+          - value: "All"
+            label: "全部掉落"
+
+  - name: "资源设置"
+    fields:
+      - key: "CollectionDropRate"
+        label: "采集物掉落倍率"
+        type: "number"
+        default: 1.0
+      - key: "CollectionObjectHpRate"
+        label: "采集物血量倍率"
+        type: "number"
+        default: 1.0
+      - key: "CollectionObjectRespawnSpeedRate"
+        label: "采集物刷新速度"
+        type: "number"
+        default: 1.0
+      - key: "EnemyDropItemRate"
+        label: "敌人掉落倍率"
+        type: "number"
+        default: 1.0

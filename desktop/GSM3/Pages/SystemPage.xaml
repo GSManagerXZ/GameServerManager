@@ -1,0 +1,379 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.SystemPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <Grid Padding="24,16,24,16" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Title Bar -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock
+                    Grid.Column="0"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    Text="系统监控" />
+
+                <Button
+                    x:Name="RefreshButton"
+                    Grid.Column="1"
+                    Click="RefreshButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE72C;" />
+                        <TextBlock Text="刷新" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- Resource Monitoring Cards (2x2) -->
+            <Grid Grid.Row="1" ColumnSpacing="16" RowSpacing="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- CPU Card -->
+                <Border
+                    Grid.Row="0"
+                    Grid.Column="0"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="CPU 使用率" />
+                        <ProgressBar
+                            x:Name="CpuBar"
+                            Maximum="100"
+                            Value="0" />
+                        <TextBlock
+                            x:Name="CpuText"
+                            FontSize="24"
+                            FontWeight="SemiBold"
+                            Text="0%" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Memory Card -->
+                <Border
+                    Grid.Row="0"
+                    Grid.Column="1"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="内存使用率" />
+                        <ProgressBar
+                            x:Name="MemoryBar"
+                            Maximum="100"
+                            Value="0" />
+                        <TextBlock
+                            x:Name="MemoryText"
+                            FontSize="24"
+                            FontWeight="SemiBold"
+                            Text="0%" />
+                        <TextBlock
+                            x:Name="MemoryDetailText"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="0 GB / 0 GB" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Disk Card -->
+                <Border
+                    Grid.Row="1"
+                    Grid.Column="0"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="磁盘使用率" />
+                        <ProgressBar
+                            x:Name="DiskBar"
+                            Maximum="100"
+                            Value="0" />
+                        <TextBlock
+                            x:Name="DiskText"
+                            FontSize="24"
+                            FontWeight="SemiBold"
+                            Text="0%" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Network Card -->
+                <Border
+                    Grid.Row="1"
+                    Grid.Column="1"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="网络流量" />
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon FontSize="14" Glyph="&#xE74A;" />
+                            <TextBlock Text="上传:" />
+                            <TextBlock
+                                x:Name="UploadText"
+                                FontWeight="SemiBold"
+                                Text="0 KB/s" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon FontSize="14" Glyph="&#xE74B;" />
+                            <TextBlock Text="下载:" />
+                            <TextBlock
+                                x:Name="DownloadText"
+                                FontWeight="SemiBold"
+                                Text="0 KB/s" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Process List Section -->
+            <StackPanel Grid.Row="2" Spacing="12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock
+                        Grid.Column="0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="进程列表" />
+
+                    <Button
+                        x:Name="KillProcessButton"
+                        Grid.Column="1"
+                        Click="KillProcessButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="16" Glyph="&#xE711;" />
+                            <TextBlock Text="终止进程" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <Grid RowSpacing="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Column Headers -->
+                        <Grid Grid.Row="0" Padding="4,0,4,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="100" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock
+                                Grid.Column="0"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="PID" />
+                            <TextBlock
+                                Grid.Column="1"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="进程名" />
+                            <TextBlock
+                                Grid.Column="2"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="CPU%" />
+                            <TextBlock
+                                Grid.Column="3"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="内存" />
+                        </Grid>
+
+                        <!-- Process ListView -->
+                        <ListView
+                            x:Name="ProcessListView"
+                            Grid.Row="1"
+                            MaxHeight="300"
+                            SelectionMode="Single">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="4,4,4,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="100" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock
+                                            Grid.Column="0"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding Pid}" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding Name}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding CpuPercent}" />
+                                        <TextBlock
+                                            Grid.Column="3"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding MemoryDisplay}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Active Ports Section -->
+            <StackPanel Grid.Row="3" Spacing="12">
+                <TextBlock
+                    Style="{StaticResource SubtitleTextBlockStyle}"
+                    Text="活动端口" />
+
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <Grid RowSpacing="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Column Headers -->
+                        <Grid Grid.Row="0" Padding="4,0,4,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="100" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock
+                                Grid.Column="0"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="协议" />
+                            <TextBlock
+                                Grid.Column="1"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="本地地址" />
+                            <TextBlock
+                                Grid.Column="2"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="本地端口" />
+                            <TextBlock
+                                Grid.Column="3"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="远程地址" />
+                            <TextBlock
+                                Grid.Column="4"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="状态" />
+                            <TextBlock
+                                Grid.Column="5"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="进程" />
+                        </Grid>
+
+                        <!-- Port ListView -->
+                        <ListView
+                            x:Name="PortListView"
+                            Grid.Row="1"
+                            MaxHeight="300"
+                            SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="4,4,4,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="100" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock
+                                            Grid.Column="0"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding Protocol}" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding LocalAddress}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding LocalPort}" />
+                                        <TextBlock
+                                            Grid.Column="3"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding RemoteAddress}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock
+                                            Grid.Column="4"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding State}" />
+                                        <TextBlock
+                                            Grid.Column="5"
+                                            VerticalAlignment="Center"
+                                            Text="{Binding ProcessName}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>

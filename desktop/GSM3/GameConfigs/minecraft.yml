@@ -1,0 +1,141 @@
+meta:
+  game_name: "Minecraft Java"
+  config_file: "server.properties"
+  parser: "properties"
+
+sections:
+  - name: "服务器设置"
+    fields:
+      - key: "server-name"
+        label: "服务器名称"
+        type: "string"
+        default: "Dedicated Server"
+      - key: "server-port"
+        label: "服务器端口"
+        type: "number"
+        default: 25565
+      - key: "max-players"
+        label: "最大玩家数"
+        type: "number"
+        default: 20
+        min: 1
+        max: 1000
+      - key: "motd"
+        label: "服务器描述(MOTD)"
+        type: "string"
+        default: "A Minecraft Server"
+      - key: "level-name"
+        label: "世界名称"
+        type: "string"
+        default: "world"
+      - key: "level-seed"
+        label: "世界种子"
+        type: "string"
+        default: ""
+      - key: "gamemode"
+        label: "游戏模式"
+        type: "select"
+        default: "survival"
+        options:
+          - value: "survival"
+            label: "生存"
+          - value: "creative"
+            label: "创造"
+          - value: "adventure"
+            label: "冒险"
+          - value: "spectator"
+            label: "旁观"
+      - key: "difficulty"
+        label: "难度"
+        type: "select"
+        default: "easy"
+        options:
+          - value: "peaceful"
+            label: "和平"
+          - value: "easy"
+            label: "简单"
+          - value: "normal"
+            label: "普通"
+          - value: "hard"
+            label: "困难"
+      - key: "online-mode"
+        label: "正版验证"
+        type: "boolean"
+        default: true
+      - key: "pvp"
+        label: "允许PVP"
+        type: "boolean"
+        default: true
+      - key: "enable-command-block"
+        label: "命令方块"
+        type: "boolean"
+        default: false
+      - key: "allow-flight"
+        label: "允许飞行"
+        type: "boolean"
+        default: false
+      - key: "spawn-animals"
+        label: "生成动物"
+        type: "boolean"
+        default: true
+      - key: "spawn-monsters"
+        label: "生成怪物"
+        type: "boolean"
+        default: true
+      - key: "spawn-npcs"
+        label: "生成NPC"
+        type: "boolean"
+        default: true
+      - key: "generate-structures"
+        label: "生成建筑"
+        type: "boolean"
+        default: true
+      - key: "view-distance"
+        label: "视距"
+        type: "number"
+        default: 10
+        min: 3
+        max: 32
+      - key: "simulation-distance"
+        label: "模拟距离"
+        type: "number"
+        default: 10
+        min: 3
+        max: 32
+      - key: "white-list"
+        label: "白名单"
+        type: "boolean"
+        default: false
+      - key: "enable-rcon"
+        label: "启用RCON"
+        type: "boolean"
+        default: false
+      - key: "rcon.port"
+        label: "RCON端口"
+        type: "number"
+        default: 25575
+      - key: "rcon.password"
+        label: "RCON密码"
+        type: "string"
+        default: ""
+
+  - name: "性能设置"
+    fields:
+      - key: "max-tick-time"
+        label: "最大Tick时间(ms)"
+        type: "number"
+        default: 60000
+      - key: "network-compression-threshold"
+        label: "网络压缩阈值"
+        type: "number"
+        default: 256
+      - key: "max-world-size"
+        label: "最大世界大小"
+        type: "number"
+        default: 29999984
+      - key: "entity-broadcast-range-percentage"
+        label: "实体广播范围(%)"
+        type: "number"
+        default: 100
+        min: 10
+        max: 1000

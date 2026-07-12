@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.UsersPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <Grid Padding="24,16,24,16" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Title -->
+            <TextBlock
+                Grid.Row="0"
+                Style="{StaticResource TitleTextBlockStyle}"
+                Text="用户管理" />
+
+            <!-- Toolbar -->
+            <StackPanel
+                Grid.Row="1"
+                Orientation="Horizontal"
+                Spacing="8">
+                <Button
+                    x:Name="AddUserButton"
+                    Click="AddUserButton_Click"
+                    Style="{StaticResource AccentButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE710;" />
+                        <TextBlock Text="添加用户" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DeleteUserButton" Click="DeleteUserButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE74D;" />
+                        <TextBlock Text="删除用户" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ChangeRoleButton" Click="ChangeRoleButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE748;" />
+                        <TextBlock Text="修改角色" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ChangePasswordButton" Click="ChangePasswordButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE8D7;" />
+                        <TextBlock Text="修改密码" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- Status InfoBar -->
+            <InfoBar
+                x:Name="StatusInfoBar"
+                Grid.Row="2"
+                IsOpen="False" />
+
+            <!-- User List -->
+            <Border
+                Grid.Row="3"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <ListView
+                    x:Name="UserListView"
+                    Padding="4"
+                    SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid
+                                Padding="12,8"
+                                ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- User Icon -->
+                                <FontIcon
+                                    Grid.Column="0"
+                                    VerticalAlignment="Center"
+                                    FontSize="24"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Glyph="&#xE77B;" />
+
+                                <!-- Username -->
+                                <TextBlock
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    FontWeight="Bold"
+                                    Text="{Binding Username}"
+                                    TextTrimming="CharacterEllipsis" />
+
+                                <!-- Role Badge -->
+                                <Border
+                                    Grid.Column="2"
+                                    Padding="8,4"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    CornerRadius="4">
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                        Text="{Binding Role}" />
+                                </Border>
+
+                                <!-- Created Date -->
+                                <TextBlock
+                                    Grid.Column="3"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding CreatedAt}" />
+
+                                <!-- Last Login -->
+                                <TextBlock
+                                    Grid.Column="4"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding LastLogin}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+
+    <Page.Resources>
+        <!-- Add User Dialog -->
+        <ContentDialog
+            x:Name="AddUserDialog"
+            Title="添加用户"
+            CloseButtonText="取消"
+            DefaultButton="Primary"
+            PrimaryButtonClick="AddUserDialog_PrimaryButtonClick"
+            PrimaryButtonText="添加">
+            <StackPanel MinWidth="400" Spacing="16">
+                <TextBox
+                    x:Name="NewUsernameTextBox"
+                    Header="用户名"
+                    PlaceholderText="输入用户名" />
+                <PasswordBox
+                    x:Name="NewPasswordBox"
+                    Header="密码"
+                    PlaceholderText="输入密码" />
+                <PasswordBox
+                    x:Name="ConfirmPasswordBox"
+                    Header="确认密码"
+                    PlaceholderText="再次输入密码" />
+                <ComboBox
+                    x:Name="NewRoleComboBox"
+                    HorizontalAlignment="Stretch"
+                    Header="角色"
+                    PlaceholderText="选择角色">
+                    <ComboBoxItem Content="管理员" />
+                    <ComboBoxItem Content="用户" />
+                </ComboBox>
+            </StackPanel>
+        </ContentDialog>
+
+        <!-- Change Password Dialog -->
+        <ContentDialog
+            x:Name="ChangePasswordDialog"
+            Title="修改密码"
+            CloseButtonText="取消"
+            DefaultButton="Primary"
+            PrimaryButtonClick="ChangePasswordDialog_PrimaryButtonClick"
+            PrimaryButtonText="确认">
+            <StackPanel MinWidth="400" Spacing="16">
+                <PasswordBox
+                    x:Name="ChangeNewPasswordBox"
+                    Header="新密码"
+                    PlaceholderText="输入新密码" />
+                <PasswordBox
+                    x:Name="ChangeConfirmPasswordBox"
+                    Header="确认新密码"
+                    PlaceholderText="再次输入新密码" />
+            </StackPanel>
+        </ContentDialog>
+
+        <!-- Change Role Dialog -->
+        <ContentDialog
+            x:Name="ChangeRoleDialog"
+            Title="修改角色"
+            CloseButtonText="取消"
+            DefaultButton="Primary"
+            PrimaryButtonClick="ChangeRoleDialog_PrimaryButtonClick"
+            PrimaryButtonText="确认">
+            <StackPanel MinWidth="400" Spacing="16">
+                <ComboBox
+                    x:Name="ChangeRoleComboBox"
+                    HorizontalAlignment="Stretch"
+                    Header="角色"
+                    PlaceholderText="选择新角色">
+                    <ComboBoxItem Content="管理员" />
+                    <ComboBoxItem Content="用户" />
+                </ComboBox>
+            </StackPanel>
+        </ContentDialog>
+    </Page.Resources>
+</Page>

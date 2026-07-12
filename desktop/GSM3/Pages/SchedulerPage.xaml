@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.SchedulerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <Grid Padding="24,16,24,16" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Title -->
+            <TextBlock
+                Grid.Row="0"
+                Style="{StaticResource TitleTextBlockStyle}"
+                Text="定时任务" />
+
+            <!-- Toolbar -->
+            <StackPanel
+                Grid.Row="1"
+                Orientation="Horizontal"
+                Spacing="8">
+                <Button
+                    x:Name="CreateTaskButton"
+                    Click="CreateTaskButton_Click"
+                    Style="{StaticResource AccentButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE710;" />
+                        <TextBlock Text="创建任务" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="EditTaskButton" Click="EditTaskButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE70F;" />
+                        <TextBlock Text="编辑" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DeleteTaskButton" Click="DeleteTaskButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE74D;" />
+                        <TextBlock Text="删除" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RunNowButton" Click="RunNowButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE768;" />
+                        <TextBlock Text="立即执行" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- Status InfoBar -->
+            <InfoBar
+                x:Name="StatusInfoBar"
+                Grid.Row="2"
+                IsOpen="False" />
+
+            <!-- Task List -->
+            <Border
+                Grid.Row="3"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <ListView
+                    x:Name="TaskListView"
+                    Padding="4"
+                    SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid
+                                Padding="12,8"
+                                ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Task Name -->
+                                <TextBlock
+                                    Grid.Column="0"
+                                    VerticalAlignment="Center"
+                                    FontWeight="Bold"
+                                    Text="{Binding Name}"
+                                    TextTrimming="CharacterEllipsis" />
+
+                                <!-- Cron Expression -->
+                                <TextBlock
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    FontFamily="Consolas"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding CronExpression}" />
+
+                                <!-- Action Type -->
+                                <TextBlock
+                                    Grid.Column="2"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Action}" />
+
+                                <!-- Next Run Time -->
+                                <TextBlock
+                                    Grid.Column="3"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding NextRun}" />
+
+                                <!-- Enabled Toggle -->
+                                <ToggleSwitch
+                                    Grid.Column="4"
+                                    MinWidth="0"
+                                    VerticalAlignment="Center"
+                                    IsOn="{Binding IsEnabled, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+
+    <!-- Create / Edit Task Dialog -->
+    <Page.Resources>
+        <ContentDialog
+            x:Name="CreateTaskDialog"
+            Title="创建定时任务"
+            CloseButtonText="取消"
+            DefaultButton="Primary"
+            PrimaryButtonClick="CreateTaskDialog_PrimaryButtonClick"
+            PrimaryButtonText="创建">
+            <StackPanel MinWidth="400" Spacing="16">
+                <TextBox
+                    x:Name="TaskNameTextBox"
+                    Header="任务名称"
+                    PlaceholderText="输入任务名称" />
+
+                <ComboBox
+                    x:Name="InstanceComboBox"
+                    HorizontalAlignment="Stretch"
+                    Header="关联实例"
+                    PlaceholderText="选择实例" />
+
+                <ComboBox
+                    x:Name="ActionComboBox"
+                    HorizontalAlignment="Stretch"
+                    Header="操作类型"
+                    PlaceholderText="选择操作"
+                    SelectionChanged="ActionComboBox_SelectionChanged">
+                    <ComboBoxItem Content="启动" />
+                    <ComboBoxItem Content="停止" />
+                    <ComboBoxItem Content="重启" />
+                    <ComboBoxItem Content="备份" />
+                    <ComboBoxItem Content="更新" />
+                    <ComboBoxItem Content="自定义命令" />
+                </ComboBox>
+
+                <TextBox
+                    x:Name="CronExpressionTextBox"
+                    Header="Cron 表达式"
+                    PlaceholderText="0 */6 * * *" />
+
+                <TextBox
+                    x:Name="CustomCommandTextBox"
+                    Header="自定义命令"
+                    PlaceholderText="输入自定义命令"
+                    Visibility="Collapsed" />
+            </StackPanel>
+        </ContentDialog>
+    </Page.Resources>
+</Page>

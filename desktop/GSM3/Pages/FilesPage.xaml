@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.FilesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:models="using:GSM3.Models"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="24,16,24,16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock
+            Grid.Row="0"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="文件管理" />
+
+        <!-- Drive Selector + Path Bar -->
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <ComboBox
+                x:Name="DriveSelector"
+                Grid.Column="0"
+                MinWidth="120"
+                Header="驱动器"
+                SelectionChanged="DriveSelector_SelectionChanged" />
+
+            <Button
+                Grid.Column="1"
+                VerticalAlignment="Bottom"
+                Click="UpButton_Click"
+                ToolTipService.ToolTip="上级目录">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon FontSize="16" Glyph="&#xE74A;" />
+                    <TextBlock Text="上级目录" />
+                </StackPanel>
+            </Button>
+
+            <TextBox
+                x:Name="PathTextBox"
+                Grid.Column="2"
+                VerticalAlignment="Bottom"
+                KeyDown="PathTextBox_KeyDown"
+                PlaceholderText="输入路径..." />
+
+            <Button
+                Grid.Column="3"
+                VerticalAlignment="Bottom"
+                Click="GoButton_Click">
+                <TextBlock Text="转到" />
+            </Button>
+        </Grid>
+
+        <!-- Toolbar -->
+        <CommandBar Grid.Row="2" DefaultLabelPosition="Right">
+            <AppBarButton
+                x:Name="NewFileButton"
+                Click="NewFileButton_Click"
+                Label="新建文件">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8A5;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton
+                x:Name="NewFolderButton"
+                Click="NewFolderButton_Click"
+                Label="新建文件夹">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8F4;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+
+            <AppBarSeparator />
+
+            <AppBarButton
+                x:Name="UploadButton"
+                Click="UploadButton_Click"
+                Label="上传">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE898;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton
+                x:Name="DownloadButton"
+                Click="DownloadButton_Click"
+                Label="下载">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE896;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+
+            <AppBarSeparator />
+
+            <AppBarButton
+                x:Name="DeleteButton"
+                Click="DeleteButton_Click"
+                Label="删除">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE74D;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton
+                x:Name="CopyButton"
+                Click="CopyButton_Click"
+                Label="复制">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8C8;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton
+                x:Name="MoveButton"
+                Click="MoveButton_Click"
+                Label="移动">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8DE;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton
+                x:Name="CompressButton"
+                Click="CompressButton_Click"
+                Label="压缩">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8B4;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+        </CommandBar>
+
+        <!-- Column Headers -->
+        <Grid
+            Grid.Row="3"
+            Padding="12,8,12,8"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="32" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="100" />
+                <ColumnDefinition Width="160" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock
+                Grid.Column="1"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="名称" />
+            <TextBlock
+                Grid.Column="2"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="大小" />
+            <TextBlock
+                Grid.Column="3"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="修改日期" />
+        </Grid>
+
+        <!-- File List -->
+        <Border
+            Grid.Row="4"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8">
+            <ListView
+                x:Name="FileListView"
+                DoubleTapped="FileListView_DoubleTapped"
+                SelectionChanged="FileListView_SelectionChanged"
+                SelectionMode="Extended">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="models:FileItem">
+                        <Grid Padding="4,6" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="32" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="100" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+
+                            <FontIcon
+                                Grid.Column="0"
+                                HorizontalAlignment="Center"
+                                FontSize="16"
+                                Glyph="{x:Bind local:FilesPage.GetFileIcon(Type)}" />
+                            <TextBlock
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Text="{x:Bind Name}"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                Grid.Column="2"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:FilesPage.FormatFileSize(Size, Type)}" />
+                            <TextBlock
+                                Grid.Column="3"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:FilesPage.FormatDateTime(ModifiedAt)}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+
+        <!-- Status Bar -->
+        <TextBlock
+            x:Name="StatusText"
+            Grid.Row="5"
+            Padding="4"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Text="共 0 项, 已选择 0 项" />
+    </Grid>
+</Page>

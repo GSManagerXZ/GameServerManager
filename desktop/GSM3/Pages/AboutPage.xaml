@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.AboutPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="24,16,24,16" RowSpacing="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="关于" />
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel
+                HorizontalAlignment="Center"
+                MaxWidth="600"
+                Spacing="16">
+
+                <!-- App icon and name -->
+                <Border
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8"
+                    Padding="16">
+                    <StackPanel HorizontalAlignment="Center" Spacing="12">
+                        <FontIcon
+                            HorizontalAlignment="Center"
+                            FontSize="64"
+                            Glyph="&#xE7FC;" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Style="{StaticResource TitleTextBlockStyle}"
+                            Text="GSM3 游戏服务器管理面板" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Style="{StaticResource SubtitleTextBlockStyle}"
+                            Text="版本 1.0.0" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="GSM3 是一个功能强大的游戏服务器管理面板，支持多种游戏服务器的部署、管理和监控。" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Links -->
+                <Border
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8"
+                    Padding="16">
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            Style="{StaticResource SubtitleTextBlockStyle}"
+                            Text="链接" />
+                        <HyperlinkButton Content="GitHub 仓库" NavigateUri="https://github.com/GSM3/GSM3" />
+                        <HyperlinkButton Content="报告问题" NavigateUri="https://github.com/GSM3/GSM3/issues" />
+                        <HyperlinkButton Content="查看文档" NavigateUri="https://github.com/GSM3/GSM3/wiki" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Credits / License -->
+                <Border
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8"
+                    Padding="16">
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            Style="{StaticResource SubtitleTextBlockStyle}"
+                            Text="许可信息" />
+                        <TextBlock Text="开源协议: MIT License" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="&#x00A9; 2024 GSM3 Contributors" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Check for updates -->
+                <Button
+                    x:Name="CheckUpdateButton"
+                    HorizontalAlignment="Center"
+                    Click="CheckUpdateButton_Click"
+                    Content="检查更新"
+                    Style="{StaticResource AccentButtonStyle}" />
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

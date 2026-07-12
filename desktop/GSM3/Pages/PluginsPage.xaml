@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.PluginsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="24,16,24,16" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock
+            Grid.Row="0"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="插件管理" />
+
+        <!-- Toolbar -->
+        <Border
+            Grid.Row="1"
+            Padding="16"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button
+                    x:Name="CreatePluginButton"
+                    Click="CreatePluginButton_Click"
+                    Style="{StaticResource AccentButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE710;" />
+                        <TextBlock Text="创建插件" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DeletePluginButton" Click="DeletePluginButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE74D;" />
+                        <TextBlock Text="删除插件" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RefreshButton" Click="RefreshButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="16" Glyph="&#xE72C;" />
+                        <TextBlock Text="刷新" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Status InfoBar -->
+        <InfoBar
+            x:Name="StatusInfoBar"
+            Grid.Row="2"
+            IsOpen="False" />
+
+        <!-- Plugin List + Detail Panel -->
+        <Grid
+            Grid.Row="3"
+            ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="360" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Plugin List -->
+            <Border
+                Grid.Column="0"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <ListView
+                    x:Name="PluginListView"
+                    SelectionChanged="PluginListView_SelectionChanged"
+                    SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid
+                                Padding="8"
+                                ColumnSpacing="12"
+                                RowSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- Plugin Icon -->
+                                <FontIcon
+                                    Grid.Row="0"
+                                    Grid.RowSpan="3"
+                                    Grid.Column="0"
+                                    VerticalAlignment="Center"
+                                    FontSize="24"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Glyph="&#xEA86;" />
+
+                                <!-- Plugin Name -->
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    FontSize="14"
+                                    FontWeight="Bold"
+                                    Text="{Binding Name}"
+                                    TextTrimming="CharacterEllipsis" />
+
+                                <!-- Version and Author -->
+                                <StackPanel
+                                    Grid.Row="1"
+                                    Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="12">
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{Binding Version}" />
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{Binding Author}" />
+                                </StackPanel>
+
+                                <!-- Description -->
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="1"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{Binding Description}"
+                                    TextTrimming="CharacterEllipsis" />
+
+                                <!-- Enable/Disable Toggle -->
+                                <ToggleSwitch
+                                    Grid.Row="0"
+                                    Grid.RowSpan="3"
+                                    Grid.Column="2"
+                                    VerticalAlignment="Center"
+                                    IsOn="{Binding IsEnabled, Mode=TwoWay}"
+                                    Toggled="PluginToggle_Toggled" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+
+            <!-- Plugin Detail Panel -->
+            <Border
+                x:Name="PluginDetailPanel"
+                Grid.Column="1"
+                Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <TextBlock
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="插件详情" />
+
+                    <TextBlock
+                        x:Name="DetailPlaceholderText"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="选择一个插件查看详情" />
+
+                    <StackPanel
+                        x:Name="DetailContentPanel"
+                        Spacing="8"
+                        Visibility="Collapsed">
+
+                        <TextBlock
+                            x:Name="DetailNameText"
+                            FontSize="16"
+                            FontWeight="Bold" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="版本:" />
+                            <TextBlock x:Name="DetailVersionText" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="作者:" />
+                            <TextBlock x:Name="DetailAuthorText" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="描述:" />
+                        <TextBlock
+                            x:Name="DetailDescriptionText"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+
+    <!-- Create Plugin Dialog -->
+    <Page.Resources>
+        <ContentDialog
+            x:Name="CreatePluginDialog"
+            Title="创建插件"
+            CloseButtonText="取消"
+            DefaultButton="Primary"
+            PrimaryButtonText="创建"
+            PrimaryButtonClick="CreatePluginDialog_PrimaryButtonClick">
+            <StackPanel Spacing="12">
+                <TextBox
+                    x:Name="PluginNameBox"
+                    Header="插件名称"
+                    PlaceholderText="输入插件名称" />
+                <TextBox
+                    x:Name="PluginVersionBox"
+                    Header="版本"
+                    PlaceholderText="例如: 1.0.0" />
+                <TextBox
+                    x:Name="PluginAuthorBox"
+                    Header="作者"
+                    PlaceholderText="输入作者名称" />
+                <TextBox
+                    x:Name="PluginDescriptionBox"
+                    Height="100"
+                    AcceptsReturn="True"
+                    Header="描述"
+                    PlaceholderText="输入插件描述"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </ContentDialog>
+    </Page.Resources>
+</Page>

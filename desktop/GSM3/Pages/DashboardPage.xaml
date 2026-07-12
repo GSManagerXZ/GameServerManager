@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="GSM3.Pages.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:GSM3.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <Grid Padding="24,16,24,16" RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Welcome Message -->
+            <TextBlock
+                Grid.Row="0"
+                Style="{StaticResource TitleTextBlockStyle}"
+                Text="欢迎使用 GSM3 游戏服务器管理面板" />
+
+            <!-- Instance Count & Status Summary Cards -->
+            <Grid Grid.Row="1" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border
+                    Grid.Column="0"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="总实例数" />
+                        <TextBlock
+                            x:Name="TotalCountText"
+                            FontSize="32"
+                            FontWeight="SemiBold"
+                            Text="0" />
+                    </StackPanel>
+                </Border>
+
+                <Border
+                    Grid.Column="1"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="运行中" />
+                        <TextBlock
+                            x:Name="RunningCountText"
+                            FontSize="32"
+                            FontWeight="SemiBold"
+                            Foreground="Green"
+                            Text="0" />
+                    </StackPanel>
+                </Border>
+
+                <Border
+                    Grid.Column="2"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="已停止" />
+                        <TextBlock
+                            x:Name="StoppedCountText"
+                            FontSize="32"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="0" />
+                    </StackPanel>
+                </Border>
+
+                <Border
+                    Grid.Column="3"
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="异常" />
+                        <TextBlock
+                            x:Name="ErrorCountText"
+                            FontSize="32"
+                            FontWeight="SemiBold"
+                            Foreground="Red"
+                            Text="0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- System Resource Gauges -->
+            <StackPanel Grid.Row="2" Spacing="12">
+                <TextBlock
+                    Style="{StaticResource SubtitleTextBlockStyle}"
+                    Text="系统资源" />
+
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <Grid RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Text="CPU 使用率" />
+                        <TextBlock
+                            x:Name="CpuPercentText"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Text="0%" />
+                        <ProgressBar
+                            x:Name="CpuProgressBar"
+                            Grid.Row="1"
+                            Grid.ColumnSpan="2"
+                            Maximum="100"
+                            Value="0" />
+                    </Grid>
+                </Border>
+
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <Grid RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Text="内存使用率" />
+                        <TextBlock
+                            x:Name="MemoryPercentText"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Text="0%" />
+                        <ProgressBar
+                            x:Name="MemoryProgressBar"
+                            Grid.Row="1"
+                            Grid.ColumnSpan="2"
+                            Maximum="100"
+                            Value="0" />
+                    </Grid>
+                </Border>
+
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="8">
+                    <Grid RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Text="磁盘使用率" />
+                        <TextBlock
+                            x:Name="DiskPercentText"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Text="0%" />
+                        <ProgressBar
+                            x:Name="DiskProgressBar"
+                            Grid.Row="1"
+                            Grid.ColumnSpan="2"
+                            Maximum="100"
+                            Value="0" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Quick Actions -->
+            <StackPanel Grid.Row="3" Spacing="12">
+                <TextBlock
+                    Style="{StaticResource SubtitleTextBlockStyle}"
+                    Text="快速操作" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="16" Glyph="&#xE710;" />
+                            <TextBlock Text="创建实例" />
+                        </StackPanel>
+                    </Button>
+                    <Button>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="16" Glyph="&#xE756;" />
+                            <TextBlock Text="打开终端" />
+                        </StackPanel>
+                    </Button>
+                    <Button>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="16" Glyph="&#xE8B7;" />
+                            <TextBlock Text="文件管理" />
+                        </StackPanel>
+                    </Button>
+                    <Button>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="16" Glyph="&#xE9D9;" />
+                            <TextBlock Text="系统监控" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "GSM3 (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "GSM3 (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
