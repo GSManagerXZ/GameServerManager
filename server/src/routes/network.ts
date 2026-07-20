@@ -35,8 +35,8 @@ const networkCheckItems: NetworkCheckItem[] = [
   { id: 'mojang-session', name: 'Mojang 会话服务器', url: 'sessionserver.mojang.com', status: 'pending' },
   { id: 'msl-api', name: 'MSL API', url: 'https://api.mslmc.cn/v3', status: 'pending' },
   // GSManager
-  { id: 'gsm-deploy', name: 'GSManager功能服务', url: 'langlangy2.server.xiaozhuhouses.asia', status: 'pending', checkType: 'tcp', port: 443 },
-  { id: 'gsm-mirror', name: '文件边缘下载服务', url: 'https://download.xiaozhuhouses.asia', status: 'pending', checkType: 'http', expectedStatusCode: 200 }
+  { id: 'gsm-deploy', name: 'GSManager功能服务', url: 'http://langlangy2.server.xiaozhuhouses.asia', status: 'pending', checkType: 'tcp', port: 44409 },
+  { id: 'gsm-mirror', name: '文件边缘下载服务', url: 'download.xiaozhuhouses.asia', status: 'pending', expectedStatusCode: 200 }
 ]
 
 // TCP Ping 函数
