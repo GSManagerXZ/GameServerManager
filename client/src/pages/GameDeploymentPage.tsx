@@ -22,12 +22,15 @@ import {
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useSystemStore } from '@/stores/systemStore'
 import apiClient from '@/utils/api'
-import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadProgress, MoreGameInfo, Platform } from '@/types'
+import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadProgress, MoreGameInfo, Platform, InstanceType } from '@/types'
 import { io, Socket } from 'socket.io-client'
 import config from '@/config'
 import { useDefaultGamePath, useGameInstallPath } from '@/hooks/useDefaultGamePath'
+import { fileApiClient } from '@/utils/fileApi'
+import { ChunkUploader } from '@/utils/chunkUpload'
 import CloudProviderModal from '@/components/CloudProviderModal'
 import ConfirmInstanceUpdateDialog from '@/components/ConfirmInstanceUpdateDialog'
+import FileDeploymentConflictDialog from '@/components/FileDeploymentConflictDialog'
 import NetworkStatusBanner from '@/components/NetworkStatusBanner'
 
 interface GameInfo {
@@ -354,6 +357,23 @@ const GameDeploymentPage: React.FC = () => {
   const [cloudModpackInstanceStartCommand, setCloudModpackInstanceStartCommand] = useState('')
   const [creatingCloudModpackInstance, setCreatingCloudModpackInstance] = useState(false)
 
+  // 文件部署相关状态
+  const [fileDeploySource, setFileDeploySource] = useState<'upload' | 'url'>('upload')
+  const [fileDeployGameName, setFileDeployGameName] = useState('')
+  const [fileDeployFile, setFileDeployFile] = useState<File | null>(null)
+  const [fileDeployUrl, setFileDeployUrl] = useState('')
+  const [fileDeployInstanceType, setFileDeployInstanceType] = useState<InstanceType>('generic')
+  const [fileDeployStartCommand, setFileDeployStartCommand] = useState('')
+  const [fileDeployJavaVersion, setFileDeployJavaVersion] = useState('default')
+  const [fileDeployRunning, setFileDeployRunning] = useState(false)
+  const [fileDeployProgress, setFileDeployProgress] = useState<{ percentage: number; currentStep: string; downloadedBytes?: number; totalBytes?: number } | null>(null)
+  const [fileDeployLogs, setFileDeployLogs] = useState<string[]>([])
+  const [fileDeployResult, setFileDeployResult] = useState<any>(null)
+  const [fileDeployError, setFileDeployError] = useState<string | null>(null)
+  const [fileDeployPreflight, setFileDeployPreflight] = useState<any>(null)
+  const [showFileDeployConflict, setShowFileDeployConflict] = useState(false)
+  const [fileDeployUploadProgress, setFileDeployUploadProgress] = useState(0)
+
   // SteamCMD高级选项
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [steamcmdCommand, setSteamcmdCommand] = useState('')
@@ -362,6 +382,9 @@ const GameDeploymentPage: React.FC = () => {
   const currentMoreGameDeploymentId = useRef<string | null>(null)
   const currentMrpackDeploymentId = useRef<string | null>(null)
   const currentOnlineGameDeploymentId = useRef<string | null>(null)
+  const currentFileDeploymentId = useRef<string | null>(null)
+  const fileDeployUploadSessionId = useRef<string | null>(null)
+  const fileDeployUploadController = useRef<AbortController | null>(null)
 
   // 获取游戏列表
   const fetchGames = async () => {
@@ -1744,6 +1767,205 @@ const GameDeploymentPage: React.FC = () => {
         // 成功或失败的状态会在UI中显示
       }
     })
+
+    // 监听文件部署日志
+    socketRef.current.on('file-deploy-log', (data) => {
+      if (data.deploymentId === currentFileDeploymentId.current) {
+        const message = typeof data.message === 'string' ? data.message : JSON.stringify(data.message)
+        setFileDeployLogs(prev => [...prev, message])
+      }
+    })
+
+    // 监听文件部署进度
+    socketRef.current.on('file-deploy-progress', (data) => {
+      if (data.deploymentId === currentFileDeploymentId.current) {
+        setFileDeployProgress(data)
+      }
+    })
+
+    // 监听文件部署完成
+    socketRef.current.on('file-deploy-complete', (data) => {
+      if (data.deploymentId !== currentFileDeploymentId.current) return
+      setFileDeployRunning(false)
+      setFileDeployProgress({ percentage: 100, currentStep: '部署完成' })
+      setFileDeployResult(data.data)
+      currentFileDeploymentId.current = null
+      addNotification({
+        type: 'success',
+        title: '文件部署完成',
+        message: data.message || '文件已安装并创建实例'
+      })
+    })
+
+    // 监听文件部署错误
+    socketRef.current.on('file-deploy-error', (data) => {
+      if (data.deploymentId !== currentFileDeploymentId.current) return
+      setFileDeployRunning(false)
+      setFileDeployError(data.error || '文件部署失败')
+      currentFileDeploymentId.current = null
+      addNotification({
+        type: data.filesDeployed ? 'warning' : 'error',
+        title: data.filesDeployed ? '文件已部署' : '部署失败',
+        message: data.error || '文件部署失败'
+      })
+    })
+  }
+
+  const waitForFileDeploySocket = () => new Promise<string>((resolve, reject) => {
+    if (socketRef.current?.connected && socketRef.current.id) {
+      resolve(socketRef.current.id)
+      return
+    }
+    const timeout = setTimeout(() => reject(new Error('WebSocket连接超时')), 10000)
+    const checkConnection = () => {
+      if (socketRef.current?.connected && socketRef.current.id) {
+        clearTimeout(timeout)
+        resolve(socketRef.current.id)
+      } else {
+        setTimeout(checkConnection, 100)
+      }
+    }
+    checkConnection()
+  })
+
+  const resetFileDeployState = () => {
+    setFileDeployProgress(null)
+    setFileDeployLogs([])
+    setFileDeployResult(null)
+    setFileDeployError(null)
+    setFileDeployUploadProgress(0)
+  }
+
+  const startFileDeployment = async (options: {
+    directoryStrategy: 'merge' | 'clean'
+    instanceStrategy: 'create' | 'update'
+    existingInstanceId?: string
+  }) => {
+    if (!fileDeployPreflight) return
+
+    try {
+      setFileDeployRunning(true)
+      resetFileDeployState()
+      const deploymentId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `file-deploy-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      currentFileDeploymentId.current = deploymentId
+      initializeSocket()
+      const socketId = await waitForFileDeploySocket()
+      let uploadSessionId: string | undefined
+
+      if (fileDeploySource === 'upload') {
+        if (!fileDeployFile) throw new Error('请先选择压缩包文件')
+        const sessionResponse = await apiClient.createFileDeploymentUploadSession(fileDeployFile.name)
+        if (!sessionResponse.success || !sessionResponse.data) {
+          throw new Error(sessionResponse.message || '创建上传会话失败')
+        }
+
+        uploadSessionId = sessionResponse.data.sessionId
+        fileDeployUploadSessionId.current = uploadSessionId
+        const uploadPath = sessionResponse.data.uploadPath
+        const controller = new AbortController()
+        fileDeployUploadController.current = controller
+
+        if (ChunkUploader.shouldUseChunkUpload(fileDeployFile.size)) {
+          const uploader = new ChunkUploader({
+            file: fileDeployFile,
+            targetPath: uploadPath,
+            signal: controller.signal,
+            conflictStrategy: 'replace',
+            onProgress: progress => setFileDeployUploadProgress(Math.round(progress * 0.45))
+          })
+          await uploader.upload()
+        } else {
+          await fileApiClient.uploadSingleFile(uploadPath, fileDeployFile, progress => {
+            setFileDeployUploadProgress(Math.round(progress * 0.45))
+          })
+        }
+        setFileDeployProgress({ percentage: 50, currentStep: '压缩包上传完成' })
+      }
+
+      const response = await apiClient.startFileDeployment({
+        deploymentId,
+        sourceType: fileDeploySource,
+        gameName: fileDeployGameName.trim(),
+        instanceType: fileDeployInstanceType,
+        startCommand: fileDeployStartCommand,
+        javaVersion: fileDeployJavaVersion === 'default' ? undefined : fileDeployJavaVersion,
+        downloadUrl: fileDeploySource === 'url' ? fileDeployUrl.trim() : undefined,
+        uploadSessionId,
+        directoryStrategy: options.directoryStrategy,
+        instanceStrategy: options.instanceStrategy,
+        existingInstanceId: options.existingInstanceId,
+        socketId
+      })
+      if (!response.success || !response.data?.deploymentId) {
+        throw new Error(response.message || '启动文件部署失败')
+      }
+      currentFileDeploymentId.current = response.data.deploymentId
+      setFileDeployLogs(prev => [...prev, '已提交部署任务，等待服务端处理...'])
+    } catch (error: any) {
+      setFileDeployRunning(false)
+      setFileDeployError(error.message || '文件部署失败')
+      if (fileDeployUploadSessionId.current) {
+        await apiClient.cleanupFileDeploymentUploadSession(fileDeployUploadSessionId.current).catch(() => {})
+        fileDeployUploadSessionId.current = null
+      }
+      addNotification({
+        type: 'error',
+        title: '文件部署失败',
+        message: error.message || '请检查文件、目录权限和下载地址'
+      })
+    } finally {
+      fileDeployUploadController.current = null
+    }
+  }
+
+  const handleFileDeploy = async () => {
+    const gameName = fileDeployGameName.trim()
+    if (!gameName) {
+      addNotification({ type: 'error', title: '参数错误', message: '请填写游戏名称' })
+      return
+    }
+    if (fileDeploySource === 'upload' && !fileDeployFile) {
+      addNotification({ type: 'error', title: '参数错误', message: '请选择要部署的压缩包' })
+      return
+    }
+    if (fileDeploySource === 'url' && !fileDeployUrl.trim()) {
+      addNotification({ type: 'error', title: '参数错误', message: '请填写压缩包下载链接' })
+      return
+    }
+    if (fileDeployInstanceType === 'generic' && !fileDeployStartCommand.trim()) {
+      addNotification({ type: 'error', title: '参数错误', message: '通用实例必须填写启动命令' })
+      return
+    }
+
+    try {
+      const response = await apiClient.preflightFileDeployment(gameName)
+      if (!response.success || !response.data) throw new Error(response.message || '部署预检查失败')
+      setFileDeployPreflight(response.data)
+      const hasConflict = response.data.directoryExists || response.data.matchingInstances?.length > 0
+      if (hasConflict) {
+        setShowFileDeployConflict(true)
+      } else {
+        await startFileDeployment({ directoryStrategy: 'merge', instanceStrategy: 'create' })
+      }
+    } catch (error: any) {
+      addNotification({ type: 'error', title: '部署预检查失败', message: error.message || '无法检查目标目录' })
+    }
+  }
+
+  const cancelFileDeployment = async () => {
+    fileDeployUploadController.current?.abort()
+    if (currentFileDeploymentId.current) {
+      await apiClient.cancelFileDeployment(currentFileDeploymentId.current).catch(() => {})
+      currentFileDeploymentId.current = null
+    }
+    if (fileDeployUploadSessionId.current) {
+      await apiClient.cleanupFileDeploymentUploadSession(fileDeployUploadSessionId.current).catch(() => {})
+      fileDeployUploadSessionId.current = null
+    }
+    setFileDeployRunning(false)
+    addNotification({ type: 'info', title: '已取消', message: '文件部署已取消' })
   }
 
   // 下载Minecraft服务端
@@ -2223,6 +2445,9 @@ const GameDeploymentPage: React.FC = () => {
       validateJava()
       fetchJavaEnvironments()
       // 整合包标签页的路径将在选择整合包后自动生成
+    }
+    if (activeTab === 'file-deploy') {
+      fetchJavaEnvironments()
     }
     if (activeTab === 'online-deploy') {
       checkSponsorKey()
@@ -3045,6 +3270,179 @@ const GameDeploymentPage: React.FC = () => {
   // 检查是否为ARM架构，如果是则隐藏SteamCMD、更多游戏部署和在线部署标签页
   const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
 
+  const renderFileDeploySection = () => (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
+        <div className="flex items-start gap-3">
+          <Archive className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
+          <div>
+            <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">文件部署</h3>
+            <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">上传或从 URL 下载压缩包，解压到默认游戏目录并自动创建实例。支持 ZIP、7Z、TAR 及常见压缩格式。</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-lg bg-white p-6 shadow-md dark:bg-gray-800">
+          <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">部署来源</h3>
+          <div className="space-y-4">
+            <div className="flex rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+              <button
+                onClick={() => setFileDeploySource('upload')}
+                disabled={fileDeployRunning}
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${fileDeploySource === 'upload' ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-600 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300'}`}
+              >上传压缩包</button>
+              <button
+                onClick={() => setFileDeploySource('url')}
+                disabled={fileDeployRunning}
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${fileDeploySource === 'url' ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-600 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300'}`}
+              >URL 离线下载</button>
+            </div>
+
+            {fileDeploySource === 'upload' ? (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">压缩包文件</label>
+                <input
+                  type="file"
+                  accept=".zip,.7z,.tar,.gz,.xz,.tgz,.txz"
+                  disabled={fileDeployRunning}
+                  onChange={event => setFileDeployFile(event.target.files?.[0] || null)}
+                  className="block w-full rounded-lg border border-gray-300 bg-white text-sm text-gray-900 file:mr-4 file:border-0 file:bg-gray-100 file:px-4 file:py-2 file:text-sm file:font-medium dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:file:bg-gray-600"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{fileDeployFile ? `${fileDeployFile.name} (${(fileDeployFile.size / 1024 / 1024).toFixed(2)} MB)` : '请选择服务端压缩包'}</p>
+              </div>
+            ) : (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">压缩包 URL</label>
+                <input
+                  type="url"
+                  value={fileDeployUrl}
+                  disabled={fileDeployRunning}
+                  onChange={event => setFileDeployUrl(event.target.value)}
+                  placeholder="https://example.com/game-server.zip"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">支持公网和局域网 HTTP(S) 地址，服务端会按下载响应识别压缩包格式。</p>
+              </div>
+            )}
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">游戏名称</label>
+              <input
+                type="text"
+                value={fileDeployGameName}
+                disabled={fileDeployRunning}
+                onChange={event => setFileDeployGameName(event.target.value)}
+                placeholder="例如：Palworld"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+              <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">目标目录：{fileDeployGameName.trim() ? generatePath(fileDeployGameName.trim()) : (defaultGamePath || '未配置默认路径')}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-white p-6 shadow-md dark:bg-gray-800">
+          <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">实例配置</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">实例类型</label>
+              <select
+                value={fileDeployInstanceType}
+                disabled={fileDeployRunning}
+                onChange={event => setFileDeployInstanceType(event.target.value as InstanceType)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              >
+                <option value="generic">Steam/通用控制台程序</option>
+                <option value="minecraft-java">我的世界 Java 版</option>
+                <option value="minecraft-bedrock">我的世界基岩版</option>
+              </select>
+            </div>
+
+            {fileDeployInstanceType === 'minecraft-java' && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Java 环境</label>
+                <select
+                  value={fileDeployJavaVersion}
+                  disabled={fileDeployRunning || javaEnvironmentsLoading}
+                  onChange={event => setFileDeployJavaVersion(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="default">Java（PATH 环境变量）</option>
+                  {javaEnvironments.filter(env => env.installed).map(env => (
+                    <option key={env.version} value={env.version}>{env.displayName || env.version}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {fileDeployInstanceType === 'generic' && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">启动命令 *</label>
+                <input
+                  type="text"
+                  value={fileDeployStartCommand}
+                  disabled={fileDeployRunning}
+                  onChange={event => setFileDeployStartCommand(event.target.value)}
+                  placeholder="例如：./start.sh 或 server.exe"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            )}
+
+            <button
+              onClick={handleFileDeploy}
+              disabled={fileDeployRunning}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+            >
+              {fileDeployRunning ? <Loader className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+              <span>{fileDeployRunning ? '部署中...' : '开始文件部署'}</span>
+            </button>
+            {fileDeployRunning && (
+              <button onClick={cancelFileDeployment} className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">取消部署</button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {(fileDeployRunning || fileDeployProgress || fileDeployUploadProgress > 0) && (
+        <div className="rounded-lg bg-white p-6 shadow-md dark:bg-gray-800">
+          <div className="mb-2 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+            <span>{fileDeployProgress?.currentStep || (fileDeployUploadProgress > 0 ? '正在上传压缩包' : '准备中')}</span>
+            <span>{Math.max(fileDeployProgress?.percentage || 0, fileDeployUploadProgress)}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+            <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${Math.max(fileDeployProgress?.percentage || 0, fileDeployUploadProgress)}%` }} />
+          </div>
+          {fileDeployProgress?.downloadedBytes !== undefined && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">已下载 {(fileDeployProgress.downloadedBytes / 1024 / 1024).toFixed(2)} MB{fileDeployProgress.totalBytes ? ` / ${(fileDeployProgress.totalBytes / 1024 / 1024).toFixed(2)} MB` : ''}</p>
+          )}
+          {fileDeployLogs.length > 0 && (
+            <div className="mt-4 max-h-48 overflow-y-auto rounded-lg bg-gray-900 p-3 font-mono text-xs text-green-400">
+              {fileDeployLogs.map((log, index) => <div key={`${index}-${log}`} className="mb-1 break-all">{log}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {fileDeployError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">{fileDeployError}</div>
+      )}
+
+      {fileDeployResult && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
+            <div className="text-sm text-green-700 dark:text-green-300">
+              <p className="font-medium">文件部署和实例配置已完成</p>
+              <p className="mt-1 break-all">目录：{fileDeployResult.targetPath}</p>
+              <p className="mt-1">实例：{fileDeployResult.instance?.name || fileDeployGameName}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   const renderCloudBuildSection = () => (
     <div className="space-y-6">
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
@@ -3521,7 +3919,7 @@ const GameDeploymentPage: React.FC = () => {
     ...(isArmArchitecture ? [] : [{ id: 'steamcmd', name: 'SteamCMD', icon: Download }]),
     { id: 'minecraft', name: 'Minecraft部署', icon: Pickaxe },
     { id: 'mrpack', name: 'Minecraft整合包部署', icon: Package },
-    { id: 'cloud-build', name: '云构建部署', icon: Cloud },
+    { id: 'file-deploy', name: '文件部署', icon: Archive },
     // 只有在非ARM架构时才显示更多游戏部署和在线部署标签页
     ...(isArmArchitecture ? [] : [
       { id: 'more-games', name: '更多游戏部署', icon: Server },
@@ -4043,8 +4441,8 @@ const GameDeploymentPage: React.FC = () => {
         </div>
       )}
 
-      {/* 云构建部署标签页内容 */}
-      {activeTab === 'cloud-build' && renderCloudBuildSection()}
+      {/* 文件部署标签页内容 */}
+      {activeTab === 'file-deploy' && renderFileDeploySection()}
 
       {/* Minecraft 标签页内容 */}
       {activeTab === 'minecraft' && (
@@ -6401,6 +6799,21 @@ const GameDeploymentPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 云服务商选择弹窗 */}
+      {showFileDeployConflict && fileDeployPreflight && (
+        <FileDeploymentConflictDialog
+          isOpen={showFileDeployConflict}
+          targetPath={fileDeployPreflight.targetPath}
+          directoryExists={fileDeployPreflight.directoryExists}
+          matchingInstances={fileDeployPreflight.matchingInstances || []}
+          onClose={() => setShowFileDeployConflict(false)}
+          onConfirm={async options => {
+            setShowFileDeployConflict(false)
+            await startFileDeployment(options)
+          }}
+        />
       )}
 
       {/* 云服务商选择弹窗 */}

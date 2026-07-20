@@ -763,6 +763,51 @@ class ApiClient {
     return this.post('/online-deploy/cancel', { deploymentId })
   }
 
+  // 文件部署API
+  async preflightFileDeployment(gameName: string) {
+    return this.post<{
+      gameName: string
+      targetPath: string
+      directoryExists: boolean
+      matchingInstances: Array<{
+        id: string
+        name: string
+        status: Instance['status']
+        workingDirectory: string
+        instanceType: NonNullable<Instance['instanceType']>
+      }>
+    }>('/file-deploy/preflight', { gameName })
+  }
+
+  async createFileDeploymentUploadSession(fileName: string) {
+    return this.post<{ sessionId: string; uploadPath: string }>('/file-deploy/upload-session', { fileName })
+  }
+
+  async cleanupFileDeploymentUploadSession(sessionId: string) {
+    return this.delete(`/file-deploy/upload-session/${encodeURIComponent(sessionId)}`)
+  }
+
+  async startFileDeployment(data: {
+    deploymentId?: string
+    sourceType: 'upload' | 'url'
+    gameName: string
+    instanceType: NonNullable<Instance['instanceType']>
+    startCommand?: string
+    javaVersion?: string
+    downloadUrl?: string
+    uploadSessionId?: string
+    directoryStrategy: 'merge' | 'clean'
+    instanceStrategy: 'create' | 'update'
+    existingInstanceId?: string
+    socketId?: string
+  }) {
+    return this.post<{ deploymentId: string }>('/file-deploy/deploy', data)
+  }
+
+  async cancelFileDeployment(deploymentId: string) {
+    return this.post(`/file-deploy/${encodeURIComponent(deploymentId)}/cancel`)
+  }
+
   // 终端配置API
   async getTerminalConfig() {
     return this.get('/config/terminal')

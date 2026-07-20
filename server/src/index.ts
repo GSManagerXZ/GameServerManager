@@ -48,6 +48,7 @@ import { setupDeveloperRoutes } from './routes/developer.js'
 import wallpaperRouter from './routes/wallpaper.js'
 import networkRouter from './routes/network.js'
 import cloudBuildRouter from './routes/cloudBuild.js'
+import fileDeployRouter, { setFileDeployDependencies } from './routes/fileDeploy.js'
 import { consoleLogBuffer } from './utils/logger.js'
 import { zipToolsManager } from './utils/zipToolsManager.js'
 import { ptyManager } from './utils/ptyManager.js'
@@ -747,6 +748,10 @@ async function startServer() {
 
     // 云构建部署路由
     app.use('/api/cloud-build', cloudBuildRouter)
+
+    // 文件部署路由
+    setFileDeployDependencies(io, configManager, instanceManager)
+    app.use('/api/file-deploy', fileDeployRouter)
 
     // 设置安全配置路由
     const { setSecurityConfigManager } = await import('./routes/security.js')
