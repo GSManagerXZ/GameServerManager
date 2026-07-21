@@ -40,7 +40,8 @@ import {
   FileText,
   Archive,
   Play,
-  Pause
+  Pause,
+  Activity
 } from 'lucide-react'
 import SecurityWarningModal from '@/components/SecurityWarningModal'
 import SearchableSelect from '@/components/SearchableSelect'
@@ -84,8 +85,12 @@ const SettingsPage: React.FC = () => {
     lowPowerModeTimeout: 60, // 秒
     enableDeepSleep: true,
     deepSleepTimeout: 10, // 秒
-    weatherCity: '101010100' // 默认北京
+    weatherCity: '101010100', // 默认北京
+    enableSystemResourceMonitoring: true
   })
+  const [showSystemMonitoringWarning, setShowSystemMonitoringWarning] = useState(false)
+  const [isSystemMonitoringWarningVisible, setIsSystemMonitoringWarningVisible] = useState(false)
+  const [isSystemMonitoringWarningClosing, setIsSystemMonitoringWarningClosing] = useState(false)
 
   // SteamCMD设置状态
   const [steamcmdSettings, setSteamcmdSettings] = useState({
@@ -632,6 +637,25 @@ const SettingsPage: React.FC = () => {
     }
   }, [securityConfig.tokenResetRule])
 
+  const isWindows = systemInfo?.rawPlatform === 'win32' || systemInfo?.platform.toLowerCase().includes('windows') === true
+
+  React.useEffect(() => {
+    if (!isWindows) {
+      return
+    }
+
+    try {
+      const savedSettings = localStorage.getItem('webSettings')
+      const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {}
+      if (typeof parsedSettings.enableSystemResourceMonitoring !== 'boolean') {
+        setWebSettings(prev => ({ ...prev, enableSystemResourceMonitoring: false }))
+      }
+    } catch (error) {
+      console.error('读取首页资源监控设置失败:', error)
+      setWebSettings(prev => ({ ...prev, enableSystemResourceMonitoring: false }))
+    }
+  }, [isWindows])
+
   // 页面加载时获取SteamCMD状态和本地设置
   React.useEffect(() => {
     fetchSteamCMDStatus()
@@ -842,7 +866,8 @@ const SettingsPage: React.FC = () => {
       lowPowerModeTimeout: 60,
       enableDeepSleep: true,
       deepSleepTimeout: 10,
-      weatherCity: '101010100'
+      weatherCity: '101010100',
+      enableSystemResourceMonitoring: !isWindows
     }
 
     const defaultTerminalSettings = {
@@ -859,6 +884,47 @@ const SettingsPage: React.FC = () => {
       type: 'info',
       title: '设置已重置',
       message: '所有设置已恢复为默认值'
+    })
+  }
+
+  const closeSystemMonitoringWarning = () => {
+    setIsSystemMonitoringWarningVisible(false)
+    setIsSystemMonitoringWarningClosing(true)
+    setTimeout(() => {
+      setShowSystemMonitoringWarning(false)
+      setIsSystemMonitoringWarningClosing(false)
+    }, 300)
+  }
+
+  const openSystemMonitoringWarning = () => {
+    setShowSystemMonitoringWarning(true)
+    setIsSystemMonitoringWarningClosing(false)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setIsSystemMonitoringWarningVisible(true))
+    })
+  }
+
+  const handleSystemMonitoringToggle = () => {
+    if (webSettings.enableSystemResourceMonitoring) {
+      setWebSettings(prev => ({ ...prev, enableSystemResourceMonitoring: false }))
+      return
+    }
+
+    if (isWindows) {
+      openSystemMonitoringWarning()
+      return
+    }
+
+    setWebSettings(prev => ({ ...prev, enableSystemResourceMonitoring: true }))
+  }
+
+  const confirmSystemMonitoring = () => {
+    setWebSettings(prev => ({ ...prev, enableSystemResourceMonitoring: true }))
+    closeSystemMonitoringWarning()
+    addNotification({
+      type: 'warning',
+      title: '已启用首页资源监控',
+      message: 'Windows 将定期执行 PowerShell 查询 CPU 和内存等资源信息，可能增加系统负载'
     })
   }
 
@@ -1491,6 +1557,41 @@ const SettingsPage: React.FC = () => {
               )}
             </div>
 
+            {/* 首页资源监控 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-4 h-4 text-orange-500" />
+                  <div>
+                    <label className="text-sm font-medium text-gray-800 dark:text-gray-200">首页资源监控</label>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      {isWindows ? 'Windows 默认关闭，避免定期 PowerShell 查询影响游戏服务性能' : '在首页显示 CPU、内存、磁盘和网络资源使用情况'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleSystemMonitoringToggle}
+                  className={`
+                    relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                    ${webSettings.enableSystemResourceMonitoring ? 'bg-orange-600' : 'bg-gray-300'}
+                  `}
+                  aria-label="切换首页资源监控"
+                >
+                  <span
+                    className={`
+                      inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                      ${webSettings.enableSystemResourceMonitoring ? 'translate-x-6' : 'translate-x-1'}
+                    `}
+                  />
+                </button>
+              </div>
+              {isWindows && (
+                <p className="ml-6 text-xs text-orange-600 dark:text-orange-400">
+                  启用后，首页会每 3 秒采集一次系统资源数据。
+                </p>
+              )}
+            </div>
+
             {/* 天气地理位置 */}
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
@@ -1523,6 +1624,9 @@ const SettingsPage: React.FC = () => {
                 </p>
                 <p className="text-xs text-gray-600 dark:text-gray-400">
                   • 深度睡眠: {webSettings.enableDeepSleep ? '已启用' : '已禁用'}
+                </p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  • 首页资源监控: {webSettings.enableSystemResourceMonitoring ? '已启用' : '已禁用'}
                 </p>
               </div>
             </div>
@@ -2820,6 +2924,48 @@ const SettingsPage: React.FC = () => {
         confirmText="确认设置"
         cancelText="取消"
       />
+
+      {showSystemMonitoringWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className={`absolute inset-0 bg-black/50 ${
+              isSystemMonitoringWarningClosing ? 'animate-fade-out' : isSystemMonitoringWarningVisible ? 'animate-fade-in' : 'opacity-0'
+            }`}
+            onClick={closeSystemMonitoringWarning}
+          />
+          <div
+            className={`relative w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800 ${
+              isSystemMonitoringWarningClosing ? 'animate-scale-out' : isSystemMonitoringWarningVisible ? 'animate-scale-in' : 'opacity-0 scale-95'
+            }`}
+          >
+            <div className="flex items-start space-x-3">
+              <div className="rounded-full bg-orange-100 p-2 dark:bg-orange-900/30">
+                <AlertTriangle className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-black dark:text-white">Windows 资源监控提示</h3>
+                <p className="mt-2 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                  启用后，首页会定期通过 PowerShell 获取 CPU、内存等系统资源信息。在部分 Windows 环境中，这可能产生多个 PowerShell 进程并增加 CPU 占用，从而影响游戏服务运行。
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={closeSystemMonitoringWarning}
+                className="rounded-lg bg-gray-500 px-4 py-2 text-white transition-colors hover:bg-gray-600"
+              >
+                保持关闭
+              </button>
+              <button
+                onClick={confirmSystemMonitoring}
+                className="rounded-lg bg-orange-600 px-4 py-2 text-white transition-colors hover:bg-orange-700"
+              >
+                仍要启用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

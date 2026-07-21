@@ -196,6 +196,7 @@ const HomePage: React.FC = () => {
   const navigate = useNavigate()
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
+  const [systemMonitoringEnabled, setSystemMonitoringEnabled] = useState<boolean | null>(null)
   const [processList, setProcessList] = useState<ProcessInfo[]>([])
   const [connected, setConnected] = useState(socketClient.isConnected())
   const [currentDateTime, setCurrentDateTime] = useState(new Date())
@@ -255,9 +256,27 @@ const HomePage: React.FC = () => {
         const response = await apiClient.getSystemInfo()
         if (response.success) {
           setSystemInfo(response.data)
+
+          const isWindows = response.data.rawPlatform === 'win32' || response.data.platform.toLowerCase().includes('windows')
+          let enabled = !isWindows
+
+          try {
+            const savedSettings = localStorage.getItem('webSettings')
+            if (savedSettings) {
+              const settings = JSON.parse(savedSettings)
+              if (typeof settings.enableSystemResourceMonitoring === 'boolean') {
+                enabled = settings.enableSystemResourceMonitoring
+              }
+            }
+          } catch (error) {
+            console.warn('读取首页资源监控设置失败:', error)
+          }
+
+          setSystemMonitoringEnabled(enabled)
         }
       } catch (error) {
         console.error('获取系统信息失败:', error)
+        setSystemMonitoringEnabled(false)
       }
     }
 
@@ -428,7 +447,9 @@ const HomePage: React.FC = () => {
       })
 
       // 订阅系统状态、端口、进程信息和终端进程
-      socketClient.subscribeSystemStats()
+      if (systemMonitoringEnabled) {
+        socketClient.subscribeSystemStats()
+      }
       socketClient.subscribeSystemPorts()
       socketClient.subscribeSystemProcesses()
       socketClient.subscribeTerminalProcesses()
@@ -445,13 +466,15 @@ const HomePage: React.FC = () => {
       socketClient.off('terminal-processes-update')
 
       if (socketClient.isConnected()) {
-        socketClient.emit('unsubscribe-system-stats')
+        if (systemMonitoringEnabled) {
+          socketClient.emit('unsubscribe-system-stats')
+        }
         socketClient.emit('unsubscribe-system-ports')
         socketClient.emit('unsubscribe-system-processes')
         socketClient.emit('unsubscribe-terminal-processes')
       }
     }
-  }, [connected])
+  }, [connected, systemMonitoringEnabled])
 
   // 处理端口搜索过滤
   useEffect(() => {
