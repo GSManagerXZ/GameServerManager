@@ -360,7 +360,7 @@ export class SchedulerManager extends EventEmitter {
   private async updateSteamGameList(): Promise<void> {
     try {
       const axios = (await import('axios')).default
-      const remoteUrl = 'http://api.gsm.xiaozhuhouses.asia:8082/installgame.json'
+      const remoteUrl = 'https://download.xiaozhuhouses.asia/download/v1/links/3HH_QlD__d5NxJ2kkGJMm7at6udImkz8wvycHQMc1ks'
       
       // 使用多个路径尝试
       const baseDir = process.cwd()

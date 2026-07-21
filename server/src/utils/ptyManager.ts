@@ -20,12 +20,8 @@ const SUPPORTED_ARCHS = new Set(['x64', 'arm64'])
  * 参照 ZipToolsManager 的设计模式
  */
 class PtyManager {
-  /** 自建镜像下载基础 URL（运行时使用，国内加速） */
-  private readonly DOWNLOAD_BASE_URL =
-    'https://download.xiaozhuhouses.asia/%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE/GSManager/GSManager3/%E8%BF%90%E8%A1%8C%E4%BE%9D%E8%B5%96/PTY/'
-
-  /** GitHub Releases 备用下载 URL（tag 名为 latest） */
-  private readonly FALLBACK_DOWNLOAD_URL =
+  /** GitHub Releases 下载 URL（tag 名为 latest） */
+  private readonly DOWNLOAD_URL =
     'https://github.com/MCSManager/PTY/releases/download/latest/'
 
   /**
@@ -129,7 +125,7 @@ class PtyManager {
 
   /**
    * 下载 PTY 二进制文件到第一个可写的 lib 目录
-   * 优先从自建镜像下载，失败后回退到 GitHub Releases
+   * 从 GitHub Releases 下载
    */
   async download(): Promise<void> {
     const binaryName = this.getBinaryName()
@@ -152,30 +148,16 @@ class PtyManager {
     }
 
     const targetPath = path.join(targetDir, binaryName)
-    const primaryUrl = `${this.DOWNLOAD_BASE_URL}${binaryName}`
-    const fallbackUrl = `${this.FALLBACK_DOWNLOAD_URL}${binaryName}`
+    const downloadUrl = `${this.DOWNLOAD_URL}${binaryName}`
 
-    // 优先从自建镜像下载
-    logger.info(`正在从自建镜像下载 PTY: ${primaryUrl}`)
+    logger.info(`正在从 GitHub 下载 PTY: ${downloadUrl}`)
     try {
-      await this.downloadFromUrl(primaryUrl, targetPath)
+      await this.downloadFromUrl(downloadUrl, targetPath)
       logger.info(`PTY 下载完成: ${targetPath}`)
-      return
-    } catch (primaryError: any) {
-      logger.warn(`自建镜像下载失败: ${primaryError.message || primaryError}，尝试 GitHub 备用地址...`)
+    } catch (error: any) {
       // 清理可能的残留文件
       try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-    }
-
-    // 回退到 GitHub Releases
-    logger.info(`正在从 GitHub 下载 PTY: ${fallbackUrl}`)
-    try {
-      await this.downloadFromUrl(fallbackUrl, targetPath)
-      logger.info(`PTY 下载完成（GitHub 备用）: ${targetPath}`)
-    } catch (fallbackError: any) {
-      // 清理可能的残留文件
-      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-      const message = `PTY 下载失败（两个源均不可用）: ${fallbackError.message || fallbackError}`
+      const message = `PTY 下载失败（GitHub）: ${error.message || error}`
       logger.error(message)
       throw new Error(message)
     }

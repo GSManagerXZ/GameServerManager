@@ -1,11 +1,10 @@
 /**
- * download7z 双源回退逻辑的单元测试
- * 通过 mock downloadFromUrl 私有方法验证下载回退策略
+ * download7z GitHub 下载逻辑的单元测试
+ * 通过 mock downloadFromUrl 私有方法验证下载地址和失败处理
  *
  * 关键验证点:
- * - 主源（自建镜像）成功时不尝试备源
- * - 主源失败时回退到备源（GitHub Releases latest）
- * - 两个源都失败时抛出错误
+ * - 只使用 GitHub Releases latest
+ * - GitHub 下载失败时抛出错误
  * - 失败时清理残留文件
  */
 
@@ -42,7 +41,7 @@ jest.mock('stream/promises', () => ({
 
 import fs from 'fs/promises'
 
-describe('download7z 双源回退逻辑', () => {
+describe('download7z GitHub 下载逻辑', () => {
   let manager: ZipToolsManager
   let downloadFromUrlMock: jest.SpyInstance
 
@@ -61,73 +60,22 @@ describe('download7z 双源回退逻辑', () => {
     jest.restoreAllMocks()
   })
 
-  it('主源成功时不应尝试备源', async () => {
-    // 主源下载成功
+  it('应从 GitHub 下载且只调用一次', async () => {
     downloadFromUrlMock.mockResolvedValueOnce(undefined)
 
     await manager.download7z()
 
-    // downloadFromUrl 只被调用一次（主源）
     expect(downloadFromUrlMock).toHaveBeenCalledTimes(1)
-    // 验证调用的是主源 URL（自建镜像）
     const firstCallUrl = downloadFromUrlMock.mock.calls[0][0] as string
-    expect(firstCallUrl).not.toContain('github.com')
+    expect(firstCallUrl).toContain('https://github.com/MCSManager/Zip-Tools/releases/latest/download/')
   })
 
-  it('主源失败时应回退到备源（GitHub）', async () => {
-    // 主源失败
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('主源连接超时'))
-    // 备源成功
-    downloadFromUrlMock.mockResolvedValueOnce(undefined)
+  it('GitHub 下载失败时应抛出错误并清理残留文件', async () => {
+    downloadFromUrlMock.mockRejectedValueOnce(new Error('连接超时'))
 
-    await manager.download7z()
-
-    // downloadFromUrl 被调用两次
-    expect(downloadFromUrlMock).toHaveBeenCalledTimes(2)
-    // 第二次调用应使用 GitHub URL
-    const secondCallUrl = downloadFromUrlMock.mock.calls[1][0] as string
-    expect(secondCallUrl).toContain('github.com')
-    expect(secondCallUrl).toContain('MCSManager/Zip-Tools')
-  })
-
-  it('两个源都失败时应抛出错误', async () => {
-    // 两个源都失败
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('主源失败'))
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('备源失败'))
-
-    await expect(manager.download7z()).rejects.toThrow('两个源均不可用')
-  })
-
-  it('主源失败后应清理残留文件', async () => {
-    // 主源失败
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('下载失败'))
-    // 备源成功
-    downloadFromUrlMock.mockResolvedValueOnce(undefined)
-
-    await manager.download7z()
-
-    // 主源失败后应尝试 unlink 清理残留
+    await expect(manager.download7z()).rejects.toThrow('7z 下载失败（GitHub）')
+    expect(downloadFromUrlMock).toHaveBeenCalledTimes(1)
     expect(fs.unlink).toHaveBeenCalled()
-  })
-
-  it('两个源都失败时应清理残留文件', async () => {
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('主源失败'))
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('备源失败'))
-
-    await expect(manager.download7z()).rejects.toThrow()
-
-    // 两次失败都应尝试清理
-    expect(fs.unlink).toHaveBeenCalledTimes(2)
-  })
-
-  it('备源 URL 应使用 latest 版本路径', async () => {
-    downloadFromUrlMock.mockRejectedValueOnce(new Error('主源失败'))
-    downloadFromUrlMock.mockResolvedValueOnce(undefined)
-
-    await manager.download7z()
-
-    const secondCallUrl = downloadFromUrlMock.mock.calls[1][0] as string
-    expect(secondCallUrl).toContain('/releases/latest/download/')
   })
 
   it('下载的文件名应与 get7zBinaryName() 一致', async () => {

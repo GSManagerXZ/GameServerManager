@@ -48,15 +48,14 @@
 服务端启动时会自动检测 7z 二进制文件是否存在：
 
 - **已存在**：跳过下载，记录日志 `7z 已就绪`
-- **不存在**：自动下载对应平台的二进制文件（双源策略）
+- **不存在**：自动从 GitHub Releases 下载对应平台的二进制文件
 - **下载失败**：记录警告日志但不阻塞服务启动，7z 相关功能降级为不可用
 
-### 下载源优先级
+### 下载地址
 
-1. **自建镜像（主）**：优先从自建镜像下载（国内加速）
-2. **GitHub Releases（备用）**：`https://github.com/MCSManager/Zip-Tools/releases/latest/download/`
+运行时从 GitHub Releases 下载：
 
-运行时优先从自建镜像下载，失败后自动回退到 GitHub Releases。
+- `https://github.com/MCSManager/Zip-Tools/releases/latest/download/`
 
 ### 存放位置
 

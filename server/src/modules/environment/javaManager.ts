@@ -260,7 +260,8 @@ export class JavaManager {
   async installJava(
     version: string,
     downloadUrl: string,
-    onProgress?: (stage: 'download' | 'extract', progress: number) => void
+    onProgress?: (stage: 'download' | 'extract', progress: number) => void,
+    archiveFileName?: string
   ): Promise<void> {
     await this.ensureInstallDir()
 
@@ -278,7 +279,7 @@ export class JavaManager {
       await fs.ensureDir(versionDir)
 
       // 下载文件
-      const fileName = path.basename(downloadUrl)
+      const fileName = archiveFileName || path.basename(downloadUrl)
       const downloadPath = path.join(versionDir, fileName)
 
       await this.downloadFile(downloadUrl, downloadPath, (progress) => {

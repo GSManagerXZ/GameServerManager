@@ -96,36 +96,30 @@ function validateSponsorKey(): boolean {
 
 // 获取赞助者专用下载链接
 function getSponsorDownloadUrl(version: string, platform: string, arch?: string): string {
-  const baseUrls = {
-    windows: 'https://download.xiaozhuhouses.asia/%E7%8E%AF%E5%A2%83%E4%BE%9D%E8%B5%96/Java_JDK/Windows/',
-    linux: 'https://download.xiaozhuhouses.asia/%E7%8E%AF%E5%A2%83%E4%BE%9D%E8%B5%96/Java_JDK/Linux/',
-    arm: 'https://download.xiaozhuhouses.asia/%E7%8E%AF%E5%A2%83%E4%BE%9D%E8%B5%96/Java_JDK/aarch64/'
-  }
-
-  const fileNames = {
+  const downloadUrls = {
     java8: {
-      windows: 'openjdk-8u44-windows-i586.zip',
-      linux: 'openjdk-8u44-linux-x64.tar.gz'
+      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/4GMNQ54kGwuviwcEOfgzVCRSWT6XzNPXp-ByPPVifYk',
+      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/WBaVRrXptRSqi0JjLkyYKDB2bnH3T67IQzJT-iPz6bA'
     },
     java11: {
-      windows: 'openjdk-11.0.0.2_windows-x64.zip',
-      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz',
-      arm: 'microsoft-jdk-11-linux-aarch64.tar.gz'
+      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/enN1iE0CIwgJWmzDSq8bJJeWDnC1DuCx6IE_24aWQ2s',
+      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/_KQdgTNVpgZJZwrLozviN3gE6ZEcEpZZf58NUL9WYOA',
+      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/_ya4jKkyMFfDROU87g-oo2E9UnbRaxlgp_govHyDUYU'
     },
     java17: {
-      windows: 'openjdk-17.0.0.1+2_windows-x64_bin.zip',
-      linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
-      arm: 'openjdk-17.0.2_linux-aarch64_bin.tar.gz'
+      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/4_q8RzaqTgDGmFHQiVz1lMaBl3hTwjAp8YmFx0GtCjs',
+      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/oNn4sshvtLJ3V8dJApXecT5axaRLjTBUL5lqBkz0LPs',
+      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/9uS3rF5DO_-c_tcaM7BykYdI6ZrtPlnj4IVyVpK4F3Y'
     },
     java21: {
-      windows: 'openjdk-21+35_windows-x64_bin.zip',
-      linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
-      arm: 'openjdk-21_linux-aarch64_bin.tar.gz'
+      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/c0Heh97uhMO3_LCfYMr9tQyYCagRpX9Wi5gbm08dtuc',
+      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/rFPuJ-HY7XVmg-KnBsXwvtvewxI-2orfe95G949zFa0',
+      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/qWLHA8eDvA55KpG9pW35Aj1Ds-CNvuWT4JbO_8zIY9U'
     },
     java25: {
-      windows: 'openjdk-25+36_windows-x64_bin.zip',
-      linux: 'openjdk-25+36_linux-x64_bin.tar.gz',
-      arm: 'openjdk-25.0.2_linux-aarch64_bin.tar.gz'
+      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/QBmtaNmE_wEATTjQoO0AAEncTPUVjwnCofWUxPY4EH4',
+      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/bvANX6e9XuW_nvdO6TmE89tyepAELCyub3wsXhcZMvU',
+      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/k-EfIFXJeFtP2DZv-8Fn9SwLCaQWL7HhfIbTkx1xeFk'
     }
   }
 
@@ -139,14 +133,59 @@ function getSponsorDownloadUrl(version: string, platform: string, arch?: string)
     platformKey = 'linux'
   }
 
-  const baseUrl = baseUrls[platformKey]
-  const fileName = fileNames[version]?.[platformKey]
+  const downloadUrl = downloadUrls[version]?.[platformKey]
 
-  if (!baseUrl || !fileName) {
+  if (!downloadUrl) {
     throw new Error(`不支持的版本或平台: ${version}, ${platform}, ${arch}`)
   }
 
-  return baseUrl + fileName
+  return downloadUrl
+}
+
+// 获取Java压缩包文件名，短链下载地址无法通过URL末段推断文件格式
+function getJavaArchiveFileName(version: string, platform: string, arch?: string): string {
+  const fileNames = {
+    java8: {
+      windows: 'openjdk-8u44-windows-i586.zip',
+      linux: 'openjdk-8u44-linux-x64.tar.gz'
+    },
+    java11: {
+      windows: 'openjdk-11.0.0.2_windows-x64.zip',
+      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz',
+      arm: 'microsoft-jdk-11.0.29-linux-aarch64.tar.gz'
+    },
+    java17: {
+      windows: 'openjdk-17.0.0.1+2_windows-x64_bin.zip',
+      linux: 'openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
+      arm: 'openjdk-17.0.2_linux-aarch64_bin.tar.gz'
+    },
+    java21: {
+      windows: 'openjdk-21+35_windows-x64_bin.zip',
+      linux: 'openjdk-21+35_linux-x64_bin.tar.gz',
+      arm: 'openjdk-21_linux-aarch64_bin.tar.gz'
+    },
+    java25: {
+      windows: 'openjdk-25+36_windows-x64_bin.zip',
+      linux: 'openjdk-25+36_linux-x64_bin.tar.gz',
+      arm: 'openjdk-25.0.2_linux-aarch64_bin.tar.gz'
+    }
+  }
+
+  let platformKey: 'windows' | 'linux' | 'arm'
+  if (platform === 'win32') {
+    platformKey = 'windows'
+  } else if (arch === 'arm64' || arch === 'aarch64') {
+    platformKey = 'arm'
+  } else {
+    platformKey = 'linux'
+  }
+
+  const fileName = fileNames[version]?.[platformKey]
+  if (!fileName) {
+    throw new Error(`不支持的Java压缩包: ${version}, ${platform}, ${arch}`)
+  }
+
+  return fileName
 }
 
 // 安装Java环境
@@ -163,6 +202,7 @@ router.post('/java/install', authenticateToken, async (req, res) => {
   try {
     // 检查是否为赞助者，如果是则使用赞助者专用下载链接
     let finalDownloadUrl = downloadUrl
+    const archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch())
     const isSponsor = validateSponsorKey()
 
     if (isSponsor) {
@@ -192,7 +232,7 @@ router.post('/java/install', authenticateToken, async (req, res) => {
           progress
         })
       }
-    })
+    }, archiveFileName)
 
     // 发送最终进度更新，确保进度条到达100%
     if (io && socketId) {

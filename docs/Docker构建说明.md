@@ -121,12 +121,9 @@ docker run -d \
 
 ### 下载源策略
 
-Docker 构建阶段对 `Zip-Tools`、`7z`、`PTY` 采用双源下载策略：
+Docker 构建阶段对 `Zip-Tools`、`7z`、`PTY` 统一从 GitHub Releases 下载。
 
-1. 优先使用自建镜像源 `download.xiaozhuhouses.asia`
-2. 失败后回退到 GitHub Releases
-
-其中 PTY 的 GitHub 回退地址使用：
+其中 PTY 的下载地址使用：
 
 - `https://github.com/MCSManager/PTY/releases/download/latest/<binary>`
 

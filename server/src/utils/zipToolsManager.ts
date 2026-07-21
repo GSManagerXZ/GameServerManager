@@ -88,12 +88,8 @@ const SUPPORTED_ARCHS = new Set(['x64', 'arm64'])
  * 负责 file_zip 二进制文件的路径解析、检测、下载和 ZIP 操作封装
  */
 class ZipToolsManager {
-  /** 自建镜像下载基础 URL（运行时使用，国内加速） */
-  private readonly DOWNLOAD_BASE_URL =
-    'https://download.xiaozhuhouses.asia/%E5%BC%80%E6%BA%90%E9%A1%B9%E7%9B%AE/GSManager/GSManager3/%E8%BF%90%E8%A1%8C%E4%BE%9D%E8%B5%96/Zip-Tools/'
-
-  /** GitHub Releases 备用下载 URL（始终使用最新版本） */
-  private readonly FALLBACK_DOWNLOAD_URL =
+  /** GitHub Releases 下载 URL（始终使用最新版本） */
+  private readonly DOWNLOAD_URL =
     'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
 
   /**
@@ -202,7 +198,7 @@ class ZipToolsManager {
 
   /**
    * 下载二进制文件到第一个可写的 lib 目录
-   * 优先从自建镜像下载，失败后回退到 GitHub Releases
+   * 从 GitHub Releases 下载
    * 非 Windows 平台设置 chmod 0o755
    */
   async download(): Promise<void> {
@@ -226,30 +222,16 @@ class ZipToolsManager {
     }
 
     const targetPath = path.join(targetDir, binaryName)
-    const primaryUrl = `${this.DOWNLOAD_BASE_URL}${binaryName}`
-    const fallbackUrl = `${this.FALLBACK_DOWNLOAD_URL}${binaryName}`
+    const downloadUrl = `${this.DOWNLOAD_URL}${binaryName}`
 
-    // 优先从自建镜像下载
-    logger.info(`正在从自建镜像下载 Zip-Tools: ${primaryUrl}`)
+    logger.info(`正在从 GitHub 下载 Zip-Tools: ${downloadUrl}`)
     try {
-      await this.downloadFromUrl(primaryUrl, targetPath)
+      await this.downloadFromUrl(downloadUrl, targetPath)
       logger.info(`Zip-Tools 下载完成: ${targetPath}`)
-      return
-    } catch (primaryError: any) {
-      logger.warn(`自建镜像下载失败: ${primaryError.message || primaryError}，尝试 GitHub 备用地址...`)
+    } catch (error: any) {
       // 清理可能的残留文件
       try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-    }
-
-    // 回退到 GitHub Releases
-    logger.info(`正在从 GitHub 下载 Zip-Tools: ${fallbackUrl}`)
-    try {
-      await this.downloadFromUrl(fallbackUrl, targetPath)
-      logger.info(`Zip-Tools 下载完成（GitHub 备用）: ${targetPath}`)
-    } catch (fallbackError: any) {
-      // 清理可能的残留文件
-      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-      const message = `Zip-Tools 下载失败（两个源均不可用）: ${fallbackError.message || fallbackError}`
+      const message = `Zip-Tools 下载失败（GitHub）: ${error.message || error}`
       logger.error(message)
       throw new Error(message)
     }
@@ -328,7 +310,7 @@ class ZipToolsManager {
 
   /**
    * 下载 7z 二进制文件到第一个可写的 lib 目录
-   * 优先从自建镜像下载，失败后回退到 GitHub Releases latest
+   * 从 GitHub Releases latest 下载
    * 非 Windows 平台设置 chmod 0o755
    */
   async download7z(): Promise<void> {
@@ -352,30 +334,16 @@ class ZipToolsManager {
     }
 
     const targetPath = path.join(targetDir, binaryName)
-    const primaryUrl = `${this.DOWNLOAD_BASE_URL}${binaryName}`
-    const fallbackUrl = `${this.FALLBACK_DOWNLOAD_URL}${binaryName}`
+    const downloadUrl = `${this.DOWNLOAD_URL}${binaryName}`
 
-    // 优先从自建镜像下载
-    logger.info(`正在从自建镜像下载 7z: ${primaryUrl}`)
+    logger.info(`正在从 GitHub 下载 7z: ${downloadUrl}`)
     try {
-      await this.downloadFromUrl(primaryUrl, targetPath)
+      await this.downloadFromUrl(downloadUrl, targetPath)
       logger.info(`7z 下载完成: ${targetPath}`)
-      return
-    } catch (primaryError: any) {
-      logger.warn(`自建镜像下载 7z 失败: ${primaryError.message || primaryError}，尝试 GitHub 备用地址...`)
+    } catch (error: any) {
       // 清理可能的残留文件
       try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-    }
-
-    // 回退到 GitHub Releases latest
-    logger.info(`正在从 GitHub 下载 7z: ${fallbackUrl}`)
-    try {
-      await this.downloadFromUrl(fallbackUrl, targetPath)
-      logger.info(`7z 下载完成（GitHub 备用）: ${targetPath}`)
-    } catch (fallbackError: any) {
-      // 清理可能的残留文件
-      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-      const message = `7z 下载失败（两个源均不可用）: ${fallbackError.message || fallbackError}`
+      const message = `7z 下载失败（GitHub）: ${error.message || error}`
       logger.error(message)
       throw new Error(message)
     }
