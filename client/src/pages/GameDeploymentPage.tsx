@@ -60,6 +60,14 @@ interface Games {
   [key: string]: GameInfo
 }
 
+const quoteSteamCMDArgument = (value: string, platform?: string): string => {
+  if (platform === 'Windows') {
+    return `'${value.replace(/'/g, "''")}'`
+  }
+
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 // 辅助函数：判断是否为 Windows 平台
 const isWindowsPlatform = (systemInfo: any): boolean => {
   // 优先使用 rawPlatform（原始平台标识）
@@ -2544,10 +2552,17 @@ const GameDeploymentPage: React.FC = () => {
   useEffect(() => {
     if (showInstallModal && selectedGame) {
       const forceInstallDir = `force_install_dir "${installPath.trim()}"`
+      const steamLoginArgs = [
+        'login',
+        quoteSteamCMDArgument(steamUsername.trim(), selectedGame.info.currentPlatform),
+        ...(steamPassword.trim()
+          ? [quoteSteamCMDArgument(steamPassword.trim(), selectedGame.info.currentPlatform)]
+          : [])
+      ]
 
       const loginCommand = useAnonymous
         ? 'login anonymous'
-        : `login ${steamUsername.trim()} ${steamPassword.trim()}`
+        : steamLoginArgs.join(' ')
 
       const appUpdateCommand = validateGameIntegrity
         ? `app_update ${selectedGame.info.appid} validate`
@@ -2916,11 +2931,11 @@ const GameDeploymentPage: React.FC = () => {
       return
     }
 
-    if (!useAnonymous && (!steamUsername.trim() || !steamPassword.trim())) {
+    if (!useAnonymous && !steamUsername.trim()) {
       addNotification({
         type: 'error',
         title: '参数错误',
-        message: '请填写Steam账户信息'
+        message: '请填写Steam用户名'
       })
       return
     }
@@ -2953,7 +2968,7 @@ const GameDeploymentPage: React.FC = () => {
           instanceName: instanceName.trim(),
           useAnonymous,
           steamUsername: useAnonymous ? undefined : steamUsername.trim(),
-          steamPassword: useAnonymous ? undefined : steamPassword.trim(),
+          steamPassword: useAnonymous || !steamPassword.trim() ? undefined : steamPassword.trim(),
           steamcmdCommand: steamcmdCommand.trim(),
           existingInstanceId: currentExistingInstanceId || undefined,
           updateInstanceInfo: currentUpdateInstanceInfo,
@@ -5770,15 +5785,18 @@ const GameDeploymentPage: React.FC = () => {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Steam密码
+                          Steam密码（可选）
                         </label>
                         <input
                           type="password"
                           value={steamPassword}
                           onChange={(e) => setSteamPassword(e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="输入Steam密码"
+                          placeholder="留空则在终端中输入"
                         />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          留空时 SteamCMD 会在终端提示输入密码和 Steam Guard 码
+                        </p>
                       </div>
                     </div>
                   )}
@@ -5882,7 +5900,7 @@ const GameDeploymentPage: React.FC = () => {
                 disabled={
                   !installPath.trim() ||
                   !instanceName.trim() ||
-                  (!useAnonymous && (!steamUsername.trim() || !steamPassword.trim()))
+                  (!useAnonymous && !steamUsername.trim())
                 }
                 className="px-4 py-2 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center space-x-2 bg-blue-600 hover:bg-blue-700"
               >

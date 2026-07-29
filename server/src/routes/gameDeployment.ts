@@ -135,6 +135,50 @@ function normalizeSteamCMDArguments(command: string): string {
     .trim()
 }
 
+function getSteamCMDTokenValue(token: string): string {
+  if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+    return token.slice(1, -1)
+  }
+
+  return token
+}
+
+function redactSteamCMDCredentials(command: string): string {
+  const tokens = command.match(/"[^"]*"|'(?:''|[^'])*'|\S+/g)
+  if (!tokens) {
+    return command
+  }
+
+  const redactedTokens = [...tokens]
+
+  for (let index = 0; index < redactedTokens.length; index++) {
+    const tokenValue = getSteamCMDTokenValue(redactedTokens[index]).toLowerCase()
+    if (tokenValue !== 'login' && tokenValue !== '+login') {
+      continue
+    }
+
+    const usernameToken = redactedTokens[index + 1]
+    const passwordToken = redactedTokens[index + 2]
+    if (!usernameToken || !passwordToken) {
+      continue
+    }
+
+    const username = getSteamCMDTokenValue(usernameToken).toLowerCase()
+    if (username === 'anonymous' || passwordToken.startsWith('+')) {
+      continue
+    }
+
+    redactedTokens[index + 2] = '******'
+
+    const steamGuardToken = redactedTokens[index + 3]
+    if (steamGuardToken && !steamGuardToken.startsWith('+')) {
+      redactedTokens[index + 3] = '******'
+    }
+  }
+
+  return redactedTokens.join(' ')
+}
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
@@ -381,11 +425,11 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       })
     }
     
-    if (!useAnonymous && (!steamUsername || !steamPassword)) {
+    if (!useAnonymous && !steamUsername) {
       return res.status(400).json({
         success: false,
         error: '缺少Steam账户信息',
-        message: '非匿名模式下需要提供Steam用户名和密码'
+        message: '非匿名模式下需要提供Steam用户名'
       })
     }
 
@@ -460,10 +504,12 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       }
     }
     
+    const redactedSteamcmdArgs = redactSteamCMDCredentials(steamcmdArgs)
+
     logger.info(`开始安装游戏: ${gameName || gameKey}`, {
       installPath,
       appId,
-      command: steamcmdArgs,
+      command: redactedSteamcmdArgs,
       resetSteamManifest: resetSteamManifest || false
     })
     
@@ -523,7 +569,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
         }
       }
       
-      logger.info(`执行SteamCMD命令: ${fullCommand}`, {
+      logger.info(`执行SteamCMD命令: ${redactSteamCMDCredentials(fullCommand)}`, {
         platform,
         workingDirectory: steamcmdDir
       })
