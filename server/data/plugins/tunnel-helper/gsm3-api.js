@@ -470,6 +470,22 @@ class GSM3API {
     })
   }
 
+  /**
+   * 下载并安装穿透工具，返回SSE响应流
+   * @param {'frp'|'easytier'} tool 工具名称
+   */
+  async installTunnelTool(tool) {
+    return await fetch(`${this.baseURL}/tools/install-tunnel-tool`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Plugin-Request': 'true',
+        ...(this.token && { 'Authorization': `Bearer ${this.token}` })
+      },
+      body: JSON.stringify({ tool })
+    })
+  }
+
   // ==================== 通用API ====================
 
   /**

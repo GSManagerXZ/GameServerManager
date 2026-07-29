@@ -183,7 +183,7 @@
 
     .input-action {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 8px;
     }
 
@@ -474,6 +474,7 @@
             <div class="input-action">
               <input id="frpcPath" autocomplete="off" value="frpc" placeholder="frpc 或 C:\frp\frpc.exe">
               <button class="secondary" id="checkFrpcButton" type="button">检测</button>
+              <button class="secondary" id="installFrpcButton" type="button">下载/更新</button>
             </div>
             <span class="hint tool-status" id="frpcToolStatus">
               需先在本机安装 frp 客户端，或填写 frpc.exe 绝对路径。
@@ -507,6 +508,7 @@
             <div class="input-action">
               <input id="easyTierPath" autocomplete="off" value="easytier-core" placeholder="easytier-core 或 C:\EasyTier\easytier-core.exe">
               <button class="secondary" id="checkEasyTierButton" type="button">检测</button>
+              <button class="secondary" id="installEasyTierButton" type="button">下载/更新</button>
             </div>
             <span class="hint tool-status" id="easyTierToolStatus">
               需先在本机安装 EasyTier，或填写 easytier-core 绝对路径。
@@ -578,7 +580,8 @@
       lastPlan: null,
       savedConfigs: [],
       selectedConfigPath: '',
-      pendingDeletePath: ''
+      pendingDeletePath: '',
+      installingTool: ''
     }
 
     let themeSyncTimer = null
@@ -778,6 +781,7 @@
           inputId: 'easyTierPath',
           statusId: 'easyTierToolStatus',
           buttonId: 'checkEasyTierButton',
+          installButtonId: 'installEasyTierButton',
           label: 'easytier-core'
         }
       }
@@ -786,6 +790,7 @@
         inputId: 'frpcPath',
         statusId: 'frpcToolStatus',
         buttonId: 'checkFrpcButton',
+        installButtonId: 'installFrpcButton',
         label: 'frpc'
       }
     }
@@ -795,6 +800,12 @@
       const status = $(definition.statusId)
       status.className = `hint tool-status ${type || ''}`.trim()
       status.textContent = text
+    }
+
+    function setToolButtonsDisabled(tool, disabled) {
+      const definition = getToolDefinition(tool)
+      $(definition.buttonId).disabled = disabled
+      $(definition.installButtonId).disabled = disabled
     }
 
     async function checkToolAvailability(tool = state.mode, showPanelMessage = true) {
@@ -807,7 +818,7 @@
         return false
       }
 
-      button.disabled = true
+      setToolButtonsDisabled(tool, true)
       const originalText = button.textContent
       button.textContent = '检测中...'
 
@@ -840,8 +851,131 @@
         }
         return false
       } finally {
-        button.disabled = false
+        setToolButtonsDisabled(tool, false)
         button.textContent = originalText
+      }
+    }
+
+    function parseSseBlock(block) {
+      const event = { event: 'message', data: '' }
+      const dataLines = []
+
+      for (const rawLine of block.split(/\r?\n/)) {
+        const line = rawLine.trimEnd()
+        if (line.startsWith('event:')) {
+          event.event = line.slice('event:'.length).trim()
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice('data:'.length).trimStart())
+        }
+      }
+
+      event.data = dataLines.join('\n')
+      return event
+    }
+
+    async function installTool(tool) {
+      const definition = getToolDefinition(tool)
+      if (state.installingTool) return
+
+      await waitForPluginToken()
+
+      state.installingTool = tool
+      setToolButtonsDisabled(tool, true)
+      const installButton = $(definition.installButtonId)
+      const originalText = installButton.textContent
+      installButton.textContent = '安装中...'
+      setToolStatus(tool, 'warn', `正在准备下载 ${definition.label}...`)
+      clearMessage()
+
+      try {
+        const response = await window.gsm3.installTunnelTool(tool)
+        if (!response.ok) {
+          let errorText = `HTTP ${response.status}`
+          try {
+            const data = await response.json()
+            errorText = data.message || data.error || errorText
+          } catch {
+            // SSE 前的错误可能不是 JSON
+          }
+          throw new Error(errorText)
+        }
+
+        const reader = response.body && response.body.getReader()
+        if (!reader) {
+          throw new Error('无法读取下载进度')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let installError = null
+
+        const handleEvent = (block) => {
+          if (!block.trim()) return
+          const sse = parseSseBlock(block)
+          let data = {}
+          try {
+            data = sse.data ? JSON.parse(sse.data) : {}
+          } catch {
+            data = { message: sse.data }
+          }
+
+          if (sse.event === 'status') {
+            setToolStatus(tool, 'warn', data.status || '正在安装...')
+            return
+          }
+
+          if (sse.event === 'progress') {
+            const progress = typeof data.progress === 'number' ? data.progress : 0
+            setToolStatus(tool, 'warn', `正在安装 ${definition.label}... ${progress}%`)
+            return
+          }
+
+          if (sse.event === 'complete') {
+            const result = data.data || {}
+            if (result.executablePath) {
+              $(definition.inputId).value = result.executablePath
+            }
+            setToolStatus(tool, 'ok', `已安装 ${definition.label} ${result.version || ''}：${result.executablePath || ''}`.trim())
+            showMessage('success', `${definition.label} 安装完成，已填入可执行文件路径。请重新保存配置或重建穿透实例`)
+            notify('success', `${definition.label} 安装完成`)
+            buildPlan(false)
+            return
+          }
+
+          if (sse.event === 'error') {
+            const message = data.error || data.message || `${definition.label} 安装失败`
+            installError = new Error(message)
+          }
+        }
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const blocks = buffer.split(/\r?\n\r?\n/)
+          buffer = blocks.pop() || ''
+          for (const block of blocks) {
+            handleEvent(block)
+          }
+        }
+
+        if (buffer.trim()) {
+          handleEvent(buffer)
+        }
+
+        if (installError) {
+          throw installError
+        }
+      } catch (error) {
+        const message = `${definition.label} 安装失败：${getErrorMessage(error)}`
+        setToolStatus(tool, 'error', message)
+        showMessage('error', message)
+        notify('error', message)
+      } finally {
+        state.installingTool = ''
+        setToolButtonsDisabled(tool, false)
+        installButton.textContent = originalText
       }
     }
 
@@ -1430,6 +1564,8 @@
       $('createButton').addEventListener('click', createTunnelInstance)
       $('checkFrpcButton').addEventListener('click', () => checkToolAvailability('frp'))
       $('checkEasyTierButton').addEventListener('click', () => checkToolAvailability('easytier'))
+      $('installFrpcButton').addEventListener('click', () => installTool('frp'))
+      $('installEasyTierButton').addEventListener('click', () => installTool('easytier'))
       $('modeFrp').addEventListener('click', () => setMode('frp'))
       $('modeEasyTier').addEventListener('click', () => setMode('easytier'))
       $('instanceSelect').addEventListener('change', () => {
