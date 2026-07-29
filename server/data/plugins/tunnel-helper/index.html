@@ -22,6 +22,22 @@
       --code: #0f172a;
     }
 
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-soft: #1f2937;
+      --border: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-strong: #60a5fa;
+      --success: #22c55e;
+      --danger: #f87171;
+      --warning: #facc15;
+      --code: #020617;
+    }
+
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #0f172a;
@@ -37,6 +53,22 @@
         --warning: #facc15;
         --code: #020617;
       }
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f1f5f9;
+      --border: #d8dee8;
+      --text: #162033;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-strong: #1d4ed8;
+      --success: #15803d;
+      --danger: #b91c1c;
+      --warning: #a16207;
+      --code: #0f172a;
     }
 
     * {
@@ -186,6 +218,11 @@
       border: 1px solid var(--border);
     }
 
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
     button:disabled {
       cursor: not-allowed;
       opacity: .55;
@@ -197,6 +234,10 @@
 
     button.secondary:hover:not(:disabled) {
       background: var(--border);
+    }
+
+    button.danger:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--danger), #000 14%);
     }
 
     .message {
@@ -261,6 +302,55 @@
       font-weight: 600;
     }
 
+    .config-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .config-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .config-card.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgb(37 99 235 / 14%);
+    }
+
+    .config-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .config-title {
+      min-width: 0;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .config-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .config-actions button {
+      padding: 6px 9px;
+      font-size: 12px;
+    }
+
+    .config-confirm {
+      color: var(--danger);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
     .hidden {
       display: none !important;
     }
@@ -291,11 +381,12 @@
     <header>
       <div>
         <h1>内网穿透助手</h1>
-        <p>为现有游戏实例生成 frp 或 EasyTier 配置，并创建独立穿透实例。</p>
+        <p>为现有游戏实例生成和管理 frp / EasyTier 配置，可创建独立穿透实例。</p>
       </div>
       <div class="toolbar">
         <button class="secondary" id="refreshInstancesButton" type="button">刷新实例</button>
         <button class="secondary" id="previewButton" type="button">预览配置</button>
+        <button class="secondary" id="saveConfigButton" type="button">仅保存配置</button>
         <button id="createButton" type="button">保存并创建实例</button>
       </div>
     </header>
@@ -409,6 +500,23 @@
       </section>
 
       <section class="panel stack">
+        <div class="config-head">
+          <h2>已有配置</h2>
+          <button class="secondary" id="refreshConfigsButton" type="button">刷新配置</button>
+        </div>
+        <div class="config-list" id="configList">
+          <p>正在加载配置...</p>
+        </div>
+
+        <h2>配置预览</h2>
+        <div class="meta" id="savedMeta">
+          <div class="meta-row"><strong>配置名称</strong><span id="savedName">-</span></div>
+          <div class="meta-row"><strong>工具</strong><span id="savedTool">-</span></div>
+          <div class="meta-row"><strong>关联实例</strong><span id="savedInstance">-</span></div>
+          <div class="meta-row"><strong>连接地址</strong><span id="savedAddress">-</span></div>
+        </div>
+        <pre id="savedPreview"></pre>
+
         <h2>生成结果</h2>
         <div class="meta" id="resultMeta">
           <div class="meta-row"><strong>配置目录</strong><span id="resultDir">-</span></div>
@@ -425,8 +533,14 @@
       mode: 'frp',
       instances: [],
       systemInfo: null,
-      lastPlan: null
+      lastPlan: null,
+      savedConfigs: [],
+      selectedConfigPath: '',
+      pendingDeletePath: ''
     }
+
+    let themeSyncTimer = null
+    let themeObserver = null
 
     const $ = (id) => document.getElementById(id)
 
@@ -479,6 +593,77 @@
       if (window.gsm3 && typeof window.gsm3.showNotification === 'function') {
         window.gsm3.showNotification(type, message)
       }
+    }
+
+    function applyPanelTheme() {
+      let theme = ''
+      try {
+        const storedTheme = window.parent && window.parent.localStorage
+          ? window.parent.localStorage.getItem('gsm3-theme')
+          : ''
+        if (storedTheme) {
+          const parsedTheme = JSON.parse(storedTheme)
+          theme = parsedTheme && parsedTheme.state && parsedTheme.state.theme
+        }
+
+        const parentRoot = window.parent && window.parent.document && window.parent.document.documentElement
+        if (!theme && parentRoot && parentRoot.classList.contains('dark')) {
+          theme = 'dark'
+        }
+      } catch {
+        // 无法访问父页面时回退到系统主题
+      }
+
+      if (!theme && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        theme = 'dark'
+      }
+
+      document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light'
+    }
+
+    function startThemeSync() {
+      applyPanelTheme()
+
+      try {
+        const parentRoot = window.parent && window.parent.document && window.parent.document.documentElement
+        if (parentRoot && !themeObserver) {
+          themeObserver = new MutationObserver(applyPanelTheme)
+          themeObserver.observe(parentRoot, { attributes: true, attributeFilter: ['class'] })
+        }
+      } catch {
+        // 父页面不可访问时由定时同步兜底
+      }
+
+      if (!themeSyncTimer) {
+        themeSyncTimer = window.setInterval(applyPanelTheme, 1000)
+      }
+    }
+
+    function dataExists(result) {
+      if (!result || result.success === false) return false
+      if (typeof result.exists === 'boolean') return result.exists
+      if (typeof result.data === 'boolean') return result.data
+      if (result.data && typeof result.data.exists === 'boolean') return result.data.exists
+      return true
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => window.setTimeout(resolve, ms))
+    }
+
+    async function waitForPluginToken() {
+      if (!window.gsm3) return false
+
+      for (let i = 0; i < 30; i++) {
+        if (window.gsm3.token) return true
+        if (window.gsm3Token) {
+          window.gsm3.token = window.gsm3Token
+          return true
+        }
+        await delay(100)
+      }
+
+      return Boolean(window.gsm3.token)
     }
 
     function sanitizeSlug(value) {
@@ -772,7 +957,9 @@
       $('preview').textContent = redactSensitiveText(plan.configContent)
     }
 
-    function buildManifest(plan) {
+    function buildManifest(plan, existing = null) {
+      const now = new Date().toISOString()
+
       return {
         name: plan.profile,
         tool: plan.tool,
@@ -784,7 +971,267 @@
         publicAddress: plan.publicAddress,
         workingDirectory: plan.workingDirectory,
         configPath: plan.configPath,
-        createdAt: new Date().toISOString()
+        createdAt: existing && existing.createdAt ? existing.createdAt : now,
+        updatedAt: now
+      }
+    }
+
+    async function writeTunnelFiles(plan) {
+      let existingManifest = null
+      try {
+        existingManifest = await readJsonFile(`${plan.dataDir}/manifest.json`)
+      } catch {
+        existingManifest = null
+      }
+
+      await window.gsm3.writeFile(plan.configPath, plan.configContent, 'utf-8')
+      await window.gsm3.writeFile(`${plan.dataDir}/manifest.json`, JSON.stringify(buildManifest(plan, existingManifest), null, 2), 'utf-8')
+    }
+
+    async function readJsonFile(filePath) {
+      const result = await window.gsm3.readFile(filePath, 'utf-8')
+      const content = result && result.data ? result.data.content : ''
+      return JSON.parse(content)
+    }
+
+    async function readTextFile(filePath) {
+      const result = await window.gsm3.readFile(filePath, 'utf-8')
+      return result && result.data ? result.data.content : ''
+    }
+
+    function setSavedPreview(config, content) {
+      $('savedName').textContent = config ? config.name || config.dirName || '-' : '-'
+      $('savedTool').textContent = config ? config.tool || '-' : '-'
+      $('savedInstance').textContent = config ? config.linkedInstanceName || '-' : '-'
+      $('savedAddress').textContent = config ? config.publicAddress || '-' : '-'
+      $('savedPreview').textContent = config
+        ? redactSensitiveText(content || '')
+        : ''
+    }
+
+    function textNode(tagName, className, text) {
+      const node = document.createElement(tagName)
+      if (className) node.className = className
+      node.textContent = text
+      return node
+    }
+
+    async function loadSavedConfigs() {
+      const list = $('configList')
+      list.innerHTML = '<p>正在加载配置...</p>'
+
+      try {
+        const exists = await window.gsm3.exists('tunnels')
+        if (!dataExists(exists)) {
+          state.savedConfigs = []
+          list.innerHTML = '<p>暂无已保存配置</p>'
+          setSavedPreview(null, '')
+          return
+        }
+
+        const result = await window.gsm3.listDirectory('tunnels')
+        const dirs = normalizeListResponse(result).filter(item => item.type === 'directory')
+        const configs = []
+
+        for (const dir of dirs) {
+          const manifestPath = `${dir.path}/manifest.json`
+          try {
+            const manifest = await readJsonFile(manifestPath)
+            configs.push({
+              ...manifest,
+              dirName: dir.name,
+              dirPath: dir.path,
+              manifestPath,
+              modified: dir.modified
+            })
+          } catch {
+            configs.push({
+              name: dir.name,
+              tool: 'unknown',
+              dirName: dir.name,
+              dirPath: dir.path,
+              manifestPath,
+              modified: dir.modified
+            })
+          }
+        }
+
+        state.savedConfigs = configs
+        renderSavedConfigs()
+      } catch (error) {
+        state.savedConfigs = []
+        list.innerHTML = ''
+        list.appendChild(textNode('p', '', `读取配置失败：${error.message}`))
+        setSavedPreview(null, '')
+      }
+    }
+
+    function renderSavedConfigs() {
+      const list = $('configList')
+      list.innerHTML = ''
+
+      if (state.savedConfigs.length === 0) {
+        list.innerHTML = '<p>暂无已保存配置</p>'
+        setSavedPreview(null, '')
+        return
+      }
+
+      for (const config of state.savedConfigs) {
+        const isPendingDelete = config.dirPath === state.pendingDeletePath
+        const card = document.createElement('div')
+        card.className = `config-card ${config.dirPath === state.selectedConfigPath ? 'active' : ''}`
+
+        const title = document.createElement('div')
+        title.className = 'config-head'
+        title.append(
+          textNode('div', 'config-title', config.name || config.dirName || '未命名配置'),
+          textNode('span', 'hint', config.tool || 'unknown')
+        )
+
+        const meta = document.createElement('div')
+        meta.className = 'hint'
+        meta.textContent = `${config.linkedInstanceName || '未关联实例'} · ${config.publicAddress || '未记录连接地址'}`
+
+        const actions = document.createElement('div')
+        actions.className = 'config-actions'
+
+        const previewButton = document.createElement('button')
+        previewButton.className = 'secondary'
+        previewButton.type = 'button'
+        previewButton.textContent = '预览'
+        previewButton.addEventListener('click', () => previewSavedConfig(config))
+
+        const loadButton = document.createElement('button')
+        loadButton.className = 'secondary'
+        loadButton.type = 'button'
+        loadButton.textContent = '载入表单'
+        loadButton.addEventListener('click', () => loadConfigIntoForm(config))
+
+        if (isPendingDelete) {
+          const confirmButton = document.createElement('button')
+          confirmButton.className = 'danger'
+          confirmButton.type = 'button'
+          confirmButton.textContent = '确认删除'
+          confirmButton.addEventListener('click', () => deleteSavedConfig(config))
+
+          const cancelButton = document.createElement('button')
+          cancelButton.className = 'secondary'
+          cancelButton.type = 'button'
+          cancelButton.textContent = '取消'
+          cancelButton.addEventListener('click', cancelDeleteConfig)
+
+          const confirmText = textNode('div', 'config-confirm', '只删除配置目录，不删除已创建的穿透实例。')
+          actions.append(confirmButton, cancelButton)
+          card.append(title, meta, confirmText, actions)
+          list.appendChild(card)
+          continue
+        }
+
+        const deleteButton = document.createElement('button')
+        deleteButton.className = 'secondary'
+        deleteButton.type = 'button'
+        deleteButton.textContent = '删除配置'
+        deleteButton.addEventListener('click', () => requestDeleteConfig(config))
+
+        actions.append(previewButton, loadButton, deleteButton)
+        card.append(title, meta, actions)
+        list.appendChild(card)
+      }
+    }
+
+    async function previewSavedConfig(config) {
+      try {
+        state.selectedConfigPath = config.dirPath
+        renderSavedConfigs()
+
+        const configPath = config.configPath || `${config.dirPath}/frpc.toml`
+        let content = ''
+        try {
+          content = await readTextFile(configPath)
+        } catch {
+          content = JSON.stringify(config, null, 2)
+        }
+
+        setSavedPreview(config, content)
+      } catch (error) {
+        showMessage('error', `预览配置失败：${error.message}`)
+      }
+    }
+
+    function loadConfigIntoForm(config) {
+      state.pendingDeletePath = ''
+      $('profileName').value = config.name || config.dirName || ''
+      $('localAddress').value = config.localAddress || '127.0.0.1'
+      $('localPort').value = config.localPort || ''
+      $('protocol').value = config.protocol || 'tcp'
+
+      if (String(config.tool || '').toLowerCase() === 'easytier') {
+        setMode('easytier')
+      } else {
+        setMode('frp')
+      }
+
+      buildPlan(false)
+      showMessage('success', `已载入配置：${config.name || config.dirName}`)
+    }
+
+    function requestDeleteConfig(config) {
+      state.pendingDeletePath = config.dirPath
+      renderSavedConfigs()
+      showMessage('warn', `确认删除配置：${config.name || config.dirName}`)
+    }
+
+    function cancelDeleteConfig() {
+      state.pendingDeletePath = ''
+      renderSavedConfigs()
+      clearMessage()
+    }
+
+    async function deleteSavedConfig(config) {
+      try {
+        await window.gsm3.deleteDirectory(config.dirPath, true)
+        if (state.selectedConfigPath === config.dirPath) {
+          state.selectedConfigPath = ''
+          setSavedPreview(null, '')
+        }
+        state.pendingDeletePath = ''
+        await loadSavedConfigs()
+        showMessage('success', `配置已删除：${config.name || config.dirName}`)
+        notify('success', `配置已删除：${config.name || config.dirName}`)
+      } catch (error) {
+        showMessage('error', `删除配置失败：${error.message}`)
+        notify('error', `删除配置失败：${error.message}`)
+      }
+    }
+
+    async function saveTunnelConfig() {
+      const plan = buildPlan(true)
+      if (!plan) return
+
+      $('saveConfigButton').disabled = true
+      const originalButtonText = $('saveConfigButton').textContent
+      $('saveConfigButton').textContent = '保存中...'
+
+      try {
+        state.pendingDeletePath = ''
+        await writeTunnelFiles(plan)
+        await loadSavedConfigs()
+
+        const saved = state.savedConfigs.find(config => config.dirPath === plan.dataDir)
+        if (saved) {
+          await previewSavedConfig(saved)
+        } else {
+          setSavedPreview(buildManifest(plan), plan.configContent)
+        }
+
+        showMessage('success', `配置已保存：${plan.profile}`)
+        notify('success', `配置已保存：${plan.profile}`)
+      } catch (error) {
+        showMessage('error', `保存配置失败：${error.message}`)
+        notify('error', `保存配置失败：${error.message}`)
+      } finally {
+        $('saveConfigButton').disabled = false
+        $('saveConfigButton').textContent = originalButtonText
       }
     }
 
@@ -804,8 +1251,7 @@
       const originalButtonText = $('createButton').textContent
       $('createButton').textContent = '创建中...'
       try {
-        await window.gsm3.writeFile(plan.configPath, plan.configContent, 'utf-8')
-        await window.gsm3.writeFile(`${plan.dataDir}/manifest.json`, JSON.stringify(buildManifest(plan), null, 2), 'utf-8')
+        await writeTunnelFiles(plan)
 
         const result = await window.gsm3.createInstance({
           name: tunnelName,
@@ -821,6 +1267,7 @@
         const createdName = created.name || tunnelName
         showMessage('success', `穿透实例已创建：${createdName}。请到实例管理中启动该实例`)
         notify('success', `穿透实例已创建：${createdName}`)
+        await loadSavedConfigs()
       } catch (error) {
         showMessage('error', `创建穿透实例失败：${error.message}`)
         notify('error', `创建穿透实例失败：${error.message}`)
@@ -832,7 +1279,9 @@
 
     function attachEvents() {
       $('refreshInstancesButton').addEventListener('click', loadInstances)
+      $('refreshConfigsButton').addEventListener('click', loadSavedConfigs)
       $('previewButton').addEventListener('click', () => buildPlan(true))
+      $('saveConfigButton').addEventListener('click', saveTunnelConfig)
       $('createButton').addEventListener('click', createTunnelInstance)
       $('modeFrp').addEventListener('click', () => setMode('frp'))
       $('modeEasyTier').addEventListener('click', () => setMode('easytier'))
@@ -850,14 +1299,18 @@
     }
 
     async function boot() {
+      startThemeSync()
+
       if (!window.gsm3) {
         showMessage('error', '插件 API 未加载')
         return
       }
 
       attachEvents()
+      await waitForPluginToken()
       await loadSystemInfo()
       await loadInstances()
+      await loadSavedConfigs()
       buildPlan(false)
     }
 
