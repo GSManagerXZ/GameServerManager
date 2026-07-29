@@ -59,6 +59,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuthStore()
   const { theme, toggleTheme } = useThemeStore()
   const { settings: wallpaperSettings } = useWallpaperStore()
+  const sidebarLabelClass = sidebarCollapsed ? 'lg:hidden' : ''
+  const sidebarItemLayoutClass = sidebarCollapsed
+    ? 'space-x-2.5 px-3 py-2.5 lg:justify-center lg:space-x-0 lg:px-2'
+    : 'space-x-2.5 px-3 py-2.5'
   
   const navigation = [
     { name: '首页', href: '/', icon: Home },
@@ -335,7 +339,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
   
   return (
-    <div className={`min-h-screen relative ${wallpaperSettings.enabled ? '' : 'bg-game-gradient'}`}>
+    <div
+      className={`min-h-screen relative ${wallpaperSettings.enabled ? '' : 'bg-game-gradient'}`}
+      style={{ '--gsm-sidebar-offset': sidebarCollapsed ? '4rem' : '16rem' } as React.CSSProperties}
+    >
       {/* 背景壁纸 */}
       <WallpaperBackground />
       
@@ -349,31 +356,29 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       
       {/* 侧边栏 */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 transform transition-all duration-300 ease-in-out lg:translate-x-0
+        fixed inset-y-0 left-0 z-50 w-64 max-w-[calc(100vw-1rem)] transform transition-all duration-300 ease-in-out lg:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        ${sidebarCollapsed ? 'w-16' : 'w-64'}
+        ${sidebarCollapsed ? 'lg:w-16' : 'lg:w-64'}
       `}>
-        <div className="flex h-full flex-col glass border-r border-white/20 dark:border-gray-700/30">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden glass border-r border-white/20 dark:border-gray-700/30">
           {/* Logo */}
-          <div className="flex h-16 items-center justify-between px-3 border-b border-white/20 dark:border-gray-700/30">
-            <div className={`flex items-center ${sidebarCollapsed ? 'justify-center w-full' : 'space-x-3 px-3'}`}>
+          <div className="flex h-16 flex-shrink-0 items-center justify-between px-3 border-b border-white/20 dark:border-gray-700/30">
+            <div className={`flex min-w-0 flex-1 items-center ${sidebarCollapsed ? 'space-x-3 px-3 lg:w-full lg:flex-none lg:justify-center lg:space-x-0 lg:px-0' : 'space-x-3 px-3'}`}>
               <Gamepad2 className={`text-blue-500 ${sidebarCollapsed ? 'w-6 h-6' : 'w-8 h-8'}`} />
-              {!sidebarCollapsed && (
-                <span className="text-xl font-bold font-game neon-text">
-                  GSManager3
-                </span>
-              )}
+              <span className={`truncate text-xl font-bold font-game neon-text ${sidebarLabelClass}`}>
+                GSManager3
+              </span>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden text-black dark:text-gray-400 hover:text-black dark:hover:text-white transition-colors"
+              className="flex-shrink-0 text-black transition-colors hover:text-black dark:text-gray-400 dark:hover:text-white lg:hidden"
             >
               <X className="w-6 h-6" />
             </button>
           </div>
           
           {/* 导航菜单 */}
-          <nav className="flex-1 px-3 py-5 space-y-1.5">
+          <nav className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin overscroll-contain">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href
               return (
@@ -385,7 +390,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   className={`
                     flex items-center rounded-lg transition-all duration-300 ease-in-out transform
                     hover:scale-105 hover:shadow-md active:scale-95
-                    ${sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-2.5 px-3 py-2.5'}
+                    ${sidebarItemLayoutClass}
                     ${isActive
                       ? 'bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 shadow-lg scale-105'
                       : 'text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-black dark:hover:text-white'
@@ -393,16 +398,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   `}
                 >
                   <item.icon className="w-4 h-4 flex-shrink-0" />
-                  {!sidebarCollapsed && (
-                    <span className="font-medium whitespace-nowrap">{item.name}</span>
-                  )}
+                  <span className={`font-medium whitespace-nowrap ${sidebarLabelClass}`}>{item.name}</span>
                 </Link>
               )
             })}
           </nav>
           
           {/* 用户信息和操作 */}
-          <div className="border-t border-white/20 dark:border-gray-700/30 p-4 space-y-4">
+          <div className="max-h-[45vh] flex-shrink-0 space-y-2 overflow-y-auto overflow-x-hidden border-t border-white/20 p-3 scrollbar-thin overscroll-contain dark:border-gray-700/30">
             {/* 展开/收缩切换按钮 (仅桌面端显示) */}
             <button
               onClick={toggleSidebarCollapse}
@@ -426,7 +429,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               onClick={toggleTheme}
               title={sidebarCollapsed ? (theme === 'dark' ? '浅色模式' : '深色模式') : ''}
               className={`flex items-center w-full rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 hover:shadow-md active:scale-95 text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-black dark:hover:text-white ${
-                sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-2.5 px-3 py-2.5'
+                sidebarItemLayoutClass
               }`}
             >
               {theme === 'dark' ? (
@@ -434,18 +437,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               ) : (
                 <Moon className="w-4 h-4 flex-shrink-0" />
               )}
-              {!sidebarCollapsed && (
-                <span className="font-medium whitespace-nowrap">
-                  {theme === 'dark' ? '浅色模式' : '深色模式'}
-                </span>
-              )}
+              <span className={`font-medium whitespace-nowrap ${sidebarLabelClass}`}>
+                {theme === 'dark' ? '浅色模式' : '深色模式'}
+              </span>
             </button>
             
             {/* 用户信息 */}
             <div 
               title={sidebarCollapsed ? `${user?.username} (${user?.role === 'admin' ? '管理员' : '用户'})` : ''}
               className={`flex items-center bg-gray-100 dark:bg-white/5 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 hover:shadow-md ${
-                sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-2.5 px-3 py-2.5'
+                sidebarItemLayoutClass
               }`}
             >
               <div className={`bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -453,26 +454,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               }`}>
                 <User className={`text-white ${sidebarCollapsed ? 'w-3 h-3' : 'w-3.5 h-3.5'}`} />
               </div>
-              {!sidebarCollapsed && (
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-black dark:text-white truncate">
-                    {user?.username}
+              <div className={`min-w-0 flex-1 ${sidebarLabelClass}`}>
+                <p className="truncate text-sm font-medium text-black dark:text-white">
+                  {user?.username}
+                </p>
+                <div className="flex min-w-0 items-center gap-1">
+                  <p className="flex-shrink-0 text-xs text-gray-600 dark:text-gray-400">
+                    {user?.role === 'admin' ? '管理员' : '用户'}
                   </p>
-                  <div className="flex items-center space-x-1">
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {user?.role === 'admin' ? '管理员' : '用户'}
-                    </p>
-                    {isSponsor && (
-                      <div className="flex items-center space-x-1">
-                        <Crown className="w-3 h-3 text-yellow-500" />
-                        <span className="text-xs text-yellow-600 dark:text-yellow-400 font-medium">
-                          赞助者
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  {isSponsor && (
+                    <div className="flex min-w-0 items-center gap-1">
+                      <Crown className="h-3 w-3 flex-shrink-0 text-yellow-500" />
+                      <span className="truncate text-xs font-medium text-yellow-600 dark:text-yellow-400">
+                        赞助者
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
             
             {/* 登出按钮 */}
@@ -480,13 +479,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               onClick={handleLogout}
               title={sidebarCollapsed ? '登出' : ''}
               className={`flex items-center w-full rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 hover:shadow-md active:scale-95 text-red-400 hover:bg-red-500/10 hover:text-red-300 ${
-                sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'space-x-2.5 px-3 py-2.5'
+                sidebarItemLayoutClass
               }`}
             >
               <LogOut className="w-4 h-4 flex-shrink-0" />
-              {!sidebarCollapsed && (
-                <span className="font-medium whitespace-nowrap">登出</span>
-              )}
+              <span className={`font-medium whitespace-nowrap ${sidebarLabelClass}`}>登出</span>
             </button>
           </div>
         </div>
@@ -495,16 +492,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* 主内容区域 */}
       <div className={`transition-all duration-300 relative z-10 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         {/* 顶部栏 */}
-        <div className="sticky top-0 z-30 flex h-16 items-center justify-between px-6 glass border-b border-gray-200 dark:border-gray-700/30">
+        <div className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 px-4 glass border-b border-gray-200 dark:border-gray-700/30 sm:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-gray-400 hover:text-white transition-colors"
+            className="flex-shrink-0 text-gray-500 transition-colors hover:text-black dark:text-gray-400 dark:hover:text-white lg:hidden"
           >
             <Menu className="w-6 h-6" />
           </button>
           
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-semibold text-black dark:text-white font-display">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1 className="truncate text-lg font-semibold text-black dark:text-white font-display sm:text-xl">
               {navigation.find(item => item.href === location.pathname)?.name || 'GSM3 游戏面板'}
             </h1>
             {/* 文件管理页面的帮助按钮 */}
@@ -519,7 +516,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </div>
           
-          <div className="flex items-center space-x-4">
+          <div className="flex min-w-0 flex-shrink-0 items-center gap-3">
             {/* 连接状态指示器 */}
             <div 
               className="flex items-center space-x-2 cursor-help" 
@@ -528,17 +525,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               {isLowPowerMode ? (
                 <>
                   <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-yellow-600 dark:text-yellow-400">低功耗模式</span>
+                  <span className="hidden text-sm text-yellow-600 dark:text-yellow-400 sm:inline">低功耗模式</span>
                 </>
               ) : isConnected ? (
                 <>
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-black dark:text-gray-300">WebSocket连接已建立</span>
+                  <span className="hidden text-sm text-black dark:text-gray-300 sm:inline">WebSocket连接已建立</span>
                 </>
               ) : (
                 <>
                   <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                  <span className="text-sm text-red-500 dark:text-red-400">WebSocket连接中断</span>
+                  <span className="hidden text-sm text-red-500 dark:text-red-400 sm:inline">WebSocket连接中断</span>
                 </>
               )}
             </div>
@@ -546,7 +543,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
         
         {/* 页面内容 */}
-        <main className="p-6 relative overflow-hidden">
+        <main className="relative min-w-0 overflow-x-auto p-4 scrollbar-thin sm:p-6">
           {children}
         </main>
       </div>

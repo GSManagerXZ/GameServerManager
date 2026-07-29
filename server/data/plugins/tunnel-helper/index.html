@@ -82,12 +82,14 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
       font-size: 14px;
       line-height: 1.5;
+      overflow-x: hidden;
     }
 
     main {
-      max-width: 1180px;
+      width: 100%;
+      max-width: 1360px;
       margin: 0 auto;
-      padding: 24px;
+      padding: clamp(12px, 2vw, 24px);
     }
 
     header {
@@ -98,9 +100,13 @@
       margin-bottom: 18px;
     }
 
+    header > div:first-child {
+      min-width: 0;
+    }
+
     h1 {
       margin: 0;
-      font-size: 24px;
+      font-size: clamp(20px, 2vw, 24px);
       line-height: 1.2;
     }
 
@@ -120,26 +126,28 @@
       gap: 10px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      min-width: 280px;
     }
 
     .layout {
       display: grid;
-      grid-template-columns: minmax(320px, 420px) 1fr;
-      gap: 18px;
+      grid-template-columns: minmax(340px, .92fr) minmax(430px, 1.35fr);
+      gap: clamp(12px, 1.5vw, 18px);
       align-items: start;
     }
 
     .panel {
+      min-width: 0;
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 18px;
+      padding: clamp(14px, 1.5vw, 18px);
       box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
     }
 
     .stack {
       display: grid;
-      gap: 14px;
+      gap: 12px;
     }
 
     .grid {
@@ -159,6 +167,7 @@
     select,
     textarea {
       width: 100%;
+      min-width: 0;
       min-height: 38px;
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -179,6 +188,7 @@
       color: var(--muted);
       font-size: 12px;
       font-weight: 400;
+      overflow-wrap: anywhere;
     }
 
     .input-action {
@@ -238,6 +248,7 @@
       background: var(--primary);
       color: #fff;
       font-weight: 700;
+      white-space: nowrap;
     }
 
     button.secondary {
@@ -274,6 +285,7 @@
       padding: 10px 12px;
       border: 1px solid var(--border);
       background: var(--panel-soft);
+      overflow-wrap: anywhere;
     }
 
     .message.show {
@@ -297,8 +309,8 @@
 
     pre {
       margin: 0;
-      min-height: 320px;
-      max-height: 520px;
+      min-height: clamp(180px, 28vh, 300px);
+      max-height: min(48vh, 520px);
       overflow: auto;
       border-radius: 8px;
       border: 1px solid var(--border);
@@ -321,8 +333,13 @@
 
     .meta-row {
       display: grid;
-      grid-template-columns: 110px 1fr;
+      grid-template-columns: minmax(86px, 110px) minmax(0, 1fr);
       gap: 8px;
+    }
+
+    .meta-row span {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .meta-row strong {
@@ -354,6 +371,11 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .config-head h2 {
+      margin: 0;
     }
 
     .config-title {
@@ -373,6 +395,11 @@
       font-size: 12px;
     }
 
+    .preview-section {
+      display: grid;
+      gap: 12px;
+    }
+
     .config-confirm {
       color: var(--danger);
       font-size: 12px;
@@ -383,13 +410,18 @@
       display: none !important;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
       main {
-        padding: 16px;
+        padding: 12px;
       }
 
       header,
-      .layout,
       .grid {
         grid-template-columns: 1fr;
       }
@@ -400,6 +432,49 @@
 
       .toolbar {
         justify-content: flex-start;
+        min-width: 0;
+      }
+
+      .toolbar button {
+        flex: 1 1 150px;
+      }
+    }
+
+    @media (max-width: 560px) {
+      body {
+        font-size: 13px;
+      }
+
+      .panel {
+        padding: 12px;
+      }
+
+      .input-action {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .input-action input {
+        grid-column: 1 / -1;
+      }
+
+      .input-action button {
+        min-width: 0;
+      }
+
+      .segmented,
+      .meta-row {
+        grid-template-columns: 1fr;
+      }
+
+      pre {
+        min-height: 180px;
+      }
+    }
+
+    @media (max-height: 760px) {
+      pre {
+        min-height: 160px;
+        max-height: 36vh;
       }
     }
   </style>
@@ -552,14 +627,16 @@
           <p>正在加载配置...</p>
         </div>
 
-        <h2>配置预览</h2>
-        <div class="meta" id="savedMeta">
-          <div class="meta-row"><strong>配置名称</strong><span id="savedName">-</span></div>
-          <div class="meta-row"><strong>工具</strong><span id="savedTool">-</span></div>
-          <div class="meta-row"><strong>关联实例</strong><span id="savedInstance">-</span></div>
-          <div class="meta-row"><strong>连接地址</strong><span id="savedAddress">-</span></div>
+        <div class="preview-section hidden" id="savedPreviewSection">
+          <h2>配置预览</h2>
+          <div class="meta" id="savedMeta">
+            <div class="meta-row"><strong>配置名称</strong><span id="savedName">-</span></div>
+            <div class="meta-row"><strong>工具</strong><span id="savedTool">-</span></div>
+            <div class="meta-row"><strong>关联实例</strong><span id="savedInstance">-</span></div>
+            <div class="meta-row"><strong>连接地址</strong><span id="savedAddress">-</span></div>
+          </div>
+          <pre id="savedPreview"></pre>
         </div>
-        <pre id="savedPreview"></pre>
 
         <h2>生成结果</h2>
         <div class="meta" id="resultMeta">
@@ -581,7 +658,12 @@
       savedConfigs: [],
       selectedConfigPath: '',
       pendingDeletePath: '',
-      installingTool: ''
+      installingTool: '',
+      autoDefaults: {
+        profileName: { enabled: true, value: '' },
+        localPort: { enabled: true, value: '' },
+        remotePort: { enabled: true, value: '' }
+      }
     }
 
     let themeSyncTimer = null
@@ -782,7 +864,8 @@
           statusId: 'easyTierToolStatus',
           buttonId: 'checkEasyTierButton',
           installButtonId: 'installEasyTierButton',
-          label: 'easytier-core'
+          label: 'easytier-core',
+          defaultCommand: 'easytier-core'
         }
       }
 
@@ -791,7 +874,8 @@
         statusId: 'frpcToolStatus',
         buttonId: 'checkFrpcButton',
         installButtonId: 'installFrpcButton',
-        label: 'frpc'
+        label: 'frpc',
+        defaultCommand: 'frpc'
       }
     }
 
@@ -806,6 +890,41 @@
       const definition = getToolDefinition(tool)
       $(definition.buttonId).disabled = disabled
       $(definition.installButtonId).disabled = disabled
+    }
+
+    function shouldFillInstalledToolPath(tool) {
+      const definition = getToolDefinition(tool)
+      const currentValue = read(definition.inputId)
+      return !currentValue || currentValue === definition.defaultCommand
+    }
+
+    async function hydrateInstalledTool(tool) {
+      const definition = getToolDefinition(tool)
+      try {
+        const result = await window.gsm3.getTunnelToolStatus(tool)
+        const data = result.data || result
+
+        if (!data.installed || !data.executablePath) {
+          return false
+        }
+
+        if (shouldFillInstalledToolPath(tool)) {
+          $(definition.inputId).value = data.executablePath
+        }
+
+        setToolStatus(tool, 'ok', `已安装 ${definition.label} ${data.version || ''}：${data.executablePath}`.trim())
+        return true
+      } catch (error) {
+        setToolStatus(tool, 'warn', `读取 ${definition.label} 安装状态失败：${getErrorMessage(error)}`)
+        return false
+      }
+    }
+
+    async function hydrateInstalledTools() {
+      await Promise.all([
+        hydrateInstalledTool('frp'),
+        hydrateInstalledTool('easytier')
+      ])
     }
 
     async function checkToolAvailability(tool = state.mode, showPanelMessage = true) {
@@ -1002,20 +1121,50 @@
       return ''
     }
 
+    function syncAutoDefaultField(id, nextValue) {
+      const field = state.autoDefaults[id]
+      if (!field) return
+
+      const element = $(id)
+      const currentValue = read(id)
+      const normalizedValue = String(nextValue || '')
+      const shouldUpdate = field.enabled || !currentValue || currentValue === field.value
+
+      field.value = normalizedValue
+      if (shouldUpdate) {
+        element.value = normalizedValue
+        field.enabled = true
+      }
+    }
+
+    function markAutoDefaultFieldInput(id) {
+      const field = state.autoDefaults[id]
+      if (!field) return
+
+      const currentValue = read(id)
+      field.enabled = !currentValue || currentValue === field.value
+    }
+
+    function markAutoDefaultFieldsManual(ids) {
+      for (const id of ids) {
+        const field = state.autoDefaults[id]
+        if (!field) continue
+        field.value = read(id)
+        field.enabled = false
+      }
+    }
+
     function updateInstanceMeta() {
       const instance = getSelectedInstance()
       $('instancePath').textContent = instance ? instance.workingDirectory || '-' : '-'
       $('instanceCommand').textContent = instance ? instance.startCommand || '-' : '-'
       $('instanceStatus').textContent = instance ? instance.status || '-' : '-'
 
-      if (instance && !read('profileName')) {
-        $('profileName').value = sanitizeSlug(instance.name || 'game')
-      }
-
-      if (instance && !read('localPort')) {
-        const guessed = guessPort(instance)
-        if (guessed) $('localPort').value = guessed
-      }
+      const profileName = instance ? sanitizeSlug(instance.name || 'game') : ''
+      const guessedPort = instance ? guessPort(instance) : ''
+      syncAutoDefaultField('profileName', profileName)
+      syncAutoDefaultField('localPort', guessedPort)
+      syncAutoDefaultField('remotePort', guessedPort)
     }
 
     async function loadSystemInfo() {
@@ -1286,6 +1435,7 @@
     }
 
     function setSavedPreview(config, content) {
+      $('savedPreviewSection').classList.toggle('hidden', !config)
       $('savedName').textContent = config ? config.name || config.dirName || '-' : '-'
       $('savedTool').textContent = config ? config.tool || '-' : '-'
       $('savedInstance').textContent = config ? config.linkedInstanceName || '-' : '-'
@@ -1450,6 +1600,7 @@
       $('localAddress').value = config.localAddress || '127.0.0.1'
       $('localPort').value = config.localPort || ''
       $('protocol').value = config.protocol || 'tcp'
+      markAutoDefaultFieldsManual(['profileName', 'localPort', 'remotePort'])
 
       if (String(config.tool || '').toLowerCase() === 'easytier') {
         setMode('easytier')
@@ -1584,8 +1735,14 @@
       for (const id of fields) {
         const element = $(id)
         if (!element) continue
-        element.addEventListener('input', () => buildPlan(false))
-        element.addEventListener('change', () => buildPlan(false))
+        element.addEventListener('input', () => {
+          markAutoDefaultFieldInput(id)
+          buildPlan(false)
+        })
+        element.addEventListener('change', () => {
+          markAutoDefaultFieldInput(id)
+          buildPlan(false)
+        })
       }
     }
 
@@ -1600,6 +1757,7 @@
       attachEvents()
       await waitForPluginToken()
       await loadSystemInfo()
+      await hydrateInstalledTools()
       await loadInstances()
       await loadSavedConfigs()
       buildPlan(false)

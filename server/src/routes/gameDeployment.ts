@@ -6,12 +6,16 @@ import os from 'os'
 import axios from 'axios'
 import http from 'http'
 import { fileURLToPath } from 'url'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { TerminalManager } from '../modules/terminal/TerminalManager.js'
 import { InstanceManager } from '../modules/instance/InstanceManager.js'
 import { SteamCMDManager } from '../modules/steamcmd/SteamCMDManager.js'
 import { ConfigManager } from '../modules/config/ConfigManager.js'
 import logger from '../utils/logger.js'
 import { authenticateToken } from '../middleware/auth.js'
+
+const execFileAsync = promisify(execFile)
 
 // 平台枚举
 enum Platform {
@@ -21,6 +25,23 @@ enum Platform {
 }
 
 type StartCommandConfig = string | Partial<Record<Platform, string>>
+
+interface LinuxSteamCMDRuntimeIssue {
+  message: string
+  fixCommands: string[]
+  missingLibraries?: string[]
+}
+
+interface LinuxSteamCMDFixHint {
+  message: string
+  fixCommands: string[]
+}
+
+interface LinuxOsRelease {
+  id?: string
+  idLike: string[]
+  name?: string
+}
 
 // 游戏信息接口
 interface SteamGameInfo {
@@ -177,6 +198,265 @@ function redactSteamCMDCredentials(command: string): string {
   }
 
   return redactedTokens.join(' ')
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function parseOsReleaseValue(value: string): string {
+  const trimmed = value.trim()
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1).replace(/\\(["'\\$`])/g, '$1')
+  }
+
+  return trimmed
+}
+
+async function readLinuxOsRelease(): Promise<LinuxOsRelease> {
+  try {
+    const osRelease = await fs.readFile('/etc/os-release', 'utf-8')
+    const values: Record<string, string> = {}
+
+    for (const line of osRelease.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue
+      }
+
+      const separatorIndex = trimmed.indexOf('=')
+      if (separatorIndex === -1) {
+        continue
+      }
+
+      const key = trimmed.slice(0, separatorIndex)
+      const value = parseOsReleaseValue(trimmed.slice(separatorIndex + 1))
+      values[key] = value
+    }
+
+    return {
+      id: values.ID?.toLowerCase(),
+      idLike: values.ID_LIKE?.toLowerCase().split(/\s+/).filter(Boolean) || [],
+      name: values.NAME
+    }
+  } catch {
+    return { idLike: [] }
+  }
+}
+
+async function commandExists(command: string): Promise<boolean> {
+  try {
+    await execFileAsync('sh', ['-lc', `command -v ${command} >/dev/null 2>&1`], {
+      timeout: 3000,
+      maxBuffer: 1024
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function getLinuxSteamCMDFixHint(): Promise<LinuxSteamCMDFixHint> {
+  const osRelease = await readLinuxOsRelease()
+  const distroIds = new Set([osRelease.id, ...osRelease.idLike].filter(Boolean) as string[])
+  const hasDistro = (...ids: string[]) => ids.some(id => distroIds.has(id))
+
+  if (hasDistro('debian', 'ubuntu', 'linuxmint', 'pop', 'raspbian')) {
+    return {
+      message: '检测到 Debian/Ubuntu 系统，可使用下方命令安装 SteamCMD 需要的 i386 运行时依赖后重试。',
+      fixCommands: [
+        'dpkg --add-architecture i386',
+        'apt-get update',
+        'apt-get install -y libc6:i386 libstdc++6:i386 libgcc-s1:i386'
+      ]
+    }
+  }
+
+  if (hasDistro('fedora', 'rhel', 'centos', 'rocky', 'almalinux', 'ol')) {
+    return {
+      message: '检测到 Fedora/RHEL 系统，可使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'dnf install -y glibc.i686 libstdc++.i686 libgcc.i686'
+      ]
+    }
+  }
+
+  if (hasDistro('arch', 'manjaro')) {
+    return {
+      message: '检测到 Arch 系统，请确认已启用 multilib 仓库，然后使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'pacman -Syu --needed lib32-glibc lib32-gcc-libs'
+      ]
+    }
+  }
+
+  if (hasDistro('opensuse', 'suse', 'sles')) {
+    return {
+      message: '检测到 openSUSE/SUSE 系统，可使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'zypper --non-interactive install glibc-32bit libstdc++6-32bit libgcc_s1-32bit'
+      ]
+    }
+  }
+
+  if (hasDistro('alpine')) {
+    return {
+      message: '检测到 Alpine/musl 环境。SteamCMD 的 linux32 可执行文件依赖 glibc 32 位运行时，不建议在 Alpine 上直接运行；建议改用 Debian/Ubuntu/RHEL/openSUSE/Arch 等 glibc 发行版或容器环境。',
+      fixCommands: []
+    }
+  }
+
+  const [hasAptGet, hasDnf, hasYum, hasPacman, hasZypper, hasApk] = await Promise.all([
+    commandExists('apt-get'),
+    commandExists('dnf'),
+    commandExists('yum'),
+    commandExists('pacman'),
+    commandExists('zypper'),
+    commandExists('apk')
+  ])
+
+  if (hasAptGet) {
+    return {
+      message: '检测到 apt-get，可使用下方命令安装 SteamCMD 需要的 i386 运行时依赖后重试。',
+      fixCommands: [
+        'dpkg --add-architecture i386',
+        'apt-get update',
+        'apt-get install -y libc6:i386 libstdc++6:i386 libgcc-s1:i386'
+      ]
+    }
+  }
+
+  if (hasDnf) {
+    return {
+      message: '检测到 dnf，可使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'dnf install -y glibc.i686 libstdc++.i686 libgcc.i686'
+      ]
+    }
+  }
+
+  if (hasYum) {
+    return {
+      message: '检测到 yum，可使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'yum install -y glibc.i686 libstdc++.i686 libgcc.i686'
+      ]
+    }
+  }
+
+  if (hasPacman) {
+    return {
+      message: '检测到 pacman，请确认已启用 multilib 仓库，然后使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'pacman -Syu --needed lib32-glibc lib32-gcc-libs'
+      ]
+    }
+  }
+
+  if (hasZypper) {
+    return {
+      message: '检测到 zypper，可使用下方命令安装 SteamCMD 需要的 32 位运行时依赖后重试。',
+      fixCommands: [
+        'zypper --non-interactive install glibc-32bit libstdc++6-32bit libgcc_s1-32bit'
+      ]
+    }
+  }
+
+  if (hasApk) {
+    return {
+      message: '检测到 apk/Alpine 类环境。SteamCMD 的 linux32 可执行文件依赖 glibc 32 位运行时，不建议在该环境直接运行；建议改用 glibc 发行版或容器环境。',
+      fixCommands: []
+    }
+  }
+
+  return {
+    message: '未识别出可自动生成修复命令的发行版。请根据当前系统文档安装 32 位 glibc/ELF loader、libstdc++ 和 libgcc 运行库后重试。',
+    fixCommands: []
+  }
+}
+
+async function createLinuxSteamCMDRuntimeIssue(message: string, missingLibraries?: string[]): Promise<LinuxSteamCMDRuntimeIssue> {
+  const fixHint = await getLinuxSteamCMDFixHint()
+  const privilegeHint = fixHint.fixCommands.length > 0 ? ' 这些命令需要 root 权限；非 root 用户请逐条加 sudo 执行。' : ''
+  const issue: LinuxSteamCMDRuntimeIssue = {
+    message: `${message}${fixHint.message ? ` ${fixHint.message}` : ''}${privilegeHint}`,
+    fixCommands: fixHint.fixCommands
+  }
+
+  if (missingLibraries?.length) {
+    issue.missingLibraries = missingLibraries
+  }
+
+  return issue
+}
+
+async function checkLinuxSteamCMDRuntime(steamcmdDir: string): Promise<LinuxSteamCMDRuntimeIssue | null> {
+  if (os.platform() !== 'linux') {
+    return null
+  }
+
+  const linux32Steamcmd = path.join(steamcmdDir, 'linux32', 'steamcmd')
+  if (!(await pathExists(linux32Steamcmd))) {
+    return {
+      message: 'SteamCMD 安装目录缺少 linux32/steamcmd，当前 Linux SteamCMD 安装可能不完整。请在设置中重新下载/更新 SteamCMD 后重试。',
+      fixCommands: []
+    }
+  }
+
+  const loaderCandidates = [
+    '/lib/ld-linux.so.2',
+    '/lib32/ld-linux.so.2',
+    '/lib/i386-linux-gnu/ld-linux.so.2',
+    '/usr/lib/i386-linux-gnu/ld-linux.so.2'
+  ]
+
+  let has32BitLoader = false
+  for (const candidate of loaderCandidates) {
+    if (await pathExists(candidate)) {
+      has32BitLoader = true
+      break
+    }
+  }
+
+  if (!has32BitLoader) {
+    return createLinuxSteamCMDRuntimeIssue(
+      '当前 Linux 系统缺少 32 位 ELF loader，SteamCMD 会报 “linux32/steamcmd: cannot execute: required file not found”。'
+    )
+  }
+
+  try {
+    const { stdout, stderr } = await execFileAsync('ldd', [linux32Steamcmd], {
+      timeout: 5000,
+      maxBuffer: 1024 * 1024
+    })
+    const lddOutput = `${stdout}\n${stderr}`
+    const missingLibraries = Array.from(
+      new Set(
+        lddOutput
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => line.includes('not found'))
+          .map(line => line.split(/\s+/)[0])
+          .filter(Boolean)
+      )
+    )
+
+    if (missingLibraries.length > 0) {
+      return createLinuxSteamCMDRuntimeIssue(
+        `SteamCMD 32 位运行库不完整，缺少：${missingLibraries.join(', ')}。`,
+        missingLibraries
+      )
+    }
+  } catch (error: any) {
+    logger.warn('SteamCMD Linux runtime ldd 检测失败，继续安装流程:', error.message)
+  }
+
+  return null
 }
 
 const __filename = fileURLToPath(import.meta.url)
@@ -526,6 +806,19 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       
       // 获取SteamCMD所在目录作为工作目录
       const steamcmdDir = path.dirname(steamcmdPath)
+
+      const linuxRuntimeIssue = await checkLinuxSteamCMDRuntime(steamcmdDir)
+      if (linuxRuntimeIssue) {
+        return res.status(400).json({
+          success: false,
+          error: 'SteamCMD Linux运行环境不完整',
+          message: linuxRuntimeIssue.message,
+          data: {
+            fixCommands: linuxRuntimeIssue.fixCommands,
+            missingLibraries: linuxRuntimeIssue.missingLibraries
+          }
+        })
+      }
       
       // 创建虚拟socket用于终端会话
       const virtualSocket = {

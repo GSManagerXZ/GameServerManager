@@ -60,6 +60,32 @@ interface Games {
   [key: string]: GameInfo
 }
 
+interface SteamcmdInstallRequest {
+  gameKey: string
+  gameName: string
+  appId: string
+  installPath: string
+  instanceName: string
+  useAnonymous: boolean
+  steamUsername?: string
+  steamPassword?: string
+  steamcmdCommand: string
+  existingInstanceId?: string
+  updateInstanceInfo?: boolean
+  resetSteamManifest?: boolean
+}
+
+interface LastSteamcmdInstallTask {
+  gameKey: string
+  gameInfo: GameInfo
+  request: SteamcmdInstallRequest
+  terminalSessionId?: string
+  instanceId?: string
+  updatedAt: string
+}
+
+const LAST_STEAMCMD_INSTALL_TASK_KEY = 'gsm3_last_steamcmd_install_task'
+
 const quoteSteamCMDArgument = (value: string, platform?: string): string => {
   if (platform === 'Windows') {
     return `'${value.replace(/'/g, "''")}'`
@@ -176,6 +202,15 @@ const GameDeploymentPage: React.FC = () => {
   const [selectedGame, setSelectedGame] = useState<{ key: string; info: GameInfo } | null>(null)
   const [installPath, setInstallPath] = useState('')
   const [installing, setInstalling] = useState(false)
+  const [lastSteamcmdInstallTask, setLastSteamcmdInstallTask] = useState<LastSteamcmdInstallTask | null>(() => {
+    try {
+      const saved = localStorage.getItem(LAST_STEAMCMD_INSTALL_TASK_KEY)
+      return saved ? JSON.parse(saved) as LastSteamcmdInstallTask : null
+    } catch {
+      localStorage.removeItem(LAST_STEAMCMD_INSTALL_TASK_KEY)
+      return null
+    }
+  })
   const [checkingEnvironment, setCheckingEnvironment] = useState<string | null>(null) // 正在检测环境的游戏key
   const [useAnonymous, setUseAnonymous] = useState(true)
   const [steamUsername, setSteamUsername] = useState('')
@@ -2920,6 +2955,166 @@ const GameDeploymentPage: React.FC = () => {
     }
   }
 
+  const sanitizeSteamcmdInstallRequestForStorage = (
+    request: SteamcmdInstallRequest,
+    gameInfo: GameInfo
+  ): SteamcmdInstallRequest => {
+    const safeRequest: SteamcmdInstallRequest = {
+      ...request,
+      steamPassword: undefined
+    }
+
+    if (!request.useAnonymous) {
+      const shouldValidate = /\bapp_update\s+\S+\s+validate\b/i.test(request.steamcmdCommand)
+      const loginCommand = [
+        'login',
+        quoteSteamCMDArgument(request.steamUsername || '', gameInfo.currentPlatform)
+      ].join(' ')
+      const appUpdateCommand = shouldValidate
+        ? `app_update ${request.appId} validate`
+        : `app_update ${request.appId}`
+
+      safeRequest.steamcmdCommand = `+force_install_dir "${request.installPath}" +${loginCommand} +${appUpdateCommand} +quit`
+    }
+
+    return safeRequest
+  }
+
+  const saveLastSteamcmdInstallTask = (task: LastSteamcmdInstallTask) => {
+    const safeTask: LastSteamcmdInstallTask = {
+      ...task,
+      request: sanitizeSteamcmdInstallRequestForStorage(task.request, task.gameInfo)
+    }
+
+    setLastSteamcmdInstallTask(safeTask)
+    localStorage.setItem(LAST_STEAMCMD_INSTALL_TASK_KEY, JSON.stringify(safeTask))
+  }
+
+  const clearLastSteamcmdInstallTask = () => {
+    setLastSteamcmdInstallTask(null)
+    localStorage.removeItem(LAST_STEAMCMD_INSTALL_TASK_KEY)
+  }
+
+  const formatInstallErrorMessage = (error: any): string => {
+    const message = error?.message || error?.error || '无法开始游戏安装'
+    const fixCommands = error?.data?.fixCommands
+
+    if (Array.isArray(fixCommands) && fixCommands.length > 0) {
+      return `${message}\n修复命令：${fixCommands.join(' && ')}`
+    }
+
+    return message
+  }
+
+  const buildCurrentSteamcmdInstallRequest = (): SteamcmdInstallRequest => ({
+    gameKey: selectedGame!.key,
+    gameName: selectedGame!.info.game_nameCN,
+    appId: selectedGame!.info.appid,
+    installPath: installPath.trim(),
+    instanceName: instanceName.trim(),
+    useAnonymous,
+    steamUsername: useAnonymous ? undefined : steamUsername.trim(),
+    steamPassword: useAnonymous || !steamPassword.trim() ? undefined : steamPassword.trim(),
+    steamcmdCommand: steamcmdCommand.trim(),
+    existingInstanceId: existingInstanceId || undefined,
+    updateInstanceInfo,
+    resetSteamManifest
+  })
+
+  const executeSteamcmdInstall = async (
+    request: SteamcmdInstallRequest,
+    gameInfo: GameInfo
+  ) => {
+    setInstalling(true)
+    saveLastSteamcmdInstallTask({
+      gameKey: request.gameKey,
+      gameInfo,
+      request,
+      updatedAt: new Date().toISOString()
+    })
+
+    try {
+      const response = await apiClient.installGame(request)
+
+      if (!response.success || !response.data?.terminalSessionId) {
+        throw new Error(response.message || '安装失败，未返回终端会话ID')
+      }
+
+      const instanceId = response.data.instance?.id || request.existingInstanceId
+      saveLastSteamcmdInstallTask({
+        gameKey: request.gameKey,
+        gameInfo,
+        request: {
+          ...request,
+          existingInstanceId: instanceId || request.existingInstanceId,
+          steamPassword: undefined
+        },
+        terminalSessionId: response.data.terminalSessionId,
+        instanceId,
+        updatedAt: new Date().toISOString()
+      })
+
+      return response.data
+    } catch (error: any) {
+      console.error('游戏安装失败:', error)
+      addNotification({
+        type: 'error',
+        title: '安装失败',
+        message: formatInstallErrorMessage(error)
+      })
+      throw error
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  const restoreLastSteamcmdInstallTask = () => {
+    if (!lastSteamcmdInstallTask) return
+
+    const gameInfo = games[lastSteamcmdInstallTask.gameKey] || lastSteamcmdInstallTask.gameInfo
+    const request = lastSteamcmdInstallTask.request
+
+    setSelectedGame({ key: lastSteamcmdInstallTask.gameKey, info: gameInfo })
+    setInstanceName(request.instanceName)
+    setInstallPath(request.installPath)
+    setUseAnonymous(request.useAnonymous)
+    setSteamUsername(request.steamUsername || '')
+    setSteamPassword('')
+    setValidateGameIntegrity(/\bapp_update\s+\S+\s+validate\b/i.test(request.steamcmdCommand))
+    setExistingInstanceId(lastSteamcmdInstallTask.instanceId || request.existingInstanceId || null)
+    setUpdateInstanceInfo(Boolean(request.updateInstanceInfo))
+    setResetSteamManifest(Boolean(request.resetSteamManifest))
+    setShowAdvanced(true)
+    setShowInstallModal(true)
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setInstallModalAnimating(true)
+        setSteamcmdCommand(request.steamcmdCommand)
+      })
+    })
+  }
+
+  const retryLastSteamcmdInstallTask = async () => {
+    if (!lastSteamcmdInstallTask || installing) return
+
+    const gameInfo = games[lastSteamcmdInstallTask.gameKey] || lastSteamcmdInstallTask.gameInfo
+    const retryRequest: SteamcmdInstallRequest = {
+      ...lastSteamcmdInstallTask.request,
+      gameName: gameInfo.game_nameCN,
+      appId: gameInfo.appid,
+      existingInstanceId: lastSteamcmdInstallTask.instanceId || lastSteamcmdInstallTask.request.existingInstanceId,
+      steamPassword: undefined
+    }
+
+    try {
+      const installData = await executeSteamcmdInstall(retryRequest, gameInfo)
+      proceedWithInstallation(installData, gameInfo.game_nameCN)
+    } catch {
+      // executeSteamcmdInstall 已经显示错误通知，并保留最近任务供继续重试。
+    }
+  }
+
   // 开始安装游戏
   const startInstallation = async () => {
     if (!selectedGame || !installPath.trim() || !instanceName.trim()) {
@@ -2950,53 +3145,24 @@ const GameDeploymentPage: React.FC = () => {
       return
     }
 
-    // 保存实例相关状态，因为关闭对话框时会被重置
-    const currentExistingInstanceId = existingInstanceId
-    const currentUpdateInstanceInfo = updateInstanceInfo
-    const currentResetSteamManifest = resetSteamManifest
+    const installRequest = buildCurrentSteamcmdInstallRequest()
+    const currentGameInfo = selectedGame.info
 
     try {
-      // 关闭对话框
+      const installData = await executeSteamcmdInstall(installRequest, currentGameInfo)
       handleCloseInstallModal()
-
-      // 调用后端API开始游戏安装，使用高级选项中的命令
-       const response = await apiClient.installGame({
-          gameKey: selectedGame.key,
-          gameName: selectedGame.info.game_nameCN,
-          appId: selectedGame.info.appid,
-          installPath: installPath.trim(),
-          instanceName: instanceName.trim(),
-          useAnonymous,
-          steamUsername: useAnonymous ? undefined : steamUsername.trim(),
-          steamPassword: useAnonymous || !steamPassword.trim() ? undefined : steamPassword.trim(),
-          steamcmdCommand: steamcmdCommand.trim(),
-          existingInstanceId: currentExistingInstanceId || undefined,
-          updateInstanceInfo: currentUpdateInstanceInfo,
-          resetSteamManifest: currentResetSteamManifest
-        })
-
-      if (response.success && response.data?.terminalSessionId) {
-        // 直接跳转到终端页面
-        proceedWithInstallation(response.data)
-      } else {
-        throw new Error(response.message || '安装失败，未返回终端会话ID')
-      }
-    } catch (error: any) {
-      console.error('游戏安装失败:', error)
-      addNotification({
-        type: 'error',
-        title: '安装失败',
-        message: error.message || '无法开始游戏安装'
-      })
+      proceedWithInstallation(installData, currentGameInfo.game_nameCN)
+    } catch {
+      // executeSteamcmdInstall 已经显示错误通知；保留弹窗内容方便修复后重试。
     }
   }
 
   // 继续安装流程（显示成功通知并跳转）
-  const proceedWithInstallation = (installData: any) => {
+  const proceedWithInstallation = (installData: any, gameName = selectedGame?.info.game_nameCN) => {
     addNotification({
       type: 'success',
       title: '安装已启动',
-      message: `${selectedGame?.info.game_nameCN} 安装已开始，即将跳转到终端页面...`
+      message: `${gameName || '游戏'} 安装已开始，即将跳转到终端页面...`
     })
     // 跳转到终端页面，并将会话ID作为参数传递
     setTimeout(() => {
@@ -4009,6 +4175,70 @@ const GameDeploymentPage: React.FC = () => {
         <div className="space-y-6">
           {/* Steam网络状态提示 */}
           <NetworkStatusBanner categoryId="steam" autoCheck={true} />
+
+          {lastSteamcmdInstallTask && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                    最近 SteamCMD 安装任务
+                  </h3>
+                  <div className="mt-1 space-y-1 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="break-words">
+                      {lastSteamcmdInstallTask.request.gameName} 安装到：{lastSteamcmdInstallTask.request.installPath}
+                    </p>
+                    <p className="break-words text-xs text-blue-700 dark:text-blue-300">
+                      实例：{lastSteamcmdInstallTask.request.instanceName}
+                      {lastSteamcmdInstallTask.terminalSessionId && `；终端：${lastSteamcmdInstallTask.terminalSessionId}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={retryLastSteamcmdInstallTask}
+                    disabled={installing}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:bg-blue-400"
+                  >
+                    {installing ? (
+                      <Loader className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    <span>{installing ? '正在重试' : '重试安装'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={restoreLastSteamcmdInstallTask}
+                    disabled={installing}
+                    className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60 dark:bg-gray-800 dark:text-blue-200 dark:hover:bg-gray-700"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    <span>编辑参数</span>
+                  </button>
+                  {lastSteamcmdInstallTask.terminalSessionId && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/terminal?sessionId=${lastSteamcmdInstallTask.terminalSessionId}`)}
+                      className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-100 dark:bg-gray-800 dark:text-blue-200 dark:hover:bg-gray-700"
+                    >
+                      <Play className="h-4 w-4" />
+                      <span>打开终端</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={clearLastSteamcmdInstallTask}
+                    disabled={installing}
+                    className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <X className="h-4 w-4" />
+                    <span>清除</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* 游戏列表错误状态 */}
           {gameListError && (
@@ -5891,6 +6121,7 @@ const GameDeploymentPage: React.FC = () => {
             <div className="flex justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={handleCloseInstallModal}
+                disabled={installing}
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors"
               >
                 取消
@@ -5900,12 +6131,17 @@ const GameDeploymentPage: React.FC = () => {
                 disabled={
                   !installPath.trim() ||
                   !instanceName.trim() ||
-                  (!useAnonymous && !steamUsername.trim())
+                  (!useAnonymous && !steamUsername.trim()) ||
+                  installing
                 }
                 className="px-4 py-2 disabled:bg-gray-400 text-white rounded-lg transition-colors flex items-center space-x-2 bg-blue-600 hover:bg-blue-700"
               >
-                <Download className="w-4 h-4" />
-                <span>开始安装</span>
+                {installing ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                <span>{installing ? '正在启动安装' : '开始安装'}</span>
               </button>
             </div>
           </div>
