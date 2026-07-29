@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>内网穿透助手</title>
+  <script src="gsm3-api.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f1f5f9;
+      --border: #d8dee8;
+      --text: #162033;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-strong: #1d4ed8;
+      --success: #15803d;
+      --danger: #b91c1c;
+      --warning: #a16207;
+      --code: #0f172a;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --panel-soft: #1f2937;
+        --border: #334155;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-strong: #60a5fa;
+        --success: #22c55e;
+        --danger: #f87171;
+        --warning: #facc15;
+        --code: #020617;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 17px;
+      line-height: 1.3;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 118px;
+      resize: vertical;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .segment {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      cursor: pointer;
+      background: var(--panel);
+      color: var(--text);
+      text-align: left;
+    }
+
+    .segment.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgb(37 99 235 / 14%);
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    button.secondary {
+      background: var(--panel-soft);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--primary-strong);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: var(--border);
+    }
+
+    .message {
+      display: none;
+      border-radius: 6px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message.success {
+      border-color: color-mix(in srgb, var(--success), transparent 58%);
+      color: var(--success);
+    }
+
+    .message.error {
+      border-color: color-mix(in srgb, var(--danger), transparent 58%);
+      color: var(--danger);
+    }
+
+    .message.warn {
+      border-color: color-mix(in srgb, var(--warning), transparent 58%);
+      color: var(--warning);
+    }
+
+    pre {
+      margin: 0;
+      min-height: 320px;
+      max-height: 520px;
+      overflow: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--code);
+      color: #dbeafe;
+      padding: 14px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 6px;
+      background: var(--panel-soft);
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px;
+    }
+
+    .meta-row strong {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      main {
+        padding: 16px;
+      }
+
+      header,
+      .layout,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        display: grid;
+      }
+
+      .toolbar {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>内网穿透助手</h1>
+        <p>为现有游戏实例生成 frp 或 EasyTier 配置，并创建独立穿透实例。</p>
+      </div>
+      <div class="toolbar">
+        <button class="secondary" id="refreshInstancesButton" type="button">刷新实例</button>
+        <button class="secondary" id="previewButton" type="button">预览配置</button>
+        <button id="createButton" type="button">保存并创建实例</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="panel stack">
+        <h2>目标实例</h2>
+        <label>
+          游戏实例
+          <select id="instanceSelect"></select>
+          <span class="hint">穿透实例会独立创建，不会修改所选游戏实例。</span>
+        </label>
+        <div class="meta" id="instanceMeta">
+          <div class="meta-row"><strong>工作目录</strong><span id="instancePath">-</span></div>
+          <div class="meta-row"><strong>启动命令</strong><span id="instanceCommand">-</span></div>
+          <div class="meta-row"><strong>状态</strong><span id="instanceStatus">-</span></div>
+        </div>
+
+        <h2>穿透方式</h2>
+        <div class="segmented">
+          <button class="segment active" id="modeFrp" type="button">
+            <strong>frp</strong><br>
+            <span class="hint">映射本地端口到 frps</span>
+          </button>
+          <button class="segment" id="modeEasyTier" type="button">
+            <strong>EasyTier</strong><br>
+            <span class="hint">加入虚拟局域网</span>
+          </button>
+        </div>
+
+        <div class="grid">
+          <label>
+            配置名称
+            <input id="profileName" autocomplete="off" placeholder="terraria-7777">
+          </label>
+          <label>
+            本地地址
+            <input id="localAddress" autocomplete="off" value="127.0.0.1">
+          </label>
+          <label>
+            本地端口
+            <input id="localPort" type="number" min="1" max="65535" value="7777">
+          </label>
+          <label>
+            协议
+            <select id="protocol">
+              <option value="tcp">TCP</option>
+              <option value="udp">UDP</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="frpFields" class="stack">
+          <h2>frp 参数</h2>
+          <label>
+            frpc 可执行文件
+            <input id="frpcPath" autocomplete="off" value="frpc" placeholder="frpc 或 C:\frp\frpc.exe">
+          </label>
+          <div class="grid">
+            <label>
+              frps 地址
+              <input id="frpServerAddr" autocomplete="off" placeholder="example.com">
+            </label>
+            <label>
+              frps 端口
+              <input id="frpServerPort" type="number" min="1" max="65535" value="7000">
+            </label>
+            <label>
+              远端端口
+              <input id="remotePort" type="number" min="1" max="65535" value="7777">
+            </label>
+            <label>
+              认证 token
+              <input id="frpToken" type="password" autocomplete="off" placeholder="可选">
+            </label>
+          </div>
+        </div>
+
+        <div id="easyTierFields" class="stack hidden">
+          <h2>EasyTier 参数</h2>
+          <label>
+            easytier-core 可执行文件
+            <input id="easyTierPath" autocomplete="off" value="easytier-core" placeholder="easytier-core 或 C:\EasyTier\easytier-core.exe">
+          </label>
+          <div class="grid">
+            <label>
+              网络名称
+              <input id="networkName" autocomplete="off" placeholder="game-net">
+            </label>
+            <label>
+              网络密钥
+              <input id="networkSecret" type="password" autocomplete="off">
+            </label>
+            <label>
+              节点名称
+              <input id="hostName" autocomplete="off" placeholder="gsm-node">
+            </label>
+            <label>
+              虚拟 IPv4
+              <input id="virtualIpv4" autocomplete="off" placeholder="留空使用 DHCP">
+            </label>
+          </div>
+          <label>
+            Peer 节点
+            <textarea id="peerList" placeholder="tcp://1.2.3.4:11010&#10;udp://1.2.3.4:11010"></textarea>
+            <span class="hint">每行一个 peer。未填写时只启动本地节点，通常无法自动发现其它节点。</span>
+          </label>
+        </div>
+
+        <div id="message" class="message"></div>
+      </section>
+
+      <section class="panel stack">
+        <h2>生成结果</h2>
+        <div class="meta" id="resultMeta">
+          <div class="meta-row"><strong>配置目录</strong><span id="resultDir">-</span></div>
+          <div class="meta-row"><strong>启动命令</strong><span id="resultCommand">-</span></div>
+          <div class="meta-row"><strong>连接地址</strong><span id="resultAddress">-</span></div>
+        </div>
+        <pre id="preview"></pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const state = {
+      mode: 'frp',
+      instances: [],
+      systemInfo: null,
+      lastPlan: null
+    }
+
+    const $ = (id) => document.getElementById(id)
+
+    const fields = [
+      'instanceSelect', 'profileName', 'localAddress', 'localPort', 'protocol',
+      'frpcPath', 'frpServerAddr', 'frpServerPort', 'remotePort', 'frpToken',
+      'easyTierPath', 'networkName', 'networkSecret', 'hostName', 'virtualIpv4', 'peerList'
+    ]
+
+    const read = (id) => $(id).value.trim()
+    const isWindows = () => {
+      const raw = state.systemInfo && state.systemInfo.rawPlatform
+      const platform = state.systemInfo && state.systemInfo.platform
+      return raw === 'win32' || String(platform || '').toLowerCase().includes('windows')
+    }
+
+    function showMessage(type, text) {
+      const message = $('message')
+      message.className = `message show ${type}`
+      message.textContent = text
+    }
+
+    function clearMessage() {
+      const message = $('message')
+      message.className = 'message'
+      message.textContent = ''
+    }
+
+    function normalizeListResponse(result) {
+      if (!result) return []
+      if (Array.isArray(result)) return result
+      if (Array.isArray(result.data)) return result.data
+      if (result.data && Array.isArray(result.data.instances)) return result.data.instances
+      return []
+    }
+
+    function sanitizeSlug(value) {
+      return value
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || `tunnel-${Date.now()}`
+    }
+
+    function tomlString(value) {
+      return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+    }
+
+    function psArg(value) {
+      return `'${String(value).replace(/'/g, "''")}'`
+    }
+
+    function shArg(value) {
+      return `'${String(value).replace(/'/g, "'\\''")}'`
+    }
+
+    function shellArg(value) {
+      return isWindows() ? psArg(value) : shArg(value)
+    }
+
+    function redactSensitiveText(text) {
+      return String(text)
+        .replace(/auth\.token\s*=\s*"[^"]*"/g, 'auth.token = "******"')
+        .replace(/('--network-secret'|--network-secret)\s+('(?:''|[^'])*'|"[^"]*"|\S+)/g, '$1 ******')
+    }
+
+    function commandPrefix(executablePath) {
+      const quoted = shellArg(executablePath)
+      return isWindows() ? `& ${quoted}` : quoted
+    }
+
+    function parsePort(value, label) {
+      const port = Number(value)
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`${label} 必须是 1 到 65535 之间的整数`)
+      }
+      return port
+    }
+
+    function getSelectedInstance() {
+      const id = read('instanceSelect')
+      return state.instances.find(instance => instance.id === id) || null
+    }
+
+    function guessPort(instance) {
+      const text = `${instance.name || ''} ${instance.description || ''}`.toLowerCase()
+      if (text.includes('terraria') || text.includes('泰拉瑞亚')) return 7777
+      if (text.includes('minecraft') || text.includes('我的世界')) return 25565
+      if (text.includes('palworld') || text.includes('幻兽帕鲁')) return 8211
+      if (text.includes('valheim') || text.includes('英灵神殿')) return 2456
+      if (text.includes('factorio')) return 34197
+      return ''
+    }
+
+    function updateInstanceMeta() {
+      const instance = getSelectedInstance()
+      $('instancePath').textContent = instance ? instance.workingDirectory || '-' : '-'
+      $('instanceCommand').textContent = instance ? instance.startCommand || '-' : '-'
+      $('instanceStatus').textContent = instance ? instance.status || '-' : '-'
+
+      if (instance && !read('profileName')) {
+        $('profileName').value = sanitizeSlug(instance.name || 'game')
+      }
+
+      if (instance && !read('localPort')) {
+        const guessed = guessPort(instance)
+        if (guessed) $('localPort').value = guessed
+      }
+    }
+
+    async function loadSystemInfo() {
+      try {
+        const result = await window.gsm3.getSystemInfo()
+        state.systemInfo = result.data || result
+      } catch (error) {
+        state.systemInfo = null
+      }
+    }
+
+    async function loadInstances() {
+      clearMessage()
+      $('instanceSelect').innerHTML = '<option value="">加载中...</option>'
+      try {
+        const result = await window.gsm3.getInstances()
+        state.instances = normalizeListResponse(result)
+        const gameInstances = state.instances.filter(instance => {
+          const description = String(instance.description || '')
+          return !description.includes('[tunnel-helper]')
+        })
+
+        $('instanceSelect').innerHTML = ''
+        if (gameInstances.length === 0) {
+          $('instanceSelect').innerHTML = '<option value="">暂无可选实例</option>'
+          updateInstanceMeta()
+          return
+        }
+
+        for (const instance of gameInstances) {
+          const option = document.createElement('option')
+          option.value = instance.id
+          option.textContent = `${instance.name} (${instance.status || 'unknown'})`
+          $('instanceSelect').appendChild(option)
+        }
+
+        updateInstanceMeta()
+        showMessage('success', `已加载 ${gameInstances.length} 个游戏实例`)
+      } catch (error) {
+        $('instanceSelect').innerHTML = '<option value="">加载失败</option>'
+        showMessage('error', `获取实例列表失败：${error.message}`)
+      }
+    }
+
+    function setMode(mode) {
+      state.mode = mode
+      $('modeFrp').classList.toggle('active', mode === 'frp')
+      $('modeEasyTier').classList.toggle('active', mode === 'easytier')
+      $('frpFields').classList.toggle('hidden', mode !== 'frp')
+      $('easyTierFields').classList.toggle('hidden', mode !== 'easytier')
+      buildPlan(false)
+    }
+
+    function buildFrpPlan(common) {
+      const serverAddr = read('frpServerAddr')
+      const serverPort = parsePort(read('frpServerPort'), 'frps 端口')
+      const remotePort = parsePort(read('remotePort'), '远端端口')
+      const frpcPath = read('frpcPath')
+
+      if (!frpcPath) throw new Error('请填写 frpc 可执行文件')
+      if (!serverAddr) throw new Error('请填写 frps 地址')
+
+      const token = read('frpToken')
+      const proxyName = `${common.slug}-${common.protocol}-${common.localPort}`
+      const configLines = [
+        `serverAddr = ${tomlString(serverAddr)}`,
+        `serverPort = ${serverPort}`
+      ]
+
+      if (token) {
+        configLines.push(`auth.token = ${tomlString(token)}`)
+      }
+
+      configLines.push(
+        '',
+        '[[proxies]]',
+        `name = ${tomlString(proxyName)}`,
+        `type = ${tomlString(common.protocol)}`,
+        `localIP = ${tomlString(common.localAddress)}`,
+        `localPort = ${common.localPort}`,
+        `remotePort = ${remotePort}`,
+        ''
+      )
+
+      const configPath = `${common.dataDir}/frpc.toml`
+      const startCommand = `${commandPrefix(frpcPath)} -c ${shellArg('frpc.toml')}`
+      const publicAddress = `${serverAddr}:${remotePort}`
+
+      return {
+        ...common,
+        tool: 'frp',
+        configPath,
+        configContent: configLines.join('\n'),
+        startCommand,
+        executablePath: frpcPath,
+        publicAddress,
+        extraFiles: [],
+        instanceDescription: `[tunnel-helper] frp ${common.protocol.toUpperCase()} ${common.localAddress}:${common.localPort} -> ${publicAddress}`
+      }
+    }
+
+    function buildEasyTierPlan(common) {
+      const executablePath = read('easyTierPath')
+      const networkName = read('networkName')
+      const networkSecret = read('networkSecret')
+      const hostName = read('hostName') || common.slug
+      const virtualIpv4 = read('virtualIpv4')
+      const peers = read('peerList')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+
+      if (!executablePath) throw new Error('请填写 easytier-core 可执行文件')
+      if (!networkName) throw new Error('请填写 EasyTier 网络名称')
+      if (!networkSecret) throw new Error('请填写 EasyTier 网络密钥')
+
+      const args = [
+        '--network-name', networkName,
+        '--network-secret', networkSecret,
+        '--hostname', hostName
+      ]
+
+      if (virtualIpv4) {
+        args.push('--ipv4', virtualIpv4)
+      } else {
+        args.push('--dhcp')
+      }
+
+      for (const peer of peers) {
+        args.push('-p', peer)
+      }
+
+      const startCommand = `${commandPrefix(executablePath)} ${args.map(shellArg).join(' ')}`
+      const publicAddress = virtualIpv4
+        ? `${virtualIpv4}:${common.localPort}`
+        : `EasyTier 虚拟 IP:${common.localPort}`
+
+      const commandContent = [
+        '# EasyTier 启动命令',
+        '# 该实例使用命令行参数启动，避免依赖不同版本配置文件字段差异。',
+        startCommand,
+        '',
+        '# 连接提示',
+        `# 其它 EasyTier 节点加入同一网络后，访问 ${publicAddress}`
+      ].join('\n')
+
+      return {
+        ...common,
+        tool: 'EasyTier',
+        configPath: `${common.dataDir}/easytier-command.txt`,
+        configContent: commandContent,
+        startCommand,
+        executablePath,
+        publicAddress,
+        extraFiles: [],
+        instanceDescription: `[tunnel-helper] EasyTier network=${networkName} target=${common.localAddress}:${common.localPort}`
+      }
+    }
+
+    function buildPlan(throwOnError = true) {
+      try {
+        const instance = getSelectedInstance()
+        if (!instance) throw new Error('请选择游戏实例')
+
+        const localPort = parsePort(read('localPort'), '本地端口')
+        const localAddress = read('localAddress') || '127.0.0.1'
+        const profile = read('profileName') || instance.name || 'game'
+        const slug = sanitizeSlug(profile)
+        const protocol = read('protocol')
+        const dataDir = `tunnels/${slug}`
+        const workingDirectory = `data/${dataDir}`
+
+        const common = {
+          instance,
+          profile,
+          slug,
+          protocol,
+          localAddress,
+          localPort,
+          dataDir,
+          workingDirectory
+        }
+
+        state.lastPlan = state.mode === 'frp' ? buildFrpPlan(common) : buildEasyTierPlan(common)
+        renderPlan()
+        clearMessage()
+        return state.lastPlan
+      } catch (error) {
+        state.lastPlan = null
+        renderPlan()
+        if (throwOnError) {
+          showMessage('error', error.message)
+        }
+        return null
+      }
+    }
+
+    function renderPlan() {
+      const plan = state.lastPlan
+      if (!plan) {
+        $('resultDir').textContent = '-'
+        $('resultCommand').textContent = '-'
+        $('resultAddress').textContent = '-'
+        $('preview').textContent = ''
+        return
+      }
+
+      $('resultDir').textContent = plan.workingDirectory
+      $('resultCommand').textContent = redactSensitiveText(plan.startCommand)
+      $('resultAddress').textContent = plan.publicAddress
+      $('preview').textContent = redactSensitiveText(plan.configContent)
+    }
+
+    function buildManifest(plan) {
+      return {
+        name: plan.profile,
+        tool: plan.tool,
+        linkedInstanceId: plan.instance.id,
+        linkedInstanceName: plan.instance.name,
+        localAddress: plan.localAddress,
+        localPort: plan.localPort,
+        protocol: plan.protocol,
+        publicAddress: plan.publicAddress,
+        workingDirectory: plan.workingDirectory,
+        configPath: plan.configPath,
+        createdAt: new Date().toISOString()
+      }
+    }
+
+    async function createTunnelInstance() {
+      const plan = buildPlan(true)
+      if (!plan) return
+
+      $('createButton').disabled = true
+      try {
+        await window.gsm3.writeFile(plan.configPath, plan.configContent, 'utf-8')
+        await window.gsm3.writeFile(`${plan.dataDir}/manifest.json`, JSON.stringify(buildManifest(plan), null, 2), 'utf-8')
+
+        const result = await window.gsm3.createInstance({
+          name: `穿透-${plan.profile}`,
+          description: plan.instanceDescription,
+          workingDirectory: plan.workingDirectory,
+          startCommand: plan.startCommand,
+          stopCommand: 'ctrl+c',
+          autoStart: false
+        })
+
+        const created = result.data || result
+        showMessage('success', `穿透实例已创建：${created.name || `穿透-${plan.profile}`}`)
+        await loadInstances()
+      } catch (error) {
+        showMessage('error', `创建穿透实例失败：${error.message}`)
+      } finally {
+        $('createButton').disabled = false
+      }
+    }
+
+    function attachEvents() {
+      $('refreshInstancesButton').addEventListener('click', loadInstances)
+      $('previewButton').addEventListener('click', () => buildPlan(true))
+      $('createButton').addEventListener('click', createTunnelInstance)
+      $('modeFrp').addEventListener('click', () => setMode('frp'))
+      $('modeEasyTier').addEventListener('click', () => setMode('easytier'))
+      $('instanceSelect').addEventListener('change', () => {
+        updateInstanceMeta()
+        buildPlan(false)
+      })
+
+      for (const id of fields) {
+        const element = $(id)
+        if (!element) continue
+        element.addEventListener('input', () => buildPlan(false))
+        element.addEventListener('change', () => buildPlan(false))
+      }
+    }
+
+    async function boot() {
+      if (!window.gsm3) {
+        showMessage('error', '插件 API 未加载')
+        return
+      }
+
+      attachEvents()
+      await loadSystemInfo()
+      await loadInstances()
+      buildPlan(false)
+    }
+
+    boot()
+  </script>
+</body>
+</html>

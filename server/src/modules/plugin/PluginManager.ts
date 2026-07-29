@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs'
+import fsSync from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import winston from 'winston'
@@ -39,8 +40,22 @@ export class PluginManager {
 
   constructor(logger: winston.Logger) {
     this.logger = logger
-    // this.pluginsDir = path.join(__dirname, '../../../data/plugins')
-    this.pluginsDir = path.join(__dirname, '../../data/plugins')
+    const baseDir = process.cwd()
+    const possiblePaths = [
+      path.join(baseDir, 'data', 'plugins'),           // 打包后的路径
+      path.join(baseDir, 'server', 'data', 'plugins'), // 开发环境路径
+      path.join(__dirname, '../../data/plugins'),      // dist/modules/plugin -> data/plugins
+      path.join(__dirname, '../../../data/plugins')    // src/modules/plugin -> server/data/plugins
+    ]
+
+    this.pluginsDir = possiblePaths[0]
+    for (const possiblePath of possiblePaths) {
+      if (fsSync.existsSync(possiblePath)) {
+        this.pluginsDir = possiblePath
+        break
+      }
+    }
+
     this.initializePluginsDirectory()
   }
 

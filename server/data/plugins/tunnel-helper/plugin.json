@@ -1,0 +1,13 @@
+{
+  "name": "tunnel-helper",
+  "displayName": "内网穿透助手",
+  "description": "为任意游戏实例生成 frp 或 EasyTier 穿透配置，并创建独立的穿透实例。",
+  "version": "0.1.0",
+  "author": "GSM3 Community",
+  "enabled": false,
+  "hasWebInterface": true,
+  "entryPoint": "index.html",
+  "icon": "network",
+  "category": "工具",
+  "keywords": ["内网穿透", "frp", "EasyTier", "游戏联机"]
+}
