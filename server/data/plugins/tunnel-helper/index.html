@@ -181,6 +181,34 @@
       font-weight: 400;
     }
 
+    .input-action {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .input-action button {
+      min-width: 68px;
+    }
+
+    .help-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .tool-status.ok {
+      color: var(--success);
+    }
+
+    .tool-status.warn {
+      color: var(--warning);
+    }
+
+    .tool-status.error {
+      color: var(--danger);
+    }
+
     .segmented {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -443,7 +471,14 @@
           <h2>frp 参数</h2>
           <label>
             frpc 可执行文件
-            <input id="frpcPath" autocomplete="off" value="frpc" placeholder="frpc 或 C:\frp\frpc.exe">
+            <div class="input-action">
+              <input id="frpcPath" autocomplete="off" value="frpc" placeholder="frpc 或 C:\frp\frpc.exe">
+              <button class="secondary" id="checkFrpcButton" type="button">检测</button>
+            </div>
+            <span class="hint tool-status" id="frpcToolStatus">
+              需先在本机安装 frp 客户端，或填写 frpc.exe 绝对路径。
+              <a class="help-link" href="https://github.com/fatedier/frp/releases" target="_blank" rel="noreferrer">下载 frp</a>
+            </span>
           </label>
           <div class="grid">
             <label>
@@ -469,7 +504,14 @@
           <h2>EasyTier 参数</h2>
           <label>
             easytier-core 可执行文件
-            <input id="easyTierPath" autocomplete="off" value="easytier-core" placeholder="easytier-core 或 C:\EasyTier\easytier-core.exe">
+            <div class="input-action">
+              <input id="easyTierPath" autocomplete="off" value="easytier-core" placeholder="easytier-core 或 C:\EasyTier\easytier-core.exe">
+              <button class="secondary" id="checkEasyTierButton" type="button">检测</button>
+            </div>
+            <span class="hint tool-status" id="easyTierToolStatus">
+              需先在本机安装 EasyTier，或填写 easytier-core 绝对路径。
+              <a class="help-link" href="https://github.com/EasyTier/EasyTier/releases" target="_blank" rel="noreferrer">下载 EasyTier</a>
+            </span>
           </label>
           <div class="grid">
             <label>
@@ -595,6 +637,10 @@
       }
     }
 
+    function getErrorMessage(error) {
+      return error && error.message ? error.message : String(error || '未知错误')
+    }
+
     function applyPanelTheme() {
       let theme = ''
       try {
@@ -701,6 +747,104 @@
       return isWindows() ? `& ${quoted}` : quoted
     }
 
+    function executableLooksLikePath(executablePath) {
+      return /[\\/]/.test(executablePath) || /^[a-z]:/i.test(executablePath)
+    }
+
+    function executableMissingMessage(toolLabel, executablePath) {
+      return `未找到 ${toolLabel} 可执行文件：${executablePath}。请先安装客户端，或在插件中填写可执行文件绝对路径后重新保存实例。`
+    }
+
+    function buildExecutableCommand(executablePath, args, toolLabel) {
+      const command = `${commandPrefix(executablePath)} ${args.map(shellArg).join(' ')}`.trim()
+      const missingMessage = executableMissingMessage(toolLabel, executablePath)
+
+      if (isWindows()) {
+        const check = executableLooksLikePath(executablePath)
+          ? `Test-Path -LiteralPath ${psArg(executablePath)}`
+          : `Get-Command ${psArg(executablePath)} -ErrorAction SilentlyContinue`
+        return `if (${check}) { ${command} } else { Write-Error ${psArg(missingMessage)}; exit 1 }`
+      }
+
+      const check = executableLooksLikePath(executablePath)
+        ? `[ -x ${shArg(executablePath)} ]`
+        : `command -v ${shArg(executablePath)} >/dev/null 2>&1`
+      return `if ${check}; then ${command}; else echo ${shArg(missingMessage)} >&2; exit 1; fi`
+    }
+
+    function getToolDefinition(tool) {
+      if (tool === 'easytier') {
+        return {
+          inputId: 'easyTierPath',
+          statusId: 'easyTierToolStatus',
+          buttonId: 'checkEasyTierButton',
+          label: 'easytier-core'
+        }
+      }
+
+      return {
+        inputId: 'frpcPath',
+        statusId: 'frpcToolStatus',
+        buttonId: 'checkFrpcButton',
+        label: 'frpc'
+      }
+    }
+
+    function setToolStatus(tool, type, text) {
+      const definition = getToolDefinition(tool)
+      const status = $(definition.statusId)
+      status.className = `hint tool-status ${type || ''}`.trim()
+      status.textContent = text
+    }
+
+    async function checkToolAvailability(tool = state.mode, showPanelMessage = true) {
+      const definition = getToolDefinition(tool)
+      const executablePath = read(definition.inputId)
+      const button = $(definition.buttonId)
+
+      if (!executablePath) {
+        setToolStatus(tool, 'error', `请填写 ${definition.label} 可执行文件`)
+        return false
+      }
+
+      button.disabled = true
+      const originalText = button.textContent
+      button.textContent = '检测中...'
+
+      try {
+        const result = await window.gsm3.resolveExecutable(
+          executablePath,
+          state.lastPlan ? state.lastPlan.workingDirectory : ''
+        )
+        const data = result.data || result
+
+        if (data.found) {
+          setToolStatus(tool, 'ok', `已找到：${data.resolvedPath}`)
+          if (showPanelMessage) {
+            showMessage('success', `${definition.label} 可用`)
+          }
+          return true
+        }
+
+        const text = executableMissingMessage(definition.label, executablePath)
+        setToolStatus(tool, 'warn', text)
+        if (showPanelMessage) {
+          showMessage('warn', text)
+        }
+        return false
+      } catch (error) {
+        const text = `检测 ${definition.label} 失败：${getErrorMessage(error)}`
+        setToolStatus(tool, 'error', text)
+        if (showPanelMessage) {
+          showMessage('error', text)
+        }
+        return false
+      } finally {
+        button.disabled = false
+        button.textContent = originalText
+      }
+    }
+
     function parsePort(value, label) {
       const port = Number(value)
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -795,6 +939,7 @@
       $('frpFields').classList.toggle('hidden', mode !== 'frp')
       $('easyTierFields').classList.toggle('hidden', mode !== 'easytier')
       buildPlan(false)
+      checkToolAvailability(mode, false)
     }
 
     function buildFrpPlan(common) {
@@ -829,7 +974,7 @@
       )
 
       const configPath = `${common.dataDir}/frpc.toml`
-      const startCommand = `${commandPrefix(frpcPath)} -c ${shellArg('frpc.toml')}`
+      const startCommand = buildExecutableCommand(frpcPath, ['-c', 'frpc.toml'], 'frpc')
       const publicAddress = `${serverAddr}:${remotePort}`
 
       return {
@@ -876,7 +1021,7 @@
         args.push('-p', peer)
       }
 
-      const startCommand = `${commandPrefix(executablePath)} ${args.map(shellArg).join(' ')}`
+      const startCommand = buildExecutableCommand(executablePath, args, 'easytier-core')
       const publicAddress = virtualIpv4
         ? `${virtualIpv4}:${common.localPort}`
         : `EasyTier 虚拟 IP:${common.localPort}`
@@ -1283,6 +1428,8 @@
       $('previewButton').addEventListener('click', () => buildPlan(true))
       $('saveConfigButton').addEventListener('click', saveTunnelConfig)
       $('createButton').addEventListener('click', createTunnelInstance)
+      $('checkFrpcButton').addEventListener('click', () => checkToolAvailability('frp'))
+      $('checkEasyTierButton').addEventListener('click', () => checkToolAvailability('easytier'))
       $('modeFrp').addEventListener('click', () => setMode('frp'))
       $('modeEasyTier').addEventListener('click', () => setMode('easytier'))
       $('instanceSelect').addEventListener('change', () => {
@@ -1312,6 +1459,7 @@
       await loadInstances()
       await loadSavedConfigs()
       buildPlan(false)
+      checkToolAvailability(state.mode, false)
     }
 
     boot()

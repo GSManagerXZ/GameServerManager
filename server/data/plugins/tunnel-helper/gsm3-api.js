@@ -458,6 +458,18 @@ class GSM3API {
     })
   }
 
+  /**
+   * 检测可执行文件是否存在
+   * @param {string} executable 可执行文件名或路径
+   * @param {string} workingDirectory 相对路径解析用工作目录，可选
+   */
+  async resolveExecutable(executable, workingDirectory = '') {
+    return await this.request('/tools/resolve-executable', {
+      method: 'POST',
+      body: { executable, workingDirectory }
+    })
+  }
+
   // ==================== 通用API ====================
 
   /**

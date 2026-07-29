@@ -1,4 +1,7 @@
 import { Router, Request, Response } from 'express'
+import fs from 'fs/promises'
+import { constants as fsConstants } from 'fs'
+import path from 'path'
 import { authenticateToken } from '../middleware/auth.js'
 import type { InstanceManager } from '../modules/instance/InstanceManager.js'
 import type { SystemManager } from '../modules/system/SystemManager.js'
@@ -15,6 +18,83 @@ let instanceManager: InstanceManager
 let systemManager: SystemManager
 let terminalManager: TerminalManager
 let gameManager: GameManager
+
+const stripShellQuotes = (value: string): string => {
+  const trimmed = value.trim()
+  if (trimmed.length >= 2) {
+    const first = trimmed[0]
+    const last = trimmed[trimmed.length - 1]
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return trimmed.slice(1, -1)
+    }
+  }
+
+  return trimmed
+}
+
+const looksLikePath = (value: string): boolean => {
+  return value.includes('/') || value.includes('\\') || /^[A-Za-z]:/.test(value)
+}
+
+const getWindowsExecutableExtensions = (): string[] => {
+  const pathext = process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD'
+  return pathext
+    .split(';')
+    .map(ext => ext.trim())
+    .filter(Boolean)
+}
+
+const getExecutableCandidates = (executable: string, workingDirectory?: string): string[] => {
+  const command = stripShellQuotes(executable)
+  if (!command) return []
+
+  const candidates = new Set<string>()
+  const accessNames = process.platform === 'win32' && !path.extname(command)
+    ? [command, ...getWindowsExecutableExtensions().map(ext => `${command}${ext}`)]
+    : [command]
+
+  if (looksLikePath(command)) {
+    const baseDirectory = workingDirectory
+      ? path.resolve(stripShellQuotes(workingDirectory))
+      : process.cwd()
+
+    for (const accessName of accessNames) {
+      candidates.add(path.isAbsolute(accessName)
+        ? accessName
+        : path.resolve(baseDirectory, accessName))
+    }
+
+    return Array.from(candidates)
+  }
+
+  const pathEntries = (process.env.PATH || '')
+    .split(path.delimiter)
+    .map(entry => entry.trim())
+    .filter(Boolean)
+
+  for (const entry of pathEntries) {
+    for (const accessName of accessNames) {
+      candidates.add(path.join(entry, accessName))
+    }
+  }
+
+  return Array.from(candidates)
+}
+
+const findExecutable = async (executable: string, workingDirectory?: string): Promise<string | null> => {
+  const mode = process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK
+
+  for (const candidate of getExecutableCandidates(executable, workingDirectory)) {
+    try {
+      await fs.access(candidate, mode)
+      return candidate
+    } catch {
+      // 继续检查下一个候选路径
+    }
+  }
+
+  return null
+}
 
 export function setPluginApiDependencies(
   instManager: InstanceManager,
@@ -571,6 +651,49 @@ router.get('/games', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: '获取游戏列表失败',
+      error: error instanceof Error ? error.message : '未知错误'
+    })
+  }
+})
+
+// ==================== 工具检测API ====================
+
+router.post('/tools/resolve-executable', async (req: Request, res: Response) => {
+  try {
+    const { executable, workingDirectory } = req.body || {}
+
+    if (!executable || typeof executable !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: '缺少可执行文件参数'
+      })
+    }
+
+    if (executable.includes('\0') || (typeof workingDirectory === 'string' && workingDirectory.includes('\0'))) {
+      return res.status(400).json({
+        success: false,
+        message: '无效的路径参数'
+      })
+    }
+
+    const resolvedPath = await findExecutable(
+      executable,
+      typeof workingDirectory === 'string' ? workingDirectory : undefined
+    )
+
+    res.json({
+      success: true,
+      data: {
+        executable: stripShellQuotes(executable),
+        found: Boolean(resolvedPath),
+        resolvedPath
+      }
+    })
+  } catch (error) {
+    logger.error('插件检测可执行文件失败:', error)
+    res.status(500).json({
+      success: false,
+      message: '检测可执行文件失败',
       error: error instanceof Error ? error.message : '未知错误'
     })
   }

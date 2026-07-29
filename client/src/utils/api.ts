@@ -421,6 +421,16 @@ class ApiClient {
     return this.get('/files', { params: { path } })
   }
 
+  async resolveFilePath(path: string) {
+    return this.get<{
+      originalPath: string
+      resolvedPath: string
+      isAbsolute: boolean
+      exists: boolean
+      type?: 'file' | 'directory'
+    }>('/files/resolve-path', { params: { path } })
+  }
+
   async uploadFile(file: File, path: string) {
     const formData = new FormData()
     formData.append('file', file)
