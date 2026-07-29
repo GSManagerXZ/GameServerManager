@@ -335,7 +335,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
   
   return (
-    <div className={`min-h-screen relative ${wallpaperSettings.enabled ? '' : 'bg-game-gradient'}`}>
+    <div
+      className={`min-h-screen relative ${wallpaperSettings.enabled ? '' : 'bg-game-gradient'}`}
+      style={{ '--gsm-sidebar-offset': sidebarCollapsed ? '4rem' : '16rem' } as React.CSSProperties}
+    >
       {/* 背景壁纸 */}
       <WallpaperBackground />
       
