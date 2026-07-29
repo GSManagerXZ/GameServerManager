@@ -632,7 +632,7 @@ const PluginsPage: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm sm:p-4"
             onClick={() => {
               setShowPluginModal(false)
               setCurrentPluginContent('')
@@ -644,11 +644,11 @@ const PluginsPage: React.FC = () => {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
-              className="glass rounded-lg w-[90vw] h-[90vh] flex flex-col mx-4 border border-white/20 dark:border-gray-700/30"
+              className="glass flex h-[calc(100vh-1rem)] w-full max-w-[1600px] flex-col overflow-hidden rounded-lg border border-white/20 dark:border-gray-700/30 sm:h-[92vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center p-4 border-b border-white/10 dark:border-gray-700/30">
-                <h2 className="text-xl font-bold text-black dark:text-white">{currentPluginName}</h2>
+              <div className="flex items-center justify-between gap-3 border-b border-white/10 p-3 dark:border-gray-700/30 sm:p-4">
+                <h2 className="min-w-0 truncate text-lg font-bold text-black dark:text-white sm:text-xl">{currentPluginName}</h2>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
@@ -662,13 +662,13 @@ const PluginsPage: React.FC = () => {
                   <X className="w-6 h-6" />
                 </motion.button>
               </div>
-              <div className="flex-1 p-4">
+              <div className="min-h-0 flex-1 p-2 sm:p-4">
                 <motion.iframe
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.2 }}
                   srcDoc={currentPluginContent}
-                  className="w-full h-full border-0 rounded-lg bg-white dark:bg-gray-900"
+                  className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900 sm:rounded-lg"
                   sandbox="allow-scripts allow-same-origin allow-forms"
                   title={currentPluginName}
                 />
