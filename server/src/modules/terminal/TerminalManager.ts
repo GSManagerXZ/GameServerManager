@@ -208,6 +208,8 @@ export class TerminalManager {
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor'
       })
+      const shellLocaleEnvArgs = this.buildShellLocaleEnvArgs(terminalEnv)
+      const shellLocaleExport = this.buildShellLocaleExport(terminalEnv)
       
       // 根据操作系统设置默认shell
       if (os.platform() === 'win32') {
@@ -226,10 +228,7 @@ export class TerminalManager {
               args.push('-cmd', JSON.stringify([
                 'sudo', '-u', defaultUser,
                 'env',
-                'LANG=zh_CN.UTF-8',
-                'LANGUAGE=zh_CN:zh',
-                'LC_ALL=zh_CN.UTF-8',
-                'LC_CTYPE=zh_CN.UTF-8',
+                ...shellLocaleEnvArgs,
                 '/bin/bash', '-c',
                 `cd "${workingDirectory}" && exec /bin/bash --login`
               ]))
@@ -242,7 +241,7 @@ export class TerminalManager {
                 // 使用su命令切换用户，使用简化的方式
                 args.push('-cmd', JSON.stringify([
                   'su', defaultUser, '-c', 
-                  'export LANG=zh_CN.UTF-8 LANGUAGE=zh_CN:zh LC_ALL=zh_CN.UTF-8 LC_CTYPE=zh_CN.UTF-8; ' +
+                  `${shellLocaleExport}; ` +
                   `cd "${workingDirectory}" && exec /bin/bash --login`
                 ]))
                 this.logger.info(`使用su切换到默认用户启动终端: ${defaultUser}，工作目录: ${workingDirectory}`)
@@ -1510,6 +1509,37 @@ export class TerminalManager {
     }
     
     return controlChars[input] || null
+  }
+
+  private buildShellLocaleEnvArgs(env: NodeJS.ProcessEnv): string[] {
+    const keys = ['LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES']
+    const args = keys
+      .map(key => {
+        const value = env[key]
+        return value ? `${key}=${value}` : null
+      })
+      .filter((value): value is string => Boolean(value))
+
+    if (env.LANGUAGE) {
+      args.push(`LANGUAGE=${env.LANGUAGE}`)
+    }
+
+    return args
+  }
+
+  private buildShellLocaleExport(env: NodeJS.ProcessEnv): string {
+    return this.buildShellLocaleEnvArgs(env)
+      .map(entry => {
+        const separatorIndex = entry.indexOf('=')
+        const key = entry.slice(0, separatorIndex)
+        const value = entry.slice(separatorIndex + 1)
+        return `export ${key}=${this.quoteShellValue(value)}`
+      })
+      .join('; ')
+  }
+
+  private quoteShellValue(value: string): string {
+    return `'${value.replace(/'/g, "'\\''")}'`
   }
 
   /**

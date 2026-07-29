@@ -6,12 +6,16 @@ import os from 'os'
 import axios from 'axios'
 import http from 'http'
 import { fileURLToPath } from 'url'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { TerminalManager } from '../modules/terminal/TerminalManager.js'
 import { InstanceManager } from '../modules/instance/InstanceManager.js'
 import { SteamCMDManager } from '../modules/steamcmd/SteamCMDManager.js'
 import { ConfigManager } from '../modules/config/ConfigManager.js'
 import logger from '../utils/logger.js'
 import { authenticateToken } from '../middleware/auth.js'
+
+const execFileAsync = promisify(execFile)
 
 // 平台枚举
 enum Platform {
@@ -21,6 +25,12 @@ enum Platform {
 }
 
 type StartCommandConfig = string | Partial<Record<Platform, string>>
+
+interface LinuxSteamCMDRuntimeIssue {
+  message: string
+  fixCommands: string[]
+  missingLibraries?: string[]
+}
 
 // 游戏信息接口
 interface SteamGameInfo {
@@ -177,6 +187,89 @@ function redactSteamCMDCredentials(command: string): string {
   }
 
   return redactedTokens.join(' ')
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function getLinuxSteamCMDFixCommands(): string[] {
+  return [
+    'dpkg --add-architecture i386',
+    'apt update',
+    'apt install -y libc6:i386 libstdc++6:i386 libgcc-s1:i386'
+  ]
+}
+
+async function checkLinuxSteamCMDRuntime(steamcmdDir: string): Promise<LinuxSteamCMDRuntimeIssue | null> {
+  if (os.platform() !== 'linux') {
+    return null
+  }
+
+  const linux32Steamcmd = path.join(steamcmdDir, 'linux32', 'steamcmd')
+  if (!(await pathExists(linux32Steamcmd))) {
+    return {
+      message: 'SteamCMD 安装目录缺少 linux32/steamcmd，当前 Linux SteamCMD 安装可能不完整。请在设置中重新下载/更新 SteamCMD 后重试。',
+      fixCommands: []
+    }
+  }
+
+  const loaderCandidates = [
+    '/lib/ld-linux.so.2',
+    '/lib32/ld-linux.so.2',
+    '/lib/i386-linux-gnu/ld-linux.so.2',
+    '/usr/lib/i386-linux-gnu/ld-linux.so.2'
+  ]
+
+  let has32BitLoader = false
+  for (const candidate of loaderCandidates) {
+    if (await pathExists(candidate)) {
+      has32BitLoader = true
+      break
+    }
+  }
+
+  if (!has32BitLoader) {
+    return {
+      message: '当前 Linux 系统缺少 32 位 ELF loader，SteamCMD 会报 “linux32/steamcmd: cannot execute: required file not found”。请使用 root 或 sudo 安装 i386 运行时依赖后重试。',
+      fixCommands: getLinuxSteamCMDFixCommands()
+    }
+  }
+
+  try {
+    const { stdout, stderr } = await execFileAsync('ldd', [linux32Steamcmd], {
+      timeout: 5000,
+      maxBuffer: 1024 * 1024
+    })
+    const lddOutput = `${stdout}\n${stderr}`
+    const missingLibraries = Array.from(
+      new Set(
+        lddOutput
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => line.includes('not found'))
+          .map(line => line.split(/\s+/)[0])
+          .filter(Boolean)
+      )
+    )
+
+    if (missingLibraries.length > 0) {
+      return {
+        message: `SteamCMD 32 位运行库不完整，缺少：${missingLibraries.join(', ')}。请使用 root 或 sudo 安装 i386 运行时依赖后重试。`,
+        fixCommands: getLinuxSteamCMDFixCommands(),
+        missingLibraries
+      }
+    }
+  } catch (error: any) {
+    logger.warn('SteamCMD Linux runtime ldd 检测失败，继续安装流程:', error.message)
+  }
+
+  return null
 }
 
 const __filename = fileURLToPath(import.meta.url)
@@ -526,6 +619,19 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       
       // 获取SteamCMD所在目录作为工作目录
       const steamcmdDir = path.dirname(steamcmdPath)
+
+      const linuxRuntimeIssue = await checkLinuxSteamCMDRuntime(steamcmdDir)
+      if (linuxRuntimeIssue) {
+        return res.status(400).json({
+          success: false,
+          error: 'SteamCMD Linux运行环境不完整',
+          message: linuxRuntimeIssue.message,
+          data: {
+            fixCommands: linuxRuntimeIssue.fixCommands,
+            missingLibraries: linuxRuntimeIssue.missingLibraries
+          }
+        })
+      }
       
       // 创建虚拟socket用于终端会话
       const virtualSocket = {
