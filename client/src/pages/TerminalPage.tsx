@@ -59,7 +59,7 @@ const TerminalPage: React.FC = () => {
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   // 使用useRef来保存最新的sessions状态，避免重复注册事件监听器
   const sessionsRef = useRef<TerminalSession[]>([])
-  const urlParamProcessed = useRef(false)
+  const processedUrlParamKey = useRef<string | null>(null)
   const { addNotification } = useNotificationStore()
   
   // 检测移动端设备
@@ -380,10 +380,14 @@ const TerminalPage: React.FC = () => {
   
   // 切换终端会话
   const switchTerminalSession = useCallback((sessionId: string) => {
-    setSessions(prev => prev.map(s => ({
-      ...s,
-      active: s.id === sessionId
-    })))
+    setSessions(prev => {
+      const updated = prev.map(s => ({
+        ...s,
+        active: s.id === sessionId
+      }))
+      sessionsRef.current = updated
+      return updated
+    })
     setActiveSessionId(sessionId)
     
     // 延迟聚焦到切换的终端并调整大小
@@ -419,6 +423,107 @@ const TerminalPage: React.FC = () => {
       }
     }, 100)
   }, [])
+
+  const createAttachedTerminalSession = useCallback((sessionId: string, name: string): TerminalSession => {
+    const { cols, rows } = calculateTerminalSize()
+    const terminal = new Terminal({
+      cols,
+      rows,
+      theme: {
+        background: '#1a1a1a',
+        foreground: '#ffffff',
+        cursor: '#ffffff',
+        selectionBackground: '#ffffff30',
+        black: '#000000',
+        red: '#ff6b6b',
+        green: '#51cf66',
+        yellow: '#ffd43b',
+        blue: '#74c0fc',
+        magenta: '#f06292',
+        cyan: '#4dd0e1',
+        white: '#ffffff',
+        brightBlack: '#666666',
+        brightRed: '#ff8a80',
+        brightGreen: '#69f0ae',
+        brightYellow: '#ffff8d',
+        brightBlue: '#82b1ff',
+        brightMagenta: '#ff80ab',
+        brightCyan: '#84ffff',
+        brightWhite: '#ffffff'
+      },
+      fontFamily: 'JetBrains Mono, Fira Code, Consolas, Monaco, monospace',
+      fontSize: isMobile ? 12 : 14,
+      lineHeight: 1.2,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      scrollback: isMobile ? 500 : 1000,
+      tabStopWidth: 4,
+      allowTransparency: true,
+      disableStdin: false,
+      convertEol: true
+    })
+
+    const fitAddon = new FitAddon()
+    const webLinksAddon = new WebLinksAddon()
+    terminal.loadAddon(fitAddon)
+    terminal.loadAddon(webLinksAddon)
+
+    terminal.onData((data) => {
+      socketClient.sendTerminalInput(sessionId, data)
+    })
+
+    terminal.onResize(({ cols, rows }) => {
+      if (socketClient.isConnected()) {
+        socketClient.resizeTerminal(sessionId, cols, rows)
+      }
+    })
+
+    return {
+      id: sessionId,
+      name,
+      terminal,
+      fitAddon,
+      active: true
+    }
+  }, [calculateTerminalSize, isMobile])
+
+  const ensureTerminalSessionVisible = useCallback((sessionId: string, name: string) => {
+    const existingSession = sessionsRef.current.find(s => s.id === sessionId)
+    if (existingSession) {
+      switchTerminalSession(sessionId)
+      return
+    }
+
+    const attachedSession = createAttachedTerminalSession(sessionId, name)
+    setSessions(prev => {
+      const existingInState = prev.find(s => s.id === sessionId)
+      const updated = existingInState
+        ? prev.map(s => ({ ...s, active: s.id === sessionId }))
+        : [...prev.map(s => ({ ...s, active: false })), attachedSession]
+      sessionsRef.current = updated
+      return updated
+    })
+    setActiveSessionId(sessionId)
+  }, [createAttachedTerminalSession, switchTerminalSession])
+
+  const reconnectTerminalSession = useCallback((sessionId: string) => {
+    const reconnect = () => {
+      socketClient.emit('reconnect-session', { sessionId })
+
+      setTimeout(() => {
+        const { cols, rows } = calculateTerminalSize()
+        if (socketClient.isConnected()) {
+          socketClient.resizeTerminal(sessionId, cols, rows)
+        }
+      }, 300)
+    }
+
+    if (socketClient.isConnected()) {
+      reconnect()
+    } else {
+      socketClient.once('connect', reconnect)
+    }
+  }, [calculateTerminalSize])
   
   // 重命名终端会话
   const startRenaming = (sessionId: string, currentName: string) => {
@@ -647,6 +752,7 @@ const TerminalPage: React.FC = () => {
               }
             })
           
+            sessionsRef.current = newSessions
             setSessions(newSessions)
             setActiveSessionId(initialActiveId)
           
@@ -775,13 +881,29 @@ const TerminalPage: React.FC = () => {
   
   useEffect(() => {
     // 处理URL参数：cwd和instance
-    if (!sessionsLoaded || urlParamProcessed.current) {
+    if (!sessionsLoaded) {
       return
     }
 
     const cwd = searchParams.get('cwd')
     const instanceId = searchParams.get('instance')
     const sessionId = searchParams.get('sessionId')
+    const urlParamKey = sessionId
+      ? `session:${sessionId}`
+      : instanceId
+        ? `instance:${instanceId}`
+        : cwd
+          ? `cwd:${cwd}`
+          : null
+
+    if (!urlParamKey) {
+      processedUrlParamKey.current = null
+      return
+    }
+
+    if (processedUrlParamKey.current === urlParamKey) {
+      return
+    }
 
     if (sessionId) {
       // 如果有sessionId参数，直接查找对应的终端会话
@@ -790,6 +912,7 @@ const TerminalPage: React.FC = () => {
       if (targetSession) {
         // 如果找到对应的会话，切换到该会话
         switchTerminalSession(targetSession.id)
+        reconnectTerminalSession(targetSession.id)
         
         // 延迟调整终端大小，确保切换完成
         setTimeout(() => {
@@ -800,28 +923,18 @@ const TerminalPage: React.FC = () => {
           }
         }, 800)
       } else {
-        // 如果没有找到对应的会话，等待一段时间后再次查找
-        setTimeout(() => {
-          const delayedSession = sessionsRef.current.find(s => s.id === sessionId)
-          if (delayedSession) {
-            switchTerminalSession(delayedSession.id)
-            
-            // 延迟调整终端大小，确保切换完成
-            setTimeout(() => {
-              const { cols, rows } = calculateTerminalSize()
-              if (socketClient.isConnected()) {
-                console.log(`延迟切换到实例终端，调整大小为: ${cols}x${rows}`)
-                socketClient.resizeTerminal(delayedSession.id, cols, rows)
-              }
-            }, 300)
-          } else {
-            addNotification({
-              type: 'warning',
-              title: '终端会话未找到',
-              message: `指定的终端会话可能还在启动中，请稍后刷新页面`
-            })
-          }
-        }, 3000)
+        // 启动实例后，HTTP会话列表可能还没刷新到新会话。
+        // 先创建同ID的前端标签并重连，避免停留在旧的活动终端。
+        ensureTerminalSessionVisible(
+          sessionId,
+          instanceId ? `实例: ${instanceId}` : `终端 ${sessionId.slice(-8)}`
+        )
+        reconnectTerminalSession(sessionId)
+        addNotification({
+          type: 'info',
+          title: '正在连接实例终端',
+          message: `正在连接终端会话 ${sessionId}`
+        })
       }
     } else if (instanceId) {
       // 如果有instance参数，查找对应的终端会话
@@ -874,10 +987,20 @@ const TerminalPage: React.FC = () => {
       }, 100)
     }
     
-    urlParamProcessed.current = true
+    processedUrlParamKey.current = urlParamKey
     navigate('/terminal', { replace: true })
     
-  }, [sessionsLoaded, navigate, createTerminalSession, searchParams, switchTerminalSession])
+  }, [
+    sessionsLoaded,
+    navigate,
+    createTerminalSession,
+    searchParams,
+    switchTerminalSession,
+    ensureTerminalSessionVisible,
+    reconnectTerminalSession,
+    calculateTerminalSize,
+    addNotification
+  ])
 
   // 当活动会话改变时，挂载终端到DOM
   useEffect(() => {

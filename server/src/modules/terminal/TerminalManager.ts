@@ -294,16 +294,18 @@ export class TerminalManager {
       this.sessions.set(sessionId, session)
       
       // 持久化保存会话信息
-      this.sessionManager.saveSession({
-        id: sessionId,
-        name: sessionName,
-        workingDirectory,
-        createdAt: session.createdAt,
-        lastActivity: session.lastActivity,
-        isActive: true
-      }).catch(error => {
+      try {
+        await this.sessionManager.saveSession({
+          id: sessionId,
+          name: sessionName,
+          workingDirectory,
+          createdAt: session.createdAt,
+          lastActivity: session.lastActivity,
+          isActive: true
+        })
+      } catch (error) {
         this.logger.error(`保存会话到配置文件失败: ${sessionId}`, error)
-      })
+      }
       
       // 处理PTY输出
       ptyProcess.stdout?.on('data', (data: Buffer) => {
