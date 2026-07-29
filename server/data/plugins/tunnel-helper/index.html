@@ -581,7 +581,12 @@
       savedConfigs: [],
       selectedConfigPath: '',
       pendingDeletePath: '',
-      installingTool: ''
+      installingTool: '',
+      autoDefaults: {
+        profileName: { enabled: true, value: '' },
+        localPort: { enabled: true, value: '' },
+        remotePort: { enabled: true, value: '' }
+      }
     }
 
     let themeSyncTimer = null
@@ -1002,20 +1007,50 @@
       return ''
     }
 
+    function syncAutoDefaultField(id, nextValue) {
+      const field = state.autoDefaults[id]
+      if (!field) return
+
+      const element = $(id)
+      const currentValue = read(id)
+      const normalizedValue = String(nextValue || '')
+      const shouldUpdate = field.enabled || !currentValue || currentValue === field.value
+
+      field.value = normalizedValue
+      if (shouldUpdate) {
+        element.value = normalizedValue
+        field.enabled = true
+      }
+    }
+
+    function markAutoDefaultFieldInput(id) {
+      const field = state.autoDefaults[id]
+      if (!field) return
+
+      const currentValue = read(id)
+      field.enabled = !currentValue || currentValue === field.value
+    }
+
+    function markAutoDefaultFieldsManual(ids) {
+      for (const id of ids) {
+        const field = state.autoDefaults[id]
+        if (!field) continue
+        field.value = read(id)
+        field.enabled = false
+      }
+    }
+
     function updateInstanceMeta() {
       const instance = getSelectedInstance()
       $('instancePath').textContent = instance ? instance.workingDirectory || '-' : '-'
       $('instanceCommand').textContent = instance ? instance.startCommand || '-' : '-'
       $('instanceStatus').textContent = instance ? instance.status || '-' : '-'
 
-      if (instance && !read('profileName')) {
-        $('profileName').value = sanitizeSlug(instance.name || 'game')
-      }
-
-      if (instance && !read('localPort')) {
-        const guessed = guessPort(instance)
-        if (guessed) $('localPort').value = guessed
-      }
+      const profileName = instance ? sanitizeSlug(instance.name || 'game') : ''
+      const guessedPort = instance ? guessPort(instance) : ''
+      syncAutoDefaultField('profileName', profileName)
+      syncAutoDefaultField('localPort', guessedPort)
+      syncAutoDefaultField('remotePort', guessedPort)
     }
 
     async function loadSystemInfo() {
@@ -1450,6 +1485,7 @@
       $('localAddress').value = config.localAddress || '127.0.0.1'
       $('localPort').value = config.localPort || ''
       $('protocol').value = config.protocol || 'tcp'
+      markAutoDefaultFieldsManual(['profileName', 'localPort', 'remotePort'])
 
       if (String(config.tool || '').toLowerCase() === 'easytier') {
         setMode('easytier')
@@ -1584,8 +1620,14 @@
       for (const id of fields) {
         const element = $(id)
         if (!element) continue
-        element.addEventListener('input', () => buildPlan(false))
-        element.addEventListener('change', () => buildPlan(false))
+        element.addEventListener('input', () => {
+          markAutoDefaultFieldInput(id)
+          buildPlan(false)
+        })
+        element.addEventListener('change', () => {
+          markAutoDefaultFieldInput(id)
+          buildPlan(false)
+        })
       }
     }
 
