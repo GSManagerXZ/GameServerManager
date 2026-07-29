@@ -4,10 +4,9 @@
   "description": "为任意游戏实例生成 frp 或 EasyTier 穿透配置，并创建独立的穿透实例。",
   "version": "0.1.0",
   "author": "GSM3 Community",
-  "enabled": false,
+  "enabled": true,
   "hasWebInterface": true,
   "entryPoint": "index.html",
   "icon": "network",
-  "category": "工具",
-  "keywords": ["内网穿透", "frp", "EasyTier", "游戏联机"]
+  "category": "工具"
 }

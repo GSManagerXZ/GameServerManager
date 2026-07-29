@@ -502,13 +502,13 @@ const PluginsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center space-x-1">
-                {plugin.enabled ? (
-                  <div className="w-2 h-2 bg-green-500 rounded-full" title="已启用" />
-                ) : (
-                  <div className="w-2 h-2 bg-gray-400 rounded-full" title="已禁用" />
-                )}
-              </div>
+              <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                plugin.enabled
+                  ? 'bg-green-500/20 text-green-700 dark:text-green-300'
+                  : 'bg-gray-500/20 text-gray-600 dark:text-gray-300'
+              }`}>
+                {plugin.enabled ? '已启用' : '已禁用'}
+              </span>
             </div>
 
             {/* 插件信息 */}
@@ -534,10 +534,10 @@ const PluginsPage: React.FC = () => {
             <div className="flex items-center justify-between pt-4 border-t border-white/10 dark:border-gray-700/30">
               <div className="flex items-center space-x-2">
                 <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={() => handleTogglePlugin(plugin)}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     plugin.enabled
                       ? 'bg-green-500/20 text-green-600 hover:bg-green-500/30'
                       : 'bg-gray-500/20 text-gray-600 hover:bg-gray-500/30'
@@ -545,16 +545,23 @@ const PluginsPage: React.FC = () => {
                   title={plugin.enabled ? '禁用插件' : '启用插件'}
                 >
                   {plugin.enabled ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
+                  <span>{plugin.enabled ? '禁用' : '启用'}</span>
                 </motion.button>
-                {plugin.hasWebInterface && plugin.enabled && (
+                {plugin.hasWebInterface && (
                   <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: plugin.enabled ? 1.02 : 1 }}
+                    whileTap={{ scale: plugin.enabled ? 0.98 : 1 }}
                     onClick={() => handleOpenPlugin(plugin)}
-                    className="p-2 bg-blue-500/20 text-blue-600 rounded-lg hover:bg-blue-500/30 transition-colors"
-                    title="打开插件"
+                    disabled={!plugin.enabled}
+                    className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      plugin.enabled
+                        ? 'bg-blue-500/20 text-blue-600 hover:bg-blue-500/30'
+                        : 'bg-gray-500/10 text-gray-400 cursor-not-allowed'
+                    }`}
+                    title={plugin.enabled ? '打开插件' : '启用后可打开插件'}
                   >
                     <ExternalLink className="w-4 h-4" />
+                    <span>打开</span>
                   </motion.button>
                 )}
               </div>

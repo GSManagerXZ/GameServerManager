@@ -437,10 +437,22 @@
     ]
 
     const read = (id) => $(id).value.trim()
+    const selectedInstanceLooksWindows = () => {
+      const instance = getSelectedInstance()
+      const workingDirectory = String(instance && instance.workingDirectory || '')
+      const startCommand = String(instance && instance.startCommand || '')
+      return /^[a-z]:[\\/]/i.test(workingDirectory) ||
+        workingDirectory.includes('\\') ||
+        startCommand.includes('.\\') ||
+        /\.exe\b/i.test(startCommand)
+    }
+
     const isWindows = () => {
       const raw = state.systemInfo && state.systemInfo.rawPlatform
       const platform = state.systemInfo && state.systemInfo.platform
-      return raw === 'win32' || String(platform || '').toLowerCase().includes('windows')
+      return raw === 'win32' ||
+        String(platform || '').toLowerCase().includes('windows') ||
+        selectedInstanceLooksWindows()
     }
 
     function showMessage(type, text) {
@@ -461,6 +473,12 @@
       if (Array.isArray(result.data)) return result.data
       if (result.data && Array.isArray(result.data.instances)) return result.data.instances
       return []
+    }
+
+    function notify(type, message) {
+      if (window.gsm3 && typeof window.gsm3.showNotification === 'function') {
+        window.gsm3.showNotification(type, message)
+      }
     }
 
     function sanitizeSlug(value) {
@@ -546,8 +564,11 @@
       }
     }
 
-    async function loadInstances() {
-      clearMessage()
+    async function loadInstances(options = {}) {
+      const { showLoadedMessage = true, selectedInstanceId = read('instanceSelect') } = options
+      if (showLoadedMessage) {
+        clearMessage()
+      }
       $('instanceSelect').innerHTML = '<option value="">加载中...</option>'
       try {
         const result = await window.gsm3.getInstances()
@@ -568,11 +589,14 @@
           const option = document.createElement('option')
           option.value = instance.id
           option.textContent = `${instance.name} (${instance.status || 'unknown'})`
+          option.selected = instance.id === selectedInstanceId
           $('instanceSelect').appendChild(option)
         }
 
         updateInstanceMeta()
-        showMessage('success', `已加载 ${gameInstances.length} 个游戏实例`)
+        if (showLoadedMessage) {
+          showMessage('success', `已加载 ${gameInstances.length} 个游戏实例`)
+        }
       } catch (error) {
         $('instanceSelect').innerHTML = '<option value="">加载失败</option>'
         showMessage('error', `获取实例列表失败：${error.message}`)
@@ -768,13 +792,23 @@
       const plan = buildPlan(true)
       if (!plan) return
 
+      const tunnelName = `穿透-${plan.profile}`
+      const existingTunnel = state.instances.find(instance => instance.name === tunnelName)
+      if (existingTunnel) {
+        showMessage('warn', `已存在同名穿透实例：${tunnelName}，可到实例管理中启动或删除后重新创建`)
+        notify('warning', `已存在同名穿透实例：${tunnelName}`)
+        return
+      }
+
       $('createButton').disabled = true
+      const originalButtonText = $('createButton').textContent
+      $('createButton').textContent = '创建中...'
       try {
         await window.gsm3.writeFile(plan.configPath, plan.configContent, 'utf-8')
         await window.gsm3.writeFile(`${plan.dataDir}/manifest.json`, JSON.stringify(buildManifest(plan), null, 2), 'utf-8')
 
         const result = await window.gsm3.createInstance({
-          name: `穿透-${plan.profile}`,
+          name: tunnelName,
           description: plan.instanceDescription,
           workingDirectory: plan.workingDirectory,
           startCommand: plan.startCommand,
@@ -783,12 +817,16 @@
         })
 
         const created = result.data || result
-        showMessage('success', `穿透实例已创建：${created.name || `穿透-${plan.profile}`}`)
-        await loadInstances()
+        await loadInstances({ showLoadedMessage: false, selectedInstanceId: plan.instance.id })
+        const createdName = created.name || tunnelName
+        showMessage('success', `穿透实例已创建：${createdName}。请到实例管理中启动该实例`)
+        notify('success', `穿透实例已创建：${createdName}`)
       } catch (error) {
         showMessage('error', `创建穿透实例失败：${error.message}`)
+        notify('error', `创建穿透实例失败：${error.message}`)
       } finally {
         $('createButton').disabled = false
+        $('createButton').textContent = originalButtonText
       }
     }
 

@@ -29,8 +29,10 @@ favorites.json
 server/data/environment
 server/data/wallpapers/
 server/data/lib/
+server/data/tunnels/
 data/wallpapers/
 data/lib/
+data/tunnels/
 
 
 dist/
