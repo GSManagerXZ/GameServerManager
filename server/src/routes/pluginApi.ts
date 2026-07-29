@@ -254,6 +254,10 @@ const getTunnelToolsRoot = (): string => {
   return path.resolve(process.cwd(), 'data', 'tools', 'tunnel-helper')
 }
 
+const getPluginDataRoot = (): string => {
+  return path.resolve(process.cwd(), 'data')
+}
+
 const assertInsideDirectory = (targetPath: string, rootPath: string): void => {
   const resolvedTarget = path.resolve(targetPath)
   const resolvedRoot = path.resolve(rootPath)
@@ -262,6 +266,25 @@ const assertInsideDirectory = (targetPath: string, rootPath: string): void => {
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error(`路径超出允许范围: ${targetPath}`)
   }
+}
+
+const resolvePluginDataPath = (dataPath: string): string => {
+  if (!dataPath || typeof dataPath !== 'string') {
+    throw new Error('缺少 dataPath')
+  }
+
+  if (dataPath.includes('\0')) {
+    throw new Error('无效的路径')
+  }
+
+  if (path.isAbsolute(dataPath)) {
+    throw new Error('dataPath 必须是相对 data 目录的路径')
+  }
+
+  const dataRoot = getPluginDataRoot()
+  const resolvedPath = path.resolve(dataRoot, dataPath)
+  assertInsideDirectory(resolvedPath, dataRoot)
+  return resolvedPath
 }
 
 const requestJson = async <T>(url: string): Promise<T> => {
@@ -1263,6 +1286,29 @@ router.post('/tools/resolve-executable', async (req: Request, res: Response) => 
     res.status(500).json({
       success: false,
       message: '检测可执行文件失败',
+      error: error instanceof Error ? error.message : '未知错误'
+    })
+  }
+})
+
+router.post('/tools/resolve-data-path', async (req: Request, res: Response) => {
+  const { dataPath } = req.body || {}
+
+  try {
+    const absolutePath = resolvePluginDataPath(String(dataPath || ''))
+
+    res.json({
+      success: true,
+      data: {
+        dataPath,
+        absolutePath
+      }
+    })
+  } catch (error) {
+    logger.error('插件解析 data 路径失败:', error)
+    res.status(400).json({
+      success: false,
+      message: '解析 data 路径失败',
       error: error instanceof Error ? error.message : '未知错误'
     })
   }

@@ -471,6 +471,17 @@ class GSM3API {
   }
 
   /**
+   * 将相对服务器data目录的路径解析为绝对路径
+   * @param {string} dataPath 相对服务器data目录的路径
+   */
+  async resolveDataPath(dataPath) {
+    return await this.request('/tools/resolve-data-path', {
+      method: 'POST',
+      body: { dataPath }
+    })
+  }
+
+  /**
    * 下载并安装穿透工具，返回SSE响应流
    * @param {'frp'|'easytier'} tool 工具名称
    */

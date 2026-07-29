@@ -766,13 +766,13 @@
         const check = executableLooksLikePath(executablePath)
           ? `Test-Path -LiteralPath ${psArg(executablePath)}`
           : `Get-Command ${psArg(executablePath)} -ErrorAction SilentlyContinue`
-        return `if (${check}) { ${command} } else { Write-Error ${psArg(missingMessage)}; exit 1 }`
+        return `if (${check}) { ${command} } else { Write-Error ${psArg(missingMessage)} }`
       }
 
       const check = executableLooksLikePath(executablePath)
         ? `[ -x ${shArg(executablePath)} ]`
         : `command -v ${shArg(executablePath)} >/dev/null 2>&1`
-      return `if ${check}; then ${command}; else echo ${shArg(missingMessage)} >&2; exit 1; fi`
+      return `if ${check}; then ${command}; else echo ${shArg(missingMessage)} >&2; false; fi`
     }
 
     function getToolDefinition(tool) {
@@ -1267,6 +1267,13 @@
       await window.gsm3.writeFile(`${plan.dataDir}/manifest.json`, JSON.stringify(buildManifest(plan, existingManifest), null, 2), 'utf-8')
     }
 
+    async function resolveTunnelWorkingDirectory(plan) {
+      const result = await window.gsm3.resolveDataPath(plan.dataDir)
+      return result && result.data && result.data.absolutePath
+        ? result.data.absolutePath
+        : plan.workingDirectory
+    }
+
     async function readJsonFile(filePath) {
       const result = await window.gsm3.readFile(filePath, 'utf-8')
       const content = result && result.data ? result.data.content : ''
@@ -1520,36 +1527,37 @@
 
       const tunnelName = `穿透-${plan.profile}`
       const existingTunnel = state.instances.find(instance => instance.name === tunnelName)
-      if (existingTunnel) {
-        showMessage('warn', `已存在同名穿透实例：${tunnelName}，可到实例管理中启动或删除后重新创建`)
-        notify('warning', `已存在同名穿透实例：${tunnelName}`)
-        return
-      }
 
       $('createButton').disabled = true
       const originalButtonText = $('createButton').textContent
-      $('createButton').textContent = '创建中...'
+      $('createButton').textContent = existingTunnel ? '更新中...' : '创建中...'
       try {
         await writeTunnelFiles(plan)
+        const workingDirectory = await resolveTunnelWorkingDirectory(plan)
 
-        const result = await window.gsm3.createInstance({
+        const instancePayload = {
           name: tunnelName,
           description: plan.instanceDescription,
-          workingDirectory: plan.workingDirectory,
+          workingDirectory,
           startCommand: plan.startCommand,
           stopCommand: 'ctrl+c',
           autoStart: false
-        })
+        }
+
+        const result = existingTunnel
+          ? await window.gsm3.updateInstance(existingTunnel.id, instancePayload)
+          : await window.gsm3.createInstance(instancePayload)
 
         const created = result.data || result
         await loadInstances({ showLoadedMessage: false, selectedInstanceId: plan.instance.id })
         const createdName = created.name || tunnelName
-        showMessage('success', `穿透实例已创建：${createdName}。请到实例管理中启动该实例`)
-        notify('success', `穿透实例已创建：${createdName}`)
+        const actionText = existingTunnel ? '已更新' : '已创建'
+        showMessage('success', `穿透实例${actionText}：${createdName}。请到实例管理中启动该实例`)
+        notify('success', `穿透实例${actionText}：${createdName}`)
         await loadSavedConfigs()
       } catch (error) {
-        showMessage('error', `创建穿透实例失败：${error.message}`)
-        notify('error', `创建穿透实例失败：${error.message}`)
+        showMessage('error', `保存穿透实例失败：${error.message}`)
+        notify('error', `保存穿透实例失败：${error.message}`)
       } finally {
         $('createButton').disabled = false
         $('createButton').textContent = originalButtonText
