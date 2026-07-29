@@ -41,6 +41,7 @@ interface GameInfo {
   url: string
   docs?: string
   system?: string[]
+  login_anonymous?: boolean
   supportedOnCurrentPlatform?: boolean
   currentPlatform?: string
   panelCompatibleOnCurrentPlatform?: boolean
@@ -2553,7 +2554,7 @@ const GameDeploymentPage: React.FC = () => {
         : `app_update ${selectedGame.info.appid}`
 
       // force_install_dir 必须在 login 之前，否则 SteamCMD 会报错
-      const fullCommand = `steamcmd +${forceInstallDir} +${loginCommand} +${appUpdateCommand} +quit`
+      const fullCommand = `+${forceInstallDir} +${loginCommand} +${appUpdateCommand} +quit`
       setSteamcmdCommand(fullCommand)
     }
   }, [showInstallModal, selectedGame, useAnonymous, steamUsername, steamPassword, validateGameIntegrity, installPath])
@@ -2628,6 +2629,12 @@ const GameDeploymentPage: React.FC = () => {
   // 打开安装对话框的通用函数
   const openInstallModal = async (gameKey: string, gameInfo: GameInfo) => {
     const defaultInstanceName = gameInfo.game_nameCN
+    const shouldUseAnonymous = gameInfo.login_anonymous !== false
+    setUseAnonymous(shouldUseAnonymous)
+    if (shouldUseAnonymous) {
+      setSteamUsername('')
+      setSteamPassword('')
+    }
     
     // 检查是否存在同名实例
     try {
@@ -5844,18 +5851,18 @@ const GameDeploymentPage: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        SteamCMD 安装命令
+                        SteamCMD 安装参数
                       </label>
                       <textarea
                         value={steamcmdCommand}
                         onChange={(e) => setSteamcmdCommand(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-                        placeholder="SteamCMD 命令将在这里显示，您可以修改后执行"
+                        placeholder="SteamCMD 安装参数将在这里显示，您可以修改后执行"
                         rows={4}
                         readOnly={false}
                       />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        您可以修改此命令来自定义安装参数，修改后的命令将用于实际安装
+                        面板会自动调用已配置的 steamcmd.exe 或 steamcmd.sh，请只保留 +force_install_dir、+login、+app_update 等参数
                       </p>
                     </div>
                   </div>

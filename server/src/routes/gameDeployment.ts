@@ -20,6 +20,8 @@ enum Platform {
   MacOS = 'MacOS'
 }
 
+type StartCommandConfig = string | Partial<Record<Platform, string>>
+
 // 游戏信息接口
 interface SteamGameInfo {
   game_nameCN: string
@@ -29,6 +31,8 @@ interface SteamGameInfo {
   url: string
   system?: Platform[]
   system_info?: Platform[]  // 面板兼容的系统列表
+  login_anonymous?: boolean
+  start_command?: StartCommandConfig
 }
 
 // 获取当前平台
@@ -66,6 +70,69 @@ function isPanelCompatibleOnCurrentPlatform(game: SteamGameInfo): boolean {
   
   const currentPlatform = getCurrentPlatform()
   return game.system_info.includes(currentPlatform)
+}
+
+function getInstallGamePaths(): string[] {
+  const baseDir = process.cwd()
+  return [
+    path.join(baseDir, 'data', 'games', 'installgame.json'),           // 打包后的路径
+    path.join(baseDir, 'server', 'data', 'games', 'installgame.json'), // 开发环境路径
+  ]
+}
+
+async function getInstallGameFilePath(): Promise<string | null> {
+  for (const possiblePath of getInstallGamePaths()) {
+    try {
+      await fs.access(possiblePath)
+      return possiblePath
+    } catch {
+      // 继续尝试下一个路径
+    }
+  }
+
+  return null
+}
+
+async function getInstallGameInfo(gameKey: string): Promise<SteamGameInfo | null> {
+  const gamesFilePath = await getInstallGameFilePath()
+  if (!gamesFilePath) {
+    return null
+  }
+
+  const gamesData = await fs.readFile(gamesFilePath, 'utf-8')
+  const allGames: { [key: string]: SteamGameInfo } = JSON.parse(gamesData)
+  return allGames[gameKey] || null
+}
+
+function resolvePlatformStartCommand(startCommand?: StartCommandConfig): string | null {
+  if (!startCommand) {
+    return null
+  }
+
+  if (typeof startCommand === 'string') {
+    return startCommand.trim() || null
+  }
+
+  const currentPlatform = getCurrentPlatform()
+  return (
+    startCommand[currentPlatform] ||
+    startCommand[Platform.Linux] ||
+    startCommand[Platform.Windows] ||
+    startCommand[Platform.MacOS] ||
+    null
+  )
+}
+
+async function getLocalStartCommandForGame(gameKey: string): Promise<string | null> {
+  const gameInfo = await getInstallGameInfo(gameKey)
+  return resolvePlatformStartCommand(gameInfo?.start_command)
+}
+
+function normalizeSteamCMDArguments(command: string): string {
+  return command
+    .trim()
+    .replace(/^(?:"[^"]*[\\/]?steamcmd(?:\.exe|\.sh)?"|(?:[a-z]:)?[^\s"]*[\\/]steamcmd(?:\.exe|\.sh)?|steamcmd(?:\.exe|\.sh)?)(?:\s+|$)/i, '')
+    .trim()
 }
 
 const __filename = fileURLToPath(import.meta.url)
@@ -322,6 +389,15 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       })
     }
 
+    const steamcmdArgs = normalizeSteamCMDArguments(steamcmdCommand)
+    if (!steamcmdArgs) {
+      return res.status(400).json({
+        success: false,
+        error: 'SteamCMD命令无效',
+        message: 'SteamCMD命令必须包含 force_install_dir、login、app_update 等参数'
+      })
+    }
+
     // 检查安装路径是否存在
     try {
       await fs.access(installPath)
@@ -387,7 +463,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
     logger.info(`开始安装游戏: ${gameName || gameKey}`, {
       installPath,
       appId,
-      command: steamcmdCommand,
+      command: steamcmdArgs,
       resetSteamManifest: resetSteamManifest || false
     })
     
@@ -434,16 +510,16 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       
       if (platform === 'win32') {
         steamcmdExecutable = '.\\steamcmd.exe'
-        fullCommand = `${steamcmdExecutable} ${steamcmdCommand}`
+        fullCommand = `${steamcmdExecutable} ${steamcmdArgs}`
       } else {
         // Linux环境下确保使用root用户权限执行SteamCMD
         steamcmdExecutable = './steamcmd.sh'
         // 检查当前用户是否为root，如果不是则使用sudo
         const currentUser = process.env.USER || process.env.USERNAME || 'unknown'
         if (currentUser === 'root') {
-          fullCommand = `${steamcmdExecutable} ${steamcmdCommand}`
+          fullCommand = `${steamcmdExecutable} ${steamcmdArgs}`
         } else {
-          fullCommand = `sudo -u root ${steamcmdExecutable} ${steamcmdCommand}`
+          fullCommand = `sudo -u root ${steamcmdExecutable} ${steamcmdArgs}`
         }
       }
       
@@ -550,11 +626,19 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
                 startCommand = matchedInstance.command
                 logger.info(`从实例市场找到匹配的启动命令: ${gameNameToMatch} -> ${startCommand}`)
               } else {
-                logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，使用默认启动命令`)
+                logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，尝试使用本地清单启动命令`)
               }
             }
           } catch (error: any) {
-            logger.warn('查询实例市场失败，使用默认启动命令:', error.message)
+            logger.warn('查询实例市场失败，尝试使用本地清单启动命令:', error.message)
+          }
+
+          if (startCommand === 'none') {
+            const localStartCommand = await getLocalStartCommandForGame(gameKey)
+            if (localStartCommand) {
+              startCommand = localStartCommand
+              logger.info(`使用本地清单启动命令: ${gameKey} -> ${startCommand}`)
+            }
           }
           
           // 更新实例信息
@@ -657,11 +741,19 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
               startCommand = matchedInstance.command
               logger.info(`从实例市场找到匹配的启动命令: ${gameNameToMatch} -> ${startCommand}`)
             } else {
-              logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，使用默认启动命令`)
+              logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，尝试使用本地清单启动命令`)
             }
           }
         } catch (error: any) {
-          logger.warn('查询实例市场失败，使用默认启动命令:', error.message)
+          logger.warn('查询实例市场失败，尝试使用本地清单启动命令:', error.message)
+        }
+
+        if (startCommand === 'none') {
+          const localStartCommand = await getLocalStartCommandForGame(gameKey)
+          if (localStartCommand) {
+            startCommand = localStartCommand
+            logger.info(`使用本地清单启动命令: ${gameKey} -> ${startCommand}`)
+          }
         }
         
         // 创建实例（在安装开始时就创建，而不是等安装完成）

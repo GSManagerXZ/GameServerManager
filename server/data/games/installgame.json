@@ -168,15 +168,19 @@
   },
   "Terraria": {
     "game_nameCN": "泰拉瑞亚",
-    "appid": "105610",
-    "tip": "默认端口：7777 TCP。建议创建实例时使用 serverconfig.txt 启动，例如 Linux 使用 ./TerrariaServer.bin.x86_64 -config serverconfig.txt，Windows 使用 .\\TerrariaServer.exe -config serverconfig.txt，可避免首次启动进入交互式配置流程。",
+    "appid": "105600",
+    "tip": "默认端口：7777 TCP。SteamCMD 安装需要使用已拥有 Terraria 的 Steam 账号登录。建议创建实例时使用 serverconfig.txt 启动，例如 Linux 使用 ./TerrariaServer.bin.x86_64 -config serverconfig.txt，Windows 使用 .\\TerrariaServer.exe -config serverconfig.txt，可避免首次启动进入交互式配置流程。",
     "image": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/105600/header.jpg",
     "url": "https://store.steampowered.com/app/105600/Terraria/",
     "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%B3%B0%E6%8B%89%E7%91%9E%E4%BA%9A%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
+    "login_anonymous": false,
+    "start_command": {
+      "Windows": ".\\TerrariaServer.exe -config serverconfig.txt",
+      "Linux": "./TerrariaServer.bin.x86_64 -config serverconfig.txt"
+    },
     "system": [
       "Windows",
-      "Linux",
-      "MacOS"
+      "Linux"
     ],
     "ports": [
       {
