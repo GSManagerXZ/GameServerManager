@@ -156,6 +156,13 @@ const fixWindowsPath = (filePath: string): string => {
   return decodedPath
 }
 
+const resolveFilesystemPath = (filePath: string): string => {
+  const fixedPath = fixWindowsPath(filePath)
+  return path.isAbsolute(fixedPath)
+    ? fixedPath
+    : path.resolve(process.cwd(), fixedPath)
+}
+
 type BomEncoding = 'utf-8' | 'utf-16le' | 'utf-16be' | null
 
 const normalizeTextEncoding = (encoding?: string | null): string => {
@@ -300,6 +307,58 @@ const prependEncodingBom = (buffer: Buffer, encoding: string, bomEncoding: BomEn
 
   return buffer
 }
+
+// 将实例工作目录等相对路径解析为文件管理器可打开的绝对路径
+router.get('/resolve-path', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { path: rawPath } = req.query
+
+    if (!rawPath || typeof rawPath !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: '缺少路径参数'
+      })
+    }
+
+    if (rawPath.includes('\0')) {
+      return res.status(400).json({
+        success: false,
+        message: '无效的路径'
+      })
+    }
+
+    const fixedPath = fixWindowsPath(rawPath)
+    const resolvedPath = resolveFilesystemPath(rawPath)
+    let exists = false
+    let type: 'file' | 'directory' | undefined
+
+    try {
+      const stats = await fs.stat(resolvedPath)
+      exists = true
+      type = stats.isDirectory() ? 'directory' : 'file'
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') {
+        throw error
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        originalPath: rawPath,
+        resolvedPath,
+        isAbsolute: path.isAbsolute(fixedPath),
+        exists,
+        type
+      }
+    })
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || '路径解析失败'
+    })
+  }
+})
 
 // 获取目录列表
 router.get('/list', authenticateToken, async (req: Request, res: Response) => {

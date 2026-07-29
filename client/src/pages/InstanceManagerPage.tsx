@@ -1031,13 +1031,26 @@ const InstanceManagerPage: React.FC = () => {
   }
 
   // 打开文件目录
-  const handleOpenDirectory = (instance: Instance) => {
-    navigate(`/files?path=${encodeURIComponent(instance.workingDirectory)}`)
-    addNotification({
-      type: 'success',
-      title: '跳转成功',
-      message: `已打开 "${instance.name}" 的工作目录`
-    })
+  const handleOpenDirectory = async (instance: Instance) => {
+    try {
+      const response = await apiClient.resolveFilePath(instance.workingDirectory)
+      const targetPath = response.data?.resolvedPath || instance.workingDirectory
+      navigate(`/files?path=${encodeURIComponent(targetPath)}`)
+      addNotification({
+        type: response.data?.exists === false ? 'warning' : 'success',
+        title: response.data?.exists === false ? '路径不存在' : '跳转成功',
+        message: response.data?.exists === false
+          ? `已跳转到解析后的路径，但目录不存在：${targetPath}`
+          : `已打开 "${instance.name}" 的工作目录`
+      })
+    } catch (error: any) {
+      navigate(`/files?path=${encodeURIComponent(instance.workingDirectory)}`)
+      addNotification({
+        type: 'warning',
+        title: '路径解析失败',
+        message: error.message || '已使用原始工作目录跳转'
+      })
+    }
   }
 
   // 重置表单

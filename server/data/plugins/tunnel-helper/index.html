@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>内网穿透助手</title>
+  <script src="gsm3-api.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f1f5f9;
+      --border: #d8dee8;
+      --text: #162033;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-strong: #1d4ed8;
+      --success: #15803d;
+      --danger: #b91c1c;
+      --warning: #a16207;
+      --code: #0f172a;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-soft: #1f2937;
+      --border: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-strong: #60a5fa;
+      --success: #22c55e;
+      --danger: #f87171;
+      --warning: #facc15;
+      --code: #020617;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --panel-soft: #1f2937;
+        --border: #334155;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-strong: #60a5fa;
+        --success: #22c55e;
+        --danger: #f87171;
+        --warning: #facc15;
+        --code: #020617;
+      }
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f1f5f9;
+      --border: #d8dee8;
+      --text: #162033;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-strong: #1d4ed8;
+      --success: #15803d;
+      --danger: #b91c1c;
+      --warning: #a16207;
+      --code: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 17px;
+      line-height: 1.3;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 118px;
+      resize: vertical;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .input-action {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+    }
+
+    .input-action button {
+      min-width: 68px;
+    }
+
+    .help-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .tool-status.ok {
+      color: var(--success);
+    }
+
+    .tool-status.warn {
+      color: var(--warning);
+    }
+
+    .tool-status.error {
+      color: var(--danger);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .segment {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      cursor: pointer;
+      background: var(--panel);
+      color: var(--text);
+      text-align: left;
+    }
+
+    .segment.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgb(37 99 235 / 14%);
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    button.secondary {
+      background: var(--panel-soft);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--primary-strong);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: var(--border);
+    }
+
+    button.danger:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--danger), #000 14%);
+    }
+
+    .message {
+      display: none;
+      border-radius: 6px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message.success {
+      border-color: color-mix(in srgb, var(--success), transparent 58%);
+      color: var(--success);
+    }
+
+    .message.error {
+      border-color: color-mix(in srgb, var(--danger), transparent 58%);
+      color: var(--danger);
+    }
+
+    .message.warn {
+      border-color: color-mix(in srgb, var(--warning), transparent 58%);
+      color: var(--warning);
+    }
+
+    pre {
+      margin: 0;
+      min-height: 320px;
+      max-height: 520px;
+      overflow: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--code);
+      color: #dbeafe;
+      padding: 14px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 6px;
+      background: var(--panel-soft);
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px;
+    }
+
+    .meta-row strong {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .config-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .config-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .config-card.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgb(37 99 235 / 14%);
+    }
+
+    .config-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .config-title {
+      min-width: 0;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .config-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .config-actions button {
+      padding: 6px 9px;
+      font-size: 12px;
+    }
+
+    .config-confirm {
+      color: var(--danger);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      main {
+        padding: 16px;
+      }
+
+      header,
+      .layout,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        display: grid;
+      }
+
+      .toolbar {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>内网穿透助手</h1>
+        <p>为现有游戏实例生成和管理 frp / EasyTier 配置，可创建独立穿透实例。</p>
+      </div>
+      <div class="toolbar">
+        <button class="secondary" id="refreshInstancesButton" type="button">刷新实例</button>
+        <button class="secondary" id="previewButton" type="button">预览配置</button>
+        <button class="secondary" id="saveConfigButton" type="button">仅保存配置</button>
+        <button id="createButton" type="button">保存并创建实例</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="panel stack">
+        <h2>目标实例</h2>
+        <label>
+          游戏实例
+          <select id="instanceSelect"></select>
+          <span class="hint">穿透实例会独立创建，不会修改所选游戏实例。</span>
+        </label>
+        <div class="meta" id="instanceMeta">
+          <div class="meta-row"><strong>工作目录</strong><span id="instancePath">-</span></div>
+          <div class="meta-row"><strong>启动命令</strong><span id="instanceCommand">-</span></div>
+          <div class="meta-row"><strong>状态</strong><span id="instanceStatus">-</span></div>
+        </div>
+
+        <h2>穿透方式</h2>
+        <div class="segmented">
+          <button class="segment active" id="modeFrp" type="button">
+            <strong>frp</strong><br>
+            <span class="hint">映射本地端口到 frps</span>
+          </button>
+          <button class="segment" id="modeEasyTier" type="button">
+            <strong>EasyTier</strong><br>
+            <span class="hint">加入虚拟局域网</span>
+          </button>
+        </div>
+
+        <div class="grid">
+          <label>
+            配置名称
+            <input id="profileName" autocomplete="off" placeholder="terraria-7777">
+          </label>
+          <label>
+            本地地址
+            <input id="localAddress" autocomplete="off" value="127.0.0.1">
+          </label>
+          <label>
+            本地端口
+            <input id="localPort" type="number" min="1" max="65535" value="7777">
+          </label>
+          <label>
+            协议
+            <select id="protocol">
+              <option value="tcp">TCP</option>
+              <option value="udp">UDP</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="frpFields" class="stack">
+          <h2>frp 参数</h2>
+          <label>
+            frpc 可执行文件
+            <div class="input-action">
+              <input id="frpcPath" autocomplete="off" value="frpc" placeholder="frpc 或 C:\frp\frpc.exe">
+              <button class="secondary" id="checkFrpcButton" type="button">检测</button>
+              <button class="secondary" id="installFrpcButton" type="button">下载/更新</button>
+            </div>
+            <span class="hint tool-status" id="frpcToolStatus">
+              需先在本机安装 frp 客户端，或填写 frpc.exe 绝对路径。
+              <a class="help-link" href="https://github.com/fatedier/frp/releases" target="_blank" rel="noreferrer">下载 frp</a>
+            </span>
+          </label>
+          <div class="grid">
+            <label>
+              frps 地址
+              <input id="frpServerAddr" autocomplete="off" placeholder="example.com">
+            </label>
+            <label>
+              frps 端口
+              <input id="frpServerPort" type="number" min="1" max="65535" value="7000">
+            </label>
+            <label>
+              远端端口
+              <input id="remotePort" type="number" min="1" max="65535" value="7777">
+            </label>
+            <label>
+              认证 token
+              <input id="frpToken" type="password" autocomplete="off" placeholder="可选">
+            </label>
+          </div>
+        </div>
+
+        <div id="easyTierFields" class="stack hidden">
+          <h2>EasyTier 参数</h2>
+          <label>
+            easytier-core 可执行文件
+            <div class="input-action">
+              <input id="easyTierPath" autocomplete="off" value="easytier-core" placeholder="easytier-core 或 C:\EasyTier\easytier-core.exe">
+              <button class="secondary" id="checkEasyTierButton" type="button">检测</button>
+              <button class="secondary" id="installEasyTierButton" type="button">下载/更新</button>
+            </div>
+            <span class="hint tool-status" id="easyTierToolStatus">
+              需先在本机安装 EasyTier，或填写 easytier-core 绝对路径。
+              <a class="help-link" href="https://github.com/EasyTier/EasyTier/releases" target="_blank" rel="noreferrer">下载 EasyTier</a>
+            </span>
+          </label>
+          <div class="grid">
+            <label>
+              网络名称
+              <input id="networkName" autocomplete="off" placeholder="game-net">
+            </label>
+            <label>
+              网络密钥
+              <input id="networkSecret" type="password" autocomplete="off">
+            </label>
+            <label>
+              节点名称
+              <input id="hostName" autocomplete="off" placeholder="gsm-node">
+            </label>
+            <label>
+              虚拟 IPv4
+              <input id="virtualIpv4" autocomplete="off" placeholder="留空使用 DHCP">
+            </label>
+          </div>
+          <label>
+            Peer 节点
+            <textarea id="peerList" placeholder="tcp://1.2.3.4:11010&#10;udp://1.2.3.4:11010"></textarea>
+            <span class="hint">每行一个 peer。未填写时只启动本地节点，通常无法自动发现其它节点。</span>
+          </label>
+        </div>
+
+        <div id="message" class="message"></div>
+      </section>
+
+      <section class="panel stack">
+        <div class="config-head">
+          <h2>已有配置</h2>
+          <button class="secondary" id="refreshConfigsButton" type="button">刷新配置</button>
+        </div>
+        <div class="config-list" id="configList">
+          <p>正在加载配置...</p>
+        </div>
+
+        <h2>配置预览</h2>
+        <div class="meta" id="savedMeta">
+          <div class="meta-row"><strong>配置名称</strong><span id="savedName">-</span></div>
+          <div class="meta-row"><strong>工具</strong><span id="savedTool">-</span></div>
+          <div class="meta-row"><strong>关联实例</strong><span id="savedInstance">-</span></div>
+          <div class="meta-row"><strong>连接地址</strong><span id="savedAddress">-</span></div>
+        </div>
+        <pre id="savedPreview"></pre>
+
+        <h2>生成结果</h2>
+        <div class="meta" id="resultMeta">
+          <div class="meta-row"><strong>配置目录</strong><span id="resultDir">-</span></div>
+          <div class="meta-row"><strong>启动命令</strong><span id="resultCommand">-</span></div>
+          <div class="meta-row"><strong>连接地址</strong><span id="resultAddress">-</span></div>
+        </div>
+        <pre id="preview"></pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const state = {
+      mode: 'frp',
+      instances: [],
+      systemInfo: null,
+      lastPlan: null,
+      savedConfigs: [],
+      selectedConfigPath: '',
+      pendingDeletePath: '',
+      installingTool: ''
+    }
+
+    let themeSyncTimer = null
+    let themeObserver = null
+
+    const $ = (id) => document.getElementById(id)
+
+    const fields = [
+      'instanceSelect', 'profileName', 'localAddress', 'localPort', 'protocol',
+      'frpcPath', 'frpServerAddr', 'frpServerPort', 'remotePort', 'frpToken',
+      'easyTierPath', 'networkName', 'networkSecret', 'hostName', 'virtualIpv4', 'peerList'
+    ]
+
+    const read = (id) => $(id).value.trim()
+    const selectedInstanceLooksWindows = () => {
+      const instance = getSelectedInstance()
+      const workingDirectory = String(instance && instance.workingDirectory || '')
+      const startCommand = String(instance && instance.startCommand || '')
+      return /^[a-z]:[\\/]/i.test(workingDirectory) ||
+        workingDirectory.includes('\\') ||
+        startCommand.includes('.\\') ||
+        /\.exe\b/i.test(startCommand)
+    }
+
+    const isWindows = () => {
+      const raw = state.systemInfo && state.systemInfo.rawPlatform
+      const platform = state.systemInfo && state.systemInfo.platform
+      return raw === 'win32' ||
+        String(platform || '').toLowerCase().includes('windows') ||
+        selectedInstanceLooksWindows()
+    }
+
+    function showMessage(type, text) {
+      const message = $('message')
+      message.className = `message show ${type}`
+      message.textContent = text
+    }
+
+    function clearMessage() {
+      const message = $('message')
+      message.className = 'message'
+      message.textContent = ''
+    }
+
+    function normalizeListResponse(result) {
+      if (!result) return []
+      if (Array.isArray(result)) return result
+      if (Array.isArray(result.data)) return result.data
+      if (result.data && Array.isArray(result.data.instances)) return result.data.instances
+      return []
+    }
+
+    function notify(type, message) {
+      if (window.gsm3 && typeof window.gsm3.showNotification === 'function') {
+        window.gsm3.showNotification(type, message)
+      }
+    }
+
+    function getErrorMessage(error) {
+      return error && error.message ? error.message : String(error || '未知错误')
+    }
+
+    function applyPanelTheme() {
+      let theme = ''
+      try {
+        const storedTheme = window.parent && window.parent.localStorage
+          ? window.parent.localStorage.getItem('gsm3-theme')
+          : ''
+        if (storedTheme) {
+          const parsedTheme = JSON.parse(storedTheme)
+          theme = parsedTheme && parsedTheme.state && parsedTheme.state.theme
+        }
+
+        const parentRoot = window.parent && window.parent.document && window.parent.document.documentElement
+        if (!theme && parentRoot && parentRoot.classList.contains('dark')) {
+          theme = 'dark'
+        }
+      } catch {
+        // 无法访问父页面时回退到系统主题
+      }
+
+      if (!theme && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        theme = 'dark'
+      }
+
+      document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light'
+    }
+
+    function startThemeSync() {
+      applyPanelTheme()
+
+      try {
+        const parentRoot = window.parent && window.parent.document && window.parent.document.documentElement
+        if (parentRoot && !themeObserver) {
+          themeObserver = new MutationObserver(applyPanelTheme)
+          themeObserver.observe(parentRoot, { attributes: true, attributeFilter: ['class'] })
+        }
+      } catch {
+        // 父页面不可访问时由定时同步兜底
+      }
+
+      if (!themeSyncTimer) {
+        themeSyncTimer = window.setInterval(applyPanelTheme, 1000)
+      }
+    }
+
+    function dataExists(result) {
+      if (!result || result.success === false) return false
+      if (typeof result.exists === 'boolean') return result.exists
+      if (typeof result.data === 'boolean') return result.data
+      if (result.data && typeof result.data.exists === 'boolean') return result.data.exists
+      return true
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => window.setTimeout(resolve, ms))
+    }
+
+    async function waitForPluginToken() {
+      if (!window.gsm3) return false
+
+      for (let i = 0; i < 30; i++) {
+        if (window.gsm3.token) return true
+        if (window.gsm3Token) {
+          window.gsm3.token = window.gsm3Token
+          return true
+        }
+        await delay(100)
+      }
+
+      return Boolean(window.gsm3.token)
+    }
+
+    function sanitizeSlug(value) {
+      return value
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || `tunnel-${Date.now()}`
+    }
+
+    function tomlString(value) {
+      return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+    }
+
+    function psArg(value) {
+      return `'${String(value).replace(/'/g, "''")}'`
+    }
+
+    function shArg(value) {
+      return `'${String(value).replace(/'/g, "'\\''")}'`
+    }
+
+    function shellArg(value) {
+      return isWindows() ? psArg(value) : shArg(value)
+    }
+
+    function redactSensitiveText(text) {
+      return String(text)
+        .replace(/auth\.token\s*=\s*"[^"]*"/g, 'auth.token = "******"')
+        .replace(/('--network-secret'|--network-secret)\s+('(?:''|[^'])*'|"[^"]*"|\S+)/g, '$1 ******')
+    }
+
+    function commandPrefix(executablePath) {
+      const quoted = shellArg(executablePath)
+      return isWindows() ? `& ${quoted}` : quoted
+    }
+
+    function executableLooksLikePath(executablePath) {
+      return /[\\/]/.test(executablePath) || /^[a-z]:/i.test(executablePath)
+    }
+
+    function executableMissingMessage(toolLabel, executablePath) {
+      return `未找到 ${toolLabel} 可执行文件：${executablePath}。请先安装客户端，或在插件中填写可执行文件绝对路径后重新保存实例。`
+    }
+
+    function buildExecutableCommand(executablePath, args, toolLabel) {
+      const command = `${commandPrefix(executablePath)} ${args.map(shellArg).join(' ')}`.trim()
+      const missingMessage = executableMissingMessage(toolLabel, executablePath)
+
+      if (isWindows()) {
+        const check = executableLooksLikePath(executablePath)
+          ? `Test-Path -LiteralPath ${psArg(executablePath)}`
+          : `Get-Command ${psArg(executablePath)} -ErrorAction SilentlyContinue`
+        return `if (${check}) { ${command} } else { Write-Error ${psArg(missingMessage)} }`
+      }
+
+      const check = executableLooksLikePath(executablePath)
+        ? `[ -x ${shArg(executablePath)} ]`
+        : `command -v ${shArg(executablePath)} >/dev/null 2>&1`
+      return `if ${check}; then ${command}; else echo ${shArg(missingMessage)} >&2; false; fi`
+    }
+
+    function getToolDefinition(tool) {
+      if (tool === 'easytier') {
+        return {
+          inputId: 'easyTierPath',
+          statusId: 'easyTierToolStatus',
+          buttonId: 'checkEasyTierButton',
+          installButtonId: 'installEasyTierButton',
+          label: 'easytier-core'
+        }
+      }
+
+      return {
+        inputId: 'frpcPath',
+        statusId: 'frpcToolStatus',
+        buttonId: 'checkFrpcButton',
+        installButtonId: 'installFrpcButton',
+        label: 'frpc'
+      }
+    }
+
+    function setToolStatus(tool, type, text) {
+      const definition = getToolDefinition(tool)
+      const status = $(definition.statusId)
+      status.className = `hint tool-status ${type || ''}`.trim()
+      status.textContent = text
+    }
+
+    function setToolButtonsDisabled(tool, disabled) {
+      const definition = getToolDefinition(tool)
+      $(definition.buttonId).disabled = disabled
+      $(definition.installButtonId).disabled = disabled
+    }
+
+    async function checkToolAvailability(tool = state.mode, showPanelMessage = true) {
+      const definition = getToolDefinition(tool)
+      const executablePath = read(definition.inputId)
+      const button = $(definition.buttonId)
+
+      if (!executablePath) {
+        setToolStatus(tool, 'error', `请填写 ${definition.label} 可执行文件`)
+        return false
+      }
+
+      setToolButtonsDisabled(tool, true)
+      const originalText = button.textContent
+      button.textContent = '检测中...'
+
+      try {
+        const result = await window.gsm3.resolveExecutable(
+          executablePath,
+          state.lastPlan ? state.lastPlan.workingDirectory : ''
+        )
+        const data = result.data || result
+
+        if (data.found) {
+          setToolStatus(tool, 'ok', `已找到：${data.resolvedPath}`)
+          if (showPanelMessage) {
+            showMessage('success', `${definition.label} 可用`)
+          }
+          return true
+        }
+
+        const text = executableMissingMessage(definition.label, executablePath)
+        setToolStatus(tool, 'warn', text)
+        if (showPanelMessage) {
+          showMessage('warn', text)
+        }
+        return false
+      } catch (error) {
+        const text = `检测 ${definition.label} 失败：${getErrorMessage(error)}`
+        setToolStatus(tool, 'error', text)
+        if (showPanelMessage) {
+          showMessage('error', text)
+        }
+        return false
+      } finally {
+        setToolButtonsDisabled(tool, false)
+        button.textContent = originalText
+      }
+    }
+
+    function parseSseBlock(block) {
+      const event = { event: 'message', data: '' }
+      const dataLines = []
+
+      for (const rawLine of block.split(/\r?\n/)) {
+        const line = rawLine.trimEnd()
+        if (line.startsWith('event:')) {
+          event.event = line.slice('event:'.length).trim()
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice('data:'.length).trimStart())
+        }
+      }
+
+      event.data = dataLines.join('\n')
+      return event
+    }
+
+    async function installTool(tool) {
+      const definition = getToolDefinition(tool)
+      if (state.installingTool) return
+
+      await waitForPluginToken()
+
+      state.installingTool = tool
+      setToolButtonsDisabled(tool, true)
+      const installButton = $(definition.installButtonId)
+      const originalText = installButton.textContent
+      installButton.textContent = '安装中...'
+      setToolStatus(tool, 'warn', `正在准备下载 ${definition.label}...`)
+      clearMessage()
+
+      try {
+        const response = await window.gsm3.installTunnelTool(tool)
+        if (!response.ok) {
+          let errorText = `HTTP ${response.status}`
+          try {
+            const data = await response.json()
+            errorText = data.message || data.error || errorText
+          } catch {
+            // SSE 前的错误可能不是 JSON
+          }
+          throw new Error(errorText)
+        }
+
+        const reader = response.body && response.body.getReader()
+        if (!reader) {
+          throw new Error('无法读取下载进度')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let installError = null
+
+        const handleEvent = (block) => {
+          if (!block.trim()) return
+          const sse = parseSseBlock(block)
+          let data = {}
+          try {
+            data = sse.data ? JSON.parse(sse.data) : {}
+          } catch {
+            data = { message: sse.data }
+          }
+
+          if (sse.event === 'status') {
+            setToolStatus(tool, 'warn', data.status || '正在安装...')
+            return
+          }
+
+          if (sse.event === 'progress') {
+            const progress = typeof data.progress === 'number' ? data.progress : 0
+            setToolStatus(tool, 'warn', `正在安装 ${definition.label}... ${progress}%`)
+            return
+          }
+
+          if (sse.event === 'complete') {
+            const result = data.data || {}
+            if (result.executablePath) {
+              $(definition.inputId).value = result.executablePath
+            }
+            setToolStatus(tool, 'ok', `已安装 ${definition.label} ${result.version || ''}：${result.executablePath || ''}`.trim())
+            showMessage('success', `${definition.label} 安装完成，已填入可执行文件路径。请重新保存配置或重建穿透实例`)
+            notify('success', `${definition.label} 安装完成`)
+            buildPlan(false)
+            return
+          }
+
+          if (sse.event === 'error') {
+            const message = data.error || data.message || `${definition.label} 安装失败`
+            installError = new Error(message)
+          }
+        }
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const blocks = buffer.split(/\r?\n\r?\n/)
+          buffer = blocks.pop() || ''
+          for (const block of blocks) {
+            handleEvent(block)
+          }
+        }
+
+        if (buffer.trim()) {
+          handleEvent(buffer)
+        }
+
+        if (installError) {
+          throw installError
+        }
+      } catch (error) {
+        const message = `${definition.label} 安装失败：${getErrorMessage(error)}`
+        setToolStatus(tool, 'error', message)
+        showMessage('error', message)
+        notify('error', message)
+      } finally {
+        state.installingTool = ''
+        setToolButtonsDisabled(tool, false)
+        installButton.textContent = originalText
+      }
+    }
+
+    function parsePort(value, label) {
+      const port = Number(value)
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`${label} 必须是 1 到 65535 之间的整数`)
+      }
+      return port
+    }
+
+    function getSelectedInstance() {
+      const id = read('instanceSelect')
+      return state.instances.find(instance => instance.id === id) || null
+    }
+
+    function guessPort(instance) {
+      const text = `${instance.name || ''} ${instance.description || ''}`.toLowerCase()
+      if (text.includes('terraria') || text.includes('泰拉瑞亚')) return 7777
+      if (text.includes('minecraft') || text.includes('我的世界')) return 25565
+      if (text.includes('palworld') || text.includes('幻兽帕鲁')) return 8211
+      if (text.includes('valheim') || text.includes('英灵神殿')) return 2456
+      if (text.includes('factorio')) return 34197
+      return ''
+    }
+
+    function updateInstanceMeta() {
+      const instance = getSelectedInstance()
+      $('instancePath').textContent = instance ? instance.workingDirectory || '-' : '-'
+      $('instanceCommand').textContent = instance ? instance.startCommand || '-' : '-'
+      $('instanceStatus').textContent = instance ? instance.status || '-' : '-'
+
+      if (instance && !read('profileName')) {
+        $('profileName').value = sanitizeSlug(instance.name || 'game')
+      }
+
+      if (instance && !read('localPort')) {
+        const guessed = guessPort(instance)
+        if (guessed) $('localPort').value = guessed
+      }
+    }
+
+    async function loadSystemInfo() {
+      try {
+        const result = await window.gsm3.getSystemInfo()
+        state.systemInfo = result.data || result
+      } catch (error) {
+        state.systemInfo = null
+      }
+    }
+
+    async function loadInstances(options = {}) {
+      const { showLoadedMessage = true, selectedInstanceId = read('instanceSelect') } = options
+      if (showLoadedMessage) {
+        clearMessage()
+      }
+      $('instanceSelect').innerHTML = '<option value="">加载中...</option>'
+      try {
+        const result = await window.gsm3.getInstances()
+        state.instances = normalizeListResponse(result)
+        const gameInstances = state.instances.filter(instance => {
+          const description = String(instance.description || '')
+          return !description.includes('[tunnel-helper]')
+        })
+
+        $('instanceSelect').innerHTML = ''
+        if (gameInstances.length === 0) {
+          $('instanceSelect').innerHTML = '<option value="">暂无可选实例</option>'
+          updateInstanceMeta()
+          return
+        }
+
+        for (const instance of gameInstances) {
+          const option = document.createElement('option')
+          option.value = instance.id
+          option.textContent = `${instance.name} (${instance.status || 'unknown'})`
+          option.selected = instance.id === selectedInstanceId
+          $('instanceSelect').appendChild(option)
+        }
+
+        updateInstanceMeta()
+        if (showLoadedMessage) {
+          showMessage('success', `已加载 ${gameInstances.length} 个游戏实例`)
+        }
+      } catch (error) {
+        $('instanceSelect').innerHTML = '<option value="">加载失败</option>'
+        showMessage('error', `获取实例列表失败：${error.message}`)
+      }
+    }
+
+    function setMode(mode) {
+      state.mode = mode
+      $('modeFrp').classList.toggle('active', mode === 'frp')
+      $('modeEasyTier').classList.toggle('active', mode === 'easytier')
+      $('frpFields').classList.toggle('hidden', mode !== 'frp')
+      $('easyTierFields').classList.toggle('hidden', mode !== 'easytier')
+      buildPlan(false)
+      checkToolAvailability(mode, false)
+    }
+
+    function buildFrpPlan(common) {
+      const serverAddr = read('frpServerAddr')
+      const serverPort = parsePort(read('frpServerPort'), 'frps 端口')
+      const remotePort = parsePort(read('remotePort'), '远端端口')
+      const frpcPath = read('frpcPath')
+
+      if (!frpcPath) throw new Error('请填写 frpc 可执行文件')
+      if (!serverAddr) throw new Error('请填写 frps 地址')
+
+      const token = read('frpToken')
+      const proxyName = `${common.slug}-${common.protocol}-${common.localPort}`
+      const configLines = [
+        `serverAddr = ${tomlString(serverAddr)}`,
+        `serverPort = ${serverPort}`
+      ]
+
+      if (token) {
+        configLines.push(`auth.token = ${tomlString(token)}`)
+      }
+
+      configLines.push(
+        '',
+        '[[proxies]]',
+        `name = ${tomlString(proxyName)}`,
+        `type = ${tomlString(common.protocol)}`,
+        `localIP = ${tomlString(common.localAddress)}`,
+        `localPort = ${common.localPort}`,
+        `remotePort = ${remotePort}`,
+        ''
+      )
+
+      const configPath = `${common.dataDir}/frpc.toml`
+      const startCommand = buildExecutableCommand(frpcPath, ['-c', 'frpc.toml'], 'frpc')
+      const publicAddress = `${serverAddr}:${remotePort}`
+
+      return {
+        ...common,
+        tool: 'frp',
+        configPath,
+        configContent: configLines.join('\n'),
+        startCommand,
+        executablePath: frpcPath,
+        publicAddress,
+        extraFiles: [],
+        instanceDescription: `[tunnel-helper] frp ${common.protocol.toUpperCase()} ${common.localAddress}:${common.localPort} -> ${publicAddress}`
+      }
+    }
+
+    function buildEasyTierPlan(common) {
+      const executablePath = read('easyTierPath')
+      const networkName = read('networkName')
+      const networkSecret = read('networkSecret')
+      const hostName = read('hostName') || common.slug
+      const virtualIpv4 = read('virtualIpv4')
+      const peers = read('peerList')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+
+      if (!executablePath) throw new Error('请填写 easytier-core 可执行文件')
+      if (!networkName) throw new Error('请填写 EasyTier 网络名称')
+      if (!networkSecret) throw new Error('请填写 EasyTier 网络密钥')
+
+      const args = [
+        '--network-name', networkName,
+        '--network-secret', networkSecret,
+        '--hostname', hostName
+      ]
+
+      if (virtualIpv4) {
+        args.push('--ipv4', virtualIpv4)
+      } else {
+        args.push('--dhcp')
+      }
+
+      for (const peer of peers) {
+        args.push('-p', peer)
+      }
+
+      const startCommand = buildExecutableCommand(executablePath, args, 'easytier-core')
+      const publicAddress = virtualIpv4
+        ? `${virtualIpv4}:${common.localPort}`
+        : `EasyTier 虚拟 IP:${common.localPort}`
+
+      const commandContent = [
+        '# EasyTier 启动命令',
+        '# 该实例使用命令行参数启动，避免依赖不同版本配置文件字段差异。',
+        startCommand,
+        '',
+        '# 连接提示',
+        `# 其它 EasyTier 节点加入同一网络后，访问 ${publicAddress}`
+      ].join('\n')
+
+      return {
+        ...common,
+        tool: 'EasyTier',
+        configPath: `${common.dataDir}/easytier-command.txt`,
+        configContent: commandContent,
+        startCommand,
+        executablePath,
+        publicAddress,
+        extraFiles: [],
+        instanceDescription: `[tunnel-helper] EasyTier network=${networkName} target=${common.localAddress}:${common.localPort}`
+      }
+    }
+
+    function buildPlan(throwOnError = true) {
+      try {
+        const instance = getSelectedInstance()
+        if (!instance) throw new Error('请选择游戏实例')
+
+        const localPort = parsePort(read('localPort'), '本地端口')
+        const localAddress = read('localAddress') || '127.0.0.1'
+        const profile = read('profileName') || instance.name || 'game'
+        const slug = sanitizeSlug(profile)
+        const protocol = read('protocol')
+        const dataDir = `tunnels/${slug}`
+        const workingDirectory = `data/${dataDir}`
+
+        const common = {
+          instance,
+          profile,
+          slug,
+          protocol,
+          localAddress,
+          localPort,
+          dataDir,
+          workingDirectory
+        }
+
+        state.lastPlan = state.mode === 'frp' ? buildFrpPlan(common) : buildEasyTierPlan(common)
+        renderPlan()
+        clearMessage()
+        return state.lastPlan
+      } catch (error) {
+        state.lastPlan = null
+        renderPlan()
+        if (throwOnError) {
+          showMessage('error', error.message)
+        }
+        return null
+      }
+    }
+
+    function renderPlan() {
+      const plan = state.lastPlan
+      if (!plan) {
+        $('resultDir').textContent = '-'
+        $('resultCommand').textContent = '-'
+        $('resultAddress').textContent = '-'
+        $('preview').textContent = ''
+        return
+      }
+
+      $('resultDir').textContent = plan.workingDirectory
+      $('resultCommand').textContent = redactSensitiveText(plan.startCommand)
+      $('resultAddress').textContent = plan.publicAddress
+      $('preview').textContent = redactSensitiveText(plan.configContent)
+    }
+
+    function buildManifest(plan, existing = null) {
+      const now = new Date().toISOString()
+
+      return {
+        name: plan.profile,
+        tool: plan.tool,
+        linkedInstanceId: plan.instance.id,
+        linkedInstanceName: plan.instance.name,
+        localAddress: plan.localAddress,
+        localPort: plan.localPort,
+        protocol: plan.protocol,
+        publicAddress: plan.publicAddress,
+        workingDirectory: plan.workingDirectory,
+        configPath: plan.configPath,
+        createdAt: existing && existing.createdAt ? existing.createdAt : now,
+        updatedAt: now
+      }
+    }
+
+    async function writeTunnelFiles(plan) {
+      let existingManifest = null
+      try {
+        existingManifest = await readJsonFile(`${plan.dataDir}/manifest.json`)
+      } catch {
+        existingManifest = null
+      }
+
+      await window.gsm3.writeFile(plan.configPath, plan.configContent, 'utf-8')
+      await window.gsm3.writeFile(`${plan.dataDir}/manifest.json`, JSON.stringify(buildManifest(plan, existingManifest), null, 2), 'utf-8')
+    }
+
+    async function resolveTunnelWorkingDirectory(plan) {
+      const result = await window.gsm3.resolveDataPath(plan.dataDir)
+      return result && result.data && result.data.absolutePath
+        ? result.data.absolutePath
+        : plan.workingDirectory
+    }
+
+    async function readJsonFile(filePath) {
+      const result = await window.gsm3.readFile(filePath, 'utf-8')
+      const content = result && result.data ? result.data.content : ''
+      return JSON.parse(content)
+    }
+
+    async function readTextFile(filePath) {
+      const result = await window.gsm3.readFile(filePath, 'utf-8')
+      return result && result.data ? result.data.content : ''
+    }
+
+    function setSavedPreview(config, content) {
+      $('savedName').textContent = config ? config.name || config.dirName || '-' : '-'
+      $('savedTool').textContent = config ? config.tool || '-' : '-'
+      $('savedInstance').textContent = config ? config.linkedInstanceName || '-' : '-'
+      $('savedAddress').textContent = config ? config.publicAddress || '-' : '-'
+      $('savedPreview').textContent = config
+        ? redactSensitiveText(content || '')
+        : ''
+    }
+
+    function textNode(tagName, className, text) {
+      const node = document.createElement(tagName)
+      if (className) node.className = className
+      node.textContent = text
+      return node
+    }
+
+    async function loadSavedConfigs() {
+      const list = $('configList')
+      list.innerHTML = '<p>正在加载配置...</p>'
+
+      try {
+        const exists = await window.gsm3.exists('tunnels')
+        if (!dataExists(exists)) {
+          state.savedConfigs = []
+          list.innerHTML = '<p>暂无已保存配置</p>'
+          setSavedPreview(null, '')
+          return
+        }
+
+        const result = await window.gsm3.listDirectory('tunnels')
+        const dirs = normalizeListResponse(result).filter(item => item.type === 'directory')
+        const configs = []
+
+        for (const dir of dirs) {
+          const manifestPath = `${dir.path}/manifest.json`
+          try {
+            const manifest = await readJsonFile(manifestPath)
+            configs.push({
+              ...manifest,
+              dirName: dir.name,
+              dirPath: dir.path,
+              manifestPath,
+              modified: dir.modified
+            })
+          } catch {
+            configs.push({
+              name: dir.name,
+              tool: 'unknown',
+              dirName: dir.name,
+              dirPath: dir.path,
+              manifestPath,
+              modified: dir.modified
+            })
+          }
+        }
+
+        state.savedConfigs = configs
+        renderSavedConfigs()
+      } catch (error) {
+        state.savedConfigs = []
+        list.innerHTML = ''
+        list.appendChild(textNode('p', '', `读取配置失败：${error.message}`))
+        setSavedPreview(null, '')
+      }
+    }
+
+    function renderSavedConfigs() {
+      const list = $('configList')
+      list.innerHTML = ''
+
+      if (state.savedConfigs.length === 0) {
+        list.innerHTML = '<p>暂无已保存配置</p>'
+        setSavedPreview(null, '')
+        return
+      }
+
+      for (const config of state.savedConfigs) {
+        const isPendingDelete = config.dirPath === state.pendingDeletePath
+        const card = document.createElement('div')
+        card.className = `config-card ${config.dirPath === state.selectedConfigPath ? 'active' : ''}`
+
+        const title = document.createElement('div')
+        title.className = 'config-head'
+        title.append(
+          textNode('div', 'config-title', config.name || config.dirName || '未命名配置'),
+          textNode('span', 'hint', config.tool || 'unknown')
+        )
+
+        const meta = document.createElement('div')
+        meta.className = 'hint'
+        meta.textContent = `${config.linkedInstanceName || '未关联实例'} · ${config.publicAddress || '未记录连接地址'}`
+
+        const actions = document.createElement('div')
+        actions.className = 'config-actions'
+
+        const previewButton = document.createElement('button')
+        previewButton.className = 'secondary'
+        previewButton.type = 'button'
+        previewButton.textContent = '预览'
+        previewButton.addEventListener('click', () => previewSavedConfig(config))
+
+        const loadButton = document.createElement('button')
+        loadButton.className = 'secondary'
+        loadButton.type = 'button'
+        loadButton.textContent = '载入表单'
+        loadButton.addEventListener('click', () => loadConfigIntoForm(config))
+
+        if (isPendingDelete) {
+          const confirmButton = document.createElement('button')
+          confirmButton.className = 'danger'
+          confirmButton.type = 'button'
+          confirmButton.textContent = '确认删除'
+          confirmButton.addEventListener('click', () => deleteSavedConfig(config))
+
+          const cancelButton = document.createElement('button')
+          cancelButton.className = 'secondary'
+          cancelButton.type = 'button'
+          cancelButton.textContent = '取消'
+          cancelButton.addEventListener('click', cancelDeleteConfig)
+
+          const confirmText = textNode('div', 'config-confirm', '只删除配置目录，不删除已创建的穿透实例。')
+          actions.append(confirmButton, cancelButton)
+          card.append(title, meta, confirmText, actions)
+          list.appendChild(card)
+          continue
+        }
+
+        const deleteButton = document.createElement('button')
+        deleteButton.className = 'secondary'
+        deleteButton.type = 'button'
+        deleteButton.textContent = '删除配置'
+        deleteButton.addEventListener('click', () => requestDeleteConfig(config))
+
+        actions.append(previewButton, loadButton, deleteButton)
+        card.append(title, meta, actions)
+        list.appendChild(card)
+      }
+    }
+
+    async function previewSavedConfig(config) {
+      try {
+        state.selectedConfigPath = config.dirPath
+        renderSavedConfigs()
+
+        const configPath = config.configPath || `${config.dirPath}/frpc.toml`
+        let content = ''
+        try {
+          content = await readTextFile(configPath)
+        } catch {
+          content = JSON.stringify(config, null, 2)
+        }
+
+        setSavedPreview(config, content)
+      } catch (error) {
+        showMessage('error', `预览配置失败：${error.message}`)
+      }
+    }
+
+    function loadConfigIntoForm(config) {
+      state.pendingDeletePath = ''
+      $('profileName').value = config.name || config.dirName || ''
+      $('localAddress').value = config.localAddress || '127.0.0.1'
+      $('localPort').value = config.localPort || ''
+      $('protocol').value = config.protocol || 'tcp'
+
+      if (String(config.tool || '').toLowerCase() === 'easytier') {
+        setMode('easytier')
+      } else {
+        setMode('frp')
+      }
+
+      buildPlan(false)
+      showMessage('success', `已载入配置：${config.name || config.dirName}`)
+    }
+
+    function requestDeleteConfig(config) {
+      state.pendingDeletePath = config.dirPath
+      renderSavedConfigs()
+      showMessage('warn', `确认删除配置：${config.name || config.dirName}`)
+    }
+
+    function cancelDeleteConfig() {
+      state.pendingDeletePath = ''
+      renderSavedConfigs()
+      clearMessage()
+    }
+
+    async function deleteSavedConfig(config) {
+      try {
+        await window.gsm3.deleteDirectory(config.dirPath, true)
+        if (state.selectedConfigPath === config.dirPath) {
+          state.selectedConfigPath = ''
+          setSavedPreview(null, '')
+        }
+        state.pendingDeletePath = ''
+        await loadSavedConfigs()
+        showMessage('success', `配置已删除：${config.name || config.dirName}`)
+        notify('success', `配置已删除：${config.name || config.dirName}`)
+      } catch (error) {
+        showMessage('error', `删除配置失败：${error.message}`)
+        notify('error', `删除配置失败：${error.message}`)
+      }
+    }
+
+    async function saveTunnelConfig() {
+      const plan = buildPlan(true)
+      if (!plan) return
+
+      $('saveConfigButton').disabled = true
+      const originalButtonText = $('saveConfigButton').textContent
+      $('saveConfigButton').textContent = '保存中...'
+
+      try {
+        state.pendingDeletePath = ''
+        await writeTunnelFiles(plan)
+        await loadSavedConfigs()
+
+        const saved = state.savedConfigs.find(config => config.dirPath === plan.dataDir)
+        if (saved) {
+          await previewSavedConfig(saved)
+        } else {
+          setSavedPreview(buildManifest(plan), plan.configContent)
+        }
+
+        showMessage('success', `配置已保存：${plan.profile}`)
+        notify('success', `配置已保存：${plan.profile}`)
+      } catch (error) {
+        showMessage('error', `保存配置失败：${error.message}`)
+        notify('error', `保存配置失败：${error.message}`)
+      } finally {
+        $('saveConfigButton').disabled = false
+        $('saveConfigButton').textContent = originalButtonText
+      }
+    }
+
+    async function createTunnelInstance() {
+      const plan = buildPlan(true)
+      if (!plan) return
+
+      const tunnelName = `穿透-${plan.profile}`
+      const existingTunnel = state.instances.find(instance => instance.name === tunnelName)
+
+      $('createButton').disabled = true
+      const originalButtonText = $('createButton').textContent
+      $('createButton').textContent = existingTunnel ? '更新中...' : '创建中...'
+      try {
+        await writeTunnelFiles(plan)
+        const workingDirectory = await resolveTunnelWorkingDirectory(plan)
+
+        const instancePayload = {
+          name: tunnelName,
+          description: plan.instanceDescription,
+          workingDirectory,
+          startCommand: plan.startCommand,
+          stopCommand: 'ctrl+c',
+          autoStart: false
+        }
+
+        const result = existingTunnel
+          ? await window.gsm3.updateInstance(existingTunnel.id, instancePayload)
+          : await window.gsm3.createInstance(instancePayload)
+
+        const created = result.data || result
+        await loadInstances({ showLoadedMessage: false, selectedInstanceId: plan.instance.id })
+        const createdName = created.name || tunnelName
+        const actionText = existingTunnel ? '已更新' : '已创建'
+        showMessage('success', `穿透实例${actionText}：${createdName}。请到实例管理中启动该实例`)
+        notify('success', `穿透实例${actionText}：${createdName}`)
+        await loadSavedConfigs()
+      } catch (error) {
+        showMessage('error', `保存穿透实例失败：${error.message}`)
+        notify('error', `保存穿透实例失败：${error.message}`)
+      } finally {
+        $('createButton').disabled = false
+        $('createButton').textContent = originalButtonText
+      }
+    }
+
+    function attachEvents() {
+      $('refreshInstancesButton').addEventListener('click', loadInstances)
+      $('refreshConfigsButton').addEventListener('click', loadSavedConfigs)
+      $('previewButton').addEventListener('click', () => buildPlan(true))
+      $('saveConfigButton').addEventListener('click', saveTunnelConfig)
+      $('createButton').addEventListener('click', createTunnelInstance)
+      $('checkFrpcButton').addEventListener('click', () => checkToolAvailability('frp'))
+      $('checkEasyTierButton').addEventListener('click', () => checkToolAvailability('easytier'))
+      $('installFrpcButton').addEventListener('click', () => installTool('frp'))
+      $('installEasyTierButton').addEventListener('click', () => installTool('easytier'))
+      $('modeFrp').addEventListener('click', () => setMode('frp'))
+      $('modeEasyTier').addEventListener('click', () => setMode('easytier'))
+      $('instanceSelect').addEventListener('change', () => {
+        updateInstanceMeta()
+        buildPlan(false)
+      })
+
+      for (const id of fields) {
+        const element = $(id)
+        if (!element) continue
+        element.addEventListener('input', () => buildPlan(false))
+        element.addEventListener('change', () => buildPlan(false))
+      }
+    }
+
+    async function boot() {
+      startThemeSync()
+
+      if (!window.gsm3) {
+        showMessage('error', '插件 API 未加载')
+        return
+      }
+
+      attachEvents()
+      await waitForPluginToken()
+      await loadSystemInfo()
+      await loadInstances()
+      await loadSavedConfigs()
+      buildPlan(false)
+      checkToolAvailability(state.mode, false)
+    }
+
+    boot()
+  </script>
+</body>
+</html>

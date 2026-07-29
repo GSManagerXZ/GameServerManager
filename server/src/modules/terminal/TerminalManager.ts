@@ -117,7 +117,8 @@ export class TerminalManager {
    */
   public async createPty(socket: Socket, data: CreatePtyData): Promise<void> {
     try {
-      const { sessionId, name, cols, rows, workingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false, terminalUser } = data
+      const { sessionId, name, cols, rows, workingDirectory: rawWorkingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false, terminalUser } = data
+      const workingDirectory = path.resolve(rawWorkingDirectory)
       const sessionName = name || `终端会话 ${sessionId.slice(-8)}`
 
        // 获取终端配置和默认用户（提升到方法开始处）
@@ -1516,6 +1517,7 @@ export class TerminalManager {
    */
   private async createPtyFallback(sessionId: string, sessionName: string, workingDirectory: string, socket: Socket, enableStreamForward?: boolean, programPath?: string, autoCloseOnForwardExit?: boolean): Promise<void> {
     try {
+      workingDirectory = path.resolve(workingDirectory)
       this.logger.info(`使用当前用户创建PTY回退会话: ${sessionId}`)
       
       // 构建PTY命令参数，使用当前用户
