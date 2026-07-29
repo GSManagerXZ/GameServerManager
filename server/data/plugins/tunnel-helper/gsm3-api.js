@@ -482,6 +482,14 @@ class GSM3API {
   }
 
   /**
+   * 获取穿透工具本地安装状态
+   * @param {'frp'|'easytier'} tool 工具名称
+   */
+  async getTunnelToolStatus(tool) {
+    return await this.request(`/tools/tunnel-tool/${encodeURIComponent(tool)}`)
+  }
+
+  /**
    * 下载并安装穿透工具，返回SSE响应流
    * @param {'frp'|'easytier'} tool 工具名称
    */

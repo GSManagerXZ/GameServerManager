@@ -787,7 +787,8 @@
           statusId: 'easyTierToolStatus',
           buttonId: 'checkEasyTierButton',
           installButtonId: 'installEasyTierButton',
-          label: 'easytier-core'
+          label: 'easytier-core',
+          defaultCommand: 'easytier-core'
         }
       }
 
@@ -796,7 +797,8 @@
         statusId: 'frpcToolStatus',
         buttonId: 'checkFrpcButton',
         installButtonId: 'installFrpcButton',
-        label: 'frpc'
+        label: 'frpc',
+        defaultCommand: 'frpc'
       }
     }
 
@@ -811,6 +813,41 @@
       const definition = getToolDefinition(tool)
       $(definition.buttonId).disabled = disabled
       $(definition.installButtonId).disabled = disabled
+    }
+
+    function shouldFillInstalledToolPath(tool) {
+      const definition = getToolDefinition(tool)
+      const currentValue = read(definition.inputId)
+      return !currentValue || currentValue === definition.defaultCommand
+    }
+
+    async function hydrateInstalledTool(tool) {
+      const definition = getToolDefinition(tool)
+      try {
+        const result = await window.gsm3.getTunnelToolStatus(tool)
+        const data = result.data || result
+
+        if (!data.installed || !data.executablePath) {
+          return false
+        }
+
+        if (shouldFillInstalledToolPath(tool)) {
+          $(definition.inputId).value = data.executablePath
+        }
+
+        setToolStatus(tool, 'ok', `已安装 ${definition.label} ${data.version || ''}：${data.executablePath}`.trim())
+        return true
+      } catch (error) {
+        setToolStatus(tool, 'warn', `读取 ${definition.label} 安装状态失败：${getErrorMessage(error)}`)
+        return false
+      }
+    }
+
+    async function hydrateInstalledTools() {
+      await Promise.all([
+        hydrateInstalledTool('frp'),
+        hydrateInstalledTool('easytier')
+      ])
     }
 
     async function checkToolAvailability(tool = state.mode, showPanelMessage = true) {
@@ -1642,6 +1679,7 @@
       attachEvents()
       await waitForPluginToken()
       await loadSystemInfo()
+      await hydrateInstalledTools()
       await loadInstances()
       await loadSavedConfigs()
       buildPlan(false)

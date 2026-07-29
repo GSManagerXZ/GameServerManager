@@ -55,6 +55,15 @@ interface TunnelToolInstallResult {
   releaseUrl: string
 }
 
+interface TunnelToolInstalledState {
+  tool: TunnelToolName
+  label: string
+  installed: boolean
+  version?: string
+  installPath?: string
+  executablePath?: string
+}
+
 const TUNNEL_TOOL_DEFINITIONS: Record<TunnelToolName, TunnelToolDefinition> = {
   frp: {
     name: 'frp',
@@ -612,6 +621,57 @@ const findExtractedExecutable = async (rootPath: string, executableNames: string
   }
 
   return null
+}
+
+const getInstalledTunnelTool = async (tool: TunnelToolName): Promise<TunnelToolInstalledState> => {
+  const definition = getTunnelToolDefinition(tool)
+  const toolsRoot = getTunnelToolsRoot()
+  const toolRoot = path.join(toolsRoot, definition.name)
+  assertInsideDirectory(toolRoot, toolsRoot)
+
+  const emptyState: TunnelToolInstalledState = {
+    tool: definition.name,
+    label: definition.label,
+    installed: false
+  }
+
+  let entries: Array<import('fs').Dirent>
+  try {
+    entries = await fs.readdir(toolRoot, { withFileTypes: true })
+  } catch (error: any) {
+    if (error.code === 'ENOENT') return emptyState
+    throw error
+  }
+
+  const candidates: Array<TunnelToolInstalledState & { modifiedAt: number }> = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    if (entry.name === 'downloads' || entry.name.startsWith('.staging-')) continue
+
+    const installPath = path.join(toolRoot, entry.name)
+    assertInsideDirectory(installPath, toolsRoot)
+
+    const executablePath = await findExtractedExecutable(installPath, definition.executableNames)
+    if (!executablePath) continue
+
+    const stats = await fs.stat(installPath)
+    candidates.push({
+      tool: definition.name,
+      label: definition.label,
+      installed: true,
+      version: entry.name,
+      installPath,
+      executablePath,
+      modifiedAt: stats.mtimeMs
+    })
+  }
+
+  candidates.sort((a, b) => b.modifiedAt - a.modifiedAt || String(b.version || '').localeCompare(String(a.version || '')))
+  const latest = candidates[0]
+  if (!latest) return emptyState
+
+  const { modifiedAt, ...state } = latest
+  return state
 }
 
 const installTunnelTool = async (
@@ -1309,6 +1369,27 @@ router.post('/tools/resolve-data-path', async (req: Request, res: Response) => {
     res.status(400).json({
       success: false,
       message: '解析 data 路径失败',
+      error: error instanceof Error ? error.message : '未知错误'
+    })
+  }
+})
+
+router.get('/tools/tunnel-tool/:tool', async (req: Request, res: Response) => {
+  const { tool } = req.params
+
+  try {
+    const definition = getTunnelToolDefinition(String(tool || ''))
+    const state = await getInstalledTunnelTool(definition.name)
+
+    res.json({
+      success: true,
+      data: state
+    })
+  } catch (error) {
+    logger.error('插件获取穿透工具安装状态失败:', error)
+    res.status(400).json({
+      success: false,
+      message: '获取穿透工具安装状态失败',
       error: error instanceof Error ? error.message : '未知错误'
     })
   }
