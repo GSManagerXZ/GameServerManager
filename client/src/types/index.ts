@@ -353,6 +353,12 @@ export interface SettingsState {
 // 实例管理相关类型
 export type InstanceType = 'generic' | 'minecraft-java' | 'minecraft-bedrock'
 
+export interface SteamInstanceConfig {
+  appId: string
+  gameKey: string
+  branch: string
+}
+
 export interface Instance {
   id: string
   name: string
@@ -372,6 +378,7 @@ export interface Instance {
   terminalUser?: string
   instanceType?: InstanceType
   javaVersion?: string
+  steam?: SteamInstanceConfig
 }
 
 export interface CreateInstanceRequest {
@@ -386,6 +393,16 @@ export interface CreateInstanceRequest {
   terminalUser?: string
   instanceType?: InstanceType
   javaVersion?: string
+  steam?: SteamInstanceConfig
+}
+
+export interface SteamBranchInfo {
+  name: string
+  description?: string
+  buildId?: string
+  updatedAt?: string
+  requiresPassword: boolean
+  isDefault: boolean
 }
 
 export interface InstanceState {
