@@ -12,6 +12,27 @@ export function setSecurityConfigManager(manager: ConfigManager) {
   configManager = manager
 }
 
+function getExternalApiPublicConfig() {
+  const externalApi = configManager.getExternalApiConfig()
+
+  return {
+    enabled: !!externalApi.enabled,
+    hasApiKey: !!externalApi.keyHash,
+    keyPrefix: externalApi.keyPrefix || '',
+    createdAt: externalApi.createdAt || '',
+    updatedAt: externalApi.updatedAt || '',
+    endpoints: {
+      listInstances: 'GET /api/external/instances',
+      getInstance: 'GET /api/external/instances/:id',
+      getStatus: 'GET /api/external/instances/:id/status',
+      startInstance: 'POST /api/external/instances/:id/start',
+      stopInstance: 'POST /api/external/instances/:id/stop',
+      restartInstance: 'POST /api/external/instances/:id/restart',
+      action: 'POST /api/external/instances/:id/action'
+    }
+  }
+}
+
 // 获取安全配置
 router.get('/config', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -105,6 +126,102 @@ router.post('/reset-token', authenticateToken, async (req: Request, res: Respons
     res.status(500).json({
       success: false,
       message: '重置令牌失败'
+    })
+  }
+})
+
+// 获取外部自动化API配置
+router.get('/external-api', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    res.json({
+      success: true,
+      data: getExternalApiPublicConfig()
+    })
+  } catch (error) {
+    logger.error('获取外部API配置失败:', error)
+    res.status(500).json({
+      success: false,
+      message: '获取外部API配置失败'
+    })
+  }
+})
+
+// 启用或禁用外部自动化API
+router.post('/external-api', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { enabled } = req.body
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'enabled 必须是布尔值'
+      })
+    }
+
+    const externalApi = configManager.getExternalApiConfig()
+    if (enabled && !externalApi.keyHash) {
+      return res.status(400).json({
+        success: false,
+        message: '请先生成外部API密钥'
+      })
+    }
+
+    await configManager.updateExternalApiConfig({ enabled })
+    logger.info(`外部API已${enabled ? '启用' : '禁用'}`)
+
+    res.json({
+      success: true,
+      message: enabled ? '外部API已启用' : '外部API已禁用',
+      data: getExternalApiPublicConfig()
+    })
+  } catch (error) {
+    logger.error('更新外部API配置失败:', error)
+    res.status(500).json({
+      success: false,
+      message: '更新外部API配置失败'
+    })
+  }
+})
+
+// 生成或轮换外部自动化API密钥，明文密钥只会在本次响应中返回
+router.post('/external-api/key', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const generated = await configManager.generateExternalApiKey()
+
+    res.json({
+      success: true,
+      message: '外部API密钥已生成',
+      data: {
+        apiKey: generated.apiKey,
+        keyPrefix: generated.keyPrefix,
+        createdAt: generated.createdAt,
+        enabled: true
+      }
+    })
+  } catch (error) {
+    logger.error('生成外部API密钥失败:', error)
+    res.status(500).json({
+      success: false,
+      message: '生成外部API密钥失败'
+    })
+  }
+})
+
+// 清除外部自动化API密钥，同时禁用外部API
+router.delete('/external-api/key', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    await configManager.clearExternalApiKey()
+    logger.info('外部API密钥已清除')
+
+    res.json({
+      success: true,
+      message: '外部API密钥已清除',
+      data: getExternalApiPublicConfig()
+    })
+  } catch (error) {
+    logger.error('清除外部API密钥失败:', error)
+    res.status(500).json({
+      success: false,
+      message: '清除外部API密钥失败'
     })
   }
 })

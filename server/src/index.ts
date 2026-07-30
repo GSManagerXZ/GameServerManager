@@ -28,9 +28,10 @@ import { setupAuthRoutes } from './routes/auth.js'
 import { setupScheduledTaskRoutes } from './routes/scheduledTasks.js'
 import { setupConfigRoutes } from './routes/config.js'
 import { setupSettingsRoutes } from './routes/settings.js'
-import { setAuthManager } from './middleware/auth.js'
+import { setAuthManager, setExternalApiConfigManager } from './middleware/auth.js'
 import filesRouter from './routes/files.js'
 import { setupInstanceRoutes } from './routes/instances.js'
+import { setupExternalApiRoutes } from './routes/externalApi.js'
 import steamcmdRouter, { setSteamCMDManager } from './routes/steamcmd.js'
 import gameDeploymentRouter, { setGameDeploymentManagers } from './routes/gameDeployment.js'
 import { minecraftRouter, setMinecraftDependencies } from './routes/minecraft.js'
@@ -112,7 +113,7 @@ app.use(helmet({
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*', // 从环境变量读取CORS配置
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-GSM-API-Key'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
 }))
 
@@ -639,6 +640,7 @@ async function startServer() {
     await instanceManager.initialize()
     await pluginManager.loadPlugins()
     setAuthManager(authManager)
+    setExternalApiConfigManager(configManager)
     setPluginManager(pluginManager)
 
     // 设置 TerminalManager 的 Socket.IO 实例
@@ -680,6 +682,7 @@ async function startServer() {
     app.use('/api/system', setupSystemRoutes(systemManager))
     app.use('/api/files', filesRouter)
     app.use('/api/instances', setupInstanceRoutes(instanceManager))
+    app.use('/api/external', setupExternalApiRoutes(instanceManager))
     app.use('/api/scheduled-tasks', setupScheduledTaskRoutes(schedulerManager))
     app.use('/api/config', setupConfigRoutes(configManager))
     app.use('/api/settings', setupSettingsRoutes(configManager))
