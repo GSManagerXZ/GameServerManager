@@ -53,6 +53,7 @@ import fileDeployRouter, { setFileDeployDependencies } from './routes/fileDeploy
 import { consoleLogBuffer } from './utils/logger.js'
 import { zipToolsManager } from './utils/zipToolsManager.js'
 import { ptyManager } from './utils/ptyManager.js'
+import { cleanupSteamCMDRunScripts } from './utils/steamcmdRunScript.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -177,7 +178,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // 优雅关闭处理
 let shuttingDown = false
-function gracefulShutdown(signal: string) {
+async function gracefulShutdown(signal: string, exitCode = 0) {
   if (shuttingDown) {
     logger.warn('已在关闭中，忽略重复信号。')
     return
@@ -185,40 +186,44 @@ function gracefulShutdown(signal: string) {
   shuttingDown = true
 
   logger.info(`收到${signal}信号，开始优雅关闭...`)
+  const forceExitTimer = setTimeout(() => {
+    logger.error('优雅关闭超时，强制退出！')
+    process.exit(1)
+  }, 5000)
 
   // 1. 立即清理所有管理器，特别是会创建子进程的TerminalManager
   logger.info('开始清理管理器...')
   try {
     if (terminalManager) {
-      terminalManager.cleanup()
+      await terminalManager.cleanup()
       logger.info('TerminalManager 已清理')
     }
     if (gameManager) {
-      gameManager.cleanup()
+      await gameManager.cleanup()
       logger.info('GameManager 已清理')
     }
     if (systemManager) {
-      systemManager.cleanup()
+      await systemManager.cleanup()
       logger.info('SystemManager 已清理')
     }
     if (fileWatchManager) {
-      fileWatchManager.cleanup()
+      await fileWatchManager.cleanup()
       logger.info('FileWatchManager 已清理')
     }
     if (instanceManager) {
-      instanceManager.cleanup()
+      await instanceManager.cleanup()
       logger.info('InstanceManager 已清理')
     }
     if (steamcmdManager) {
-      // SteamCMDManager 通常不需要特殊清理，但为了一致性保留
+      await steamcmdManager.cleanup()
       logger.info('SteamCMDManager 已清理')
     }
     if (schedulerManager) {
-      schedulerManager.destroy()
+      await schedulerManager.destroy()
       logger.info('SchedulerManager 已清理')
     }
     if (pluginManager) {
-      pluginManager.cleanup()
+      await pluginManager.cleanup()
       logger.info('PluginManager 已清理')
     }
     logger.info('管理器清理完成。')
@@ -242,32 +247,32 @@ function gracefulShutdown(signal: string) {
     }
     // 无论HTTP服务器关闭是否出错，都准备退出
     logger.info('优雅关闭完成，服务器退出。')
-    process.exit(0)
+    clearTimeout(forceExitTimer)
+    process.exit(exitCode)
   })
 
   io.close(() => {
     logger.info('Socket.IO 服务器已关闭')
   })
 
-  // 3. 设置超时强制退出
-  setTimeout(() => {
-    logger.error('优雅关闭超时，强制退出！')
-    process.exit(1)
-  }, 5000) // 5秒超时
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
-process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => {
+  void gracefulShutdown('SIGTERM')
+})
+process.on('SIGINT', () => {
+  void gracefulShutdown('SIGINT')
+})
 
 // 未捕获异常处理
 process.on('uncaughtException', (error) => {
   logger.error('未捕获的异常:', error)
-  process.exit(1)
+  void gracefulShutdown('未捕获异常', 1)
 })
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('未处理的Promise拒绝:', reason)
-  process.exit(1)
+  void gracefulShutdown('未处理的Promise拒绝', 1)
 })
 
 // 艺术字输出函数
@@ -556,6 +561,10 @@ async function startServer() {
     // 检测并生成.env文件
     await ensureEnvFile()
 
+    // 清理上次异常退出可能遗留的SteamCMD临时脚本（脚本可能包含一次性登录信息）
+    await cleanupSteamCMDRunScripts()
+    logger.info('SteamCMD临时脚本目录已清理')
+
     // Linux 环境下检测 /home/steam 目录，若存在则创建必要子目录
     if (os.platform() === 'linux') {
       const steamHome = '/home/steam'
@@ -693,7 +702,7 @@ async function startServer() {
     app.use('/api/steamcmd', steamcmdRouter)
 
     // 设置游戏部署路由
-    setGameDeploymentManagers(terminalManager, instanceManager, steamcmdManager, configManager)
+    setGameDeploymentManagers(terminalManager, instanceManager, steamcmdManager, configManager, io)
     app.use('/api/game-deployment', gameDeploymentRouter)
 
     // 设置Minecraft路由
@@ -805,6 +814,9 @@ async function startServer() {
     // Socket.IO 连接处理
     io.on('connection', (socket) => {
       logger.info(`客户端连接: ${socket.id} - 用户: ${socket.data.user?.username}`)
+      if (socket.data.user?.userId) {
+        socket.join(`user:${socket.data.user.userId}`)
+      }
 
       const runDisconnectCleanupStep = (label: string, action: () => void) => {
         try {

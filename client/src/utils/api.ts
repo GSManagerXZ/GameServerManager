@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { LoginRequest, LoginResponse, RegisterRequest, RegisterResponse, HasUsersResponse, ApiResponse, User, Instance, CreateInstanceRequest, CaptchaResponse, CheckCaptchaResponse } from '@/types'
+import { LoginRequest, LoginResponse, RegisterRequest, RegisterResponse, HasUsersResponse, ApiResponse, User, Instance, CreateInstanceRequest, CaptchaResponse, CheckCaptchaResponse, SteamBranchInfo } from '@/types'
 import config from '@/config'
 import { useNotificationStore } from '@/stores/notificationStore'
 
@@ -519,12 +519,51 @@ class ApiClient {
     useAnonymous: boolean
     steamUsername?: string
     steamPassword?: string
-    steamcmdCommand: string
     existingInstanceId?: string
     updateInstanceInfo?: boolean
     resetSteamManifest?: boolean
+    branch?: string
+    betaPassword?: string
+    launchArgs?: string
+    validateGameIntegrity?: boolean
   }) {
     return this.post('/game-deployment/install', data)
+  }
+
+  async getSteamBranches(appId: string, options: {
+    forceRefresh?: boolean
+    steamUsername?: string
+    steamPassword?: string
+  } = {}) {
+    const url = `/game-deployment/steam/branches/${encodeURIComponent(appId)}`
+    if (options.steamUsername || options.steamPassword) {
+      return this.post<SteamBranchInfo[]>(url, options)
+    }
+
+    return this.get<SteamBranchInfo[]>(options.forceRefresh ? `${url}?refresh=1` : url)
+  }
+
+  async updateSteamInstance(data: {
+    instanceId: string
+    branch: string
+    betaPassword?: string
+    validate?: boolean
+    useAnonymous?: boolean
+    steamUsername?: string
+    steamPassword?: string
+  }) {
+    return this.post<{ updateId: string; instanceId: string; requestedBranch: string }>('/game-deployment/steam/update', data)
+  }
+
+  async getSteamUpdateStatus(updateId: string) {
+    return this.get<{
+      updateId: string
+      instanceId: string
+      requestedBranch: string
+      status: 'running' | 'completed' | 'failed'
+      error?: string
+      updatedAt: string
+    }>(`/game-deployment/steam/update/${encodeURIComponent(updateId)}`)
   }
 
   // 定时任务API

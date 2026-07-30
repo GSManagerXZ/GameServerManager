@@ -164,7 +164,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       })
     }
     
-    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser, instanceType, javaVersion } = req.body
+    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser, instanceType, javaVersion, steam } = req.body
     
     // 根据实例类型设置默认值
     const actualInstanceType = instanceType || 'generic'
@@ -225,11 +225,24 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       enableStreamForward: Boolean(enableStreamForward),
       programPath: programPath?.trim() || '',
       instanceType: actualInstanceType,
-      javaVersion: javaVersion?.trim() || undefined
+      javaVersion: javaVersion?.trim() || undefined,
+      steam: steam?.appId
+        ? {
+            appId: String(steam.appId).trim(),
+            gameKey: String(steam.gameKey || '').trim(),
+            branch: String(steam.branch || 'public').trim() || 'public'
+          }
+        : undefined
     }
     // 处理terminalUser字段：如果是空字符串则设为空字符串，如果有值则设置值
     if (typeof terminalUser === 'string') {
       instanceData.terminalUser = terminalUser.trim()
+    }
+    if (instanceData.steam && (!/^\d+$/.test(instanceData.steam.appId) || !/^[\w.-]+$/.test(instanceData.steam.branch))) {
+      return res.status(400).json({
+        success: false,
+        error: 'Steam实例信息格式无效'
+      })
     }
     
     const instance = await instanceManager.createInstance(instanceData)
@@ -262,7 +275,7 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
     }
     
     const { id } = req.params
-    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser, instanceType, javaVersion } = req.body
+    const { name, description, workingDirectory, startCommand, autoStart, stopCommand, enableStreamForward, programPath, terminalUser, instanceType, javaVersion, steam } = req.body
     
     // 根据实例类型设置默认值
     const actualInstanceType = instanceType || 'generic'
@@ -323,11 +336,24 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       enableStreamForward: Boolean(enableStreamForward),
       programPath: programPath?.trim() || '',
       instanceType: actualInstanceType,
-      javaVersion: javaVersion?.trim() || undefined
+      javaVersion: javaVersion?.trim() || undefined,
+      steam: steam?.appId
+        ? {
+            appId: String(steam.appId).trim(),
+            gameKey: String(steam.gameKey || '').trim(),
+            branch: String(steam.branch || 'public').trim() || 'public'
+          }
+        : undefined
     }
     // 处理terminalUser字段：如果是空字符串则设为空字符串，如果有值则设置值
     if (typeof terminalUser === 'string') {
       instanceData.terminalUser = terminalUser.trim()
+    }
+    if (instanceData.steam && (!/^\d+$/.test(instanceData.steam.appId) || !/^[\w.-]+$/.test(instanceData.steam.branch))) {
+      return res.status(400).json({
+        success: false,
+        error: 'Steam实例信息格式无效'
+      })
     }
     
     const instance = await instanceManager.updateInstance(id, instanceData)
@@ -354,6 +380,14 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
         success: false,
         error: '无法修改正在运行的实例配置',
         message: '请先停止实例再进行修改'
+      })
+    }
+
+    if (typeof error.message === 'string' && error.message.startsWith('实例正在')) {
+      return res.status(409).json({
+        success: false,
+        error: '实例正在执行其他操作',
+        message: error.message
       })
     }
     
@@ -393,6 +427,13 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
     })
   } catch (error: any) {
     logger.error('删除实例失败:', error)
+    if (typeof error.message === 'string' && error.message.startsWith('实例正在')) {
+      return res.status(409).json({
+        success: false,
+        error: '实例正在执行其他操作',
+        message: error.message
+      })
+    }
     res.status(500).json({
       success: false,
       error: '删除实例失败',
