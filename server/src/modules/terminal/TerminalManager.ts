@@ -13,6 +13,7 @@ import { TerminalSessionManager, PersistedTerminalSession } from './TerminalSess
 import { ConfigManager } from '../config/ConfigManager.js'
 import { ptyManager } from '../../utils/ptyManager.js'
 import { buildUtf8LocaleEnv } from '../../utils/filenameEncoding.js'
+import { StreamingRedactor } from '../../utils/streamingRedactor.js'
 
 const execAsync = promisify(exec)
 
@@ -35,6 +36,11 @@ interface PtySession {
   programPath?: string // 程序启动参数的绝对路径
   autoCloseOnForwardExit?: boolean // 转发进程退出时是否自动关闭终端会话
   fallbackRetried?: boolean // 是否已尝试过回退重试
+  stdoutRedactor: StreamingRedactor
+  stderrRedactor: StreamingRedactor
+  onOutput?: (output: string) => void
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
+  exitNotified?: boolean
 }
 
 interface CreatePtyData {
@@ -58,6 +64,30 @@ interface TerminalResizeData {
   sessionId: string
   cols: number
   rows: number
+}
+
+export interface ManagedProcessOptions {
+  executablePath: string
+  args: string[]
+  workingDirectory: string
+  input?: string
+  redactValues?: string[]
+  timeoutMs?: number
+  onOutput?: (output: string) => void
+}
+
+export interface PtyRuntimeOptions {
+  command?: string[]
+  environmentOverrides?: NodeJS.ProcessEnv
+  redactValues?: string[]
+  onOutput?: (output: string) => void
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
+}
+
+interface ManagedProcessResult {
+  code: number | null
+  signal: NodeJS.Signals | null
+  output: string
 }
 
 export class TerminalManager {
@@ -112,12 +142,117 @@ export class TerminalManager {
     }
   }
 
+  public async runManagedProcess(options: ManagedProcessOptions): Promise<ManagedProcessResult> {
+    const {
+      executablePath,
+      args,
+      workingDirectory,
+      input,
+      redactValues = [],
+      timeoutMs = 30 * 60 * 1000,
+      onOutput
+    } = options
+    return new Promise((resolve, reject) => {
+      let settled = false
+      let processError: Error | null = null
+      let forceKillTimer: NodeJS.Timeout | null = null
+      const child = spawn(executablePath, args, {
+        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+        cwd: workingDirectory,
+        env: buildUtf8LocaleEnv(process.env),
+        shell: false,
+        windowsHide: true
+      })
+      const outputChunks: string[] = []
+      let outputLengthBytes = 0
+      const maxOutputLength = 10 * 1024 * 1024
+      const stdoutRedactor = new StreamingRedactor(redactValues)
+      const stderrRedactor = new StreamingRedactor(redactValues)
+      const clearTimers = () => {
+        clearTimeout(timeoutTimer)
+        if (forceKillTimer) clearTimeout(forceKillTimer)
+      }
+      const stopProcess = (error: Error) => {
+        if (processError || settled) return
+        processError = error
+        try {
+          child.kill()
+        } catch (killError) {
+          this.logger.warn('终止托管进程失败，将继续尝试强制终止', killError)
+        }
+        forceKillTimer = setTimeout(() => {
+          if (settled) return
+          try {
+            child.kill('SIGKILL')
+          } catch (killError) {
+            this.logger.error('强制终止托管进程失败', killError)
+          }
+        }, 5000)
+        forceKillTimer.unref?.()
+      }
+      const appendOutput = (output: string) => {
+        if (!output) return
+
+        outputLengthBytes += Buffer.byteLength(output)
+        if (outputLengthBytes > maxOutputLength) {
+          stopProcess(new Error('托管进程输出过大'))
+          return
+        }
+        outputChunks.push(output)
+        try {
+          onOutput?.(output)
+        } catch (error) {
+          this.logger.warn('托管进程输出回调执行失败', error)
+        }
+      }
+      const flushOutput = () => {
+        appendOutput(stdoutRedactor.end())
+        appendOutput(stderrRedactor.end())
+      }
+      const timeoutTimer = setTimeout(() => {
+        stopProcess(new Error(`托管进程执行超时（${Math.ceil(timeoutMs / 60000)}分钟）`))
+      }, timeoutMs)
+      timeoutTimer.unref?.()
+      child.stdout?.on('data', (data: Buffer) => appendOutput(stdoutRedactor.write(data)))
+      child.stderr?.on('data', (data: Buffer) => appendOutput(stderrRedactor.write(data)))
+      child.stdin?.on('error', error => stopProcess(error))
+      child.once('error', error => {
+        stopProcess(error)
+      })
+      child.once('close', (code, signal) => {
+        if (settled) return
+        settled = true
+        flushOutput()
+        clearTimers()
+        if (processError) {
+          reject(processError)
+          return
+        }
+        resolve({ code, signal, output: outputChunks.join('') })
+      })
+      if (input !== undefined) {
+        child.stdin?.end(input)
+      }
+    })
+  }
+
   /**
    * 创建新的PTY会话
    */
-  public async createPty(socket: Socket, data: CreatePtyData): Promise<void> {
+  public async createPty(
+    socket: Socket,
+    data: CreatePtyData,
+    runtimeOptions: PtyRuntimeOptions = {}
+  ): Promise<void> {
     try {
       const { sessionId, name, cols, rows, workingDirectory: rawWorkingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false, terminalUser } = data
+      const {
+        command,
+        environmentOverrides = {},
+        redactValues = [],
+        onOutput,
+        onExit
+      } = runtimeOptions
       const workingDirectory = path.resolve(rawWorkingDirectory)
       const sessionName = name || `终端会话 ${sessionId.slice(-8)}`
 
@@ -205,14 +340,19 @@ export class TerminalManager {
 
       const terminalEnv = buildUtf8LocaleEnv({
         ...process.env,
+        ...environmentOverrides,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor'
       })
+      const preservedEnvironmentNames = Object.keys(environmentOverrides)
+        .filter(name => /^[A-Z_][A-Z0-9_]*$/i.test(name))
       const shellLocaleEnvArgs = this.buildShellLocaleEnvArgs(terminalEnv)
       const shellLocaleExport = this.buildShellLocaleExport(terminalEnv)
-      
-      // 根据操作系统设置默认shell
-      if (os.platform() === 'win32') {
+
+      // 内部调用方可以直接启动目标程序，避免将敏感命令写入shell历史。
+      if (command && command.length > 0) {
+        args.push('-cmd', JSON.stringify(command))
+      } else if (os.platform() === 'win32') {
         args.push('-cmd', JSON.stringify(['powershell.exe']))
       } else {
         // Linux下检查是否配置了默认用户
@@ -226,7 +366,11 @@ export class TerminalManager {
             if (sudoExists) {
               // 如果sudo存在，使用sudo切换用户，使用简化的方式
               args.push('-cmd', JSON.stringify([
-                'sudo', '-u', defaultUser,
+                'sudo',
+                ...(preservedEnvironmentNames.length > 0
+                  ? [`--preserve-env=${preservedEnvironmentNames.join(',')}`]
+                  : []),
+                '-u', defaultUser,
                 'env',
                 ...shellLocaleEnvArgs,
                 '/bin/bash', '-c',
@@ -240,7 +384,9 @@ export class TerminalManager {
               if (suExists) {
                 // 使用su命令切换用户，使用简化的方式
                 args.push('-cmd', JSON.stringify([
-                  'su', defaultUser, '-c', 
+                  'su',
+                  ...(preservedEnvironmentNames.length > 0 ? ['-m'] : []),
+                  defaultUser, '-c',
                   `${shellLocaleExport}; ` +
                   `cd "${workingDirectory}" && exec /bin/bash --login`
                 ]))
@@ -287,7 +433,11 @@ export class TerminalManager {
         outputBuffer: [],
         enableStreamForward,
         programPath,
-        autoCloseOnForwardExit
+        autoCloseOnForwardExit,
+        stdoutRedactor: new StreamingRedactor(redactValues),
+        stderrRedactor: new StreamingRedactor(redactValues),
+        onOutput,
+        onExit
       }
       
       // 保存会话到内存
@@ -306,45 +456,41 @@ export class TerminalManager {
       } catch (error) {
         this.logger.error(`保存会话到配置文件失败: ${sessionId}`, error)
       }
-      
-      // 处理PTY输出
-      ptyProcess.stdout?.on('data', (data: Buffer) => {
+
+      const emitOutput = (output: string, isError = false) => {
+        if (!output) return
         session.lastActivity = new Date()
-        const output = data.toString()
-        
-        // 保存到输出缓存，限制缓存大小为1000条
         session.outputBuffer.push(output)
         if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift() // 移除最旧的输出
+          session.outputBuffer.shift()
         }
-        
-        this.logger.debug(`PTY输出 ${sessionId}: ${JSON.stringify(output)}`)
-        socket.emit('terminal-output', {
-          sessionId,
-          data: output
-        })
+        try {
+          session.onOutput?.(output)
+        } catch (error) {
+          this.logger.warn(`PTY输出回调执行失败: ${sessionId}`, error)
+        }
+        if (isError) {
+          this.logger.warn(`PTY错误输出 ${sessionId}: ${JSON.stringify(output)}`)
+        } else {
+          this.logger.debug(`PTY输出 ${sessionId}: ${JSON.stringify(output)}`)
+        }
+        session.socket.emit('terminal-output', { sessionId, data: output })
+      }
+
+      // 处理PTY输出
+      ptyProcess.stdout?.on('data', (data: Buffer) => {
+        emitOutput(session.stdoutRedactor.write(data))
       })
+      ptyProcess.stdout?.once('end', () => emitOutput(session.stdoutRedactor.end()))
       
       // 处理PTY错误输出
       ptyProcess.stderr?.on('data', (data: Buffer) => {
-        session.lastActivity = new Date()
-        const output = data.toString()
-        
-        // 保存到输出缓存，限制缓存大小为1000条
-        session.outputBuffer.push(output)
-        if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift() // 移除最旧的输出
-        }
-        
-        this.logger.warn(`PTY错误输出 ${sessionId}: ${JSON.stringify(output)}`)
-        socket.emit('terminal-output', {
-          sessionId,
-          data: output
-        })
+        emitOutput(session.stderrRedactor.write(data), true)
       })
+      ptyProcess.stderr?.once('end', () => emitOutput(session.stderrRedactor.end(), true))
       
       // 处理进程退出
-      ptyProcess.on('exit', (code, signal) => {
+      ptyProcess.once('close', (code, signal) => {
         this.logger.info(`PTY进程退出: ${sessionId}, 退出码: ${code}, 信号: ${signal}`)
         
         // 如果退出码为0但进程立即退出，可能是命令执行有问题
@@ -353,13 +499,22 @@ export class TerminalManager {
           this.logger.warn(`使用的命令参数: ${JSON.stringify(args)}`)
           
           // 如果是用户切换失败，尝试使用当前用户重新启动
-          if (defaultUser && defaultUser.trim() !== '' && !session.fallbackRetried) {
+          if (!command && defaultUser && defaultUser.trim() !== '' && !session.fallbackRetried) {
             this.logger.info(`尝试使用当前用户重新启动终端: ${sessionId}`)
             session.fallbackRetried = true
             
             // 使用当前用户重新启动
             setTimeout(() => {
-              this.createPtyFallback(sessionId, sessionName, workingDirectory, socket, enableStreamForward, programPath, autoCloseOnForwardExit)
+              this.createPtyFallback(
+                sessionId,
+                sessionName,
+                workingDirectory,
+                socket,
+                enableStreamForward,
+                programPath,
+                autoCloseOnForwardExit,
+                runtimeOptions
+              )
             }, 100)
             return
           }
@@ -373,11 +528,15 @@ export class TerminalManager {
           })
         }
         
-        socket.emit('terminal-exit', {
+        session.socket.emit('terminal-exit', {
           sessionId,
           code: code || 0,
           signal
         })
+        if (!session.exitNotified) {
+          session.exitNotified = true
+          session.onExit?.(code, signal)
+        }
         
         // 从内存中删除会话
         this.sessions.delete(sessionId)
@@ -400,7 +559,7 @@ export class TerminalManager {
           })
         }
         
-        socket.emit('terminal-error', {
+        session.socket.emit('terminal-error', {
           sessionId,
           error: error.message
         })
@@ -1183,11 +1342,7 @@ export class TerminalManager {
 
       this.logger.info(`会话 ${sessionId} 重新连接成功`)
       
-      // 重新设置PTY输出监听
-      session.process.stdout?.removeAllListeners('data')
-      session.process.stderr?.removeAllListeners('data')
-      
-      // 发送历史输出给重连的客户端（只发送一次）
+      // 输出监听始终通过 session.socket 发送，重连只需替换socket并重放已脱敏缓存。
       if (session.outputBuffer.length > 0) {
         const historicalOutput = session.outputBuffer.join('')
         socket.emit('terminal-output', {
@@ -1197,41 +1352,15 @@ export class TerminalManager {
         })
       }
       
-      session.process.stdout?.on('data', (data: Buffer) => {
-        const output = data.toString()
-        
-        // 保存到输出缓存，限制缓存大小为1000条
-        session.outputBuffer.push(output)
-        if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift() // 移除最旧的输出
-        }
-        
-        socket.emit('terminal-output', {
-          sessionId: session.id,
-          data: output
-        })
-      })
-      
-      session.process.stderr?.on('data', (data: Buffer) => {
-        const output = data.toString()
-        
-        // 保存到输出缓存，限制缓存大小为1000条
-        session.outputBuffer.push(output)
-        if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift() // 移除最旧的输出
-        }
-        
-        socket.emit('terminal-output', {
-          sessionId: session.id,
-          data: output
-        })
-      })
-      
       return true
     } catch (error) {
       this.logger.error(`重连会话失败:`, error)
       return false
     }
+  }
+
+  public hasSession(sessionId: string): boolean {
+    return this.sessions.has(sessionId)
   }
   
   /**
@@ -1547,8 +1676,23 @@ export class TerminalManager {
   /**
    * 使用当前用户创建PTY会话（回退方案）
    */
-  private async createPtyFallback(sessionId: string, sessionName: string, workingDirectory: string, socket: Socket, enableStreamForward?: boolean, programPath?: string, autoCloseOnForwardExit?: boolean): Promise<void> {
+  private async createPtyFallback(
+    sessionId: string,
+    sessionName: string,
+    workingDirectory: string,
+    socket: Socket,
+    enableStreamForward?: boolean,
+    programPath?: string,
+    autoCloseOnForwardExit?: boolean,
+    runtimeOptions: PtyRuntimeOptions = {}
+  ): Promise<void> {
     try {
+      const {
+        environmentOverrides = {},
+        redactValues = [],
+        onOutput,
+        onExit
+      } = runtimeOptions
       workingDirectory = path.resolve(workingDirectory)
       this.logger.info(`使用当前用户创建PTY回退会话: ${sessionId}`)
       
@@ -1561,6 +1705,7 @@ export class TerminalManager {
 
       const terminalEnv = buildUtf8LocaleEnv({
         ...process.env,
+        ...environmentOverrides,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor'
       })
@@ -1594,6 +1739,10 @@ export class TerminalManager {
         enableStreamForward,
         programPath,
         autoCloseOnForwardExit,
+        stdoutRedactor: new StreamingRedactor(redactValues),
+        stderrRedactor: new StreamingRedactor(redactValues),
+        onOutput,
+        onExit,
         fallbackRetried: true // 标记为已重试
       }
       
@@ -1603,36 +1752,58 @@ export class TerminalManager {
       // 处理PTY输出
       ptyProcess.stdout?.on('data', (data: Buffer) => {
         session.lastActivity = new Date()
-        const output = data.toString()
+        const output = session.stdoutRedactor.write(data)
+        if (!output) return
         session.outputBuffer.push(output)
         if (session.outputBuffer.length > 1000) {
           session.outputBuffer.shift()
         }
-        socket.emit('terminal-output', { sessionId, data: output })
+        session.onOutput?.(output)
+        session.socket.emit('terminal-output', { sessionId, data: output })
+      })
+      ptyProcess.stdout?.once('end', () => {
+        const output = session.stdoutRedactor.end()
+        if (!output) return
+        session.outputBuffer.push(output)
+        session.onOutput?.(output)
+        session.socket.emit('terminal-output', { sessionId, data: output })
       })
       
       // 处理PTY错误输出
       ptyProcess.stderr?.on('data', (data: Buffer) => {
         session.lastActivity = new Date()
-        const output = data.toString()
+        const output = session.stderrRedactor.write(data)
+        if (!output) return
         session.outputBuffer.push(output)
         if (session.outputBuffer.length > 1000) {
           session.outputBuffer.shift()
         }
-        socket.emit('terminal-output', { sessionId, data: output })
+        session.onOutput?.(output)
+        session.socket.emit('terminal-output', { sessionId, data: output })
+      })
+      ptyProcess.stderr?.once('end', () => {
+        const output = session.stderrRedactor.end()
+        if (!output) return
+        session.outputBuffer.push(output)
+        session.onOutput?.(output)
+        session.socket.emit('terminal-output', { sessionId, data: output })
       })
       
       // 处理进程退出
-      ptyProcess.on('exit', (code, signal) => {
+      ptyProcess.once('close', (code, signal) => {
         this.logger.info(`PTY回退进程退出: ${sessionId}, 退出码: ${code}, 信号: ${signal}`)
-        socket.emit('terminal-exit', { sessionId, code: code || 0, signal })
+        session.socket.emit('terminal-exit', { sessionId, code: code || 0, signal })
+        if (!session.exitNotified) {
+          session.exitNotified = true
+          session.onExit?.(code, signal)
+        }
         this.sessions.delete(sessionId)
       })
       
       // 处理进程错误
       ptyProcess.on('error', (error) => {
         this.logger.error(`PTY回退进程错误 ${sessionId}:`, error)
-        socket.emit('terminal-error', { sessionId, error: error.message })
+        session.socket.emit('terminal-error', { sessionId, error: error.message })
         this.sessions.delete(sessionId)
       })
       

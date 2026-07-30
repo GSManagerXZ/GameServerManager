@@ -690,7 +690,7 @@ async function startServer() {
     app.use('/api/steamcmd', steamcmdRouter)
 
     // 设置游戏部署路由
-    setGameDeploymentManagers(terminalManager, instanceManager, steamcmdManager, configManager)
+    setGameDeploymentManagers(terminalManager, instanceManager, steamcmdManager, configManager, io)
     app.use('/api/game-deployment', gameDeploymentRouter)
 
     // 设置Minecraft路由
@@ -802,6 +802,9 @@ async function startServer() {
     // Socket.IO 连接处理
     io.on('connection', (socket) => {
       logger.info(`客户端连接: ${socket.id} - 用户: ${socket.data.user?.username}`)
+      if (socket.data.user?.userId) {
+        socket.join(`user:${socket.data.user.userId}`)
+      }
 
       const runDisconnectCleanupStep = (label: string, action: () => void) => {
         try {

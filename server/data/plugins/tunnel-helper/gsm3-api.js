@@ -20,19 +20,19 @@ class GSM3API {
         console.log('Token已从全局变量获取:', this.token)
         return
       }
-      
+
       // 检查是否已经通过脚本注入设置了token
       if (window.gsm3 && window.gsm3.token) {
         this.token = window.gsm3.token
         console.log('Token已从注入脚本获取')
         return
       }
-      
+
       // 尝试从父窗口获取token
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'gsm3-get-token' }, '*')
       }
-      
+
       console.log('正在初始化token...')
     } catch (error) {
       console.warn('Token初始化失败:', error)
@@ -45,7 +45,7 @@ class GSM3API {
         console.log('通过消息更新Token:', this.token)
       }
     })
-    
+
     // 定期检查全局token变量
     const checkGlobalToken = () => {
       if (!this.token && window.gsm3Token) {
@@ -53,7 +53,7 @@ class GSM3API {
         console.log('从全局变量延迟获取Token:', this.token)
       }
     }
-    
+
     // 每100ms检查一次，最多检查50次（5秒）
     let checkCount = 0
     const tokenChecker = setInterval(() => {
@@ -87,11 +87,11 @@ class GSM3API {
     try {
       const response = await fetch(url, config)
       const data = await response.json()
-      
+
       if (!response.ok) {
         throw new Error(data.message || `HTTP ${response.status}`)
       }
-      
+
       return data
     } catch (error) {
       console.error('API请求失败:', error)
@@ -552,13 +552,13 @@ class GSM3API {
    */
   formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes'
-    
+
     const k = 1024
     const dm = decimals < 0 ? 0 : decimals
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-    
+
     const i = Math.floor(Math.log(bytes) / Math.log(k))
-    
+
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
   }
 
@@ -587,13 +587,13 @@ class GSM3API {
     const hours = Math.floor((seconds % 86400) / 3600)
     const minutes = Math.floor((seconds % 3600) / 60)
     const secs = Math.floor(seconds % 60)
-    
+
     const parts = []
     if (days > 0) parts.push(`${days}天`)
     if (hours > 0) parts.push(`${hours}小时`)
     if (minutes > 0) parts.push(`${minutes}分钟`)
     if (secs > 0 || parts.length === 0) parts.push(`${secs}秒`)
-    
+
     return parts.join(' ')
   }
 }
@@ -610,7 +610,7 @@ window.gsm3.initialize = function() {
   if (this.initPromise) {
     return this.initPromise
   }
-  
+
   this.initPromise = new Promise((resolve) => {
     const checkReady = () => {
       if (this.token) {
@@ -623,7 +623,7 @@ window.gsm3.initialize = function() {
     }
     checkReady()
   })
-  
+
   return this.initPromise
 }
 
@@ -638,11 +638,11 @@ window.addEventListener('message', (event) => {
 // 插件加载完成后的初始化
 document.addEventListener('DOMContentLoaded', () => {
   console.log('GSM3 插件API已加载')
-  
+
   // 启动初始化过程
   window.gsm3.initialize().then(() => {
     console.log('GSM3 API准备就绪')
-    
+
     // 向父窗口发送插件加载完成的消息
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({

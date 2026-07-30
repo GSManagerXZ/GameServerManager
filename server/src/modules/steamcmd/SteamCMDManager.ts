@@ -5,9 +5,13 @@ import { createWriteStream } from 'fs'
 import * as tar from 'tar'
 import winston from 'winston'
 import os from 'os'
+import { spawn } from 'child_process'
+import { parse as parseVdf } from 'vdf-parser'
 import { ConfigManager } from '../config/ConfigManager.js'
 import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
 import { zipToolsManager } from '../../utils/zipToolsManager.js'
+import { StreamingRedactor } from '../../utils/streamingRedactor.js'
+import { createSteamCMDRunScript, prepareSteamCMDLaunch } from '../../utils/steamcmdRunScript.js'
 
 export interface SteamCMDInstallOptions {
   installPath: string
@@ -22,9 +26,31 @@ export interface SteamCMDStatus {
   lastChecked?: string
 }
 
+export interface SteamBranchInfo {
+  name: string
+  description?: string
+  buildId?: string
+  updatedAt?: string
+  requiresPassword: boolean
+  isDefault: boolean
+}
+
+export interface SteamBranchQueryOptions {
+  forceRefresh?: boolean
+  steamUsername?: string
+  steamPassword?: string
+}
+
+function quoteSteamCMDConsoleArgument(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`
+}
+
 export class SteamCMDManager {
   private logger: winston.Logger
   private configManager: ConfigManager
+  private branchCache = new Map<string, { expiresAt: number; branches: SteamBranchInfo[] }>()
+  private branchRequests = new Map<string, Promise<SteamBranchInfo[]>>()
+  private branchQueryQueue: Promise<void> = Promise.resolve()
   private readonly WINDOWS_DOWNLOAD_URL = 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip'
   private readonly LINUX_DOWNLOAD_URL = 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz'
 
@@ -299,6 +325,372 @@ export class SteamCMDManager {
     }
 
     return null
+  }
+
+  /**
+   * 查询Steam应用可用分支
+   */
+  async getAppBranches(appId: string, options: SteamBranchQueryOptions = {}): Promise<SteamBranchInfo[]> {
+    const normalizedAppId = appId.trim()
+    if (!/^\d+$/.test(normalizedAppId) || normalizedAppId.length > 10 || Number(normalizedAppId) > 0xFFFFFFFF) {
+      throw new Error('Steam AppID格式无效')
+    }
+
+    const credentials = this.normalizeBranchCredentials(options)
+    if (credentials) {
+      return this.enqueueBranchQuery(() => this.fetchAppBranches(normalizedAppId, credentials))
+    }
+
+    const now = Date.now()
+    for (const [cachedAppId, entry] of this.branchCache) {
+      if (entry.expiresAt <= now) this.branchCache.delete(cachedAppId)
+    }
+
+    const cached = this.branchCache.get(normalizedAppId)
+    if (!options.forceRefresh && cached && cached.expiresAt > now) {
+      return cached.branches.map(branch => ({ ...branch }))
+    }
+
+    const existingRequest = this.branchRequests.get(normalizedAppId)
+    if (existingRequest) return existingRequest
+
+    const request = this.enqueueBranchQuery(() => this.fetchAppBranches(normalizedAppId)).then(
+      branches => branches.map(branch => ({ ...branch }))
+    )
+    this.branchRequests.set(normalizedAppId, request)
+    try {
+      const branches = await request
+      this.branchCache.set(normalizedAppId, {
+        expiresAt: Date.now() + 5 * 60 * 1000,
+        branches
+      })
+      return branches.map(branch => ({ ...branch }))
+    } finally {
+      this.branchRequests.delete(normalizedAppId)
+    }
+  }
+
+  private normalizeBranchCredentials(options: SteamBranchQueryOptions): { username: string; password: string } | undefined {
+    const username = typeof options.steamUsername === 'string' ? options.steamUsername.trim() : ''
+    const password = typeof options.steamPassword === 'string' ? options.steamPassword : ''
+
+    if (!username && !password) return undefined
+    if (!username || !password) {
+      throw new Error('Steam账户信息不完整')
+    }
+    if (username.length > 128 || password.length > 256 || /[\r\n]/.test(username) || /[\r\n]/.test(password)) {
+      throw new Error('Steam账户信息格式无效')
+    }
+
+    return { username, password }
+  }
+
+  private enqueueBranchQuery<T>(query: () => Promise<T>): Promise<T> {
+    const result = this.branchQueryQueue.then(query, query)
+    this.branchQueryQueue = result.then(() => undefined, () => undefined)
+    return result
+  }
+
+  private async fetchAppBranches(
+    appId: string,
+    credentials?: { username: string; password: string }
+  ): Promise<SteamBranchInfo[]> {
+    const executablePath = await this.getSteamCMDExecutablePath()
+    if (!executablePath) {
+      throw new Error('SteamCMD未配置')
+    }
+
+    const loginCommand = credentials
+      ? `login ${quoteSteamCMDConsoleArgument(credentials.username)} ${quoteSteamCMDConsoleArgument(credentials.password)}`
+      : 'login anonymous'
+    const attempts = [
+      [
+        loginCommand,
+        `app_info_request ${appId}`,
+        loginCommand,
+        'app_info_update 1',
+        `app_info_print ${appId} depots`,
+        'logoff',
+        'quit'
+      ],
+      [
+        loginCommand,
+        `app_info_request ${appId}`,
+        loginCommand,
+        `app_info_print ${appId}`,
+        `app_info_print ${appId}`,
+        'logoff',
+        'quit'
+      ],
+      [
+        loginCommand,
+        'app_info_update 1',
+        `app_info_print ${appId}`,
+        'logoff',
+        'quit'
+      ]
+    ]
+
+    for (let attempt = 0; attempt < attempts.length; attempt++) {
+      try {
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, attempt * 750))
+        }
+        const output = await this.runSteamCMDForOutput(
+          executablePath,
+          attempts[attempt],
+          credentials?.password ? [credentials.password] : []
+        )
+
+        const branches = this.parseAppBranches(output, appId)
+        if (branches.length > 0) {
+          return branches
+        }
+
+        this.logger.warn(`第 ${attempt + 1} 次查询Steam应用 ${appId} 分支未返回有效数据`)
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : String(error)
+        const message = credentials?.password
+          ? rawMessage.split(credentials.password).join('******')
+          : rawMessage
+        this.logger.warn(`第 ${attempt + 1} 次查询Steam应用 ${appId} 分支失败: ${message}`)
+      }
+    }
+
+    throw new Error('未获取到Steam分支信息，部分游戏可能需要使用拥有该游戏的Steam账号查询')
+  }
+
+  private async runSteamCMDForOutput(
+    executablePath: string,
+    commands: string[],
+    redactValues: string[] = []
+  ): Promise<string> {
+    const runScript = await createSteamCMDRunScript(commands)
+    try {
+      const workingDirectory = path.dirname(executablePath)
+      await prepareSteamCMDLaunch(executablePath)
+      return await new Promise((resolve, reject) => {
+        const child = spawn(executablePath, [
+          '-logdir', runScript.logDirectory,
+          '+runscript', runScript.filePath
+        ], {
+          cwd: workingDirectory,
+          shell: false,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        let stdout = ''
+        let stderr = ''
+        let settled = false
+        let stopCapturingOutput = false
+        let terminationError: Error | null = null
+        let forceKillTimer: ReturnType<typeof setTimeout> | null = null
+        const maxOutputLength = 10 * 1024 * 1024
+        const stdoutRedactor = new StreamingRedactor(redactValues)
+        const stderrRedactor = new StreamingRedactor(redactValues)
+
+        const terminateAndWait = (error: Error) => {
+          if (settled || terminationError) return
+
+          terminationError = error
+          stopCapturingOutput = true
+          clearTimeout(timeout)
+
+          try {
+            child.kill()
+          } catch {
+            // The forced termination below remains the final fallback.
+          }
+
+          forceKillTimer = setTimeout(() => {
+            if (settled) return
+            try {
+              child.kill('SIGKILL')
+            } catch {
+              // Keep waiting for close so the serialized queue cannot overlap processes.
+            }
+          }, 5000)
+        }
+
+        const appendOutput = (target: 'stdout' | 'stderr', output: string) => {
+          if (settled || stopCapturingOutput || !output) return
+          if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) + Buffer.byteLength(output) > maxOutputLength) {
+            terminateAndWait(new Error('Steam分支查询输出过大'))
+            return
+          }
+
+          if (target === 'stdout') stdout += output
+          else stderr += output
+        }
+
+        const timeout = setTimeout(() => {
+          terminateAndWait(new Error('查询Steam分支超时'))
+        }, 60000)
+
+        child.stdout.on('data', (data: Buffer) => {
+          appendOutput('stdout', stdoutRedactor.write(data))
+        })
+        child.stdout.once('end', () => appendOutput('stdout', stdoutRedactor.end()))
+
+        child.stderr.on('data', (data: Buffer) => {
+          appendOutput('stderr', stderrRedactor.write(data))
+        })
+        child.stderr.once('end', () => appendOutput('stderr', stderrRedactor.end()))
+
+        child.on('error', (error) => {
+          if (settled) return
+          terminateAndWait(error)
+        })
+
+        child.on('close', (code, signal) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          if (forceKillTimer) clearTimeout(forceKillTimer)
+
+          if (terminationError) {
+            reject(terminationError)
+            return
+          }
+
+          const output = [stdout, stderr].filter(value => value.trim()).join('\n')
+          if (code !== 0 || signal) {
+            const detail = stderr.trim().slice(-2000)
+            reject(new Error(detail || `SteamCMD退出码: ${code ?? 'unknown'}${signal ? `，信号: ${signal}` : ''}`))
+            return
+          }
+
+          resolve(output)
+        })
+      })
+    } finally {
+      await runScript.cleanup()
+    }
+  }
+
+  private parseAppBranches(output: string, appId: string): SteamBranchInfo[] {
+    const candidates = this.extractAppInfoVdfBlocks(output, appId)
+    let lastParseError: unknown
+
+    for (let index = candidates.length - 1; index >= 0; index--) {
+      try {
+        const parsed = parseVdf<Record<string, unknown>>(candidates[index], {
+          types: false,
+          arrayify: false
+        })
+        const appData = parsed?.[appId]
+        const depots = this.getVdfObject(appData)?.depots
+        const branchData = this.getVdfObject(this.getVdfObject(depots)?.branches)
+
+        if (!branchData) continue
+
+        const branches = Object.entries(branchData)
+          .map(([name, value]) => {
+            const data = this.getVdfObject(value) || {}
+            const timestamp = Number(data.timeupdated ?? data.timebuildupdated)
+            const timestampMilliseconds = timestamp * 1000
+
+            return {
+              name,
+              description: typeof data.description === 'string' ? data.description : undefined,
+              buildId: data.buildid !== undefined ? String(data.buildid) : undefined,
+              updatedAt: Number.isFinite(timestampMilliseconds) && timestampMilliseconds > 0 && timestampMilliseconds <= 8.64e15
+                ? new Date(timestampMilliseconds).toISOString()
+                : undefined,
+              requiresPassword: String(data.pwdrequired || '') === '1',
+              isDefault: name === 'public'
+            }
+          })
+          .sort((left, right) => {
+            if (left.isDefault) return -1
+            if (right.isDefault) return 1
+            return left.name.localeCompare(right.name)
+          })
+
+        if (branches.length > 0) return branches
+      } catch (error) {
+        lastParseError = error
+      }
+    }
+
+    if (lastParseError) {
+      this.logger.warn(`解析Steam应用 ${appId} 分支信息失败:`, lastParseError)
+    }
+    return []
+  }
+
+  private getVdfObject(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null
+    }
+
+    return value as Record<string, unknown>
+  }
+
+  private extractAppInfoVdfBlocks(output: string, appId: string): string[] {
+    const normalizedOutput = output
+      .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+      .replace(/\r\n/g, '\n')
+    const key = `"${appId}"`
+    const blocks: string[] = []
+    let searchIndex = 0
+
+    while (searchIndex < normalizedOutput.length) {
+      const keyIndex = normalizedOutput.indexOf(key, searchIndex)
+      if (keyIndex === -1) {
+        break
+      }
+
+      let cursor = keyIndex + key.length
+      while (/\s/.test(normalizedOutput[cursor] || '')) cursor++
+
+      if (normalizedOutput[cursor] !== '{') {
+        searchIndex = cursor + 1
+        continue
+      }
+
+      let depth = 0
+      let isQuoted = false
+      let isEscaped = false
+      let blockEnd = -1
+
+      for (let index = cursor; index < normalizedOutput.length; index++) {
+        const character = normalizedOutput[index]
+
+        if (isQuoted) {
+          if (isEscaped) {
+            isEscaped = false
+          } else if (character === '\\') {
+            isEscaped = true
+          } else if (character === '"') {
+            isQuoted = false
+          }
+          continue
+        }
+
+        if (character === '"') {
+          isQuoted = true
+        } else if (character === '{') {
+          depth++
+        } else if (character === '}') {
+          depth--
+          if (depth === 0) {
+            blockEnd = index + 1
+            break
+          }
+        }
+      }
+
+      if (blockEnd !== -1) {
+        blocks.push(normalizedOutput.slice(keyIndex, blockEnd))
+        searchIndex = blockEnd
+      } else {
+        searchIndex = cursor + 1
+      }
+    }
+
+    return blocks
   }
 
   /**
