@@ -8,7 +8,15 @@ export class StreamingRedactor {
   private ended = false
 
   constructor(values: string[] = []) {
-    this.secrets = [...new Set(values.filter(Boolean))]
+    const variants = values
+      .filter(Boolean)
+      .flatMap(secret => [
+        secret,
+        // SteamCMD may echo runscript arguments using console-style escaping.
+        secret.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      ])
+
+    this.secrets = [...new Set(variants)]
       .sort((left, right) => right.length - left.length)
     this.tailLength = Math.max(0, ...this.secrets.map(secret => secret.length - 1))
   }
