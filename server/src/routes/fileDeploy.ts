@@ -434,27 +434,12 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
     if (instanceType === 'generic' && !startCommand.trim()) throw new Error('通用实例必须填写启动命令')
     if (sourceType === 'url' && typeof req.body.downloadUrl !== 'string') throw new Error('请填写下载链接')
 
-    let uploadSession: UploadSession | undefined
-    if (sourceType === 'upload') {
-      uploadSession = uploadSessions.get(req.body.uploadSessionId)
-      if (!uploadSession) throw new Error('上传会话不存在或已过期')
-      const archivePath = path.join(uploadSession.directory, uploadSession.fileName)
-      if (!await fs.pathExists(archivePath)) throw new Error('上传的压缩包不存在')
-
-      // An upload is a single-use resource. Claim it before yielding to the
-      // background deployment so duplicate requests cannot extract and remove
-      // the same archive concurrently.
-      uploadSessions.delete(uploadSession.id)
-    }
-
     const requestedDeploymentId = typeof req.body.deploymentId === 'string' ? req.body.deploymentId.trim() : ''
     const deploymentId = /^[0-9a-f-]{16,64}$/i.test(requestedDeploymentId) ? requestedDeploymentId : uuidv4()
     if (activeDeployments.has(deploymentId)) {
-      if (uploadSession) {
-        uploadSessions.set(uploadSession.id, uploadSession)
-      }
       return res.status(409).json({ success: false, message: '部署任务 ID 已在使用中，请重试' })
     }
+
     const deployment: ActiveDeployment = {
       id: deploymentId,
       socketId: typeof req.body.socketId === 'string' ? req.body.socketId : undefined,
@@ -462,6 +447,28 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
       abortController: new AbortController()
     }
     activeDeployments.set(deploymentId, deployment)
+
+    let uploadSession: UploadSession | undefined
+    try {
+      if (sourceType === 'upload') {
+        uploadSession = uploadSessions.get(req.body.uploadSessionId)
+        if (!uploadSession) throw new Error('上传会话不存在或已过期')
+
+        // Claim before yielding so no second deployment can capture this upload.
+        uploadSessions.delete(uploadSession.id)
+
+        const archivePath = path.join(uploadSession.directory, uploadSession.fileName)
+        if (!await fs.pathExists(archivePath)) throw new Error('上传的压缩包不存在')
+        ensureNotCancelled(deployment)
+      }
+    } catch (error) {
+      activeDeployments.delete(deploymentId)
+      if (uploadSession) {
+        uploadSessions.delete(uploadSession.id)
+        await fs.remove(uploadSession.directory).catch(() => {})
+      }
+      throw error
+    }
 
     res.json({ success: true, data: { deploymentId } })
 
