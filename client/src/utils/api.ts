@@ -989,6 +989,22 @@ class ApiClient {
     return this.post('/security/reset-token')
   }
 
+  async getExternalApiConfig() {
+    return this.get('/security/external-api')
+  }
+
+  async updateExternalApiConfig(data: { enabled: boolean }) {
+    return this.post('/security/external-api', data)
+  }
+
+  async generateExternalApiKey() {
+    return this.post('/security/external-api/key')
+  }
+
+  async clearExternalApiKey() {
+    return this.delete('/security/external-api/key')
+  }
+
   // 网络检测API
   async checkNetwork() {
     return this.get('/network/check-all')

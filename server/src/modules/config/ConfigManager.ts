@@ -45,6 +45,14 @@ export interface AppConfig {
     passwordHash: string
     salt: string
   }
+  externalApi?: {
+    enabled: boolean
+    keyHash?: string
+    salt?: string
+    keyPrefix?: string
+    createdAt?: string
+    updatedAt?: string
+  }
 }
 
 export class ConfigManager {
@@ -88,6 +96,9 @@ export class ConfigManager {
       },
       game: {
         defaultInstallPath: '' // 默认为空，用户需要设置
+      },
+      externalApi: {
+        enabled: false
       }
     }
   }
@@ -171,7 +182,11 @@ export class ConfigManager {
       } : undefined,
       developer: savedConfig.developer ? {
         ...savedConfig.developer
-      } : undefined
+      } : undefined,
+      externalApi: savedConfig.externalApi ? {
+        ...defaultConfig.externalApi,
+        ...savedConfig.externalApi
+      } : defaultConfig.externalApi
     }
   }
 
@@ -303,6 +318,72 @@ export class ConfigManager {
     delete this.config.developer
     await this.saveConfig()
     this.logger.info('开发者配置已清除')
+  }
+
+  getExternalApiConfig() {
+    return this.config.externalApi || { enabled: false }
+  }
+
+  async updateExternalApiConfig(updates: Partial<NonNullable<AppConfig['externalApi']>>): Promise<void> {
+    this.config.externalApi = {
+      enabled: false,
+      ...this.config.externalApi,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    }
+    await this.saveConfig()
+    this.logger.info('外部API配置已更新')
+  }
+
+  async generateExternalApiKey(): Promise<{ apiKey: string; keyPrefix: string; createdAt: string }> {
+    const apiKey = `gsm3_${crypto.randomBytes(32).toString('base64url')}`
+    const salt = crypto.randomBytes(16).toString('hex')
+    const keyPrefix = `${apiKey.slice(0, 10)}...`
+    const now = new Date().toISOString()
+
+    this.config.externalApi = {
+      enabled: true,
+      keyHash: this.hashExternalApiKey(apiKey, salt),
+      salt,
+      keyPrefix,
+      createdAt: now,
+      updatedAt: now
+    }
+    await this.saveConfig()
+    this.logger.info('外部API密钥已生成')
+
+    return { apiKey, keyPrefix, createdAt: now }
+  }
+
+  async clearExternalApiKey(): Promise<void> {
+    this.config.externalApi = {
+      enabled: false,
+      updatedAt: new Date().toISOString()
+    }
+    await this.saveConfig()
+    this.logger.info('外部API密钥已清除')
+  }
+
+  verifyExternalApiKey(apiKey: string): boolean {
+    const externalApi = this.config.externalApi
+    if (!externalApi?.enabled || !externalApi.keyHash || !externalApi.salt || !apiKey) {
+      return false
+    }
+
+    try {
+      const expected = Buffer.from(externalApi.keyHash, 'hex')
+      const actual = Buffer.from(this.hashExternalApiKey(apiKey, externalApi.salt), 'hex')
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual)
+    } catch {
+      return false
+    }
+  }
+
+  private hashExternalApiKey(apiKey: string, salt: string): string {
+    return crypto
+      .createHash('sha256')
+      .update(`${salt}:${apiKey}`)
+      .digest('hex')
   }
 
   // 安全配置相关方法

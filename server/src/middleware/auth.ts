@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { AuthManager } from '../modules/auth/AuthManager.js'
+import type { ConfigManager } from '../modules/config/ConfigManager.js'
 import logger from '../utils/logger.js'
 
 export interface AuthenticatedRequest extends Request {
@@ -11,9 +12,39 @@ export interface AuthenticatedRequest extends Request {
 }
 
 let authManager: AuthManager
+let configManager: ConfigManager
 
 export function setAuthManager(manager: AuthManager) {
   authManager = manager
+}
+
+export function setExternalApiConfigManager(manager: ConfigManager) {
+  configManager = manager
+}
+
+function extractExternalApiKey(req: Request): string {
+  const apiKeyHeader = req.headers['x-gsm-api-key']
+  if (typeof apiKeyHeader === 'string' && apiKeyHeader.trim()) {
+    return apiKeyHeader.trim()
+  }
+
+  const authHeader = req.headers['authorization']
+  if (!authHeader) {
+    return ''
+  }
+
+  const [scheme, ...tokenParts] = authHeader.split(' ')
+  const token = tokenParts.join(' ').trim()
+  if (!token) {
+    return ''
+  }
+
+  const normalizedScheme = scheme.toLowerCase()
+  if (normalizedScheme === 'bearer' || normalizedScheme === 'apikey') {
+    return token
+  }
+
+  return ''
 }
 
 export function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -48,6 +79,51 @@ export function authenticateToken(req: AuthenticatedRequest, res: Response, next
     userId: decoded.userId,
     username: decoded.username,
     role: decoded.role
+  }
+
+  next()
+}
+
+export function authenticateExternalApiKey(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (!configManager) {
+    logger.error('外部API认证配置管理器未初始化')
+    return res.status(500).json({
+      success: false,
+      error: '服务器错误',
+      message: '外部API认证服务不可用'
+    })
+  }
+
+  const externalApi = configManager.getExternalApiConfig()
+  if (!externalApi.enabled || !externalApi.keyHash) {
+    return res.status(403).json({
+      success: false,
+      error: '外部API未启用',
+      message: '请先在设置中启用并生成外部API密钥'
+    })
+  }
+
+  const apiKey = extractExternalApiKey(req)
+  if (!apiKey) {
+    return res.status(401).json({
+      success: false,
+      error: '访问被拒绝',
+      message: '需要通过 Authorization: Bearer <API_KEY> 或 X-GSM-API-Key 提供外部API密钥'
+    })
+  }
+
+  if (!configManager.verifyExternalApiKey(apiKey)) {
+    return res.status(401).json({
+      success: false,
+      error: '访问被拒绝',
+      message: '外部API密钥无效'
+    })
+  }
+
+  req.user = {
+    userId: 'external-api',
+    username: 'external-api',
+    role: 'admin'
   }
 
   next()

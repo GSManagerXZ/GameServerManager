@@ -41,11 +41,23 @@ import {
   Archive,
   Play,
   Pause,
-  Activity
+  Activity,
+  KeyRound,
+  Copy,
+  Power
 } from 'lucide-react'
 import SecurityWarningModal from '@/components/SecurityWarningModal'
 import SearchableSelect from '@/components/SearchableSelect'
 import { getCitySelectOptions, getCityNameByCode } from '@/data/cityData'
+
+type ExternalApiConfigState = {
+  enabled: boolean
+  hasApiKey: boolean
+  keyPrefix: string
+  createdAt: string
+  updatedAt: string
+  endpoints: Record<string, string>
+}
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate()
@@ -152,6 +164,16 @@ const SettingsPage: React.FC = () => {
     tokenExpireHours: number | null
   } | null>(null)
   const [tokenExpireDebounceTimer, setTokenExpireDebounceTimer] = useState<NodeJS.Timeout | null>(null)
+  const [externalApiConfig, setExternalApiConfig] = useState<ExternalApiConfigState>({
+    enabled: false,
+    hasApiKey: false,
+    keyPrefix: '',
+    createdAt: '',
+    updatedAt: '',
+    endpoints: {}
+  })
+  const [externalApiLoading, setExternalApiLoading] = useState(false)
+  const [newExternalApiKey, setNewExternalApiKey] = useState('')
 
   // 面板日志 - 使用全局 store（切换页面不会断开）
   const consoleLogStore = useConsoleLogStore()
@@ -751,6 +773,7 @@ const SettingsPage: React.FC = () => {
     loadGameSettings()
     fetchSystemUsers()
     loadSecurityConfig()
+    loadExternalApiConfig()
   }, [])
 
   // 路径变化时检查
@@ -1127,6 +1150,155 @@ const SettingsPage: React.FC = () => {
     }
   }
 
+  const loadExternalApiConfig = async () => {
+    try {
+      const result = await apiClient.getExternalApiConfig()
+      if (result.success && result.data) {
+        setExternalApiConfig({
+          enabled: !!result.data.enabled,
+          hasApiKey: !!result.data.hasApiKey,
+          keyPrefix: result.data.keyPrefix || '',
+          createdAt: result.data.createdAt || '',
+          updatedAt: result.data.updatedAt || '',
+          endpoints: result.data.endpoints || {}
+        })
+      }
+    } catch (error) {
+      console.error('加载外部API配置失败:', error)
+    }
+  }
+
+  const handleExternalApiEnabledChange = async (enabled: boolean) => {
+    if (enabled && !externalApiConfig.hasApiKey) {
+      addNotification({
+        type: 'warning',
+        title: '请先生成密钥',
+        message: '外部自动化 API 需要先生成 API Key 才能启用'
+      })
+      return
+    }
+
+    setExternalApiLoading(true)
+    try {
+      const result = await apiClient.updateExternalApiConfig({ enabled })
+      if (result.success && result.data) {
+        setExternalApiConfig({
+          enabled: !!result.data.enabled,
+          hasApiKey: !!result.data.hasApiKey,
+          keyPrefix: result.data.keyPrefix || '',
+          createdAt: result.data.createdAt || '',
+          updatedAt: result.data.updatedAt || '',
+          endpoints: result.data.endpoints || {}
+        })
+        addNotification({
+          type: 'success',
+          title: enabled ? '外部API已启用' : '外部API已禁用',
+          message: enabled ? '自动化程序现在可以使用 API Key 调用实例控制接口' : '现有 API Key 已暂停使用'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '更新失败',
+          message: result.message || '外部API配置更新失败'
+        })
+      }
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: '更新失败',
+        message: error.message || '网络错误，请稍后重试'
+      })
+    } finally {
+      setExternalApiLoading(false)
+    }
+  }
+
+  const handleGenerateExternalApiKey = async () => {
+    setExternalApiLoading(true)
+    try {
+      const result = await apiClient.generateExternalApiKey()
+      if (result.success && result.data?.apiKey) {
+        setNewExternalApiKey(result.data.apiKey)
+        await loadExternalApiConfig()
+        addNotification({
+          type: 'success',
+          title: '密钥已生成',
+          message: '请立即复制保存，明文密钥只会显示一次'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '生成失败',
+          message: result.message || '外部API密钥生成失败'
+        })
+      }
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: '生成失败',
+        message: error.message || '网络错误，请稍后重试'
+      })
+    } finally {
+      setExternalApiLoading(false)
+    }
+  }
+
+  const handleClearExternalApiKey = async () => {
+    setExternalApiLoading(true)
+    try {
+      const result = await apiClient.clearExternalApiKey()
+      if (result.success && result.data) {
+        setNewExternalApiKey('')
+        setExternalApiConfig({
+          enabled: !!result.data.enabled,
+          hasApiKey: !!result.data.hasApiKey,
+          keyPrefix: result.data.keyPrefix || '',
+          createdAt: result.data.createdAt || '',
+          updatedAt: result.data.updatedAt || '',
+          endpoints: result.data.endpoints || {}
+        })
+        addNotification({
+          type: 'success',
+          title: '密钥已清除',
+          message: '外部自动化 API 已禁用'
+        })
+      } else {
+        addNotification({
+          type: 'error',
+          title: '清除失败',
+          message: result.message || '外部API密钥清除失败'
+        })
+      }
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: '清除失败',
+        message: error.message || '网络错误，请稍后重试'
+      })
+    } finally {
+      setExternalApiLoading(false)
+    }
+  }
+
+  const copyExternalApiKey = async () => {
+    if (!newExternalApiKey) return
+
+    try {
+      await navigator.clipboard.writeText(newExternalApiKey)
+      addNotification({
+        type: 'success',
+        title: '已复制',
+        message: 'API Key 已复制到剪贴板'
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '复制失败',
+        message: '浏览器未允许访问剪贴板，请手动复制'
+      })
+    }
+  }
+
   // 加载日志文件列表
   const loadLogFiles = async () => {
     setLogsLoading(true)
@@ -1412,6 +1584,10 @@ const SettingsPage: React.FC = () => {
       message: '登录页壁纸已移除'
     })
   }
+
+  const externalApiBaseUrl = `${window.location.origin}/api/external`
+  const externalApiRestartExample = `curl -X POST "${externalApiBaseUrl}/instances/<实例ID>/restart" -H "Authorization: Bearer <API_KEY>"`
+  const formatExternalApiDate = (value: string) => value ? new Date(value).toLocaleString() : '-'
 
   return (
     <div className="space-y-6">
@@ -2444,6 +2620,157 @@ const SettingsPage: React.FC = () => {
                   </span>
                 )}
               </p>
+            </div>
+
+            {/* 外部自动化 API */}
+            <div className="pt-4 border-t border-gray-200 dark:border-white/10">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                <div className="flex items-start space-x-3">
+                  <KeyRound className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                      外部自动化 API
+                    </h3>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      使用独立 API Key 调用实例启动、停止、重启接口，适合机器人和脚本集成。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleExternalApiEnabledChange(!externalApiConfig.enabled)}
+                    disabled={externalApiLoading}
+                    className={`px-3 py-2 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 ${
+                      externalApiConfig.enabled
+                        ? 'bg-red-600 hover:bg-red-700'
+                        : 'bg-green-600 hover:bg-green-700'
+                    }`}
+                  >
+                    {externalApiLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Power className="w-4 h-4" />
+                    )}
+                    <span>{externalApiConfig.enabled ? '禁用' : '启用'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleGenerateExternalApiKey}
+                    disabled={externalApiLoading}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    {externalApiLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                    <span>生成/轮换密钥</span>
+                  </button>
+
+                  <button
+                    onClick={handleClearExternalApiKey}
+                    disabled={externalApiLoading || !externalApiConfig.hasApiKey}
+                    className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>清除密钥</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                <div className="p-3 bg-gray-100 dark:bg-white/5 rounded-lg border border-gray-200 dark:border-white/10">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">状态</p>
+                  <div className="flex items-center space-x-2 mt-1">
+                    {externalApiConfig.enabled ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-gray-500" />
+                    )}
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                      {externalApiConfig.enabled ? '已启用' : '已禁用'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-100 dark:bg-white/5 rounded-lg border border-gray-200 dark:border-white/10">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">密钥</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-1 break-all">
+                    {externalApiConfig.hasApiKey ? externalApiConfig.keyPrefix || '已生成' : '未生成'}
+                  </p>
+                </div>
+
+                <div className="p-3 bg-gray-100 dark:bg-white/5 rounded-lg border border-gray-200 dark:border-white/10">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">生成时间</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                    {formatExternalApiDate(externalApiConfig.createdAt)}
+                  </p>
+                </div>
+
+                <div className="p-3 bg-gray-100 dark:bg-white/5 rounded-lg border border-gray-200 dark:border-white/10">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">更新时间</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                    {formatExternalApiDate(externalApiConfig.updatedAt)}
+                  </p>
+                </div>
+              </div>
+
+              {newExternalApiKey && (
+                <div className="p-3 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg mb-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">
+                        新 API Key 只显示一次
+                      </p>
+                      <code className="block text-xs text-blue-900 dark:text-blue-100 font-mono break-all">
+                        {newExternalApiKey}
+                      </code>
+                    </div>
+                    <button
+                      onClick={copyExternalApiKey}
+                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2 flex-shrink-0"
+                    >
+                      <Copy className="w-4 h-4" />
+                      <span>复制</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    常用调用示例
+                  </p>
+                  <div className="p-3 bg-gray-950 rounded-lg overflow-x-auto">
+                    <code className="text-xs text-gray-100 font-mono whitespace-pre">
+                      {externalApiRestartExample}
+                    </code>
+                  </div>
+                </div>
+
+                {Object.keys(externalApiConfig.endpoints).length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      接口预览
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {Object.entries(externalApiConfig.endpoints).map(([name, endpoint]) => (
+                        <div
+                          key={name}
+                          className="p-2 bg-gray-100 dark:bg-white/5 rounded border border-gray-200 dark:border-white/10 min-w-0"
+                        >
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">{name}</p>
+                          <code className="block text-xs text-gray-900 dark:text-gray-100 font-mono break-all mt-1">
+                            {endpoint}
+                          </code>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 操作按钮 */}
