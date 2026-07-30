@@ -400,6 +400,55 @@
       gap: 12px;
     }
 
+    .advanced-section {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--panel-soft), transparent 38%);
+      overflow: hidden;
+    }
+
+    .advanced-section summary {
+      cursor: pointer;
+      padding: 11px 12px;
+      font-weight: 700;
+      color: var(--text);
+      list-style-position: inside;
+    }
+
+    .advanced-section > .stack {
+      padding: 0 12px 12px;
+    }
+
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 12px;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-width: 0;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      font-weight: 600;
+    }
+
+    .check-row input {
+      width: 16px;
+      min-width: 16px;
+      min-height: 16px;
+      margin-top: 2px;
+    }
+
+    .check-row span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
     .config-confirm {
       color: var(--danger);
       font-size: 12px;
@@ -462,7 +511,8 @@
       }
 
       .segmented,
-      .meta-row {
+      .meta-row,
+      .checkbox-grid {
         grid-template-columns: 1fr;
       }
 
@@ -574,6 +624,161 @@
               <input id="frpToken" type="password" autocomplete="off" placeholder="可选">
             </label>
           </div>
+          <details class="advanced-section">
+            <summary>frp 高级参数</summary>
+            <div class="stack">
+              <div class="grid">
+                <label>
+                  客户端标识 user
+                  <input id="frpUser" autocomplete="off" placeholder="可选，用于区分同名代理">
+                </label>
+                <label>
+                  客户端传输协议
+                  <select id="frpTransportProtocol">
+                    <option value="">默认</option>
+                    <option value="tcp">TCP</option>
+                    <option value="kcp">KCP</option>
+                    <option value="quic">QUIC</option>
+                    <option value="websocket">WebSocket</option>
+                    <option value="wss">WebSocket TLS</option>
+                  </select>
+                </label>
+                <label>
+                  TLS
+                  <select id="frpTlsEnable">
+                    <option value="">默认</option>
+                    <option value="true">启用</option>
+                    <option value="false">禁用</option>
+                  </select>
+                </label>
+                <label>
+                  TCP 多路复用
+                  <select id="frpTcpMux">
+                    <option value="">默认</option>
+                    <option value="true">启用</option>
+                    <option value="false">禁用</option>
+                  </select>
+                </label>
+                <label>
+                  连接池数量
+                  <input id="frpPoolCount" type="number" min="0" max="200" placeholder="默认">
+                </label>
+                <label>
+                  连接代理
+                  <input id="frpProxyUrl" autocomplete="off" placeholder="http://user:pass@proxy:8080">
+                </label>
+                <label>
+                  日志等级
+                  <select id="frpLogLevel">
+                    <option value="">默认</option>
+                    <option value="trace">trace</option>
+                    <option value="debug">debug</option>
+                    <option value="info">info</option>
+                    <option value="warn">warn</option>
+                    <option value="error">error</option>
+                  </select>
+                </label>
+                <label>
+                  日志输出
+                  <input id="frpLogTo" autocomplete="off" placeholder="默认；例如 console 或 ./frpc.log">
+                </label>
+                <label>
+                  日志保留天数
+                  <input id="frpLogMaxDays" type="number" min="1" max="3650" placeholder="默认">
+                </label>
+                <label>
+                  登录失败后退出
+                  <select id="frpLoginFailExit">
+                    <option value="">默认</option>
+                    <option value="true">是</option>
+                    <option value="false">否，持续重连</option>
+                  </select>
+                </label>
+                <label>
+                  UDP 包大小
+                  <input id="frpUdpPacketSize" type="number" min="576" max="65535" placeholder="默认">
+                </label>
+              </div>
+              <div class="checkbox-grid">
+                <label class="check-row">
+                  <input id="frpUseEncryption" type="checkbox">
+                  <span>代理流量加密</span>
+                </label>
+                <label class="check-row">
+                  <input id="frpUseCompression" type="checkbox">
+                  <span>代理流量压缩</span>
+                </label>
+                <label class="check-row">
+                  <input id="frpDisableLogColor" type="checkbox">
+                  <span>禁用日志颜色</span>
+                </label>
+              </div>
+              <div class="grid">
+                <label>
+                  带宽限制
+                  <input id="frpBandwidthLimit" autocomplete="off" placeholder="例如 1MB 或 100KB">
+                </label>
+                <label>
+                  限速位置
+                  <select id="frpBandwidthLimitMode">
+                    <option value="">默认</option>
+                    <option value="client">client</option>
+                    <option value="server">server</option>
+                  </select>
+                </label>
+                <label>
+                  Proxy Protocol
+                  <select id="frpProxyProtocolVersion">
+                    <option value="">不启用</option>
+                    <option value="v1">v1</option>
+                    <option value="v2">v2</option>
+                  </select>
+                </label>
+                <label>
+                  负载均衡组
+                  <input id="frpLoadBalancerGroup" autocomplete="off" placeholder="可选">
+                </label>
+                <label>
+                  负载均衡密钥
+                  <input id="frpLoadBalancerGroupKey" type="password" autocomplete="off" placeholder="可选">
+                </label>
+                <label>
+                  健康检查类型
+                  <select id="frpHealthCheckType">
+                    <option value="">不启用</option>
+                    <option value="tcp">tcp</option>
+                    <option value="http">http</option>
+                  </select>
+                </label>
+                <label>
+                  健康检查路径
+                  <input id="frpHealthCheckPath" autocomplete="off" placeholder="HTTP 检查时填写，例如 /health">
+                </label>
+                <label>
+                  检查间隔秒
+                  <input id="frpHealthCheckInterval" type="number" min="1" max="3600" placeholder="默认">
+                </label>
+                <label>
+                  检查超时秒
+                  <input id="frpHealthCheckTimeout" type="number" min="1" max="3600" placeholder="默认">
+                </label>
+                <label>
+                  连续失败阈值
+                  <input id="frpHealthCheckMaxFailed" type="number" min="1" max="100" placeholder="默认">
+                </label>
+              </div>
+              <label>
+                额外客户端 TOML
+                <textarea id="frpExtraClientConfig" placeholder="例如：&#10;metadatas.env = &quot;prod&quot;"></textarea>
+                <span class="hint">追加到 frpc.toml 顶层，适合填写插件暂未暴露的客户端配置。</span>
+              </label>
+              <label>
+                额外代理 TOML
+                <textarea id="frpExtraProxyConfig" placeholder="例如：&#10;transport.bandwidthLimitMode = &quot;client&quot;"></textarea>
+                <span class="hint">追加到当前 [[proxies]] 内，适合填写插件暂未暴露的单代理配置。</span>
+              </label>
+            </div>
+          </details>
         </div>
 
         <div id="easyTierFields" class="stack hidden">
@@ -613,6 +818,203 @@
             <textarea id="peerList" placeholder="tcp://1.2.3.4:11010&#10;udp://1.2.3.4:11010"></textarea>
             <span class="hint">每行一个 peer。未填写时只启动本地节点，通常无法自动发现其它节点。</span>
           </label>
+          <details class="advanced-section">
+            <summary>EasyTier 高级参数</summary>
+            <div class="stack">
+              <div class="grid">
+                <label>
+                  默认传输协议
+                  <select id="easyTierDefaultProtocol">
+                    <option value="">默认</option>
+                    <option value="tcp">tcp</option>
+                    <option value="udp">udp</option>
+                    <option value="quic">quic</option>
+                    <option value="faketcp">faketcp</option>
+                    <option value="ring">ring</option>
+                    <option value="wg">wg</option>
+                    <option value="ws">ws</option>
+                    <option value="wss">wss</option>
+                  </select>
+                </label>
+                <label>
+                  EasyTier 实例名
+                  <input id="easyTierInstanceName" autocomplete="off" placeholder="可选，同机多实例时用于区分">
+                </label>
+                <label>
+                  虚拟 IPv6
+                  <input id="easyTierIpv6" autocomplete="off" placeholder="可选">
+                </label>
+                <label>
+                  公共共享节点
+                  <input id="easyTierExternalNode" autocomplete="off" placeholder="可选，例如官方共享节点或自定义节点">
+                </label>
+                <label>
+                  RPC Portal
+                  <input id="easyTierRpcPortal" autocomplete="off" placeholder="例如 127.0.0.1:15888">
+                </label>
+                <label>
+                  RPC 白名单
+                  <input id="easyTierRpcPortalWhitelist" autocomplete="off" placeholder="例如 127.0.0.1/32">
+                </label>
+                <label>
+                  VPN Portal
+                  <input id="easyTierVpnPortal" autocomplete="off" placeholder="例如 wg://0.0.0.0:11011/10.14.14.0/24">
+                </label>
+                <label>
+                  TUN 设备名
+                  <input id="easyTierDevName" autocomplete="off" placeholder="默认">
+                </label>
+                <label>
+                  MTU
+                  <input id="easyTierMtu" type="number" min="576" max="9000" placeholder="默认">
+                </label>
+                <label>
+                  SOCKS5
+                  <input id="easyTierSocks5" autocomplete="off" placeholder="例如 1080">
+                </label>
+                <label>
+                  压缩算法
+                  <select id="easyTierCompression">
+                    <option value="">默认</option>
+                    <option value="none">none</option>
+                    <option value="zstd">zstd</option>
+                  </select>
+                </label>
+                <label>
+                  加密算法
+                  <select id="easyTierEncryptionAlgorithm">
+                    <option value="">默认</option>
+                    <option value="xor">xor</option>
+                    <option value="aes-gcm">aes-gcm</option>
+                    <option value="aes-256-gcm">aes-256-gcm</option>
+                    <option value="chacha20">chacha20</option>
+                  </select>
+                </label>
+                <label>
+                  Magic DNS 域
+                  <input id="easyTierTldDnsZone" autocomplete="off" placeholder="默认">
+                </label>
+                <label>
+                  控制台日志等级
+                  <select id="easyTierConsoleLogLevel">
+                    <option value="">默认</option>
+                    <option value="trace">trace</option>
+                    <option value="debug">debug</option>
+                    <option value="info">info</option>
+                    <option value="warn">warn</option>
+                    <option value="error">error</option>
+                  </select>
+                </label>
+                <label>
+                  文件日志等级
+                  <select id="easyTierFileLogLevel">
+                    <option value="">默认</option>
+                    <option value="off">off</option>
+                    <option value="trace">trace</option>
+                    <option value="debug">debug</option>
+                    <option value="info">info</option>
+                    <option value="warn">warn</option>
+                    <option value="error">error</option>
+                  </select>
+                </label>
+                <label>
+                  文件日志目录
+                  <input id="easyTierFileLogDir" autocomplete="off" placeholder="默认">
+                </label>
+              </div>
+              <div class="checkbox-grid">
+                <label class="check-row">
+                  <input id="easyTierNoListener" type="checkbox">
+                  <span>不监听入站连接</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierNoTun" type="checkbox">
+                  <span>不创建 TUN 设备</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierDisableIpv6" type="checkbox">
+                  <span>禁用 IPv6</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierDisableEncryption" type="checkbox">
+                  <span>禁用加密</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierDisableP2p" type="checkbox">
+                  <span>禁用 P2P</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierLazyP2p" type="checkbox">
+                  <span>懒加载 P2P</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierP2pOnly" type="checkbox">
+                  <span>仅 P2P 连接</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierNeedP2p" type="checkbox">
+                  <span>强制等待 P2P 成功</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierLatencyFirst" type="checkbox">
+                  <span>延迟优先路由</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierAcceptDns" type="checkbox">
+                  <span>接受 DNS 配置</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierPrivateMode" type="checkbox">
+                  <span>私有模式</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierUseSmoltcp" type="checkbox">
+                  <span>使用 smoltcp 栈</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierEnableKcpProxy" type="checkbox">
+                  <span>启用 KCP 代理</span>
+                </label>
+                <label class="check-row">
+                  <input id="easyTierEnableQuicProxy" type="checkbox">
+                  <span>启用 QUIC 代理</span>
+                </label>
+              </div>
+              <label>
+                监听地址
+                <textarea id="easyTierListeners" placeholder="tcp://0.0.0.0:11010&#10;udp://0.0.0.0:11010"></textarea>
+                <span class="hint">每行一个监听器，会生成多个 --listeners 参数。</span>
+              </label>
+              <label>
+                映射监听地址
+                <textarea id="easyTierMappedListeners" placeholder="tcp://203.0.113.10:11010"></textarea>
+                <span class="hint">每行一个公网可访问地址，会生成多个 --mapped-listeners 参数。</span>
+              </label>
+              <label>
+                代理网段
+                <textarea id="easyTierProxyNetworks" placeholder="10.0.0.0/24&#10;192.168.1.0/24"></textarea>
+                <span class="hint">每行一个网段，会生成多个 --proxy-networks 参数。</span>
+              </label>
+              <label>
+                手动路由
+                <textarea id="easyTierManualRoutes" placeholder="10.0.0.0/24"></textarea>
+              </label>
+              <label>
+                出口节点
+                <textarea id="easyTierExitNodes" placeholder="10.144.144.1"></textarea>
+              </label>
+              <label>
+                端口转发
+                <textarea id="easyTierPortForwards" placeholder="tcp://0.0.0.0:7777/127.0.0.1:7777"></textarea>
+                <span class="hint">每行一条，会生成多个 --port-forward 参数。</span>
+              </label>
+              <label>
+                额外 EasyTier 参数
+                <textarea id="easyTierExtraArgs" placeholder="例如：&#10;--relay-network-whitelist 10.144.144.0/24"></textarea>
+                <span class="hint">按命令行解析后逐个转义追加，适合暂未暴露的 easytier-core 参数。</span>
+              </label>
+            </div>
+          </details>
         </div>
 
         <div id="message" class="message"></div>
@@ -674,10 +1076,31 @@
     const fields = [
       'instanceSelect', 'profileName', 'localAddress', 'localPort', 'protocol',
       'frpcPath', 'frpServerAddr', 'frpServerPort', 'remotePort', 'frpToken',
-      'easyTierPath', 'networkName', 'networkSecret', 'hostName', 'virtualIpv4', 'peerList'
+      'frpUser', 'frpTransportProtocol', 'frpTlsEnable', 'frpTcpMux', 'frpPoolCount',
+      'frpProxyUrl', 'frpLogLevel', 'frpLogTo', 'frpLogMaxDays', 'frpUdpPacketSize',
+      'frpUseEncryption', 'frpUseCompression', 'frpDisableLogColor', 'frpLoginFailExit', 'frpBandwidthLimit',
+      'frpBandwidthLimitMode', 'frpProxyProtocolVersion', 'frpLoadBalancerGroup',
+      'frpLoadBalancerGroupKey', 'frpHealthCheckType', 'frpHealthCheckPath',
+      'frpHealthCheckInterval', 'frpHealthCheckTimeout', 'frpHealthCheckMaxFailed',
+      'frpExtraClientConfig', 'frpExtraProxyConfig',
+      'easyTierPath', 'networkName', 'networkSecret', 'hostName', 'virtualIpv4', 'peerList',
+      'easyTierDefaultProtocol', 'easyTierInstanceName', 'easyTierIpv6',
+      'easyTierExternalNode', 'easyTierRpcPortal', 'easyTierRpcPortalWhitelist',
+      'easyTierVpnPortal', 'easyTierDevName', 'easyTierMtu', 'easyTierSocks5',
+      'easyTierCompression', 'easyTierEncryptionAlgorithm', 'easyTierTldDnsZone',
+      'easyTierConsoleLogLevel', 'easyTierFileLogLevel', 'easyTierFileLogDir',
+      'easyTierNoListener', 'easyTierNoTun',
+      'easyTierDisableIpv6', 'easyTierDisableEncryption', 'easyTierDisableP2p',
+      'easyTierLazyP2p', 'easyTierP2pOnly', 'easyTierNeedP2p',
+      'easyTierLatencyFirst', 'easyTierAcceptDns', 'easyTierPrivateMode',
+      'easyTierUseSmoltcp', 'easyTierEnableKcpProxy', 'easyTierEnableQuicProxy',
+      'easyTierListeners', 'easyTierMappedListeners', 'easyTierProxyNetworks',
+      'easyTierManualRoutes', 'easyTierExitNodes', 'easyTierPortForwards',
+      'easyTierExtraArgs'
     ]
 
     const read = (id) => $(id).value.trim()
+    const readCheckbox = (id) => Boolean($(id) && $(id).checked)
     const selectedInstanceLooksWindows = () => {
       const instance = getSelectedInstance()
       const workingDirectory = String(instance && instance.workingDirectory || '')
@@ -824,7 +1247,9 @@
     function redactSensitiveText(text) {
       return String(text)
         .replace(/auth\.token\s*=\s*"[^"]*"/g, 'auth.token = "******"')
+        .replace(/loadBalancer\.groupKey\s*=\s*"[^"]*"/g, 'loadBalancer.groupKey = "******"')
         .replace(/('--network-secret'|--network-secret)\s+('(?:''|[^'])*'|"[^"]*"|\S+)/g, '$1 ******')
+        .replace(/("(?:frpToken|networkSecret|frpLoadBalancerGroupKey)"\s*:\s*)"[^"]*"/g, '$1"******"')
     }
 
     function commandPrefix(executablePath) {
@@ -1106,6 +1531,152 @@
       return port
     }
 
+    function parseOptionalInt(value, label, options = {}) {
+      if (!String(value || '').trim()) return null
+
+      const number = Number(value)
+      const min = typeof options.min === 'number' ? options.min : Number.MIN_SAFE_INTEGER
+      const max = typeof options.max === 'number' ? options.max : Number.MAX_SAFE_INTEGER
+      if (!Number.isInteger(number) || number < min || number > max) {
+        throw new Error(`${label} 必须是 ${min} 到 ${max} 之间的整数`)
+      }
+
+      return number
+    }
+
+    function readLines(id) {
+      return read(id)
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#'))
+    }
+
+    function pushArg(args, flag, value) {
+      if (String(value || '').trim()) {
+        args.push(flag, String(value).trim())
+      }
+    }
+
+    function pushRepeatedArgs(args, flag, values) {
+      for (const value of values) {
+        args.push(flag, value)
+      }
+    }
+
+    function pushFlag(args, id, flag) {
+      if (readCheckbox(id)) {
+        args.push(flag)
+      }
+    }
+
+    function parseCommandLineArgs(text, label) {
+      const args = []
+      let current = ''
+      let quote = ''
+      let escaping = false
+      const source = String(text || '')
+
+      const pushCurrent = () => {
+        if (current) {
+          args.push(current)
+          current = ''
+        }
+      }
+
+      for (let i = 0; i < source.length; i++) {
+        const char = source[i]
+
+        if (escaping) {
+          current += char
+          escaping = false
+          continue
+        }
+
+        if (char === '\\') {
+          escaping = true
+          continue
+        }
+
+        if (quote) {
+          if (char === quote) {
+            quote = ''
+          } else {
+            current += char
+          }
+          continue
+        }
+
+        if (char === '"' || char === "'") {
+          quote = char
+          continue
+        }
+
+        if (/\s/.test(char)) {
+          pushCurrent()
+          continue
+        }
+
+        current += char
+      }
+
+      if (escaping) {
+        current += '\\'
+      }
+
+      if (quote) {
+        throw new Error(`${label} 存在未闭合的引号`)
+      }
+
+      pushCurrent()
+      return args
+    }
+
+    function parseAdditionalArgs(text, label) {
+      const args = []
+      for (const line of String(text || '').split(/\r?\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        args.push(...parseCommandLineArgs(trimmed, label))
+      }
+      return args
+    }
+
+    function appendRawToml(lines, block, label) {
+      const trimmed = String(block || '').trim()
+      if (!trimmed) return
+
+      lines.push('', `# ${label}`)
+      for (const line of trimmed.split(/\r?\n/)) {
+        lines.push(line.trimEnd())
+      }
+    }
+
+    function collectFormValues() {
+      const values = { mode: state.mode }
+      for (const id of fields) {
+        const element = $(id)
+        if (!element) continue
+        values[id] = element.type === 'checkbox' ? Boolean(element.checked) : element.value
+      }
+      return values
+    }
+
+    function applyFormValues(values) {
+      if (!values || typeof values !== 'object') return
+
+      for (const id of fields) {
+        if (!(id in values)) continue
+        const element = $(id)
+        if (!element) continue
+
+        if (element.type === 'checkbox') {
+          element.checked = Boolean(values[id])
+        } else {
+          element.value = values[id] == null ? '' : String(values[id])
+        }
+      }
+    }
+
     function getSelectedInstance() {
       const id = read('instanceSelect')
       return state.instances.find(instance => instance.id === id) || null
@@ -1236,14 +1807,85 @@
 
       const token = read('frpToken')
       const proxyName = `${common.slug}-${common.protocol}-${common.localPort}`
+      const user = read('frpUser')
+      const transportProtocol = read('frpTransportProtocol')
+      const tlsEnable = read('frpTlsEnable')
+      const tcpMux = read('frpTcpMux')
+      const poolCount = parseOptionalInt(read('frpPoolCount'), '连接池数量', { min: 0, max: 200 })
+      const proxyUrl = read('frpProxyUrl')
+      const logLevel = read('frpLogLevel')
+      const logTo = read('frpLogTo')
+      const logMaxDays = parseOptionalInt(read('frpLogMaxDays'), '日志保留天数', { min: 1, max: 3650 })
+      const loginFailExit = read('frpLoginFailExit')
+      const udpPacketSize = parseOptionalInt(read('frpUdpPacketSize'), 'UDP 包大小', { min: 576, max: 65535 })
+      const bandwidthLimit = read('frpBandwidthLimit')
+      const bandwidthLimitMode = read('frpBandwidthLimitMode')
+      const proxyProtocolVersion = read('frpProxyProtocolVersion')
+      const loadBalancerGroup = read('frpLoadBalancerGroup')
+      const loadBalancerGroupKey = read('frpLoadBalancerGroupKey')
+      const healthCheckType = read('frpHealthCheckType')
+      const healthCheckPath = read('frpHealthCheckPath')
+      const healthCheckInterval = parseOptionalInt(read('frpHealthCheckInterval'), '健康检查间隔秒', { min: 1, max: 3600 })
+      const healthCheckTimeout = parseOptionalInt(read('frpHealthCheckTimeout'), '健康检查超时秒', { min: 1, max: 3600 })
+      const healthCheckMaxFailed = parseOptionalInt(read('frpHealthCheckMaxFailed'), '连续失败阈值', { min: 1, max: 100 })
       const configLines = [
         `serverAddr = ${tomlString(serverAddr)}`,
         `serverPort = ${serverPort}`
       ]
 
+      if (user) {
+        configLines.push(`user = ${tomlString(user)}`)
+      }
+
+      if (logLevel) {
+        configLines.push(`log.level = ${tomlString(logLevel)}`)
+      }
+
+      if (logTo) {
+        configLines.push(`log.to = ${tomlString(logTo)}`)
+      }
+
+      if (logMaxDays !== null) {
+        configLines.push(`log.maxDays = ${logMaxDays}`)
+      }
+
+      if (readCheckbox('frpDisableLogColor')) {
+        configLines.push('log.disablePrintColor = true')
+      }
+
       if (token) {
         configLines.push(`auth.token = ${tomlString(token)}`)
       }
+
+      if (loginFailExit) {
+        configLines.push(`loginFailExit = ${loginFailExit === 'true' ? 'true' : 'false'}`)
+      }
+
+      if (transportProtocol) {
+        configLines.push(`transport.protocol = ${tomlString(transportProtocol)}`)
+      }
+
+      if (tlsEnable) {
+        configLines.push(`transport.tls.enable = ${tlsEnable === 'true' ? 'true' : 'false'}`)
+      }
+
+      if (tcpMux) {
+        configLines.push(`transport.tcpMux = ${tcpMux === 'true' ? 'true' : 'false'}`)
+      }
+
+      if (poolCount !== null) {
+        configLines.push(`transport.poolCount = ${poolCount}`)
+      }
+
+      if (proxyUrl) {
+        configLines.push(`transport.proxyURL = ${tomlString(proxyUrl)}`)
+      }
+
+      if (udpPacketSize !== null) {
+        configLines.push(`udpPacketSize = ${udpPacketSize}`)
+      }
+
+      appendRawToml(configLines, read('frpExtraClientConfig'), '额外客户端配置')
 
       configLines.push(
         '',
@@ -1255,6 +1897,52 @@
         `remotePort = ${remotePort}`,
         ''
       )
+
+      if (readCheckbox('frpUseEncryption')) {
+        configLines.push('transport.useEncryption = true')
+      }
+
+      if (readCheckbox('frpUseCompression')) {
+        configLines.push('transport.useCompression = true')
+      }
+
+      if (bandwidthLimit) {
+        configLines.push(`transport.bandwidthLimit = ${tomlString(bandwidthLimit)}`)
+      }
+
+      if (bandwidthLimitMode) {
+        configLines.push(`transport.bandwidthLimitMode = ${tomlString(bandwidthLimitMode)}`)
+      }
+
+      if (proxyProtocolVersion) {
+        configLines.push(`transport.proxyProtocolVersion = ${tomlString(proxyProtocolVersion)}`)
+      }
+
+      if (loadBalancerGroup) {
+        configLines.push(`loadBalancer.group = ${tomlString(loadBalancerGroup)}`)
+      }
+
+      if (loadBalancerGroupKey) {
+        configLines.push(`loadBalancer.groupKey = ${tomlString(loadBalancerGroupKey)}`)
+      }
+
+      if (healthCheckType) {
+        configLines.push(`healthCheck.type = ${tomlString(healthCheckType)}`)
+        if (healthCheckPath) {
+          configLines.push(`healthCheck.path = ${tomlString(healthCheckPath)}`)
+        }
+        if (healthCheckInterval !== null) {
+          configLines.push(`healthCheck.intervalSeconds = ${healthCheckInterval}`)
+        }
+        if (healthCheckTimeout !== null) {
+          configLines.push(`healthCheck.timeoutSeconds = ${healthCheckTimeout}`)
+        }
+        if (healthCheckMaxFailed !== null) {
+          configLines.push(`healthCheck.maxFailed = ${healthCheckMaxFailed}`)
+        }
+      }
+
+      appendRawToml(configLines, read('frpExtraProxyConfig'), '额外代理配置')
 
       const configPath = `${common.dataDir}/frpc.toml`
       const startCommand = buildExecutableCommand(frpcPath, ['-c', 'frpc.toml'], 'frpc')
@@ -1268,6 +1956,7 @@
         startCommand,
         executablePath: frpcPath,
         publicAddress,
+        formValues: collectFormValues(),
         extraFiles: [],
         instanceDescription: `[tunnel-helper] frp ${common.protocol.toUpperCase()} ${common.localAddress}:${common.localPort} -> ${publicAddress}`
       }
@@ -1283,6 +1972,7 @@
         .split(/\r?\n/)
         .map(line => line.trim())
         .filter(Boolean)
+      const noTun = readCheckbox('easyTierNoTun')
 
       if (!executablePath) throw new Error('请填写 easytier-core 可执行文件')
       if (!networkName) throw new Error('请填写 EasyTier 网络名称')
@@ -1296,7 +1986,7 @@
 
       if (virtualIpv4) {
         args.push('--ipv4', virtualIpv4)
-      } else {
+      } else if (!noTun) {
         args.push('--dhcp')
       }
 
@@ -1304,10 +1994,60 @@
         args.push('-p', peer)
       }
 
+      pushRepeatedArgs(args, '--listeners', readLines('easyTierListeners'))
+      pushRepeatedArgs(args, '--mapped-listeners', readLines('easyTierMappedListeners'))
+      pushRepeatedArgs(args, '--proxy-networks', readLines('easyTierProxyNetworks'))
+      pushRepeatedArgs(args, '--manual-routes', readLines('easyTierManualRoutes'))
+      pushRepeatedArgs(args, '--exit-nodes', readLines('easyTierExitNodes'))
+      pushRepeatedArgs(args, '--port-forward', readLines('easyTierPortForwards'))
+
+      pushArg(args, '--default-protocol', read('easyTierDefaultProtocol'))
+      pushArg(args, '--instance-name', read('easyTierInstanceName'))
+      pushArg(args, '--ipv6', read('easyTierIpv6'))
+      pushArg(args, '--external-node', read('easyTierExternalNode'))
+      pushArg(args, '--rpc-portal', read('easyTierRpcPortal'))
+      pushArg(args, '--rpc-portal-whitelist', read('easyTierRpcPortalWhitelist'))
+      pushArg(args, '--vpn-portal', read('easyTierVpnPortal'))
+      pushArg(args, '--dev-name', read('easyTierDevName'))
+      pushArg(args, '--socks5', read('easyTierSocks5'))
+      pushArg(args, '--compression', read('easyTierCompression'))
+      pushArg(args, '--encryption-algorithm', read('easyTierEncryptionAlgorithm'))
+      pushArg(args, '--tld-dns-zone', read('easyTierTldDnsZone'))
+      pushArg(args, '--console-log-level', read('easyTierConsoleLogLevel'))
+      pushArg(args, '--file-log-level', read('easyTierFileLogLevel'))
+      pushArg(args, '--file-log-dir', read('easyTierFileLogDir'))
+
+      const mtu = parseOptionalInt(read('easyTierMtu'), 'MTU', { min: 576, max: 9000 })
+      if (mtu !== null) {
+        args.push('--mtu', String(mtu))
+      }
+
+      pushFlag(args, 'easyTierNoListener', '--no-listener')
+      pushFlag(args, 'easyTierNoTun', '--no-tun')
+      pushFlag(args, 'easyTierDisableIpv6', '--disable-ipv6')
+      pushFlag(args, 'easyTierDisableEncryption', '--disable-encryption')
+      pushFlag(args, 'easyTierDisableP2p', '--disable-p2p')
+      pushFlag(args, 'easyTierLazyP2p', '--lazy-p2p')
+      pushFlag(args, 'easyTierP2pOnly', '--p2p-only')
+      pushFlag(args, 'easyTierNeedP2p', '--need-p2p')
+      pushFlag(args, 'easyTierLatencyFirst', '--latency-first')
+      if (readCheckbox('easyTierAcceptDns')) {
+        args.push('--accept-dns', 'true')
+      }
+      if (readCheckbox('easyTierPrivateMode')) {
+        args.push('--private-mode', 'true')
+      }
+      pushFlag(args, 'easyTierUseSmoltcp', '--use-smoltcp')
+      pushFlag(args, 'easyTierEnableKcpProxy', '--enable-kcp-proxy')
+      pushFlag(args, 'easyTierEnableQuicProxy', '--enable-quic-proxy')
+      args.push(...parseAdditionalArgs(read('easyTierExtraArgs'), '额外 EasyTier 参数'))
+
       const startCommand = buildExecutableCommand(executablePath, args, 'easytier-core')
       const publicAddress = virtualIpv4
         ? `${virtualIpv4}:${common.localPort}`
-        : `EasyTier 虚拟 IP:${common.localPort}`
+        : noTun
+          ? `EasyTier 无 TUN:${common.localPort}`
+          : `EasyTier 虚拟 IP:${common.localPort}`
 
       const commandContent = [
         '# EasyTier 启动命令',
@@ -1326,6 +2066,7 @@
         startCommand,
         executablePath,
         publicAddress,
+        formValues: collectFormValues(),
         extraFiles: [],
         instanceDescription: `[tunnel-helper] EasyTier network=${networkName} target=${common.localAddress}:${common.localPort}`
       }
@@ -1399,6 +2140,7 @@
         publicAddress: plan.publicAddress,
         workingDirectory: plan.workingDirectory,
         configPath: plan.configPath,
+        formValues: plan.formValues || collectFormValues(),
         createdAt: existing && existing.createdAt ? existing.createdAt : now,
         updatedAt: now
       }
@@ -1596,18 +2338,31 @@
 
     function loadConfigIntoForm(config) {
       state.pendingDeletePath = ''
-      $('profileName').value = config.name || config.dirName || ''
-      $('localAddress').value = config.localAddress || '127.0.0.1'
-      $('localPort').value = config.localPort || ''
-      $('protocol').value = config.protocol || 'tcp'
-      markAutoDefaultFieldsManual(['profileName', 'localPort', 'remotePort'])
+      const formValues = config.formValues && typeof config.formValues === 'object' ? config.formValues : null
+      const mode = formValues && formValues.mode
+        ? formValues.mode
+        : String(config.tool || '').toLowerCase()
 
-      if (String(config.tool || '').toLowerCase() === 'easytier') {
+      if (mode === 'easytier') {
         setMode('easytier')
       } else {
         setMode('frp')
       }
 
+      if (formValues) {
+        applyFormValues(formValues)
+      } else {
+        $('profileName').value = config.name || config.dirName || ''
+        $('localAddress').value = config.localAddress || '127.0.0.1'
+        $('localPort').value = config.localPort || ''
+        $('protocol').value = config.protocol || 'tcp'
+      }
+
+      if (config.linkedInstanceId && !$('instanceSelect').value) {
+        $('instanceSelect').value = config.linkedInstanceId
+      }
+
+      markAutoDefaultFieldsManual(['profileName', 'localPort', 'remotePort'])
       buildPlan(false)
       showMessage('success', `已载入配置：${config.name || config.dirName}`)
     }
