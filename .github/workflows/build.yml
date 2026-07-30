@@ -36,7 +36,27 @@ on:
     types: [published]
 
 jobs:
+  resolve_version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_stable: ${{ steps.version.outputs.is_stable }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Resolve build version
+        id: version
+        run: node scripts/resolve-build-version.js
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+
   build_linux:
+    needs: resolve_version
     if: github.event.inputs.build_linux == 'true' || github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
@@ -57,6 +77,8 @@ jobs:
         env:
           CI: true
           NODE_ENV: production
+          APP_VERSION: ${{ needs.resolve_version.outputs.version }}
+          VITE_APP_VERSION: ${{ needs.resolve_version.outputs.version }}
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -65,6 +87,7 @@ jobs:
           retention-days: 30
 
   build_windows:
+    needs: resolve_version
     if: github.event.inputs.build_windows == 'true' || github.event_name == 'push' || github.event_name == 'release'
     runs-on: windows-latest
     steps:
@@ -88,6 +111,8 @@ jobs:
         env:
           CI: true
           NODE_ENV: production
+          APP_VERSION: ${{ needs.resolve_version.outputs.version }}
+          VITE_APP_VERSION: ${{ needs.resolve_version.outputs.version }}
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -96,6 +121,7 @@ jobs:
           retention-days: 30
 
   build_docker:
+    needs: resolve_version
     if: github.event.inputs.build_docker == 'true' || github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
@@ -127,12 +153,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            xiaozhu674/gameservermanager:3.13.0
-            xiaozhu674/gameservermanager:latest
+            xiaozhu674/gameservermanager:${{ needs.resolve_version.outputs.version }}
+            ${{ needs.resolve_version.outputs.is_stable == 'true' && 'xiaozhu674/gameservermanager:latest' || '' }}
+          build-args: |
+            APP_VERSION=${{ needs.resolve_version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   build_docker_arm:
+    needs: resolve_version
     if: github.event.inputs.build_docker_arm == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -164,14 +193,16 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: |
-            xiaozhu674/gameservermanager:3.13.0-arm64-beta
+            xiaozhu674/gameservermanager:${{ needs.resolve_version.outputs.version }}-arm64-beta
+          build-args: |
+            APP_VERSION=${{ needs.resolve_version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   # 创建发布版本（仅在推送标签时触发）
   create_release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build_linux, build_windows]
+    needs: [resolve_version, build_linux, build_windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux artifact
@@ -187,17 +218,17 @@ jobs:
       - name: Create Linux tar.gz
         run: |
           cd linux-build
-          tar -czf ../gsm3-management-panel-linux.tar.gz *
+          tar -czf ../gsm3-management-panel-linux-v${{ needs.resolve_version.outputs.version }}.tar.gz *
       - name: Create Windows zip
         run: |
           cd windows-build
-          zip -r ../gsm3-management-panel-windows.zip *
+          zip -r ../gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip *
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            gsm3-management-panel-linux.tar.gz
-            gsm3-management-panel-windows.zip
+            gsm3-management-panel-linux-v${{ needs.resolve_version.outputs.version }}.tar.gz
+            gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip
           generate_release_notes: true
           draft: false
           prerelease: false

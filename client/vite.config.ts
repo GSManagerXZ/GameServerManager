@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const { resolveBuildVersion } = require('../scripts/resolve-build-version.js') as {
+  resolveBuildVersion: (options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => string
+}
 
 // 获取后端服务端口
 const getServerPort = () => {
@@ -14,6 +20,10 @@ const getClientPort = () => {
 
 const serverPort = getServerPort()
 const clientPort = getClientPort()
+const buildVersion = resolveBuildVersion({
+  cwd: path.resolve(__dirname, '..'),
+  env: process.env
+})
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -27,6 +37,7 @@ export default defineConfig({
     global: 'globalThis',
     'process.env': {},
     'process.platform': JSON.stringify(process.platform),
+    __GSM3_BUILD_VERSION__: JSON.stringify(buildVersion),
   },
   server: {
     host: '0.0.0.0', // 允许网络访问

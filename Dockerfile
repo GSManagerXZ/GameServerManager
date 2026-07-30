@@ -211,6 +211,10 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 # ---------- 构建阶段 ----------
 FROM base AS builder
 
+ARG APP_VERSION=development
+ENV APP_VERSION=${APP_VERSION} \
+    VITE_APP_VERSION=${APP_VERSION}
+
 # 拷贝源码用于构建
 COPY --chown=steam:steam . /app/
 USER ${STEAM_USER}
@@ -233,6 +237,10 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 
 # ---------- 运行阶段（最终镜像） ----------
 FROM base AS runtime
+
+ARG APP_VERSION=development
+ENV APP_VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.version=${APP_VERSION}
 
 # 仅在AMD64架构上安装并初始化 SteamCMD
 RUN if [ "$TARGETARCH" = "amd64" ]; then \

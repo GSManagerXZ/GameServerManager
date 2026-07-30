@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Github, Info, Heart, Star, GitFork, Eye, ExternalLink, BookOpen } from 'lucide-react'
+import { buildInfo } from '../config/buildInfo'
 
 const AboutProjectPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('docs')
@@ -254,7 +255,7 @@ const AboutProjectPage: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600 dark:text-gray-400">版本：</span>
-                      <span className="text-black dark:text-white font-medium">3.13.0</span>
+                      <span className="text-black dark:text-white font-medium">{buildInfo.version}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600 dark:text-gray-400">开发者：</span>
