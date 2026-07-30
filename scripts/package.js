@@ -6,10 +6,11 @@ const https = require('https')
 const { pipeline } = require('stream')
 const { promisify } = require('util')
 const iconv = require('iconv-lite')
+const { resolveBuildVersion } = require('./resolve-build-version')
 const pipelineAsync = promisify(pipeline)
 
 const packageName = 'gsm3-management-panel'
-const version = require('../package.json').version
+const version = resolveBuildVersion()
 const distDir = path.join(__dirname, '..', 'dist')
 const packageDir = path.join(distDir, 'package')
 
