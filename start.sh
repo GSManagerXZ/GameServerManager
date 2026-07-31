@@ -13,6 +13,26 @@ if [ -f "server/index.js" ]; then
     echo "📍 访问地址: http://localhost:3001"
     echo "📍 默认账户: admin / admin123"
     echo
+
+    # Docker 的持久卷会遮蔽镜像内的 server/data，补充卷中缺失的内置插件。
+    # 仅复制不存在的插件目录，避免覆盖用户配置或自行安装的插件。
+    DEFAULT_PLUGINS_DIR="data/plugins"
+    RUNTIME_PLUGINS_DIR="server/data/plugins"
+    if [ -d "$DEFAULT_PLUGINS_DIR" ]; then
+        mkdir -p "$RUNTIME_PLUGINS_DIR"
+        for plugin_dir in "$DEFAULT_PLUGINS_DIR"/*; do
+            if [ ! -d "$plugin_dir" ] || [ ! -f "$plugin_dir/plugin.json" ]; then
+                continue
+            fi
+
+            plugin_name=$(basename "$plugin_dir")
+            runtime_plugin_dir="$RUNTIME_PLUGINS_DIR/$plugin_name"
+            if [ ! -e "$runtime_plugin_dir" ]; then
+                cp -a "$plugin_dir" "$runtime_plugin_dir"
+                echo "✅ 已补充内置插件: $plugin_name"
+            fi
+        done
+    fi
     
     # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
     # 如果 data/lib/ 中存在 PTY 文件，验证并设置可执行权限

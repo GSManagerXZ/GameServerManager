@@ -398,6 +398,20 @@ async function createPackage() {
     } else {
       console.log('⚠️  警告: server/data/gameconfig 目录不存在，跳过复制')
     }
+
+    // 复制内置插件到打包根目录的data/下
+    // Docker 会从该不可挂载目录向持久卷补充缺失的内置插件
+    const serverPluginsPath = path.join(__dirname, '..', 'server', 'data', 'plugins')
+    if (await fs.pathExists(serverPluginsPath)) {
+      await fs.ensureDir(path.join(packageDir, 'data'))
+      await fs.copy(
+        serverPluginsPath,
+        path.join(packageDir, 'data', 'plugins')
+      )
+      console.log('🧩 复制内置插件文件...')
+    } else {
+      console.log('⚠️  警告: server/data/plugins 目录不存在，跳过复制')
+    }
     
     console.log('📥 安装服务端生产依赖...')
     // 在打包的服务端目录中安装生产依赖
