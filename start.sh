@@ -7,12 +7,38 @@ echo "    GSM3 游戏服务端管理面板"
 echo "======================================"
 echo
 
+seed_builtin_plugins() {
+    local source_dir="data/plugins"
+    local target_dir="server/data/plugins"
+
+    if [ ! -d "$source_dir" ]; then
+        return
+    fi
+
+    mkdir -p "$target_dir"
+
+    for plugin_dir in "$source_dir"/*; do
+        if [ ! -d "$plugin_dir" ]; then
+            continue
+        fi
+
+        local plugin_name
+        plugin_name=$(basename "$plugin_dir")
+        if [ ! -e "$target_dir/$plugin_name" ]; then
+            cp -a "$plugin_dir" "$target_dir/"
+            echo "✅ 已初始化内置插件: $plugin_name"
+        fi
+    done
+}
+
 # 检查是否存在GSM3应用文件
 if [ -f "server/index.js" ]; then
     echo "🚀 启动GSM3管理面板..."
     echo "📍 访问地址: http://localhost:3001"
     echo "📍 默认账户: admin / admin123"
     echo
+
+    seed_builtin_plugins
     
     # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
     # 如果 data/lib/ 中存在 PTY 文件，验证并设置可执行权限

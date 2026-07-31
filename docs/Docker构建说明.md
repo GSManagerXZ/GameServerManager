@@ -119,6 +119,12 @@ docker run -d \
 - 服务启动时会优先从 `/root/server/data/lib` 检测依赖是否就绪。
 - 若构建阶段写入了其他目录（例如 `/root/data/lib`），启动时仍会触发二次下载。
 
+## 内置插件初始化
+
+镜像构建时会将 `server/data/plugins` 打包到 `/root/data/plugins` 作为内置插件模板。容器启动时会把缺失的内置插件复制到 `/root/server/data/plugins`。
+
+这样可以避免 `/root/server/data` 挂载到持久化 volume 后遮蔽新镜像内置插件的问题。已有同名插件目录不会被覆盖，用户修改过的插件配置会保留。
+
 ### 下载源策略
 
 Docker 构建阶段对 `Zip-Tools`、`7z`、`PTY` 统一从 GitHub Releases 下载。
