@@ -1,11 +1,14 @@
 import { Router, Request, Response } from 'express'
+import { execFile } from 'child_process'
 import fs from 'fs/promises'
 import { constants as fsConstants, createReadStream, createWriteStream } from 'fs'
 import https from 'https'
 import path from 'path'
 import * as tar from 'tar'
 import crypto from 'crypto'
-import { authenticateToken } from '../middleware/auth.js'
+import { authenticateToken, requireAdmin } from '../middleware/auth.js'
+import { EasyTierCommandRunner } from '../modules/easytier/EasyTierCommandRunner.js'
+import type { EasyTierBinaryCapabilities } from '../modules/easytier/easytierTypes.js'
 import type { InstanceManager } from '../modules/instance/InstanceManager.js'
 import type { SystemManager } from '../modules/system/SystemManager.js'
 import type { TerminalManager } from '../modules/terminal/TerminalManager.js'
@@ -17,6 +20,19 @@ import { createTarSecurityFilter } from '../utils/tarSecurityFilter.js'
 import { zipToolsManager } from '../utils/zipToolsManager.js'
 
 const router = Router()
+
+const pathExists = async (targetPath: string): Promise<boolean> => {
+  try {
+    await fs.access(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const getInstanceOperationErrorStatus = (error: unknown): number => (
+  (error as { code?: string }).code === 'INSTANCE_OPERATION_LOCKED' ? 409 : 500
+)
 
 // 依赖注入
 let instanceManager: InstanceManager
@@ -44,6 +60,28 @@ interface TunnelToolDefinition {
   label: string
   repo: string
   executableNames: string[]
+  companionExecutableNames?: string[]
+  companionRequired?: boolean
+}
+
+interface TunnelToolExecutablePaths {
+  primary: string
+  core?: string
+  cli?: string
+}
+
+interface TunnelToolInstallMetadata {
+  schemaVersion: 1
+  tool: TunnelToolName
+  version: string
+  assetName: string
+  releaseUrl: string
+  sourceUrl: string
+  sha256: string
+  installedAt: string
+  executableRelativePaths: Record<string, string>
+  detectedVersion?: string
+  capabilities?: EasyTierBinaryCapabilities
 }
 
 interface TunnelToolInstallResult {
@@ -52,7 +90,13 @@ interface TunnelToolInstallResult {
   assetName: string
   installPath: string
   executablePath: string
+  executables: TunnelToolExecutablePaths
   releaseUrl: string
+  sourceUrl: string
+  sha256: string
+  installedAt: string
+  detectedVersion?: string
+  capabilities?: EasyTierBinaryCapabilities
 }
 
 interface TunnelToolInstalledState {
@@ -62,6 +106,14 @@ interface TunnelToolInstalledState {
   version?: string
   installPath?: string
   executablePath?: string
+  executables?: TunnelToolExecutablePaths
+  assetName?: string
+  releaseUrl?: string
+  sourceUrl?: string
+  sha256?: string
+  installedAt?: string
+  detectedVersion?: string
+  capabilities?: EasyTierBinaryCapabilities
 }
 
 const TUNNEL_TOOL_DEFINITIONS: Record<TunnelToolName, TunnelToolDefinition> = {
@@ -75,9 +127,20 @@ const TUNNEL_TOOL_DEFINITIONS: Record<TunnelToolName, TunnelToolDefinition> = {
     name: 'easytier',
     label: 'EasyTier',
     repo: 'EasyTier/EasyTier',
-    executableNames: process.platform === 'win32' ? ['easytier-core.exe'] : ['easytier-core']
+    executableNames: process.platform === 'win32' ? ['easytier-core.exe'] : ['easytier-core'],
+    companionExecutableNames: process.platform === 'win32' ? ['easytier-cli.exe'] : ['easytier-cli'],
+    companionRequired: true
   }
 }
+
+const MAX_TUNNEL_TOOL_ARCHIVE_BYTES = 256 * 1024 * 1024
+const MAX_CHECKSUM_FILE_BYTES = 1024 * 1024
+const MAX_RELEASE_METADATA_BYTES = 2 * 1024 * 1024
+const TRUSTED_GITHUB_DOWNLOAD_HOSTS = new Set([
+  'github.com',
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com'
+])
 
 const getTunnelToolDefinition = (tool: string): TunnelToolDefinition => {
   if (tool === 'frp' || tool === 'easytier') {
@@ -89,6 +152,13 @@ const getTunnelToolDefinition = (tool: string): TunnelToolDefinition => {
 
 const getErrorMessage = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error)
+}
+
+const assertTrustedGitHubDownloadUrl = (url: string): void => {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'https:' || !TRUSTED_GITHUB_DOWNLOAD_HOSTS.has(parsed.hostname)) {
+    throw new Error(`下载地址未通过安全校验: ${parsed.origin}`)
+  }
 }
 
 const stripShellQuotes = (value: string): string => {
@@ -297,16 +367,27 @@ const resolvePluginDataPath = (dataPath: string): string => {
 }
 
 const requestJson = async <T>(url: string): Promise<T> => {
+  const target = new URL(url)
+  if (target.protocol !== 'https:' || target.hostname !== 'api.github.com') {
+    throw new Error('拒绝访问非 GitHub API 地址')
+  }
   return new Promise((resolve, reject) => {
-    https.get(url, {
+    const request = https.get(target, {
       headers: {
         'Accept': 'application/vnd.github+json',
         'User-Agent': 'GameServerManager-TunnelHelper'
       }
     }, response => {
       let body = ''
+      let bodyBytes = 0
+      response.on('error', reject)
 
       response.on('data', chunk => {
+        bodyBytes += Buffer.byteLength(chunk)
+        if (bodyBytes > MAX_RELEASE_METADATA_BYTES) {
+          response.destroy(new Error('GitHub Release 元数据超过大小限制'))
+          return
+        }
         body += chunk
       })
 
@@ -327,7 +408,9 @@ const requestJson = async <T>(url: string): Promise<T> => {
           reject(error)
         }
       })
-    }).on('error', reject)
+    })
+    request.setTimeout(15_000, () => request.destroy(new Error('GitHub API 请求超时')))
+    request.on('error', reject)
   })
 }
 
@@ -352,10 +435,15 @@ const requestHeaders = async (url: string): Promise<{
   })
 }
 
-const requestText = async (url: string, redirectCount = 0): Promise<string> => {
+const requestText = async (
+  url: string,
+  redirectCount = 0,
+  maxBytes = 2 * 1024 * 1024
+): Promise<string> => {
   if (redirectCount > 5) {
     throw new Error('请求重定向次数过多')
   }
+  assertTrustedGitHubDownloadUrl(url)
 
   return new Promise((resolve, reject) => {
     https.get(url, {
@@ -363,7 +451,7 @@ const requestText = async (url: string, redirectCount = 0): Promise<string> => {
     }, response => {
       if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         response.resume()
-        requestText(new URL(response.headers.location, url).toString(), redirectCount + 1)
+        requestText(new URL(response.headers.location, url).toString(), redirectCount + 1, maxBytes)
           .then(resolve)
           .catch(reject)
         return
@@ -379,8 +467,12 @@ const requestText = async (url: string, redirectCount = 0): Promise<string> => {
       let body = ''
       response.on('data', chunk => {
         body += chunk
+        if (Buffer.byteLength(body, 'utf8') > maxBytes) {
+          response.destroy(new Error('响应内容超过允许大小'))
+        }
       })
       response.on('end', () => resolve(body))
+      response.on('error', reject)
     }).on('error', reject)
   })
 }
@@ -476,15 +568,15 @@ const fetchTunnelToolReleaseWithApi = async (definition: TunnelToolDefinition): 
 
 const fetchLatestTunnelToolRelease = async (definition: TunnelToolDefinition): Promise<GitHubRelease> => {
   try {
-    return await fetchTunnelToolReleaseWithoutApi(definition)
-  } catch (webError) {
-    logger.warn(`插件通过 GitHub 页面获取 ${definition.label} 最新版本失败，尝试 GitHub API:`, webError)
+    return await fetchTunnelToolReleaseWithApi(definition)
+  } catch (apiError) {
+    logger.warn(`插件通过 GitHub API 获取 ${definition.label} 最新版本失败，尝试发布页面:`, apiError)
 
     try {
-      return await fetchTunnelToolReleaseWithApi(definition)
-    } catch (apiError) {
+      return await fetchTunnelToolReleaseWithoutApi(definition)
+    } catch (webError) {
       throw new Error(
-        `获取 ${definition.label} 最新版本失败: 页面方式失败: ${getErrorMessage(webError)}; GitHub API 失败: ${getErrorMessage(apiError)}`
+        `获取 ${definition.label} 最新版本失败: GitHub API 失败: ${getErrorMessage(apiError)}; 页面方式失败: ${getErrorMessage(webError)}`
       )
     }
   }
@@ -499,6 +591,7 @@ const downloadFile = async (
   if (redirectCount > 5) {
     throw new Error('下载重定向次数过多')
   }
+  assertTrustedGitHubDownloadUrl(url)
 
   await fs.mkdir(path.dirname(targetPath), { recursive: true })
 
@@ -521,21 +614,41 @@ const downloadFile = async (
       }
 
       const totalSize = Number(response.headers['content-length'] || 0)
+      if (totalSize > MAX_TUNNEL_TOOL_ARCHIVE_BYTES) {
+        response.resume()
+        reject(new Error(`下载文件超过大小限制: ${totalSize} bytes`))
+        return
+      }
       let downloadedSize = 0
       const file = createWriteStream(targetPath)
 
       response.on('data', chunk => {
         downloadedSize += chunk.length
+        if (downloadedSize > MAX_TUNNEL_TOOL_ARCHIVE_BYTES) {
+          response.destroy(new Error('下载文件超过大小限制'))
+          file.destroy(new Error('下载文件超过大小限制'))
+          return
+        }
         if (totalSize > 0) {
           onProgress?.(Math.round((downloadedSize / totalSize) * 100))
         }
       })
 
+      response.on('error', error => {
+        fs.rm(targetPath, { force: true }).catch(() => { })
+        reject(error)
+      })
+
       response.pipe(file)
 
       file.on('finish', () => {
-        file.close()
-        resolve()
+        file.close(error => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
       })
 
       file.on('error', error => {
@@ -548,6 +661,7 @@ const downloadFile = async (
       fs.rm(targetPath, { force: true }).catch(() => { })
       reject(error)
     })
+    request.setTimeout(120_000, () => request.destroy(new Error('下载超时')))
   })
 }
 
@@ -562,18 +676,98 @@ const calculateSha256 = async (filePath: string): Promise<string> => {
   })
 }
 
-const verifyDownloadedAsset = async (asset: GitHubReleaseAsset, archivePath: string): Promise<void> => {
+const parseAssetSha256 = (checksums: string, assetName: string): string | null => {
+  for (const line of checksums.split(/\r?\n/)) {
+    const standard = line.trim().match(/^([0-9a-f]{64})\s+[* ]?(.+)$/i)
+    if (standard && path.basename(standard[2].trim()) === assetName) {
+      return standard[1].toLowerCase()
+    }
+    const openssl = line.trim().match(/^SHA256\s*\((.+)\)\s*=\s*([0-9a-f]{64})$/i)
+    if (openssl && path.basename(openssl[1].trim()) === assetName) {
+      return openssl[2].toLowerCase()
+    }
+  }
+  return null
+}
+
+const resolveExpectedAssetSha256 = async (
+  release: GitHubRelease,
+  asset: GitHubReleaseAsset
+): Promise<string> => {
+  if (asset.digest) {
+    const digest = asset.digest.match(/^sha256:([0-9a-f]{64})$/i)?.[1]
+    if (!digest) throw new Error(`GitHub 返回了无效的 SHA256 摘要: ${asset.digest}`)
+    return digest.toLowerCase()
+  }
+
+  const checksumAsset = release.assets.find(item => (
+    /(?:sha256|checksum)/i.test(item.name) && /\.txt$/i.test(item.name)
+  ))
+  if (!checksumAsset) {
+    throw new Error(`发布资产 ${asset.name} 未提供可信 SHA256 摘要，已拒绝安装`)
+  }
+
+  assertTrustedGitHubDownloadUrl(checksumAsset.browser_download_url)
+  const checksums = await requestText(
+    checksumAsset.browser_download_url,
+    0,
+    MAX_CHECKSUM_FILE_BYTES
+  )
+  const expected = parseAssetSha256(checksums, asset.name)
+  if (!expected) {
+    throw new Error(`校验文件 ${checksumAsset.name} 中未找到 ${asset.name} 的 SHA256`)
+  }
+  return expected
+}
+
+const verifyDownloadedAsset = async (
+  release: GitHubRelease,
+  asset: GitHubReleaseAsset,
+  archivePath: string
+): Promise<string> => {
   const stats = await fs.stat(archivePath)
   if (stats.size <= 0) {
     throw new Error('下载的文件为空')
   }
+  if (stats.size > MAX_TUNNEL_TOOL_ARCHIVE_BYTES) {
+    throw new Error(`下载文件超过大小限制: ${stats.size} bytes`)
+  }
+  if (asset.size && stats.size !== asset.size) {
+    throw new Error(`下载文件大小不匹配: expected=${asset.size}, actual=${stats.size}`)
+  }
 
-  if (asset.digest && asset.digest.startsWith('sha256:')) {
-    const expected = asset.digest.slice('sha256:'.length).toLowerCase()
-    const actual = await calculateSha256(archivePath)
-    if (actual !== expected) {
-      throw new Error(`SHA256 校验失败: expected=${expected}, actual=${actual}`)
-    }
+  const actual = await calculateSha256(archivePath)
+  const expected = await resolveExpectedAssetSha256(release, asset)
+  if (actual !== expected) {
+    throw new Error(`SHA256 校验失败: expected=${expected}, actual=${actual}`)
+  }
+
+  return actual
+}
+
+const detectExecutableVersion = async (executablePath: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    execFile(executablePath, ['--version'], {
+      timeout: 5000,
+      maxBuffer: 512 * 1024,
+      windowsHide: true
+    }, (error, stdout, stderr) => {
+      const output = [stdout, stderr].filter(Boolean).join('\n').trim()
+      const version = output.match(/\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?/)?.[0]
+      if (error || !version) {
+        reject(new Error(`可执行文件版本检测失败: ${output || getErrorMessage(error)}`))
+        return
+      }
+      resolve(version)
+    })
+  })
+}
+
+const assertReleaseVersionMatches = (releaseTag: string, detectedVersion: string): void => {
+  const expected = releaseTag.match(/\d+(?:\.\d+){1,3}/)?.[0]
+  const actual = detectedVersion.match(/\d+(?:\.\d+){1,3}/)?.[0]
+  if (!expected || !actual || expected !== actual) {
+    throw new Error(`可执行文件版本与发布版本不匹配: release=${releaseTag}, binary=${detectedVersion}`)
   }
 }
 
@@ -623,6 +817,41 @@ const findExtractedExecutable = async (rootPath: string, executableNames: string
   return null
 }
 
+const getTunnelToolExecutablePaths = async (
+  rootPath: string,
+  definition: TunnelToolDefinition,
+  requireCompanion = false
+): Promise<TunnelToolExecutablePaths | null> => {
+  const primary = await findExtractedExecutable(rootPath, definition.executableNames)
+  if (!primary) return null
+
+  const companion = definition.companionExecutableNames
+    ? await findExtractedExecutable(rootPath, definition.companionExecutableNames)
+    : null
+  if (requireCompanion && definition.companionRequired && !companion) {
+    throw new Error(`安装验证失败：未找到 ${definition.companionExecutableNames?.join(' 或 ')}`)
+  }
+
+  return definition.name === 'easytier'
+    ? {
+        primary,
+        core: primary,
+        ...(companion ? { cli: companion } : {})
+      }
+    : { primary }
+}
+
+const getInstallMetadataPath = (installPath: string): string => path.join(installPath, 'install.json')
+
+const readInstallMetadata = async (installPath: string): Promise<TunnelToolInstallMetadata | null> => {
+  try {
+    return JSON.parse(await fs.readFile(getInstallMetadataPath(installPath), 'utf-8')) as TunnelToolInstallMetadata
+  } catch (error: any) {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) return null
+    throw error
+  }
+}
+
 const getInstalledTunnelTool = async (tool: TunnelToolName): Promise<TunnelToolInstalledState> => {
   const definition = getTunnelToolDefinition(tool)
   const toolsRoot = getTunnelToolsRoot()
@@ -646,22 +875,44 @@ const getInstalledTunnelTool = async (tool: TunnelToolName): Promise<TunnelToolI
   const candidates: Array<TunnelToolInstalledState & { modifiedAt: number }> = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
-    if (entry.name === 'downloads' || entry.name.startsWith('.staging-')) continue
+    if (entry.name === 'downloads' || entry.name.startsWith('.staging-') || entry.name.startsWith('.backup-')) continue
 
     const installPath = path.join(toolRoot, entry.name)
     assertInsideDirectory(installPath, toolsRoot)
 
-    const executablePath = await findExtractedExecutable(installPath, definition.executableNames)
-    if (!executablePath) continue
+    let executables: TunnelToolExecutablePaths | null
+    try {
+      executables = await getTunnelToolExecutablePaths(installPath, definition)
+    } catch {
+      continue
+    }
+    if (!executables) continue
+
+    const metadata = await readInstallMetadata(installPath)
+    let capabilities = metadata?.capabilities
+    if (definition.name === 'easytier' && !capabilities && executables.core) {
+      capabilities = await new EasyTierCommandRunner().detectCapabilities({
+        corePath: executables.core,
+        cliPath: executables.cli
+      }).catch(() => undefined)
+    }
 
     const stats = await fs.stat(installPath)
     candidates.push({
       tool: definition.name,
       label: definition.label,
       installed: true,
-      version: entry.name,
+      version: metadata?.version || entry.name,
       installPath,
-      executablePath,
+      executablePath: executables.primary,
+      executables,
+      assetName: metadata?.assetName,
+      releaseUrl: metadata?.releaseUrl,
+      sourceUrl: metadata?.sourceUrl,
+      sha256: metadata?.sha256,
+      installedAt: metadata?.installedAt,
+      detectedVersion: capabilities?.version || metadata?.detectedVersion,
+      capabilities,
       modifiedAt: stats.mtimeMs
     })
   }
@@ -691,11 +942,15 @@ const installTunnelTool = async (
   const installPath = path.join(toolRoot, version)
   const downloadPath = path.join(toolRoot, 'downloads', asset.name)
   const stagingPath = path.join(toolRoot, `.staging-${version}-${Date.now()}`)
+  const backupPath = path.join(toolRoot, `.backup-${version}-${crypto.randomUUID()}`)
+  let previousInstallMoved = false
+  let newInstallCommitted = false
 
   assertInsideDirectory(toolRoot, toolsRoot)
   assertInsideDirectory(installPath, toolsRoot)
   assertInsideDirectory(downloadPath, toolsRoot)
   assertInsideDirectory(stagingPath, toolsRoot)
+  assertInsideDirectory(backupPath, toolsRoot)
 
   try {
     await fs.mkdir(path.dirname(downloadPath), { recursive: true })
@@ -706,7 +961,7 @@ const installTunnelTool = async (
     })
 
     onStatusChange('正在校验下载文件...')
-    await verifyDownloadedAsset(asset, downloadPath)
+    const sha256 = await verifyDownloadedAsset(release, asset, downloadPath)
 
     await fs.rm(stagingPath, { recursive: true, force: true })
     await fs.mkdir(stagingPath, { recursive: true })
@@ -715,19 +970,80 @@ const installTunnelTool = async (
     await extractTunnelToolArchive(downloadPath, stagingPath)
     onProgress(90)
 
-    const executablePath = await findExtractedExecutable(stagingPath, definition.executableNames)
-    if (!executablePath) {
+    const stagedExecutables = await getTunnelToolExecutablePaths(stagingPath, definition, true)
+    if (!stagedExecutables) {
       throw new Error(`安装验证失败：未找到 ${definition.executableNames.join(' 或 ')}`)
     }
 
-    await fs.rm(installPath, { recursive: true, force: true })
+    onStatusChange(`正在验证 ${definition.label} 可执行文件...`)
+    const stagedDetectedVersion = await detectExecutableVersion(stagedExecutables.primary)
+    assertReleaseVersionMatches(release.tag_name, stagedDetectedVersion)
+
+    let capabilities: EasyTierBinaryCapabilities | undefined
+    if (tool === 'easytier' && stagedExecutables.core) {
+      capabilities = await new EasyTierCommandRunner().detectCapabilities({
+        corePath: stagedExecutables.core,
+        cliPath: stagedExecutables.cli
+      })
+      if (!capabilities.version) {
+        throw new Error('EasyTier 能力检测未返回版本号')
+      }
+      assertReleaseVersionMatches(release.tag_name, capabilities.version)
+    }
+
+    await fs.rm(backupPath, { recursive: true, force: true })
+    if (await pathExists(installPath)) {
+      await fs.rename(installPath, backupPath)
+      previousInstallMoved = true
+    }
     await fs.rename(stagingPath, installPath)
+    newInstallCommitted = true
     await fs.rm(downloadPath, { force: true }).catch(() => { })
 
-    const finalExecutablePath = path.join(installPath, path.relative(stagingPath, executablePath))
+    const finalExecutables = Object.fromEntries(Object.entries(stagedExecutables).map(([key, executablePath]) => [
+      key,
+      path.join(installPath, path.relative(stagingPath, executablePath))
+    ])) as unknown as TunnelToolExecutablePaths
+    const finalExecutablePath = finalExecutables.primary
     const resolvedExecutable = await findExecutable(finalExecutablePath)
     if (!resolvedExecutable) {
       throw new Error(`安装验证失败：${finalExecutablePath} 不可访问`)
+    }
+
+    if (capabilities && finalExecutables.core) {
+      capabilities = {
+        ...capabilities,
+        corePath: finalExecutables.core,
+        cliPath: finalExecutables.cli
+      }
+    }
+
+    const installedAt = new Date().toISOString()
+    const metadata: TunnelToolInstallMetadata = {
+      schemaVersion: 1,
+      tool,
+      version: release.tag_name,
+      assetName: asset.name,
+      releaseUrl: release.html_url,
+      sourceUrl: asset.browser_download_url,
+      sha256,
+      installedAt,
+      executableRelativePaths: Object.fromEntries(Object.entries(finalExecutables).map(([key, executablePath]) => [
+        key,
+        path.relative(installPath, executablePath)
+      ])),
+      detectedVersion: capabilities?.version || stagedDetectedVersion,
+      capabilities
+    }
+    await fs.writeFile(getInstallMetadataPath(installPath), `${JSON.stringify(metadata, null, 2)}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600
+    })
+    if (previousInstallMoved) {
+      await fs.rm(backupPath, { recursive: true, force: true }).catch(error => {
+        logger.warn(`清理 ${definition.label} 安装备份失败，将保留 ${backupPath}:`, error)
+      })
+      previousInstallMoved = false
     }
 
     onProgress(100)
@@ -739,9 +1055,25 @@ const installTunnelTool = async (
       assetName: asset.name,
       installPath,
       executablePath: finalExecutablePath,
-      releaseUrl: release.html_url
+      executables: finalExecutables,
+      releaseUrl: release.html_url,
+      sourceUrl: asset.browser_download_url,
+      sha256,
+      installedAt,
+      detectedVersion: capabilities?.version || stagedDetectedVersion,
+      capabilities
     }
   } catch (error) {
+    if (newInstallCommitted) {
+      await fs.rm(installPath, { recursive: true, force: true }).catch(cleanupError => {
+        logger.error(`移除 ${definition.label} 失败安装目录失败，原备份保留在 ${backupPath}:`, cleanupError)
+      })
+    }
+    if (previousInstallMoved && !await pathExists(installPath)) {
+      await fs.rename(backupPath, installPath).catch(rollbackError => {
+        logger.error(`恢复 ${definition.label} 原安装失败，备份保留在 ${backupPath}:`, rollbackError)
+      })
+    }
     await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => { })
     await fs.rm(downloadPath, { force: true }).catch(() => { })
     throw error
@@ -784,6 +1116,7 @@ const pluginApiProxy = (req: Request, res: Response, next: any) => {
 // 应用插件API代理中间件
 router.use(pluginApiProxy)
 router.use(authenticateToken)
+router.use(requireAdmin)
 
 // ==================== 系统信息API ====================
 
@@ -1124,7 +1457,7 @@ router.put('/instances/:id', async (req: Request, res: Response) => {
     })
   } catch (error) {
     logger.error('插件更新实例失败:', error)
-    res.status(500).json({
+    res.status(getInstanceOperationErrorStatus(error)).json({
       success: false,
       message: '更新实例失败',
       error: error instanceof Error ? error.message : '未知错误'
@@ -1159,7 +1492,7 @@ router.delete('/instances/:id', async (req: Request, res: Response) => {
     })
   } catch (error) {
     logger.error('插件删除实例失败:', error)
-    res.status(500).json({
+    res.status(getInstanceOperationErrorStatus(error)).json({
       success: false,
       message: '删除实例失败',
       error: error instanceof Error ? error.message : '未知错误'
@@ -1195,7 +1528,7 @@ router.post('/instances/:id/start', async (req: Request, res: Response) => {
     })
   } catch (error) {
     logger.error('插件启动实例失败:', error)
-    res.status(500).json({
+    res.status(getInstanceOperationErrorStatus(error)).json({
       success: false,
       message: '启动实例失败',
       error: error instanceof Error ? error.message : '未知错误'
@@ -1231,7 +1564,7 @@ router.post('/instances/:id/stop', async (req: Request, res: Response) => {
     })
   } catch (error) {
     logger.error('插件停止实例失败:', error)
-    res.status(500).json({
+    res.status(getInstanceOperationErrorStatus(error)).json({
       success: false,
       message: '停止实例失败',
       error: error instanceof Error ? error.message : '未知错误'
@@ -1267,7 +1600,7 @@ router.post('/instances/:id/restart', async (req: Request, res: Response) => {
     })
   } catch (error) {
     logger.error('插件重启实例失败:', error)
-    res.status(500).json({
+    res.status(getInstanceOperationErrorStatus(error)).json({
       success: false,
       message: '重启实例失败',
       error: error instanceof Error ? error.message : '未知错误'
@@ -1404,9 +1737,7 @@ router.post('/tools/install-tunnel-tool', async (req: Request, res: Response) =>
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
+      'Connection': 'keep-alive'
     })
 
     const sendEvent = (event: string, data: any) => {

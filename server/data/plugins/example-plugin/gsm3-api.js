@@ -6,76 +6,60 @@ class GSM3API {
   constructor() {
     this.baseURL = '/api/plugin-api'
     this.token = null
-    this.initializeToken()
+    this.channel = new URLSearchParams(window.location.search).get('channel') || ''
+    this.pendingAuth = new Map()
+    window.addEventListener('message', (event) => this.handleAuthMessage(event))
   }
 
-  /**
-   * 初始化token获取机制
-   */
-  initializeToken() {
-    try {
-      // 检查是否已经通过脚本注入设置了全局token
-      if (window.gsm3Token) {
-        this.token = window.gsm3Token
-        console.log('Token已从全局变量获取:', this.token)
-        return
-      }
-      
-      // 检查是否已经通过脚本注入设置了token
-      if (window.gsm3 && window.gsm3.token) {
-        this.token = window.gsm3.token
-        console.log('Token已从注入脚本获取')
-        return
-      }
-      
-      // 尝试从父窗口获取token
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'gsm3-get-token' }, '*')
-      }
-      
-      console.log('正在初始化token...')
-    } catch (error) {
-      console.warn('Token初始化失败:', error)
-    }
+  handleAuthMessage(event) {
+    if (
+      event.source !== window.parent ||
+      event.origin !== window.location.origin ||
+      !event.data ||
+      event.data.type !== 'gsm3-auth-response' ||
+      event.data.channel !== this.channel ||
+      typeof event.data.requestId !== 'string' ||
+      typeof event.data.token !== 'string'
+    ) return
+    const pending = this.pendingAuth.get(event.data.requestId)
+    if (!pending) return
+    clearTimeout(pending.timeoutId)
+    this.pendingAuth.delete(event.data.requestId)
+    this.token = event.data.token
+    pending.resolve(event.data.token)
+  }
 
-    // 监听token更新
-    window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'gsm3-token-update') {
-        this.token = event.data.token
-        console.log('通过消息更新Token:', this.token)
-      }
-    })
-    
-    // 定期检查全局token变量
-    const checkGlobalToken = () => {
-      if (!this.token && window.gsm3Token) {
-        this.token = window.gsm3Token
-        console.log('从全局变量延迟获取Token:', this.token)
-      }
+  requestAuth() {
+    if (this.token) return Promise.resolve(this.token)
+    if (window.parent === window || !this.channel) {
+      return Promise.reject(new Error('插件必须从 GSM3 插件页面打开'))
     }
-    
-    // 每100ms检查一次，最多检查50次（5秒）
-    let checkCount = 0
-    const tokenChecker = setInterval(() => {
-      checkGlobalToken()
-      checkCount++
-      if (this.token || checkCount >= 50) {
-        clearInterval(tokenChecker)
-      }
-    }, 100)
+    const requestId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingAuth.delete(requestId)
+        reject(new Error('等待面板认证超时，请关闭后重试'))
+      }, 8000)
+      this.pendingAuth.set(requestId, { resolve, reject, timeoutId })
+      window.parent.postMessage(
+        { type: 'gsm3-auth-request', channel: this.channel, requestId },
+        window.location.origin
+      )
+    })
   }
 
   /**
    * 发送HTTP请求
    */
-  async request(endpoint, options = {}) {
+  async request(endpoint, options = {}, canRetry = true) {
+    const token = await this.requestAuth()
     const url = `${this.baseURL}${endpoint}`
     const config = {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'X-Plugin-Request': 'true', // 添加插件标识
-        ...(this.token && { 'Authorization': `Bearer ${this.token}` })
+        'Authorization': `Bearer ${token}`
       },
       ...options
     }
@@ -88,6 +72,11 @@ class GSM3API {
       const response = await fetch(url, config)
       const data = await response.json()
       
+      if (response.status === 401 && canRetry) {
+        this.token = null
+        return this.request(endpoint, options, false)
+      }
+
       if (!response.ok) {
         throw new Error(data.message || `HTTP ${response.status}`)
       }
@@ -487,8 +476,9 @@ class GSM3API {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({
           type: 'gsm3-notification',
+          channel: this.channel,
           data: { type, message }
-        }, '*')
+        }, window.location.origin)
       } else {
         // 如果无法发送到父窗口，使用浏览器原生通知
         console.log(`[${type.toUpperCase()}] ${message}`)
@@ -560,48 +550,23 @@ window.gsm3.initPromise = null
 
 // 初始化API的Promise
 window.gsm3.initialize = function() {
-  if (this.initPromise) {
-    return this.initPromise
-  }
-  
-  this.initPromise = new Promise((resolve) => {
-    const checkReady = () => {
-      if (this.token) {
-        this.isInitialized = true
-        console.log('GSM3 API初始化完成，Token:', this.token)
-        resolve(true)
-      } else {
-        setTimeout(checkReady, 100)
-      }
-    }
-    checkReady()
+  if (this.initPromise) return this.initPromise
+  this.initPromise = this.requestAuth().then(() => {
+    this.isInitialized = true
+    return true
   })
-  
   return this.initPromise
 }
 
-// 监听来自父窗口的消息
-window.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'gsm3-token-update') {
-    window.gsm3.token = event.data.token
-    console.log('Token已更新:', event.data.token)
-  }
-})
-
 // 插件加载完成后的初始化
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('GSM3 插件API已加载')
-  
-  // 启动初始化过程
   window.gsm3.initialize().then(() => {
-    console.log('GSM3 API准备就绪')
-    
-    // 向父窗口发送插件加载完成的消息
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({
         type: 'gsm3-plugin-loaded',
+        channel: window.gsm3.channel,
         data: { timestamp: new Date().toISOString() }
-      }, '*')
+      }, window.location.origin)
     }
-  })
+  }).catch((error) => window.gsm3.showNotification('error', error.message))
 })

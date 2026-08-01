@@ -533,8 +533,8 @@
   <main>
     <header>
       <div>
-        <h1>内网穿透助手</h1>
-        <p>为现有游戏实例生成和管理 frp / EasyTier 配置，可创建独立穿透实例。</p>
+        <h1>内网穿透助手 (frp)</h1>
+        <p>为现有游戏实例生成和管理 frp 配置，不修改游戏实例本身。</p>
       </div>
       <div class="toolbar">
         <button class="secondary" id="refreshInstancesButton" type="button">刷新实例</button>
@@ -558,16 +558,8 @@
           <div class="meta-row"><strong>状态</strong><span id="instanceStatus">-</span></div>
         </div>
 
-        <h2>穿透方式</h2>
-        <div class="segmented">
-          <button class="segment active" id="modeFrp" type="button">
-            <strong>frp</strong><br>
-            <span class="hint">映射本地端口到 frps</span>
-          </button>
-          <button class="segment" id="modeEasyTier" type="button">
-            <strong>EasyTier</strong><br>
-            <span class="hint">加入虚拟局域网</span>
-          </button>
+        <div class="message show warn" role="note">
+          EasyTier 已迁移到独立的“EasyTier 管理控制台”插件。旧配置会由服务端自动迁移并保留回滚备份，本页面只显示和管理 frp 配置。
         </div>
 
         <div class="grid">
@@ -781,242 +773,6 @@
           </details>
         </div>
 
-        <div id="easyTierFields" class="stack hidden">
-          <h2>EasyTier 参数</h2>
-          <label>
-            easytier-core 可执行文件
-            <div class="input-action">
-              <input id="easyTierPath" autocomplete="off" value="easytier-core" placeholder="easytier-core 或 C:\EasyTier\easytier-core.exe">
-              <button class="secondary" id="checkEasyTierButton" type="button">检测</button>
-              <button class="secondary" id="installEasyTierButton" type="button">下载/更新</button>
-            </div>
-            <span class="hint tool-status" id="easyTierToolStatus">
-              需先在本机安装 EasyTier，或填写 easytier-core 绝对路径。
-              <a class="help-link" href="https://github.com/EasyTier/EasyTier/releases" target="_blank" rel="noreferrer">下载 EasyTier</a>
-            </span>
-          </label>
-          <div class="grid">
-            <label>
-              网络名称
-              <input id="networkName" autocomplete="off" placeholder="game-net">
-            </label>
-            <label>
-              网络密钥
-              <input id="networkSecret" type="password" autocomplete="off">
-            </label>
-            <label>
-              节点名称
-              <input id="hostName" autocomplete="off" placeholder="gsm-node">
-            </label>
-            <label>
-              虚拟 IPv4
-              <input id="virtualIpv4" autocomplete="off" placeholder="留空使用 DHCP">
-            </label>
-          </div>
-          <label>
-            Peer 节点
-            <textarea id="peerList" placeholder="tcp://1.2.3.4:11010&#10;udp://1.2.3.4:11010"></textarea>
-            <span class="hint">每行一个 peer。未填写时只启动本地节点，通常无法自动发现其它节点。</span>
-          </label>
-          <details class="advanced-section">
-            <summary>EasyTier 高级参数</summary>
-            <div class="stack">
-              <div class="grid">
-                <label>
-                  默认传输协议
-                  <select id="easyTierDefaultProtocol">
-                    <option value="">默认</option>
-                    <option value="tcp">tcp</option>
-                    <option value="udp">udp</option>
-                    <option value="quic">quic</option>
-                    <option value="faketcp">faketcp</option>
-                    <option value="ring">ring</option>
-                    <option value="wg">wg</option>
-                    <option value="ws">ws</option>
-                    <option value="wss">wss</option>
-                  </select>
-                </label>
-                <label>
-                  EasyTier 实例名
-                  <input id="easyTierInstanceName" autocomplete="off" placeholder="可选，同机多实例时用于区分">
-                </label>
-                <label>
-                  虚拟 IPv6
-                  <input id="easyTierIpv6" autocomplete="off" placeholder="可选">
-                </label>
-                <label>
-                  公共共享节点
-                  <input id="easyTierExternalNode" autocomplete="off" placeholder="可选，例如官方共享节点或自定义节点">
-                </label>
-                <label>
-                  RPC Portal
-                  <input id="easyTierRpcPortal" autocomplete="off" placeholder="例如 127.0.0.1:15888">
-                </label>
-                <label>
-                  RPC 白名单
-                  <input id="easyTierRpcPortalWhitelist" autocomplete="off" placeholder="例如 127.0.0.1/32">
-                </label>
-                <label>
-                  VPN Portal
-                  <input id="easyTierVpnPortal" autocomplete="off" placeholder="例如 wg://0.0.0.0:11011/10.14.14.0/24">
-                </label>
-                <label>
-                  TUN 设备名
-                  <input id="easyTierDevName" autocomplete="off" placeholder="默认">
-                </label>
-                <label>
-                  MTU
-                  <input id="easyTierMtu" type="number" min="576" max="9000" placeholder="默认">
-                </label>
-                <label>
-                  SOCKS5
-                  <input id="easyTierSocks5" autocomplete="off" placeholder="例如 1080">
-                </label>
-                <label>
-                  压缩算法
-                  <select id="easyTierCompression">
-                    <option value="">默认</option>
-                    <option value="none">none</option>
-                    <option value="zstd">zstd</option>
-                  </select>
-                </label>
-                <label>
-                  加密算法
-                  <select id="easyTierEncryptionAlgorithm">
-                    <option value="">默认</option>
-                    <option value="xor">xor</option>
-                    <option value="aes-gcm">aes-gcm</option>
-                    <option value="aes-256-gcm">aes-256-gcm</option>
-                    <option value="chacha20">chacha20</option>
-                  </select>
-                </label>
-                <label>
-                  Magic DNS 域
-                  <input id="easyTierTldDnsZone" autocomplete="off" placeholder="默认">
-                </label>
-                <label>
-                  控制台日志等级
-                  <select id="easyTierConsoleLogLevel">
-                    <option value="">默认</option>
-                    <option value="trace">trace</option>
-                    <option value="debug">debug</option>
-                    <option value="info">info</option>
-                    <option value="warn">warn</option>
-                    <option value="error">error</option>
-                  </select>
-                </label>
-                <label>
-                  文件日志等级
-                  <select id="easyTierFileLogLevel">
-                    <option value="">默认</option>
-                    <option value="off">off</option>
-                    <option value="trace">trace</option>
-                    <option value="debug">debug</option>
-                    <option value="info">info</option>
-                    <option value="warn">warn</option>
-                    <option value="error">error</option>
-                  </select>
-                </label>
-                <label>
-                  文件日志目录
-                  <input id="easyTierFileLogDir" autocomplete="off" placeholder="默认">
-                </label>
-              </div>
-              <div class="checkbox-grid">
-                <label class="check-row">
-                  <input id="easyTierNoListener" type="checkbox">
-                  <span>不监听入站连接</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierNoTun" type="checkbox">
-                  <span>不创建 TUN 设备</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierDisableIpv6" type="checkbox">
-                  <span>禁用 IPv6</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierDisableEncryption" type="checkbox">
-                  <span>禁用加密</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierDisableP2p" type="checkbox">
-                  <span>禁用 P2P</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierLazyP2p" type="checkbox">
-                  <span>懒加载 P2P</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierP2pOnly" type="checkbox">
-                  <span>仅 P2P 连接</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierNeedP2p" type="checkbox">
-                  <span>强制等待 P2P 成功</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierLatencyFirst" type="checkbox">
-                  <span>延迟优先路由</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierAcceptDns" type="checkbox">
-                  <span>接受 DNS 配置</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierPrivateMode" type="checkbox">
-                  <span>私有模式</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierUseSmoltcp" type="checkbox">
-                  <span>使用 smoltcp 栈</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierEnableKcpProxy" type="checkbox">
-                  <span>启用 KCP 代理</span>
-                </label>
-                <label class="check-row">
-                  <input id="easyTierEnableQuicProxy" type="checkbox">
-                  <span>启用 QUIC 代理</span>
-                </label>
-              </div>
-              <label>
-                监听地址
-                <textarea id="easyTierListeners" placeholder="tcp://0.0.0.0:11010&#10;udp://0.0.0.0:11010"></textarea>
-                <span class="hint">每行一个监听器，会生成多个 --listeners 参数。</span>
-              </label>
-              <label>
-                映射监听地址
-                <textarea id="easyTierMappedListeners" placeholder="tcp://203.0.113.10:11010"></textarea>
-                <span class="hint">每行一个公网可访问地址，会生成多个 --mapped-listeners 参数。</span>
-              </label>
-              <label>
-                代理网段
-                <textarea id="easyTierProxyNetworks" placeholder="10.0.0.0/24&#10;192.168.1.0/24"></textarea>
-                <span class="hint">每行一个网段，会生成多个 --proxy-networks 参数。</span>
-              </label>
-              <label>
-                手动路由
-                <textarea id="easyTierManualRoutes" placeholder="10.0.0.0/24"></textarea>
-              </label>
-              <label>
-                出口节点
-                <textarea id="easyTierExitNodes" placeholder="10.144.144.1"></textarea>
-              </label>
-              <label>
-                端口转发
-                <textarea id="easyTierPortForwards" placeholder="tcp://0.0.0.0:7777/127.0.0.1:7777"></textarea>
-                <span class="hint">每行一条，会生成多个 --port-forward 参数。</span>
-              </label>
-              <label>
-                额外 EasyTier 参数
-                <textarea id="easyTierExtraArgs" placeholder="例如：&#10;--relay-network-whitelist 10.144.144.0/24"></textarea>
-                <span class="hint">按命令行解析后逐个转义追加，适合暂未暴露的 easytier-core 参数。</span>
-              </label>
-            </div>
-          </details>
-        </div>
-
         <div id="message" class="message"></div>
       </section>
 
@@ -1053,7 +809,6 @@
 
   <script>
     const state = {
-      mode: 'frp',
       instances: [],
       systemInfo: null,
       lastPlan: null,
@@ -1082,21 +837,7 @@
       'frpBandwidthLimitMode', 'frpProxyProtocolVersion', 'frpLoadBalancerGroup',
       'frpLoadBalancerGroupKey', 'frpHealthCheckType', 'frpHealthCheckPath',
       'frpHealthCheckInterval', 'frpHealthCheckTimeout', 'frpHealthCheckMaxFailed',
-      'frpExtraClientConfig', 'frpExtraProxyConfig',
-      'easyTierPath', 'networkName', 'networkSecret', 'hostName', 'virtualIpv4', 'peerList',
-      'easyTierDefaultProtocol', 'easyTierInstanceName', 'easyTierIpv6',
-      'easyTierExternalNode', 'easyTierRpcPortal', 'easyTierRpcPortalWhitelist',
-      'easyTierVpnPortal', 'easyTierDevName', 'easyTierMtu', 'easyTierSocks5',
-      'easyTierCompression', 'easyTierEncryptionAlgorithm', 'easyTierTldDnsZone',
-      'easyTierConsoleLogLevel', 'easyTierFileLogLevel', 'easyTierFileLogDir',
-      'easyTierNoListener', 'easyTierNoTun',
-      'easyTierDisableIpv6', 'easyTierDisableEncryption', 'easyTierDisableP2p',
-      'easyTierLazyP2p', 'easyTierP2pOnly', 'easyTierNeedP2p',
-      'easyTierLatencyFirst', 'easyTierAcceptDns', 'easyTierPrivateMode',
-      'easyTierUseSmoltcp', 'easyTierEnableKcpProxy', 'easyTierEnableQuicProxy',
-      'easyTierListeners', 'easyTierMappedListeners', 'easyTierProxyNetworks',
-      'easyTierManualRoutes', 'easyTierExitNodes', 'easyTierPortForwards',
-      'easyTierExtraArgs'
+      'frpExtraClientConfig', 'frpExtraProxyConfig'
     ]
 
     const read = (id) => $(id).value.trim()
@@ -1206,18 +947,13 @@
     }
 
     async function waitForPluginToken() {
-      if (!window.gsm3) return false
-
-      for (let i = 0; i < 30; i++) {
-        if (window.gsm3.token) return true
-        if (window.gsm3Token) {
-          window.gsm3.token = window.gsm3Token
-          return true
-        }
-        await delay(100)
+      if (!window.gsm3 || typeof window.gsm3.initialize !== 'function') return false
+      try {
+        await window.gsm3.initialize()
+        return true
+      } catch {
+        return false
       }
-
-      return Boolean(window.gsm3.token)
     }
 
     function sanitizeSlug(value) {
@@ -1248,8 +984,7 @@
       return String(text)
         .replace(/auth\.token\s*=\s*"[^"]*"/g, 'auth.token = "******"')
         .replace(/loadBalancer\.groupKey\s*=\s*"[^"]*"/g, 'loadBalancer.groupKey = "******"')
-        .replace(/('--network-secret'|--network-secret)\s+('(?:''|[^'])*'|"[^"]*"|\S+)/g, '$1 ******')
-        .replace(/("(?:frpToken|networkSecret|frpLoadBalancerGroupKey)"\s*:\s*)"[^"]*"/g, '$1"******"')
+        .replace(/("(?:frpToken|frpLoadBalancerGroupKey)"\s*:\s*)"[^"]*"/g, '$1"******"')
     }
 
     function commandPrefix(executablePath) {
@@ -1282,18 +1017,7 @@
       return `if ${check}; then ${command}; else echo ${shArg(missingMessage)} >&2; false; fi`
     }
 
-    function getToolDefinition(tool) {
-      if (tool === 'easytier') {
-        return {
-          inputId: 'easyTierPath',
-          statusId: 'easyTierToolStatus',
-          buttonId: 'checkEasyTierButton',
-          installButtonId: 'installEasyTierButton',
-          label: 'easytier-core',
-          defaultCommand: 'easytier-core'
-        }
-      }
-
+    function getToolDefinition() {
       return {
         inputId: 'frpcPath',
         statusId: 'frpcToolStatus',
@@ -1326,7 +1050,7 @@
     async function hydrateInstalledTool(tool) {
       const definition = getToolDefinition(tool)
       try {
-        const result = await window.gsm3.getTunnelToolStatus(tool)
+        const result = await window.gsm3.getFrpToolStatus()
         const data = result.data || result
 
         if (!data.installed || !data.executablePath) {
@@ -1346,13 +1070,10 @@
     }
 
     async function hydrateInstalledTools() {
-      await Promise.all([
-        hydrateInstalledTool('frp'),
-        hydrateInstalledTool('easytier')
-      ])
+      await hydrateInstalledTool('frp')
     }
 
-    async function checkToolAvailability(tool = state.mode, showPanelMessage = true) {
+    async function checkToolAvailability(tool = 'frp', showPanelMessage = true) {
       const definition = getToolDefinition(tool)
       const executablePath = read(definition.inputId)
       const button = $(definition.buttonId)
@@ -1432,7 +1153,7 @@
       clearMessage()
 
       try {
-        const response = await window.gsm3.installTunnelTool(tool)
+        const response = await window.gsm3.installFrpTool()
         if (!response.ok) {
           let errorText = `HTTP ${response.status}`
           try {
@@ -1544,103 +1265,6 @@
       return number
     }
 
-    function readLines(id) {
-      return read(id)
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line => line && !line.startsWith('#'))
-    }
-
-    function pushArg(args, flag, value) {
-      if (String(value || '').trim()) {
-        args.push(flag, String(value).trim())
-      }
-    }
-
-    function pushRepeatedArgs(args, flag, values) {
-      for (const value of values) {
-        args.push(flag, value)
-      }
-    }
-
-    function pushFlag(args, id, flag) {
-      if (readCheckbox(id)) {
-        args.push(flag)
-      }
-    }
-
-    function parseCommandLineArgs(text, label) {
-      const args = []
-      let current = ''
-      let quote = ''
-      let escaping = false
-      const source = String(text || '')
-
-      const pushCurrent = () => {
-        if (current) {
-          args.push(current)
-          current = ''
-        }
-      }
-
-      for (let i = 0; i < source.length; i++) {
-        const char = source[i]
-
-        if (escaping) {
-          current += char
-          escaping = false
-          continue
-        }
-
-        if (char === '\\') {
-          escaping = true
-          continue
-        }
-
-        if (quote) {
-          if (char === quote) {
-            quote = ''
-          } else {
-            current += char
-          }
-          continue
-        }
-
-        if (char === '"' || char === "'") {
-          quote = char
-          continue
-        }
-
-        if (/\s/.test(char)) {
-          pushCurrent()
-          continue
-        }
-
-        current += char
-      }
-
-      if (escaping) {
-        current += '\\'
-      }
-
-      if (quote) {
-        throw new Error(`${label} 存在未闭合的引号`)
-      }
-
-      pushCurrent()
-      return args
-    }
-
-    function parseAdditionalArgs(text, label) {
-      const args = []
-      for (const line of String(text || '').split(/\r?\n/)) {
-        const trimmed = line.trim()
-        if (!trimmed || trimmed.startsWith('#')) continue
-        args.push(...parseCommandLineArgs(trimmed, label))
-      }
-      return args
-    }
-
     function appendRawToml(lines, block, label) {
       const trimmed = String(block || '').trim()
       if (!trimmed) return
@@ -1652,7 +1276,7 @@
     }
 
     function collectFormValues() {
-      const values = { mode: state.mode }
+      const values = { mode: 'frp' }
       for (const id of fields) {
         const element = $(id)
         if (!element) continue
@@ -1784,16 +1408,6 @@
         $('instanceSelect').innerHTML = '<option value="">加载失败</option>'
         showMessage('error', `获取实例列表失败：${error.message}`)
       }
-    }
-
-    function setMode(mode) {
-      state.mode = mode
-      $('modeFrp').classList.toggle('active', mode === 'frp')
-      $('modeEasyTier').classList.toggle('active', mode === 'easytier')
-      $('frpFields').classList.toggle('hidden', mode !== 'frp')
-      $('easyTierFields').classList.toggle('hidden', mode !== 'easytier')
-      buildPlan(false)
-      checkToolAvailability(mode, false)
     }
 
     function buildFrpPlan(common) {
@@ -1962,116 +1576,6 @@
       }
     }
 
-    function buildEasyTierPlan(common) {
-      const executablePath = read('easyTierPath')
-      const networkName = read('networkName')
-      const networkSecret = read('networkSecret')
-      const hostName = read('hostName') || common.slug
-      const virtualIpv4 = read('virtualIpv4')
-      const peers = read('peerList')
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean)
-      const noTun = readCheckbox('easyTierNoTun')
-
-      if (!executablePath) throw new Error('请填写 easytier-core 可执行文件')
-      if (!networkName) throw new Error('请填写 EasyTier 网络名称')
-      if (!networkSecret) throw new Error('请填写 EasyTier 网络密钥')
-
-      const args = [
-        '--network-name', networkName,
-        '--network-secret', networkSecret,
-        '--hostname', hostName
-      ]
-
-      if (virtualIpv4) {
-        args.push('--ipv4', virtualIpv4)
-      } else if (!noTun) {
-        args.push('--dhcp')
-      }
-
-      for (const peer of peers) {
-        args.push('-p', peer)
-      }
-
-      pushRepeatedArgs(args, '--listeners', readLines('easyTierListeners'))
-      pushRepeatedArgs(args, '--mapped-listeners', readLines('easyTierMappedListeners'))
-      pushRepeatedArgs(args, '--proxy-networks', readLines('easyTierProxyNetworks'))
-      pushRepeatedArgs(args, '--manual-routes', readLines('easyTierManualRoutes'))
-      pushRepeatedArgs(args, '--exit-nodes', readLines('easyTierExitNodes'))
-      pushRepeatedArgs(args, '--port-forward', readLines('easyTierPortForwards'))
-
-      pushArg(args, '--default-protocol', read('easyTierDefaultProtocol'))
-      pushArg(args, '--instance-name', read('easyTierInstanceName'))
-      pushArg(args, '--ipv6', read('easyTierIpv6'))
-      pushArg(args, '--external-node', read('easyTierExternalNode'))
-      pushArg(args, '--rpc-portal', read('easyTierRpcPortal'))
-      pushArg(args, '--rpc-portal-whitelist', read('easyTierRpcPortalWhitelist'))
-      pushArg(args, '--vpn-portal', read('easyTierVpnPortal'))
-      pushArg(args, '--dev-name', read('easyTierDevName'))
-      pushArg(args, '--socks5', read('easyTierSocks5'))
-      pushArg(args, '--compression', read('easyTierCompression'))
-      pushArg(args, '--encryption-algorithm', read('easyTierEncryptionAlgorithm'))
-      pushArg(args, '--tld-dns-zone', read('easyTierTldDnsZone'))
-      pushArg(args, '--console-log-level', read('easyTierConsoleLogLevel'))
-      pushArg(args, '--file-log-level', read('easyTierFileLogLevel'))
-      pushArg(args, '--file-log-dir', read('easyTierFileLogDir'))
-
-      const mtu = parseOptionalInt(read('easyTierMtu'), 'MTU', { min: 576, max: 9000 })
-      if (mtu !== null) {
-        args.push('--mtu', String(mtu))
-      }
-
-      pushFlag(args, 'easyTierNoListener', '--no-listener')
-      pushFlag(args, 'easyTierNoTun', '--no-tun')
-      pushFlag(args, 'easyTierDisableIpv6', '--disable-ipv6')
-      pushFlag(args, 'easyTierDisableEncryption', '--disable-encryption')
-      pushFlag(args, 'easyTierDisableP2p', '--disable-p2p')
-      pushFlag(args, 'easyTierLazyP2p', '--lazy-p2p')
-      pushFlag(args, 'easyTierP2pOnly', '--p2p-only')
-      pushFlag(args, 'easyTierNeedP2p', '--need-p2p')
-      pushFlag(args, 'easyTierLatencyFirst', '--latency-first')
-      if (readCheckbox('easyTierAcceptDns')) {
-        args.push('--accept-dns', 'true')
-      }
-      if (readCheckbox('easyTierPrivateMode')) {
-        args.push('--private-mode', 'true')
-      }
-      pushFlag(args, 'easyTierUseSmoltcp', '--use-smoltcp')
-      pushFlag(args, 'easyTierEnableKcpProxy', '--enable-kcp-proxy')
-      pushFlag(args, 'easyTierEnableQuicProxy', '--enable-quic-proxy')
-      args.push(...parseAdditionalArgs(read('easyTierExtraArgs'), '额外 EasyTier 参数'))
-
-      const startCommand = buildExecutableCommand(executablePath, args, 'easytier-core')
-      const publicAddress = virtualIpv4
-        ? `${virtualIpv4}:${common.localPort}`
-        : noTun
-          ? `EasyTier 无 TUN:${common.localPort}`
-          : `EasyTier 虚拟 IP:${common.localPort}`
-
-      const commandContent = [
-        '# EasyTier 启动命令',
-        '# 该实例使用命令行参数启动，避免依赖不同版本配置文件字段差异。',
-        startCommand,
-        '',
-        '# 连接提示',
-        `# 其它 EasyTier 节点加入同一网络后，访问 ${publicAddress}`
-      ].join('\n')
-
-      return {
-        ...common,
-        tool: 'EasyTier',
-        configPath: `${common.dataDir}/easytier-command.txt`,
-        configContent: commandContent,
-        startCommand,
-        executablePath,
-        publicAddress,
-        formValues: collectFormValues(),
-        extraFiles: [],
-        instanceDescription: `[tunnel-helper] EasyTier network=${networkName} target=${common.localAddress}:${common.localPort}`
-      }
-    }
-
     function buildPlan(throwOnError = true) {
       try {
         const instance = getSelectedInstance()
@@ -2096,7 +1600,7 @@
           workingDirectory
         }
 
-        state.lastPlan = state.mode === 'frp' ? buildFrpPlan(common) : buildEasyTierPlan(common)
+        state.lastPlan = buildFrpPlan(common)
         renderPlan()
         clearMessage()
         return state.lastPlan
@@ -2215,6 +1719,9 @@
           const manifestPath = `${dir.path}/manifest.json`
           try {
             const manifest = await readJsonFile(manifestPath)
+            if (String(manifest.tool || '').toLowerCase() === 'easytier') {
+              continue
+            }
             configs.push({
               ...manifest,
               dirName: dir.name,
@@ -2343,10 +1850,9 @@
         ? formValues.mode
         : String(config.tool || '').toLowerCase()
 
-      if (mode === 'easytier') {
-        setMode('easytier')
-      } else {
-        setMode('frp')
+      if (mode !== 'frp') {
+        showMessage('warn', '此配置不属于 frp，请在对应的独立管理插件中处理。')
+        return
       }
 
       if (formValues) {
@@ -2477,11 +1983,7 @@
       $('saveConfigButton').addEventListener('click', saveTunnelConfig)
       $('createButton').addEventListener('click', createTunnelInstance)
       $('checkFrpcButton').addEventListener('click', () => checkToolAvailability('frp'))
-      $('checkEasyTierButton').addEventListener('click', () => checkToolAvailability('easytier'))
       $('installFrpcButton').addEventListener('click', () => installTool('frp'))
-      $('installEasyTierButton').addEventListener('click', () => installTool('easytier'))
-      $('modeFrp').addEventListener('click', () => setMode('frp'))
-      $('modeEasyTier').addEventListener('click', () => setMode('easytier'))
       $('instanceSelect').addEventListener('change', () => {
         updateInstanceMeta()
         buildPlan(false)
@@ -2516,7 +2018,7 @@
       await loadInstances()
       await loadSavedConfigs()
       buildPlan(false)
-      checkToolAvailability(state.mode, false)
+      checkToolAvailability('frp', false)
     }
 
     boot()

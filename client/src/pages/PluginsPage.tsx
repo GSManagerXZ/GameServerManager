@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ApiClient } from '@/utils/api'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useAuthStore } from '@/stores/authStore'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import {
   Plus,
@@ -50,7 +51,8 @@ const PluginsPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingPlugin, setEditingPlugin] = useState<Plugin | null>(null)
   const [showPluginModal, setShowPluginModal] = useState(false)
-  const [currentPluginContent, setCurrentPluginContent] = useState<string>('')
+  const [currentPluginUrl, setCurrentPluginUrl] = useState<string>('')
+  const [currentPluginChannel, setCurrentPluginChannel] = useState<string>('')
   const [currentPluginName, setCurrentPluginName] = useState<string>('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [pluginToDelete, setPluginToDelete] = useState<Plugin | null>(null)
@@ -64,26 +66,87 @@ const PluginsPage: React.FC = () => {
     icon: 'puzzle'
   })
   const { addNotification } = useNotificationStore()
-  const apiClient = new ApiClient()
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'admin'
+  const apiClient = useRef(new ApiClient()).current
+  const pluginFrameRef = useRef<HTMLIFrameElement>(null)
+
+  const closePluginModal = () => {
+    setShowPluginModal(false)
+    setCurrentPluginUrl('')
+    setCurrentPluginChannel('')
+    setCurrentPluginName('')
+  }
 
   // 监听来自插件的消息
   useEffect(() => {
+    const showPluginNotification = (data: unknown) => {
+      const notification = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+      const type = ['info', 'success', 'warning', 'error'].includes(String(notification.type))
+        ? String(notification.type)
+        : 'info'
+      const message = String(notification.message || '').slice(0, 500)
+      if (!message) return
+      addNotification({
+        type: type as 'info' | 'success' | 'warning' | 'error',
+        title: '插件消息',
+        message
+      })
+    }
+
     const handleMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'gsm3-notification') {
-        const { type, message } = event.data.data
-        addNotification({
-          type: type as 'info' | 'success' | 'warning' | 'error',
-          title: '插件消息',
-          message
-        })
-      } else if (event.data && event.data.type === 'gsm3-plugin-loaded') {
-        console.log('插件加载完成:', event.data.data)
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== pluginFrameRef.current?.contentWindow ||
+        !event.data ||
+        typeof event.data !== 'object'
+      ) {
+        return
+      }
+
+      if (event.data.channel !== currentPluginChannel) return
+
+      if (event.data.type === 'gsm3-close-plugin') {
+        setShowPluginModal(false)
+        setCurrentPluginUrl('')
+        setCurrentPluginChannel('')
+        setCurrentPluginName('')
+      } else if (event.data.type === 'gsm3-auth-request') {
+        if (!isAdmin) return
+        const token = apiClient.getToken()
+        if (!token || typeof event.data.requestId !== 'string') return
+        ;(event.source as Window).postMessage({
+          type: 'gsm3-auth-response',
+          channel: currentPluginChannel,
+          requestId: event.data.requestId,
+          token
+        }, window.location.origin)
+      } else if (event.data.type === 'gsm3-notification') {
+        showPluginNotification(event.data.data)
       }
     }
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [addNotification])
+  }, [addNotification, apiClient, currentPluginChannel, isAdmin])
+
+  useEffect(() => {
+    if (!showPluginModal) return
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setShowPluginModal(false)
+      setCurrentPluginUrl('')
+      setCurrentPluginChannel('')
+      setCurrentPluginName('')
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    window.requestAnimationFrame(() => pluginFrameRef.current?.focus())
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus()
+    }
+  }, [showPluginModal])
 
   const categories = [
     '工具',
@@ -208,168 +271,34 @@ const PluginsPage: React.FC = () => {
     }
   }
 
-  const handleOpenPlugin = async (plugin: Plugin) => {
-    if (plugin.hasWebInterface && plugin.enabled) {
-      // 发送正在打开插件的通知
-      addNotification({
-        type: 'info',
-        title: '提示',
-        message: `正在打开插件 ${plugin.displayName || plugin.name}...`
-      })
-      
-      try {
-        // 通过API获取插件文件内容
-        const response = await apiClient.get(`/plugins/${plugin.name}/files/${plugin.entryPoint || 'index.html'}`)
-        
-        // 检查响应数据格式
-        if (response.data) {
-          let content = ''
-          
-          // 如果是JSON格式的响应（HTML、CSS、JS文件）
-          if (typeof response.data === 'object' && response.data.success && response.data.data) {
-            content = response.data.data
-          } 
-          // 如果直接返回HTML内容（兼容性处理）
-          else if (typeof response.data === 'string' && response.data.trim()) {
-            content = response.data
-          }
-          // 如果是JSON格式但失败
-          else if (typeof response.data === 'object' && !response.data.success) {
-            addNotification({ 
-              type: 'error', 
-              title: '错误', 
-              message: response.data.message || '获取插件文件失败' 
-            })
-            return
-          }
-          
-          if (content && content.trim()) {
-            // 修复gsm3-api.js的引用路径并注入token
-            const token = apiClient.getToken()
-            let injectedContent = content
-            
-            // 替换相对路径的gsm3-api.js引用为正确的API路径
-            injectedContent = injectedContent.replace(
-              /src="gsm3-api\.js"/g,
-              `src="/api/plugins/${plugin.name}/files/gsm3-api.js"`
-            )
-            
-            // 确保gsm3-api.js脚本标签有正确的type属性
-            injectedContent = injectedContent.replace(
-              /<script src="\/api\/plugins\/${plugin.name}\/files\/gsm3-api\.js"><\/script>/g,
-              `<script type="text/javascript" src="/api/plugins/${plugin.name}/files/gsm3-api.js"></script>`
-            )
-            
-            // 注入token设置脚本
-            injectedContent = injectedContent.replace(
-              '</head>',
-              `<script>
-                // 设置全局token变量
-                window.gsm3Token = '${token}';
-                console.log('全局token已设置:', '${token}');
-              </script>
-              </head>`
-            )
-            
-            // 在body结束前注入token设置脚本，确保在gsm3-api.js完全初始化后执行
-            injectedContent = injectedContent.replace(
-              '</body>',
-              `<script>
-                // 等待gsm3-api.js完全加载并初始化
-                (function() {
-                  const waitForGsm3AndSetToken = () => {
-                    // 检查window.gsm3对象是否存在且具有initialize方法
-                    if (window.gsm3 && typeof window.gsm3.initialize === 'function') {
-                      console.log('GSM3 API对象已找到，设置token...');
-                      window.gsm3.token = '${token}';
-                      console.log('GSM3 API Token已设置:', '${token}');
-                      
-                      // 如果API还未初始化，触发初始化
-                      if (!window.gsm3.isInitialized) {
-                        window.gsm3.initialize().then(() => {
-                          console.log('GSM3 API初始化完成');
-                        }).catch(error => {
-                          console.error('GSM3 API初始化失败:', error);
-                        });
-                      }
-                      return true;
-                    }
-                    return false;
-                  };
-                  
-                  // 监听DOMContentLoaded事件，确保在gsm3-api.js的DOMContentLoaded之后执行
-                  if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', () => {
-                      // 延迟一点时间，确保gsm3-api.js的DOMContentLoaded先执行
-                      setTimeout(() => {
-                        if (!waitForGsm3AndSetToken()) {
-                          // 如果仍然失败，继续重试
-                          let attempts = 0;
-                          const checkGsm3 = () => {
-                            attempts++;
-                            if (waitForGsm3AndSetToken()) {
-                              console.log('Token设置成功，尝试次数:', attempts);
-                            } else if (attempts < 30) {
-                              setTimeout(checkGsm3, 200);
-                            } else {
-                              console.error('Token设置失败：超时等待gsm3对象创建');
-                              console.log('当前window对象包含的gsm3相关属性:', Object.keys(window).filter(key => key.includes('gsm3')));
-                            }
-                          };
-                          setTimeout(checkGsm3, 200);
-                        }
-                      }, 100);
-                    });
-                  } else {
-                    // 如果DOM已经加载完成，立即尝试
-                    setTimeout(() => {
-                      if (!waitForGsm3AndSetToken()) {
-                        let attempts = 0;
-                        const checkGsm3 = () => {
-                          attempts++;
-                          if (waitForGsm3AndSetToken()) {
-                            console.log('Token设置成功，尝试次数:', attempts);
-                          } else if (attempts < 30) {
-                            setTimeout(checkGsm3, 200);
-                          } else {
-                            console.error('Token设置失败：超时等待gsm3对象创建');
-                            console.log('当前window对象包含的gsm3相关属性:', Object.keys(window).filter(key => key.includes('gsm3')));
-                          }
-                        };
-                        setTimeout(checkGsm3, 200);
-                      }
-                    }, 100);
-                  }
-                })();
-              </script>
-              </body>`
-            )
-            
-            setCurrentPluginContent(injectedContent)
-            setCurrentPluginName(plugin.displayName || plugin.name)
-            setShowPluginModal(true)
-            
-            // 发送插件打开成功的通知
-            addNotification({
-              type: 'success',
-              title: '成功',
-              message: `插件 ${plugin.displayName || plugin.name} 已打开`
-            })
-          } else {
-            addNotification({ type: 'error', title: '错误', message: '插件内容为空' })
-          }
-        } else {
-          addNotification({ type: 'error', title: '错误', message: '无法获取插件内容' })
-        }
-      } catch (error) {
-        console.error('打开插件失败:', error)
-        addNotification({ 
-          type: 'error', 
-          title: '错误', 
-          message: error instanceof Error ? error.message : '打开插件失败' 
-        })
-      }
+  const handleOpenPlugin = (plugin: Plugin) => {
+    if (!plugin.hasWebInterface || !plugin.enabled) return
+    if (!isAdmin) {
+      addNotification({ type: 'warning', title: '权限不足', message: '插件管理功能仅允许管理员使用' })
+      return
     }
+    const entryPoint = plugin.entryPoint || 'index.html'
+    const pathSegments = entryPoint.split('/').filter(Boolean)
+    if (
+      pathSegments.length === 0 ||
+      pathSegments.some(segment => segment === '.' || segment === '..' || segment.startsWith('.'))
+    ) {
+      addNotification({ type: 'error', title: '错误', message: '插件入口路径无效' })
+      return
+    }
+
+    const channel = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const encodedEntryPoint = pathSegments.map(segment => encodeURIComponent(segment)).join('/')
+    const pluginUrl = `/api/plugins/${encodeURIComponent(plugin.name)}/files/${encodedEntryPoint}?channel=${encodeURIComponent(channel)}`
+    setCurrentPluginChannel(channel)
+    setCurrentPluginUrl(pluginUrl)
+    setCurrentPluginName(plugin.displayName || plugin.name)
+    setShowPluginModal(true)
+    addNotification({
+      type: 'success',
+      title: '成功',
+      message: `插件 ${plugin.displayName || plugin.name} 已打开`
+    })
   }
 
   const getIconComponent = (iconName: string) => {
@@ -549,16 +478,16 @@ const PluginsPage: React.FC = () => {
                 </motion.button>
                 {plugin.hasWebInterface && (
                   <motion.button
-                    whileHover={{ scale: plugin.enabled ? 1.02 : 1 }}
-                    whileTap={{ scale: plugin.enabled ? 0.98 : 1 }}
+                  whileHover={{ scale: plugin.enabled && isAdmin ? 1.02 : 1 }}
+                  whileTap={{ scale: plugin.enabled && isAdmin ? 0.98 : 1 }}
                     onClick={() => handleOpenPlugin(plugin)}
-                    disabled={!plugin.enabled}
+                  disabled={!plugin.enabled || !isAdmin}
                     className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      plugin.enabled
+                    plugin.enabled && isAdmin
                         ? 'bg-blue-500/20 text-blue-600 hover:bg-blue-500/30'
                         : 'bg-gray-500/10 text-gray-400 cursor-not-allowed'
                     }`}
-                    title={plugin.enabled ? '打开插件' : '启用后可打开插件'}
+                  title={!isAdmin ? '仅管理员可打开插件' : plugin.enabled ? '打开插件' : '启用后可打开插件'}
                   >
                     <ExternalLink className="w-4 h-4" />
                     <span>打开</span>
@@ -571,8 +500,9 @@ const PluginsPage: React.FC = () => {
                 onClick={() => handleDeletePlugin(plugin)}
                 className="p-2 bg-red-500/20 text-red-600 rounded-lg hover:bg-red-500/30 transition-colors"
                 title="删除插件"
+                aria-label={`删除插件 ${plugin.displayName}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
               </motion.button>
             </div>
             </motion.div>
@@ -633,11 +563,7 @@ const PluginsPage: React.FC = () => {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm sm:p-4 lg:left-[var(--gsm-sidebar-offset,16rem)]"
-            onClick={() => {
-              setShowPluginModal(false)
-              setCurrentPluginContent('')
-              setCurrentPluginName('')
-            }}
+            onClick={closePluginModal}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -646,20 +572,20 @@ const PluginsPage: React.FC = () => {
               transition={{ duration: 0.3, ease: "easeOut" }}
               className="glass flex h-[calc(100vh-1rem)] w-full max-w-[1600px] flex-col overflow-hidden rounded-lg border border-white/20 dark:border-gray-700/30 sm:h-[92vh]"
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="plugin-modal-title"
             >
               <div className="flex items-center justify-between gap-3 border-b border-white/10 p-3 dark:border-gray-700/30 sm:p-4">
-                <h2 className="min-w-0 truncate text-lg font-bold text-black dark:text-white sm:text-xl">{currentPluginName}</h2>
+                <h2 id="plugin-modal-title" className="min-w-0 truncate text-lg font-bold text-black dark:text-white sm:text-xl">{currentPluginName}</h2>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
-                  onClick={() => {
-                    setShowPluginModal(false)
-                    setCurrentPluginContent('')
-                    setCurrentPluginName('')
-                  }}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  onClick={closePluginModal}
+                  className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:hover:bg-white/10 dark:hover:text-gray-300"
+                  aria-label="关闭插件窗口"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="w-6 h-6" aria-hidden="true" />
                 </motion.button>
               </div>
               <div className="min-h-0 flex-1 p-2 sm:p-4">
@@ -667,9 +593,12 @@ const PluginsPage: React.FC = () => {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.2 }}
-                  srcDoc={currentPluginContent}
+                  ref={pluginFrameRef}
+                  src={currentPluginUrl}
                   className="h-full w-full rounded-md border-0 bg-white dark:bg-gray-900 sm:rounded-lg"
-                  sandbox="allow-scripts allow-same-origin allow-forms"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                  allow="clipboard-write"
+                  referrerPolicy="same-origin"
                   title={currentPluginName}
                 />
               </div>
@@ -696,25 +625,30 @@ const PluginsPage: React.FC = () => {
               transition={{ duration: 0.3, ease: "easeOut" }}
               className="glass rounded-lg p-6 w-full max-w-md mx-4 border border-white/20 dark:border-gray-700/30"
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="create-plugin-modal-title"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-black dark:text-white">创建新插件</h2>
+                <h2 id="create-plugin-modal-title" className="text-xl font-bold text-black dark:text-white">创建新插件</h2>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => setShowCreateModal(false)}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  aria-label="关闭创建插件窗口"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="w-6 h-6" aria-hidden="true" />
                 </motion.button>
               </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                <label htmlFor="plugin-name" className="block text-sm font-medium text-black dark:text-white mb-2">
                   插件名称 *
                 </label>
                 <input
+                  id="plugin-name"
                   type="text"
                   value={createForm.name}
                   onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
@@ -725,10 +659,11 @@ const PluginsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                <label htmlFor="plugin-display-name" className="block text-sm font-medium text-black dark:text-white mb-2">
                   显示名称
                 </label>
                 <input
+                  id="plugin-display-name"
                   type="text"
                   value={createForm.displayName}
                   onChange={(e) => setCreateForm({ ...createForm, displayName: e.target.value })}
@@ -738,10 +673,11 @@ const PluginsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                <label htmlFor="plugin-description" className="block text-sm font-medium text-black dark:text-white mb-2">
                   描述
                 </label>
                 <textarea
+                  id="plugin-description"
                   value={createForm.description}
                   onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                   className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700 rounded-lg text-black dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
@@ -752,10 +688,11 @@ const PluginsPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                  <label htmlFor="plugin-version" className="block text-sm font-medium text-black dark:text-white mb-2">
                     版本
                   </label>
                   <input
+                    id="plugin-version"
                     type="text"
                     value={createForm.version}
                     onChange={(e) => setCreateForm({ ...createForm, version: e.target.value })}
@@ -763,10 +700,11 @@ const PluginsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                  <label htmlFor="plugin-author" className="block text-sm font-medium text-black dark:text-white mb-2">
                     作者
                   </label>
                   <input
+                    id="plugin-author"
                     type="text"
                     value={createForm.author}
                     onChange={(e) => setCreateForm({ ...createForm, author: e.target.value })}
@@ -778,10 +716,11 @@ const PluginsPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                  <label htmlFor="plugin-category" className="block text-sm font-medium text-black dark:text-white mb-2">
                     分类
                   </label>
                   <select
+                    id="plugin-category"
                     value={createForm.category}
                     onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
                     className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -794,10 +733,11 @@ const PluginsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-black dark:text-white mb-2">
+                  <label htmlFor="plugin-icon" className="block text-sm font-medium text-black dark:text-white mb-2">
                     图标
                   </label>
                   <select
+                    id="plugin-icon"
                     value={createForm.icon}
                     onChange={(e) => setCreateForm({ ...createForm, icon: e.target.value })}
                     className="w-full px-3 py-2 bg-white/10 dark:bg-gray-800/50 border border-white/20 dark:border-gray-700 rounded-lg text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"

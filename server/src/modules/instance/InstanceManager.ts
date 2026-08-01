@@ -60,6 +60,16 @@ export interface InstanceOperationLockRequest {
   reason: string
 }
 
+export class InstanceOperationLockedError extends Error {
+  readonly code = 'INSTANCE_OPERATION_LOCKED'
+  readonly status = 409
+
+  constructor(reason: string) {
+    super(`实例正在${reason}，请等待操作完成后再修改`)
+    this.name = 'InstanceOperationLockedError'
+  }
+}
+
 export class InstanceManager extends EventEmitter {
   private instances: Map<string, Instance> = new Map()
   private operationLocks: Map<string, { token: string; reason: string }> = new Map()
@@ -424,7 +434,7 @@ export class InstanceManager extends EventEmitter {
   private assertOperationLockOwner(id: string, operationToken?: string): void {
     const lock = this.operationLocks.get(id)
     if (lock && lock.token !== operationToken) {
-      throw new Error(`实例正在${lock.reason}，请等待操作完成后再修改`)
+      throw new InstanceOperationLockedError(lock.reason)
     }
   }
 
@@ -500,7 +510,7 @@ export class InstanceManager extends EventEmitter {
     
     // 如果实例正在运行，先停止它
     if (instance.status === 'running') {
-      await this.stopInstance(id)
+      await this.stopInstance(id, operationToken)
     }
     
     this.instances.delete(id)
@@ -513,16 +523,12 @@ export class InstanceManager extends EventEmitter {
   }
 
   // 启动实例
-  public async startInstance(id: string): Promise<{ success: boolean; terminalSessionId?: string }> {
+  public async startInstance(id: string, operationToken?: string): Promise<{ success: boolean; terminalSessionId?: string }> {
     const instance = this.instances.get(id)
     if (!instance) {
       throw new Error('实例不存在')
     }
-
-    const operationLock = this.operationLocks.get(id)
-    if (operationLock) {
-      throw new Error(`实例正在${operationLock.reason}，请等待操作完成后再启动`)
-    }
+    this.assertOperationLockOwner(id, operationToken)
     
     if (instance.status === 'running') {
       throw new Error('实例已在运行')
@@ -743,18 +749,19 @@ export class InstanceManager extends EventEmitter {
   }
 
   // 重启实例
-  public async restartInstance(id: string): Promise<{ success: boolean; terminalSessionId?: string }> {
+  public async restartInstance(id: string, operationToken?: string): Promise<{ success: boolean; terminalSessionId?: string }> {
     const instance = this.instances.get(id)
     if (!instance) {
       throw new Error('实例不存在')
     }
+    this.assertOperationLockOwner(id, operationToken)
     
     try {
       this.logger.info(`重启实例: ${instance.name}`)
       
       // 如果实例正在运行，先停止它
       if (instance.status === 'running') {
-        await this.stopInstance(id)
+        await this.stopInstance(id, operationToken)
         
         // 等待实例完全停止
         await new Promise(resolve => {
@@ -773,7 +780,7 @@ export class InstanceManager extends EventEmitter {
       }
       
       // 重新启动实例
-      const result = await this.startInstance(id)
+      const result = await this.startInstance(id, operationToken)
       this.logger.info(`实例 ${instance.name} 重启完成`)
       
       return result
@@ -784,11 +791,12 @@ export class InstanceManager extends EventEmitter {
   }
 
   // 停止实例
-  public async stopInstance(id: string): Promise<boolean> {
+  public async stopInstance(id: string, operationToken?: string): Promise<boolean> {
     const instance = this.instances.get(id)
     if (!instance) {
       throw new Error('实例不存在')
     }
+    this.assertOperationLockOwner(id, operationToken)
     
     if (instance.status !== 'running') {
       throw new Error('实例未在运行')
@@ -958,6 +966,7 @@ export class InstanceManager extends EventEmitter {
     
     for (const instance of runningInstances) {
       try {
+        this.operationLocks.delete(instance.id)
         await this.stopInstance(instance.id)
       } catch (error) {
         this.logger.error(`清理时停止实例 ${instance.name} 失败:`, error)

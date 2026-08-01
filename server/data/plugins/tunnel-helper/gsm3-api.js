@@ -3,652 +3,631 @@
  * 提供插件与主面板通信的接口
  */
 class GSM3API {
-  constructor() {
-    this.baseURL = '/api/plugin-api'
-    this.token = null
-    this.initializeToken()
-  }
+	constructor() {
+		this.baseURL = "/api/plugin-api";
+		this.token = null;
+		this.channel =
+			new URLSearchParams(window.location.search).get("channel") || "";
+		this.pendingAuth = new Map();
+		window.addEventListener("message", (event) =>
+			this.handleAuthMessage(event),
+		);
+	}
 
-  /**
-   * 初始化token获取机制
-   */
-  initializeToken() {
-    try {
-      // 检查是否已经通过脚本注入设置了全局token
-      if (window.gsm3Token) {
-        this.token = window.gsm3Token
-        console.log('Token已从全局变量获取:', this.token)
-        return
-      }
-      
-      // 检查是否已经通过脚本注入设置了token
-      if (window.gsm3 && window.gsm3.token) {
-        this.token = window.gsm3.token
-        console.log('Token已从注入脚本获取')
-        return
-      }
-      
-      // 尝试从父窗口获取token
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'gsm3-get-token' }, '*')
-      }
-      
-      console.log('正在初始化token...')
-    } catch (error) {
-      console.warn('Token初始化失败:', error)
-    }
+	handleAuthMessage(event) {
+		if (
+			event.source !== window.parent ||
+			event.origin !== window.location.origin ||
+			!event.data ||
+			event.data.type !== "gsm3-auth-response" ||
+			event.data.channel !== this.channel ||
+			typeof event.data.requestId !== "string" ||
+			typeof event.data.token !== "string"
+		)
+			return;
+		const pending = this.pendingAuth.get(event.data.requestId);
+		if (!pending) return;
+		clearTimeout(pending.timeoutId);
+		this.pendingAuth.delete(event.data.requestId);
+		this.token = event.data.token;
+		pending.resolve(event.data.token);
+	}
 
-    // 监听token更新
-    window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'gsm3-token-update') {
-        this.token = event.data.token
-        console.log('通过消息更新Token:', this.token)
-      }
-    })
-    
-    // 定期检查全局token变量
-    const checkGlobalToken = () => {
-      if (!this.token && window.gsm3Token) {
-        this.token = window.gsm3Token
-        console.log('从全局变量延迟获取Token:', this.token)
-      }
-    }
-    
-    // 每100ms检查一次，最多检查50次（5秒）
-    let checkCount = 0
-    const tokenChecker = setInterval(() => {
-      checkGlobalToken()
-      checkCount++
-      if (this.token || checkCount >= 50) {
-        clearInterval(tokenChecker)
-      }
-    }, 100)
-  }
+	requestAuth() {
+		if (this.token) return Promise.resolve(this.token);
+		if (window.parent === window || !this.channel) {
+			return Promise.reject(new Error("插件必须从 GSM3 插件页面打开"));
+		}
+		const requestId =
+			window.crypto?.randomUUID?.() ||
+			`${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		return new Promise((resolve, reject) => {
+			const timeoutId = setTimeout(() => {
+				this.pendingAuth.delete(requestId);
+				reject(new Error("等待面板认证超时，请关闭后重试"));
+			}, 8000);
+			this.pendingAuth.set(requestId, { resolve, reject, timeoutId });
+			window.parent.postMessage(
+				{ type: "gsm3-auth-request", channel: this.channel, requestId },
+				window.location.origin,
+			);
+		});
+	}
 
-  /**
-   * 发送HTTP请求
-   */
-  async request(endpoint, options = {}) {
-    const url = `${this.baseURL}${endpoint}`
-    const config = {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Plugin-Request': 'true', // 添加插件标识
-        ...(this.token && { 'Authorization': `Bearer ${this.token}` })
-      },
-      ...options
-    }
+	/**
+	 * 发送HTTP请求
+	 */
+	async request(endpoint, options = {}, canRetry = true) {
+		const token = await this.requestAuth();
+		const url = `${this.baseURL}${endpoint}`;
+		const config = {
+			method: "GET",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Plugin-Request": "true", // 添加插件标识
+				Authorization: `Bearer ${token}`,
+			},
+			...options,
+		};
 
-    if (config.body && typeof config.body === 'object') {
-      config.body = JSON.stringify(config.body)
-    }
+		if (config.body && typeof config.body === "object") {
+			config.body = JSON.stringify(config.body);
+		}
 
-    try {
-      const response = await fetch(url, config)
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP ${response.status}`)
-      }
-      
-      return data
-    } catch (error) {
-      console.error('API请求失败:', error)
-      throw error
-    }
-  }
+		try {
+			const response = await fetch(url, config);
+			const data = await response.json();
 
-  // ==================== 系统信息API ====================
+			if (response.status === 401 && canRetry) {
+				this.token = null;
+				return this.request(endpoint, options, false);
+			}
 
-  /**
-   * 获取系统状态
-   */
-  async getSystemStatus() {
-    return await this.request('/system/status')
-  }
+			if (!response.ok) {
+				throw new Error(data.message || `HTTP ${response.status}`);
+			}
 
-  /**
-   * 获取系统信息
-   */
-  async getSystemInfo() {
-    return await this.request('/system/info')
-  }
+			return data;
+		} catch (error) {
+			console.error("API请求失败:", error);
+			throw error;
+		}
+	}
 
-  // ==================== 实例管理API ====================
+	// ==================== 系统信息API ====================
 
-  /**
-   * 获取所有实例列表
-   */
-  async getInstances() {
-    return await this.request('/instances')
-  }
+	/**
+	 * 获取系统状态
+	 */
+	async getSystemStatus() {
+		return await this.request("/system/status");
+	}
 
-  /**
-   * 获取单个实例信息
-   * @param {string} instanceId 实例ID
-   */
-  async getInstance(instanceId) {
-    return await this.request(`/instances/${instanceId}`)
-  }
+	/**
+	 * 获取系统信息
+	 */
+	async getSystemInfo() {
+		return await this.request("/system/info");
+	}
 
-  /**
-   * 获取实例状态
-   * @param {string} instanceId 实例ID
-   */
-  async getInstanceStatus(instanceId) {
-    return await this.request(`/instances/${instanceId}/status`)
-  }
+	// ==================== 实例管理API ====================
 
-  /**
-   * 创建新实例
-   * @param {Object} instanceData 实例数据
-   * @param {string} instanceData.name 实例名称
-   * @param {string} instanceData.description 实例描述
-   * @param {string} instanceData.workingDirectory 工作目录
-   * @param {string} instanceData.startCommand 启动命令
-   * @param {boolean} instanceData.autoStart 是否自动启动
-   * @param {string} instanceData.stopCommand 停止命令
-   */
-  async createInstance(instanceData) {
-    return await this.request('/instances', {
-      method: 'POST',
-      body: instanceData
-    })
-  }
+	/**
+	 * 获取所有实例列表
+	 */
+	async getInstances() {
+		return await this.request("/instances");
+	}
 
-  /**
-   * 更新实例
-   * @param {string} instanceId 实例ID
-   * @param {Object} instanceData 实例数据
-   */
-  async updateInstance(instanceId, instanceData) {
-    return await this.request(`/instances/${instanceId}`, {
-      method: 'PUT',
-      body: instanceData
-    })
-  }
+	/**
+	 * 获取单个实例信息
+	 * @param {string} instanceId 实例ID
+	 */
+	async getInstance(instanceId) {
+		return await this.request(`/instances/${instanceId}`);
+	}
 
-  /**
-   * 删除实例
-   * @param {string} instanceId 实例ID
-   */
-  async deleteInstance(instanceId) {
-    return await this.request(`/instances/${instanceId}`, {
-      method: 'DELETE'
-    })
-  }
+	/**
+	 * 获取实例状态
+	 * @param {string} instanceId 实例ID
+	 */
+	async getInstanceStatus(instanceId) {
+		return await this.request(`/instances/${instanceId}/status`);
+	}
 
-  /**
-   * 启动实例
-   * @param {string} instanceId 实例ID
-   */
-  async startInstance(instanceId) {
-    return await this.request(`/instances/${instanceId}/start`, {
-      method: 'POST'
-    })
-  }
+	/**
+	 * 创建新实例
+	 * @param {Object} instanceData 实例数据
+	 * @param {string} instanceData.name 实例名称
+	 * @param {string} instanceData.description 实例描述
+	 * @param {string} instanceData.workingDirectory 工作目录
+	 * @param {string} instanceData.startCommand 启动命令
+	 * @param {boolean} instanceData.autoStart 是否自动启动
+	 * @param {string} instanceData.stopCommand 停止命令
+	 */
+	async createInstance(instanceData) {
+		return await this.request("/instances", {
+			method: "POST",
+			body: instanceData,
+		});
+	}
 
-  /**
-   * 停止实例
-   * @param {string} instanceId 实例ID
-   */
-  async stopInstance(instanceId) {
-    return await this.request(`/instances/${instanceId}/stop`, {
-      method: 'POST'
-    })
-  }
+	/**
+	 * 更新实例
+	 * @param {string} instanceId 实例ID
+	 * @param {Object} instanceData 实例数据
+	 */
+	async updateInstance(instanceId, instanceData) {
+		return await this.request(`/instances/${instanceId}`, {
+			method: "PUT",
+			body: instanceData,
+		});
+	}
 
-  /**
-   * 重启实例
-   * @param {string} instanceId 实例ID
-   */
-  async restartInstance(instanceId) {
-    return await this.request(`/instances/${instanceId}/restart`, {
-      method: 'POST'
-    })
-  }
+	/**
+	 * 删除实例
+	 * @param {string} instanceId 实例ID
+	 */
+	async deleteInstance(instanceId) {
+		return await this.request(`/instances/${instanceId}`, {
+			method: "DELETE",
+		});
+	}
 
-  /**
-   * 获取实例市场列表
-   */
-  async getMarketInstances() {
-    return await this.request('/instances/market')
-  }
+	/**
+	 * 启动实例
+	 * @param {string} instanceId 实例ID
+	 */
+	async startInstance(instanceId) {
+		return await this.request(`/instances/${instanceId}/start`, {
+			method: "POST",
+		});
+	}
 
-  // ==================== 终端管理API ====================
+	/**
+	 * 停止实例
+	 * @param {string} instanceId 实例ID
+	 */
+	async stopInstance(instanceId) {
+		return await this.request(`/instances/${instanceId}/stop`, {
+			method: "POST",
+		});
+	}
 
-  /**
-   * 获取终端会话列表
-   */
-  async getTerminals() {
-    return await this.request('/terminals')
-  }
+	/**
+	 * 重启实例
+	 * @param {string} instanceId 实例ID
+	 */
+	async restartInstance(instanceId) {
+		return await this.request(`/instances/${instanceId}/restart`, {
+			method: "POST",
+		});
+	}
 
-   /**
-   * 获取终端会话统计信息
-   */
-  async getTerminalStats() {
-    return await this.request('/terminals/stats', {
-      method: 'GET'
-    })
-  }
+	/**
+	 * 获取实例市场列表
+	 */
+	async getMarketInstances() {
+		return await this.request("/instances/market");
+	}
 
-  /**
-   * 获取终端会话详细信息
-   */
-  async getTerminalSessions() {
-    return await this.request('/terminals/sessions', {
-      method: 'GET'
-    })
-  }
+	// ==================== 终端管理API ====================
 
-  /**
-   * 获取活跃终端进程信息
-   */
-  async getActiveTerminalProcesses() {
-    return await this.request('/terminals/active-processes', {
-      method: 'GET'
-    })
-  }
+	/**
+	 * 获取终端会话列表
+	 */
+	async getTerminals() {
+		return await this.request("/terminals");
+	}
 
-  /**
-   * 更新终端会话名称
-   * @param {string} sessionId 会话ID
-   * @param {string} name 新的会话名称
-   */
-  async updateTerminalSessionName(sessionId, name) {
-    return await this.request(`/terminals/sessions/${sessionId}/name`, {
-      method: 'PUT',
-      body: { name }
-    })
-  }
+	/**
+	 * 获取终端会话统计信息
+	 */
+	async getTerminalStats() {
+		return await this.request("/terminals/stats", {
+			method: "GET",
+		});
+	}
 
-  /**
-   * 验证终端配置
-   * @param {string} workingDirectory 工作目录
-   * @param {string} shell Shell程序路径
-   */
-  async validateTerminalConfig(workingDirectory, shell) {
-    return await this.request('/terminals/validate-config', {
-      method: 'POST',
-      body: { workingDirectory, shell }
-    })
-  }
+	/**
+	 * 获取终端会话详细信息
+	 */
+	async getTerminalSessions() {
+		return await this.request("/terminals/sessions", {
+			method: "GET",
+		});
+	}
 
-  /**
-   * 获取系统默认Shell信息
-   */
-  async getDefaultShell() {
-    return await this.request('/terminals/default-shell', {
-      method: 'GET'
-    })
-  }
+	/**
+	 * 获取活跃终端进程信息
+	 */
+	async getActiveTerminalProcesses() {
+		return await this.request("/terminals/active-processes", {
+			method: "GET",
+		});
+	}
 
-  /**
-   * 获取终端主题配置
-   */
-  async getTerminalThemes() {
-    return await this.request('/terminals/themes', {
-      method: 'GET'
-    })
-  }
+	/**
+	 * 更新终端会话名称
+	 * @param {string} sessionId 会话ID
+	 * @param {string} name 新的会话名称
+	 */
+	async updateTerminalSessionName(sessionId, name) {
+		return await this.request(`/terminals/sessions/${sessionId}/name`, {
+			method: "PUT",
+			body: { name },
+		});
+	}
 
-  /**
-   * 获取终端字体配置
-   */
-  async getTerminalFonts() {
-    return await this.request('/terminals/fonts', {
-      method: 'GET'
-    })
-  }
+	/**
+	 * 验证终端配置
+	 * @param {string} workingDirectory 工作目录
+	 * @param {string} shell Shell程序路径
+	 */
+	async validateTerminalConfig(workingDirectory, shell) {
+		return await this.request("/terminals/validate-config", {
+			method: "POST",
+			body: { workingDirectory, shell },
+		});
+	}
 
-  /**
-   * 测试终端连接
-   * @param {string} workingDirectory 工作目录
-   */
-  async testTerminalConnection(workingDirectory) {
-    return await this.request('/terminals/test-connection', {
-      method: 'POST',
-      body: { workingDirectory }
-    })
-  }
+	/**
+	 * 获取系统默认Shell信息
+	 */
+	async getDefaultShell() {
+		return await this.request("/terminals/default-shell", {
+			method: "GET",
+		});
+	}
 
-  // ==================== 游戏管理API ====================
+	/**
+	 * 获取终端主题配置
+	 */
+	async getTerminalThemes() {
+		return await this.request("/terminals/themes", {
+			method: "GET",
+		});
+	}
 
-  /**
-   * 获取游戏列表
-   */
-  async getGames() {
-    return await this.request('/games')
-  }
+	/**
+	 * 获取终端字体配置
+	 */
+	async getTerminalFonts() {
+		return await this.request("/terminals/fonts", {
+			method: "GET",
+		});
+	}
 
-  // ==================== 文件操作API ====================
+	/**
+	 * 测试终端连接
+	 * @param {string} workingDirectory 工作目录
+	 */
+	async testTerminalConnection(workingDirectory) {
+		return await this.request("/terminals/test-connection", {
+			method: "POST",
+			body: { workingDirectory },
+		});
+	}
 
-  /**
-   * 读取文件内容
-   * @param {string} filePath 文件路径（相对于服务器data目录）
-   * @param {string} encoding 文件编码，默认为'utf-8'，二进制文件使用'binary'
-   */
-  async readFile(filePath, encoding = 'utf-8') {
-    return await this.request('/files/read', {
-      method: 'POST',
-      body: { filePath, encoding }
-    })
-  }
+	// ==================== 游戏管理API ====================
 
-  /**
-   * 写入文件内容
-   * @param {string} filePath 文件路径（相对于服务器data目录）
-   * @param {string} content 文件内容
-   * @param {string} encoding 文件编码，默认为'utf-8'
-   */
-  async writeFile(filePath, content, encoding = 'utf-8') {
-    return await this.request('/files/write', {
-      method: 'POST',
-      body: { filePath, content, encoding }
-    })
-  }
+	/**
+	 * 获取游戏列表
+	 */
+	async getGames() {
+		return await this.request("/games");
+	}
 
-  /**
-   * 删除文件
-   * @param {string} filePath 文件路径（相对于服务器data目录）
-   */
-  async deleteFile(filePath) {
-    return await this.request('/files/delete', {
-      method: 'DELETE',
-      body: { filePath }
-    })
-  }
+	// ==================== 文件操作API ====================
 
-  /**
-   * 创建目录
-   * @param {string} dirPath 目录路径（相对于服务器data目录）
-   * @param {boolean} recursive 是否递归创建父目录，默认为true
-   */
-  async createDirectory(dirPath, recursive = true) {
-    return await this.request('/files/mkdir', {
-      method: 'POST',
-      body: { dirPath, recursive }
-    })
-  }
+	/**
+	 * 读取文件内容
+	 * @param {string} filePath 文件路径（相对于服务器data目录）
+	 * @param {string} encoding 文件编码，默认为'utf-8'，二进制文件使用'binary'
+	 */
+	async readFile(filePath, encoding = "utf-8") {
+		return await this.request("/files/read", {
+			method: "POST",
+			body: { filePath, encoding },
+		});
+	}
 
-  /**
-   * 删除目录
-   * @param {string} dirPath 目录路径（相对于服务器data目录）
-   * @param {boolean} recursive 是否递归删除，默认为false
-   */
-  async deleteDirectory(dirPath, recursive = false) {
-    return await this.request('/files/rmdir', {
-      method: 'DELETE',
-      body: { dirPath, recursive }
-    })
-  }
+	/**
+	 * 写入文件内容
+	 * @param {string} filePath 文件路径（相对于服务器data目录）
+	 * @param {string} content 文件内容
+	 * @param {string} encoding 文件编码，默认为'utf-8'
+	 */
+	async writeFile(filePath, content, encoding = "utf-8") {
+		return await this.request("/files/write", {
+			method: "POST",
+			body: { filePath, content, encoding },
+		});
+	}
 
-  /**
-   * 列出目录内容
-   * @param {string} dirPath 目录路径（相对于服务器data目录），默认为根目录
-   * @param {boolean} includeHidden 是否包含隐藏文件，默认为false
-   */
-  async listDirectory(dirPath = '', includeHidden = false) {
-    return await this.request('/files/list', {
-      method: 'POST',
-      body: { dirPath, includeHidden }
-    })
-  }
+	/**
+	 * 删除文件
+	 * @param {string} filePath 文件路径（相对于服务器data目录）
+	 */
+	async deleteFile(filePath) {
+		return await this.request("/files/delete", {
+			method: "DELETE",
+			body: { filePath },
+		});
+	}
 
-  /**
-   * 获取文件或目录信息
-   * @param {string} path 文件或目录路径（相对于服务器data目录）
-   */
-  async getFileInfo(path) {
-    return await this.request('/files/info', {
-      method: 'POST',
-      body: { path }
-    })
-  }
+	/**
+	 * 创建目录
+	 * @param {string} dirPath 目录路径（相对于服务器data目录）
+	 * @param {boolean} recursive 是否递归创建父目录，默认为true
+	 */
+	async createDirectory(dirPath, recursive = true) {
+		return await this.request("/files/mkdir", {
+			method: "POST",
+			body: { dirPath, recursive },
+		});
+	}
 
-  /**
-   * 检查文件或目录是否存在
-   * @param {string} path 文件或目录路径（相对于服务器data目录）
-   */
-  async exists(path) {
-    return await this.request('/files/exists', {
-      method: 'POST',
-      body: { path }
-    })
-  }
+	/**
+	 * 删除目录
+	 * @param {string} dirPath 目录路径（相对于服务器data目录）
+	 * @param {boolean} recursive 是否递归删除，默认为false
+	 */
+	async deleteDirectory(dirPath, recursive = false) {
+		return await this.request("/files/rmdir", {
+			method: "DELETE",
+			body: { dirPath, recursive },
+		});
+	}
 
-  /**
-   * 复制文件或目录
-   * @param {string} sourcePath 源路径（相对于服务器data目录）
-   * @param {string} destPath 目标路径（相对于服务器data目录）
-   * @param {boolean} overwrite 是否覆盖已存在的文件，默认为false
-   */
-  async copy(sourcePath, destPath, overwrite = false) {
-    return await this.request('/files/copy', {
-      method: 'POST',
-      body: { sourcePath, destPath, overwrite }
-    })
-  }
+	/**
+	 * 列出目录内容
+	 * @param {string} dirPath 目录路径（相对于服务器data目录），默认为根目录
+	 * @param {boolean} includeHidden 是否包含隐藏文件，默认为false
+	 */
+	async listDirectory(dirPath = "", includeHidden = false) {
+		return await this.request("/files/list", {
+			method: "POST",
+			body: { dirPath, includeHidden },
+		});
+	}
 
-  /**
-   * 移动/重命名文件或目录
-   * @param {string} sourcePath 源路径（相对于服务器data目录）
-   * @param {string} destPath 目标路径（相对于服务器data目录）
-   * @param {boolean} overwrite 是否覆盖已存在的文件，默认为false
-   */
-  async move(sourcePath, destPath, overwrite = false) {
-    return await this.request('/files/move', {
-      method: 'POST',
-      body: { sourcePath, destPath, overwrite }
-    })
-  }
+	/**
+	 * 获取文件或目录信息
+	 * @param {string} path 文件或目录路径（相对于服务器data目录）
+	 */
+	async getFileInfo(path) {
+		return await this.request("/files/info", {
+			method: "POST",
+			body: { path },
+		});
+	}
 
-  /**
-   * 搜索文件
-   * @param {string} pattern 搜索模式（支持通配符）
-   * @param {string} searchPath 搜索路径（相对于服务器data目录），默认为根目录
-   * @param {boolean} recursive 是否递归搜索子目录，默认为true
-   */
-  async searchFiles(pattern, searchPath = '', recursive = true) {
-    return await this.request('/files/search', {
-      method: 'POST',
-      body: { pattern, searchPath, recursive }
-    })
-  }
+	/**
+	 * 检查文件或目录是否存在
+	 * @param {string} path 文件或目录路径（相对于服务器data目录）
+	 */
+	async exists(path) {
+		return await this.request("/files/exists", {
+			method: "POST",
+			body: { path },
+		});
+	}
 
-  /**
-   * 检测可执行文件是否存在
-   * @param {string} executable 可执行文件名或路径
-   * @param {string} workingDirectory 相对路径解析用工作目录，可选
-   */
-  async resolveExecutable(executable, workingDirectory = '') {
-    return await this.request('/tools/resolve-executable', {
-      method: 'POST',
-      body: { executable, workingDirectory }
-    })
-  }
+	/**
+	 * 复制文件或目录
+	 * @param {string} sourcePath 源路径（相对于服务器data目录）
+	 * @param {string} destPath 目标路径（相对于服务器data目录）
+	 * @param {boolean} overwrite 是否覆盖已存在的文件，默认为false
+	 */
+	async copy(sourcePath, destPath, overwrite = false) {
+		return await this.request("/files/copy", {
+			method: "POST",
+			body: { sourcePath, destPath, overwrite },
+		});
+	}
 
-  /**
-   * 将相对服务器data目录的路径解析为绝对路径
-   * @param {string} dataPath 相对服务器data目录的路径
-   */
-  async resolveDataPath(dataPath) {
-    return await this.request('/tools/resolve-data-path', {
-      method: 'POST',
-      body: { dataPath }
-    })
-  }
+	/**
+	 * 移动/重命名文件或目录
+	 * @param {string} sourcePath 源路径（相对于服务器data目录）
+	 * @param {string} destPath 目标路径（相对于服务器data目录）
+	 * @param {boolean} overwrite 是否覆盖已存在的文件，默认为false
+	 */
+	async move(sourcePath, destPath, overwrite = false) {
+		return await this.request("/files/move", {
+			method: "POST",
+			body: { sourcePath, destPath, overwrite },
+		});
+	}
 
-  /**
-   * 获取穿透工具本地安装状态
-   * @param {'frp'|'easytier'} tool 工具名称
-   */
-  async getTunnelToolStatus(tool) {
-    return await this.request(`/tools/tunnel-tool/${encodeURIComponent(tool)}`)
-  }
+	/**
+	 * 搜索文件
+	 * @param {string} pattern 搜索模式（支持通配符）
+	 * @param {string} searchPath 搜索路径（相对于服务器data目录），默认为根目录
+	 * @param {boolean} recursive 是否递归搜索子目录，默认为true
+	 */
+	async searchFiles(pattern, searchPath = "", recursive = true) {
+		return await this.request("/files/search", {
+			method: "POST",
+			body: { pattern, searchPath, recursive },
+		});
+	}
 
-  /**
-   * 下载并安装穿透工具，返回SSE响应流
-   * @param {'frp'|'easytier'} tool 工具名称
-   */
-  async installTunnelTool(tool) {
-    return await fetch(`${this.baseURL}/tools/install-tunnel-tool`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Plugin-Request': 'true',
-        ...(this.token && { 'Authorization': `Bearer ${this.token}` })
-      },
-      body: JSON.stringify({ tool })
-    })
-  }
+	/**
+	 * 检测可执行文件是否存在
+	 * @param {string} executable 可执行文件名或路径
+	 * @param {string} workingDirectory 相对路径解析用工作目录，可选
+	 */
+	async resolveExecutable(executable, workingDirectory = "") {
+		return await this.request("/tools/resolve-executable", {
+			method: "POST",
+			body: { executable, workingDirectory },
+		});
+	}
 
-  // ==================== 通用API ====================
+	/**
+	 * 将相对服务器data目录的路径解析为绝对路径
+	 * @param {string} dataPath 相对服务器data目录的路径
+	 */
+	async resolveDataPath(dataPath) {
+		return await this.request("/tools/resolve-data-path", {
+			method: "POST",
+			body: { dataPath },
+		});
+	}
 
-  /**
-   * 获取API版本信息
-   */
-  async getVersion() {
-    return await this.request('/version')
-  }
+	/**
+	 * 获取 frp 本地安装状态
+	 */
+	async getFrpToolStatus() {
+		return await this.request("/tools/tunnel-tool/frp");
+	}
 
-  /**
-   * 健康检查
-   */
-  async healthCheck() {
-    return await this.request('/health')
-  }
+	/**
+	 * 下载并安装 frp，返回SSE响应流
+	 */
+	async installFrpTool() {
+		const token = await this.requestAuth();
+		return await fetch(`${this.baseURL}/tools/install-tunnel-tool`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Plugin-Request": "true",
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({ tool: "frp" }),
+		});
+	}
 
-  // ==================== 工具方法 ====================
+	// ==================== 通用API ====================
 
-  /**
-   * 显示通知消息（如果主面板支持）
-   * @param {string} type 消息类型: 'info', 'success', 'warning', 'error'
-   * @param {string} message 消息内容
-   */
-  showNotification(type, message) {
-    try {
-      // 尝试向父窗口发送通知消息
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({
-          type: 'gsm3-notification',
-          data: { type, message }
-        }, '*')
-      } else {
-        // 如果无法发送到父窗口，使用浏览器原生通知
-        console.log(`[${type.toUpperCase()}] ${message}`)
-      }
-    } catch (error) {
-      console.warn('发送通知失败:', error)
-    }
-  }
+	/**
+	 * 获取API版本信息
+	 */
+	async getVersion() {
+		return await this.request("/version");
+	}
 
-  /**
-   * 格式化字节大小
-   * @param {number} bytes 字节数
-   * @param {number} decimals 小数位数
-   */
-  formatBytes(bytes, decimals = 2) {
-    if (bytes === 0) return '0 Bytes'
-    
-    const k = 1024
-    const dm = decimals < 0 ? 0 : decimals
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-    
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
-  }
+	/**
+	 * 健康检查
+	 */
+	async healthCheck() {
+		return await this.request("/health");
+	}
 
-  /**
-   * 格式化时间戳
-   * @param {string|number|Date} timestamp 时间戳
-   */
-  formatTime(timestamp) {
-    const date = new Date(timestamp)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  }
+	// ==================== 工具方法 ====================
 
-  /**
-   * 格式化运行时间
-   * @param {number} seconds 秒数
-   */
-  formatUptime(seconds) {
-    const days = Math.floor(seconds / 86400)
-    const hours = Math.floor((seconds % 86400) / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = Math.floor(seconds % 60)
-    
-    const parts = []
-    if (days > 0) parts.push(`${days}天`)
-    if (hours > 0) parts.push(`${hours}小时`)
-    if (minutes > 0) parts.push(`${minutes}分钟`)
-    if (secs > 0 || parts.length === 0) parts.push(`${secs}秒`)
-    
-    return parts.join(' ')
-  }
+	/**
+	 * 显示通知消息（如果主面板支持）
+	 * @param {string} type 消息类型: 'info', 'success', 'warning', 'error'
+	 * @param {string} message 消息内容
+	 */
+	showNotification(type, message) {
+		try {
+			// 尝试向父窗口发送通知消息
+			if (window.parent && window.parent !== window) {
+				window.parent.postMessage(
+					{
+						type: "gsm3-notification",
+						channel: this.channel,
+						data: { type, message },
+					},
+					window.location.origin,
+				);
+			} else {
+				// 如果无法发送到父窗口，使用浏览器原生通知
+				console.log(`[${type.toUpperCase()}] ${message}`);
+			}
+		} catch (error) {
+			console.warn("发送通知失败:", error);
+		}
+	}
+
+	/**
+	 * 格式化字节大小
+	 * @param {number} bytes 字节数
+	 * @param {number} decimals 小数位数
+	 */
+	formatBytes(bytes, decimals = 2) {
+		if (bytes === 0) return "0 Bytes";
+
+		const k = 1024;
+		const dm = decimals < 0 ? 0 : decimals;
+		const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+		return parseFloat((bytes / k ** i).toFixed(dm)) + " " + sizes[i];
+	}
+
+	/**
+	 * 格式化时间戳
+	 * @param {string|number|Date} timestamp 时间戳
+	 */
+	formatTime(timestamp) {
+		const date = new Date(timestamp);
+		return date.toLocaleString("zh-CN", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+	}
+
+	/**
+	 * 格式化运行时间
+	 * @param {number} seconds 秒数
+	 */
+	formatUptime(seconds) {
+		const days = Math.floor(seconds / 86400);
+		const hours = Math.floor((seconds % 86400) / 3600);
+		const minutes = Math.floor((seconds % 3600) / 60);
+		const secs = Math.floor(seconds % 60);
+
+		const parts = [];
+		if (days > 0) parts.push(`${days}天`);
+		if (hours > 0) parts.push(`${hours}小时`);
+		if (minutes > 0) parts.push(`${minutes}分钟`);
+		if (secs > 0 || parts.length === 0) parts.push(`${secs}秒`);
+
+		return parts.join(" ");
+	}
 }
 
 // 创建全局实例
-window.gsm3 = new GSM3API()
+window.gsm3 = new GSM3API();
 
 // 添加初始化状态标记
-window.gsm3.isInitialized = false
-window.gsm3.initPromise = null
+window.gsm3.isInitialized = false;
+window.gsm3.initPromise = null;
 
 // 初始化API的Promise
-window.gsm3.initialize = function() {
-  if (this.initPromise) {
-    return this.initPromise
-  }
-  
-  this.initPromise = new Promise((resolve) => {
-    const checkReady = () => {
-      if (this.token) {
-        this.isInitialized = true
-        console.log('GSM3 API初始化完成，Token:', this.token)
-        resolve(true)
-      } else {
-        setTimeout(checkReady, 100)
-      }
-    }
-    checkReady()
-  })
-  
-  return this.initPromise
-}
-
-// 监听来自父窗口的消息
-window.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'gsm3-token-update') {
-    window.gsm3.token = event.data.token
-    console.log('Token已更新:', event.data.token)
-  }
-})
+window.gsm3.initialize = function () {
+	if (this.initPromise) return this.initPromise;
+	this.initPromise = this.requestAuth().then(() => {
+		this.isInitialized = true;
+		return true;
+	});
+	return this.initPromise;
+};
 
 // 插件加载完成后的初始化
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('GSM3 插件API已加载')
-  
-  // 启动初始化过程
-  window.gsm3.initialize().then(() => {
-    console.log('GSM3 API准备就绪')
-    
-    // 向父窗口发送插件加载完成的消息
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({
-        type: 'gsm3-plugin-loaded',
-        data: { timestamp: new Date().toISOString() }
-      }, '*')
-    }
-  })
-})
+document.addEventListener("DOMContentLoaded", () => {
+	window.gsm3
+		.initialize()
+		.then(() => {
+			if (window.parent && window.parent !== window) {
+				window.parent.postMessage(
+					{
+						type: "gsm3-plugin-loaded",
+						channel: window.gsm3.channel,
+						data: { timestamp: new Date().toISOString() },
+					},
+					window.location.origin,
+				);
+			}
+		})
+		.catch((error) => window.gsm3.showNotification("error", error.message));
+});

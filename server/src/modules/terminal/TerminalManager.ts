@@ -14,8 +14,13 @@ import { ConfigManager } from '../config/ConfigManager.js'
 import { ptyManager } from '../../utils/ptyManager.js'
 import { buildUtf8LocaleEnv } from '../../utils/filenameEncoding.js'
 import { StreamingRedactor } from '../../utils/streamingRedactor.js'
+import { getCurrentUsername } from '../../utils/currentUser.js'
+import { buildChildProcessEnvironment } from '../../utils/childProcessEnvironment.js'
 
 const execAsync = promisify(exec)
+const buildManagedChildEnvironment = (overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => (
+  buildUtf8LocaleEnv(buildChildProcessEnvironment(overrides))
+)
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -160,7 +165,7 @@ export class TerminalManager {
       const child = spawn(executablePath, args, {
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         cwd: workingDirectory,
-        env: buildUtf8LocaleEnv(process.env),
+      env: buildManagedChildEnvironment(),
         shell: false,
         windowsHide: true
       })
@@ -263,9 +268,13 @@ export class TerminalManager {
       const terminalConfig = this.configManager.getTerminalConfig()
       // 优先使用传入的terminalUser，如果没有则使用配置的defaultUser
       const defaultUser = terminalUser || terminalConfig.defaultUser
+      const currentUser = getCurrentUsername()
+      const shouldSwitchUser = os.platform() === 'linux' && Boolean(
+        defaultUser && defaultUser.trim() !== '' && (!currentUser || defaultUser !== currentUser)
+      )
 
       // 如果是Linux系统且使用非root用户，先设置工作目录权限为777
-      if (os.platform() === 'linux' && defaultUser && defaultUser.trim() !== '' && defaultUser !== 'root') {
+      if (shouldSwitchUser && defaultUser !== 'root') {
         try {
           await this.setDirectoryPermissions777(workingDirectory)
           this.logger.info(`已为非root用户 ${defaultUser} 设置工作目录权限为777: ${workingDirectory}`)
@@ -341,8 +350,7 @@ export class TerminalManager {
         '-coder', 'UTF-8'
       ]
 
-      const terminalEnv = buildUtf8LocaleEnv({
-        ...process.env,
+      const terminalEnv = buildManagedChildEnvironment({
         ...environmentOverrides,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor'
@@ -359,7 +367,7 @@ export class TerminalManager {
         args.push('-cmd', JSON.stringify(['powershell.exe']))
       } else {
         // Linux下检查是否配置了默认用户
-        if (defaultUser && defaultUser.trim() !== '') {
+        if (defaultUser && defaultUser.trim() !== '' && (!currentUser || defaultUser !== currentUser)) {
           // 检查用户是否存在
           const userExists = await this.checkUserExists(defaultUser)
           if (userExists) {
@@ -1706,8 +1714,7 @@ export class TerminalManager {
         '-coder', 'UTF-8'
       ]
 
-      const terminalEnv = buildUtf8LocaleEnv({
-        ...process.env,
+      const terminalEnv = buildManagedChildEnvironment({
         ...environmentOverrides,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor'
