@@ -1,5 +1,5 @@
-import { Router, Request, Response } from 'express'
-import { InstanceManager } from '../modules/instance/InstanceManager.js'
+import { Router, type Request, type Response } from 'express'
+import type { InstanceManager } from '../modules/instance/InstanceManager.js'
 import { authenticateToken } from '../middleware/auth.js'
 import logger from '../utils/logger.js'
 import PythonManager from '../utils/pythonManager.js'

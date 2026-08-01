@@ -17,6 +17,9 @@ import { SystemManager } from './modules/system/SystemManager.js'
 import { ConfigManager } from './modules/config/ConfigManager.js'
 import { AuthManager } from './modules/auth/AuthManager.js'
 import { InstanceManager } from './modules/instance/InstanceManager.js'
+import { EasyTierInstaller } from './modules/easytier/EasyTierInstaller.js'
+import { EasyTierManager } from './modules/easytier/EasyTierManager.js'
+import { EasyTierWebManager } from './modules/easytier/EasyTierWebManager.js'
 import { SteamCMDManager } from './modules/steamcmd/SteamCMDManager.js'
 import { SchedulerManager } from './modules/scheduler/SchedulerManager.js'
 import { PluginManager } from './modules/plugin/PluginManager.js'
@@ -50,6 +53,7 @@ import wallpaperRouter from './routes/wallpaper.js'
 import networkRouter from './routes/network.js'
 import cloudBuildRouter from './routes/cloudBuild.js'
 import fileDeployRouter, { setFileDeployDependencies } from './routes/fileDeploy.js'
+import { createEasyTierRouter } from './routes/easytier.js'
 import { consoleLogBuffer } from './utils/logger.js'
 import { zipToolsManager } from './utils/zipToolsManager.js'
 import { ptyManager } from './utils/ptyManager.js'
@@ -132,6 +136,9 @@ let terminalManager: TerminalManager
 let gameManager: GameManager
 let systemManager: SystemManager
 let instanceManager: InstanceManager
+let easyTierInstaller: EasyTierInstaller
+let easyTierManager: EasyTierManager
+let easyTierWebManager: EasyTierWebManager
 let steamcmdManager: SteamCMDManager
 let schedulerManager: SchedulerManager
 let pluginManager: PluginManager
@@ -205,6 +212,10 @@ async function gracefulShutdown(signal: string, exitCode = 0) {
     if (systemManager) {
       await systemManager.cleanup()
       logger.info('SystemManager 已清理')
+    }
+    if (easyTierManager) {
+      easyTierManager.cleanup()
+      logger.info('EasyTierManager 已清理')
     }
     if (fileWatchManager) {
       await fileWatchManager.cleanup()
@@ -617,6 +628,9 @@ async function startServer() {
     gameManager = new GameManager(io, logger)
     systemManager = new SystemManager(io, logger)
     instanceManager = new InstanceManager(terminalManager, logger)
+    easyTierInstaller = new EasyTierInstaller({ logger })
+    easyTierManager = new EasyTierManager({ logger, instanceManager })
+    easyTierWebManager = new EasyTierWebManager({ logger, instanceManager, installer: easyTierInstaller })
     steamcmdManager = new SteamCMDManager(logger, configManager)
     pluginManager = new PluginManager(logger)
     fileWatchManager = new FileWatchManager(logger)
@@ -647,6 +661,12 @@ async function startServer() {
 
     await terminalManager.initialize()
     await instanceManager.initialize()
+    await easyTierInstaller.initialize()
+    await easyTierWebManager.initialize()
+    await easyTierManager.initialize()
+    easyTierManager.on('snapshot', snapshot => {
+      io.to(`easytier:${snapshot.profileId}`).emit('easytier:snapshot', snapshot)
+    })
     await pluginManager.loadPlugins()
     setAuthManager(authManager)
     setExternalApiConfigManager(configManager)
@@ -691,6 +711,7 @@ async function startServer() {
     app.use('/api/system', setupSystemRoutes(systemManager))
     app.use('/api/files', filesRouter)
     app.use('/api/instances', setupInstanceRoutes(instanceManager))
+app.use('/api/easytier', createEasyTierRouter(easyTierManager, easyTierInstaller, easyTierWebManager, instanceManager))
     app.use('/api/external', setupExternalApiRoutes(instanceManager))
     app.use('/api/scheduled-tasks', setupScheduledTaskRoutes(schedulerManager))
     app.use('/api/config', setupConfigRoutes(configManager))
@@ -939,6 +960,46 @@ async function startServer() {
         logger.info(`客户端 ${socket.id} 取消订阅面板日志`)
       })
 
+      socket.on('easytier:subscribe', async (
+        data: { profileId?: string },
+        acknowledge?: (result: { success: boolean; data?: unknown; message?: string }) => void
+      ) => {
+        if (socket.data.user?.role !== 'admin') {
+          acknowledge?.({ success: false, message: '权限不足' })
+          return
+        }
+        const profileId = String(data?.profileId || '').trim()
+        if (!profileId) {
+          acknowledge?.({ success: false, message: '缺少 EasyTier profileId' })
+          return
+        }
+        try {
+          socket.join(`easytier:${profileId}`)
+          const snapshot = await easyTierManager.subscribe(profileId, socket.id)
+          acknowledge?.({ success: true, data: snapshot })
+          logger.info(`客户端 ${socket.id} 订阅 EasyTier profile: ${profileId}`)
+        } catch (error) {
+          socket.leave(`easytier:${profileId}`)
+          acknowledge?.({ success: false, message: error instanceof Error ? error.message : '订阅失败' })
+        }
+      })
+
+      socket.on('easytier:unsubscribe', (
+        data: { profileId?: string },
+        acknowledge?: (result: { success: boolean }) => void
+      ) => {
+        if (socket.data.user?.role !== 'admin') {
+          acknowledge?.({ success: false })
+          return
+        }
+        const profileId = String(data?.profileId || '').trim()
+        if (profileId) {
+          easyTierManager.unsubscribe(profileId, socket.id)
+          socket.leave(`easytier:${profileId}`)
+        }
+        acknowledge?.({ success: true })
+      })
+
       // 文件监视事件
       socket.on('watch-file', async (data: { filePath: string }) => {
         try {
@@ -1019,6 +1080,10 @@ async function startServer() {
 
         runDisconnectCleanupStep('fileWatchManager.unwatchAllFilesForSocket', () => {
           fileWatchManager.unwatchAllFilesForSocket(socket)
+        })
+
+        runDisconnectCleanupStep('easyTierManager.unsubscribeAll', () => {
+          easyTierManager.unsubscribeAll(socket.id)
         })
       })
 

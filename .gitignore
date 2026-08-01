@@ -30,10 +30,12 @@ server/data/environment
 server/data/wallpapers/
 server/data/lib/
 server/data/tunnels/
+server/data/easytier/
 server/data/tools/
 data/wallpapers/
 data/lib/
 data/tunnels/
+data/easytier/
 data/tools/
 
 

@@ -1,0 +1,251 @@
+.modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  place-items: center;
+  background: rgb(5 9 15 / 0.66);
+  padding: 18px;
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition-property: opacity;
+  transition-duration: var(--duration-fast);
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-backdrop.is-visible {
+  opacity: 1;
+}
+
+.modal-card {
+  width: min(720px, 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition-property: opacity, transform;
+  transition-duration: var(--duration-normal);
+  transition-timing-function: var(--ease);
+}
+
+.modal-backdrop.is-visible .modal-card {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.modal-card-small {
+  width: min(460px, 100%);
+}
+
+.modal-heading {
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.span-2 {
+  grid-column: 1 / -1;
+}
+
+.check-row {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.check-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+.form-error {
+  margin: 14px 0 0;
+  border-radius: var(--radius-md);
+  background: var(--red-soft);
+  color: var(--red);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+@media (max-width: 1050px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-grid,
+  .diagnostic-grid,
+  .web-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    gap: 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .profile-picker {
+    padding: 12px 4px;
+  }
+
+  .nav-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .nav-item {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    min-width: 0;
+    padding-inline: 4px;
+    text-align: center;
+  }
+
+  .nav-item span:last-child {
+    font-size: 12px;
+    line-height: 1.25;
+    overflow-wrap: normal;
+    word-break: keep-all;
+  }
+
+  .sidebar-foot {
+    display: none;
+  }
+
+  .main-content {
+    padding: 18px 14px 36px;
+  }
+
+  .topbar,
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-actions,
+  .lifecycle-actions {
+    width: 100%;
+  }
+
+  .topbar-actions .button,
+  .lifecycle-actions .button {
+    flex: 1;
+  }
+
+  .action-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .span-2 {
+    grid-column: auto;
+  }
+
+  .security-hero {
+    grid-template-columns: auto 1fr;
+  }
+
+  .service-hero {
+    grid-template-columns: auto 1fr;
+  }
+
+  .security-hero .status-pill,
+  .service-hero .status-pill {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .service-actions .button {
+    flex: 1 1 140px;
+  }
+}
+
+@media (max-width: 500px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card {
+    min-height: 126px;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .copy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-backdrop {
+    padding: 8px;
+  }
+
+  .modal-card {
+    border-radius: 16px;
+    padding: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+
+  .view,
+  .modal-card,
+  .modal-backdrop,
+  .button,
+  .icon-button,
+  .nav-item {
+    animation: none !important;
+    transform: none !important;
+    transition-duration: 0.15s !important;
+    transition-property: opacity, background-color, border-color, color !important;
+  }
+}

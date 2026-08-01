@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>EasyTier 管理控制台</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="modal-responsive.css">
+  <link rel="stylesheet" href="security.css">
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="gsm3-api.js" defer></script>
+  <script src="security-app.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="EasyTier 控制台导航">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">ET</div>
+        <div>
+          <p class="eyebrow">GSM3 NETWORK</p>
+          <h1>EasyTier</h1>
+        </div>
+      </div>
+
+      <div class="profile-picker">
+        <label for="profileSelect">当前 Profile</label>
+        <select id="profileSelect" aria-describedby="profileSelectHint">
+          <option value="">尚未创建 Profile</option>
+        </select>
+        <p id="profileSelectHint" class="hint">选择后自动订阅实时状态</p>
+      </div>
+
+      <nav class="nav-list" aria-label="功能区域">
+        <button class="nav-item is-active" type="button" data-view-target="overview" aria-current="page">
+          <span aria-hidden="true">◫</span><span>概览</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="profiles">
+          <span aria-hidden="true">☷</span><span>Profiles</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="web">
+          <span aria-hidden="true">▣</span><span>Web 控制台</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="topology">
+          <span aria-hidden="true">⌘</span><span>拓扑与节点</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="routes">
+          <span aria-hidden="true">⇄</span><span>路由</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="actions">
+          <span aria-hidden="true">⚙</span><span>运行时操作</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="security">
+          <span aria-hidden="true">◇</span><span>Secure Mode</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="diagnostics">
+          <span aria-hidden="true">›_</span><span>诊断</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span class="health-dot" id="bridgeHealthDot" aria-hidden="true"></span>
+        <span id="bridgeHealthText">正在连接面板…</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="activeViewEyebrow">NETWORK OVERVIEW</p>
+          <h2 id="activeViewTitle">网络概览</h2>
+        </div>
+        <div class="topbar-actions">
+          <span class="status-pill" id="instanceStatus" data-state="unknown">未选择</span>
+          <button class="button button-quiet" id="refreshButton" type="button">刷新</button>
+          <button class="button button-primary" id="createProfileButton" type="button">新建 Profile</button>
+        </div>
+      </header>
+
+      <div id="announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div id="errorBanner" class="banner banner-error" role="alert" hidden></div>
+      <div id="warningBanner" class="banner banner-warning" role="status" hidden></div>
+
+      <section class="view is-active" data-view="overview" aria-labelledby="overviewHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LIVE CONTROL</p>
+            <h3 id="overviewHeading">当前网络</h3>
+          </div>
+          <div class="lifecycle-actions" aria-label="实例生命周期操作">
+            <button class="button button-success" id="startButton" type="button">启动</button>
+            <button class="button button-danger" id="stopButton" type="button">停止</button>
+            <button class="button button-quiet" id="restartButton" type="button">重启</button>
+          </div>
+        </div>
+
+        <div class="metric-grid" aria-label="网络实时指标">
+          <article class="metric-card accent-blue">
+            <span class="metric-label">虚拟 IPv4</span>
+            <strong class="metric-value mono" id="metricIpv4">—</strong>
+            <span class="metric-meta" id="metricHostname">等待节点信息</span>
+          </article>
+          <article class="metric-card accent-green">
+            <span class="metric-label">在线 Peers</span>
+            <strong class="metric-value" id="metricPeers">0</strong>
+            <span class="metric-meta" id="metricDirectPeers">0 个直连</span>
+          </article>
+          <article class="metric-card accent-amber">
+            <span class="metric-label">接收流量</span>
+            <strong class="metric-value mono" id="metricRx">0 B</strong>
+            <span class="metric-meta">当前进程累计</span>
+          </article>
+          <article class="metric-card accent-violet">
+            <span class="metric-label">发送流量</span>
+            <strong class="metric-value mono" id="metricTx">0 B</strong>
+            <span class="metric-meta" id="metricNat">NAT 未知</span>
+          </article>
+        </div>
+
+        <div class="overview-grid">
+          <article class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">PROFILE</p><h4>配置摘要</h4></div>
+              <button class="text-button" id="editCurrentProfileButton" type="button">编辑</button>
+            </div>
+            <dl class="detail-list" id="profileSummary">
+              <div><dt>名称</dt><dd>—</dd></div>
+              <div><dt>网络</dt><dd>—</dd></div>
+              <div><dt>版本</dt><dd>—</dd></div>
+              <div><dt>RPC</dt><dd>—</dd></div>
+            </dl>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">CAPABILITY</p><h4>能力检测</h4></div>
+              <button class="text-button" id="refreshCapabilitiesButton" type="button">重新检测</button>
+            </div>
+            <div id="capabilityList" class="capability-list">
+              <p class="empty-state">选择 Profile 后显示能力信息</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" data-view="web" aria-labelledby="webHeading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SELF-HOSTED CONSOLE</p>
+            <h3 id="webHeading">EasyTier Web 控制台</h3>
+          </div>
+          <button class="button button-quiet" id="webRefreshButton" type="button">刷新状态</button>
+        </div>
+
+        <div class="web-console-layout">
+          <article class="panel service-hero">
+            <span class="service-icon" aria-hidden="true">▣</span>
+            <div>
+              <h4>独立 Web 管理服务</h4>
+              <p id="webServiceDescription">安装并保存配置后，可由 GSM3 托管 easytier-web-embed。</p>
+            </div>
+            <span class="status-pill" id="webServiceStatus" data-state="unknown">未配置</span>
+            <div class="service-actions" aria-label="EasyTier Web 生命周期操作">
+              <button class="button button-success" id="webStartButton" type="button">启动</button>
+              <button class="button button-danger" id="webStopButton" type="button">停止</button>
+              <button class="button button-quiet" id="webRestartButton" type="button">重启</button>
+              <a class="button button-primary" id="webOpenButton" target="_blank" rel="noopener noreferrer" aria-disabled="true">打开管理页面</a>
+            </div>
+          </article>
+
+          <div class="web-summary-grid">
+            <article class="panel install-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">OFFICIAL RELEASE</p><h4>一键安装</h4></div>
+                <span class="tag" id="installState">未安装</span>
+              </div>
+              <dl class="detail-list compact-details">
+                <div><dt>推荐版本</dt><dd class="mono" id="installVersion">—</dd></div>
+                <div><dt>当前平台</dt><dd class="mono" id="installTarget">—</dd></div>
+                <div><dt>安装目录</dt><dd class="mono" id="installDirectory">—</dd></div>
+              </dl>
+              <p class="hint">从 EasyTier 官方 GitHub Release 下载，校验文件大小、SHA-256 与可执行文件版本后再切换当前安装。</p>
+              <div class="form-actions">
+                <button class="button button-primary" id="installEasyTierButton" type="button">安装推荐版本</button>
+              </div>
+            </article>
+
+            <article class="panel connection-panel">
+              <div class="panel-heading"><div><p class="eyebrow">CONNECTION</p><h4>接入信息</h4></div><span class="tag" id="webHealthTag">未运行</span></div>
+              <label for="webConnectionUri">Core 配置服务器 URI</label>
+              <div class="copy-row">
+                <input class="mono" id="webConnectionUri" readonly value="udp://127.0.0.1:22020/&lt;用户名&gt;">
+                <button class="button button-quiet" id="copyWebConnectionButton" type="button">复制</button>
+              </div>
+              <dl class="detail-list compact-details">
+                <div><dt>数据库</dt><dd class="mono" id="webDatabasePath">—</dd></div>
+                <div><dt>日志目录</dt><dd class="mono" id="webLogsDirectory">—</dd></div>
+              </dl>
+              <p class="hint">首次打开管理页面后请注册账户；Core 连接 URI 最后一段替换为该账户用户名。</p>
+            </article>
+          </div>
+
+          <form class="panel web-settings-form" id="webSettingsForm">
+            <div class="panel-heading">
+              <div><p class="eyebrow">SERVICE SETTINGS</p><h4>服务参数</h4></div>
+              <span class="hint">运行中保存将自动重启服务</span>
+            </div>
+            <div class="form-grid">
+              <div class="span-2"><label for="webBinaryPath">easytier-web-embed 路径</label><input class="mono" id="webBinaryPath" name="binaryPath" required placeholder="/path/to/easytier-web-embed"></div>
+              <div><label for="webApiServerAddress">API 监听地址</label><input class="mono" id="webApiServerAddress" name="apiServerAddress" required value="127.0.0.1"></div>
+              <div><label for="webApiServerPort">API / Web 端口</label><input id="webApiServerPort" name="apiServerPort" type="number" min="1" max="65535" required value="11211"></div>
+              <div class="span-2"><label for="webApiHost">API Host / 管理页面地址</label><input id="webApiHost" name="apiHost" type="url" required placeholder="http://服务器地址:11211"><p class="hint">该地址会写入 Web 前端并用于“打开管理页面”，请填写浏览器可访问的地址。</p></div>
+              <div><label for="webConfigServerProtocol">配置下发协议</label><select id="webConfigServerProtocol" name="configServerProtocol"><option value="udp">UDP</option><option value="tcp">TCP</option><option value="ws">WebSocket</option></select></div>
+              <div><label for="webConfigServerPort">配置下发端口</label><input id="webConfigServerPort" name="configServerPort" type="number" min="1" max="65535" required value="22020"></div>
+              <label class="check-row" for="webAutoStart"><input id="webAutoStart" name="autoStart" type="checkbox"><span>随 GSM3 自动启动</span></label>
+          <label class="check-row" for="webDisableRegistration"><input id="webDisableRegistration" name="disableRegistration" type="checkbox" checked><span>关闭新用户注册</span></label>
+              <label class="check-row span-2" for="webAllowAutoCreateUser"><input id="webAllowAutoCreateUser" name="allowAutoCreateUser" type="checkbox"><span>允许 Core 使用未知用户名时自动创建本地用户</span></label>
+            </div>
+            <p class="form-error" id="webSettingsError" role="alert" hidden></p>
+            <div class="form-actions"><button class="button button-primary" type="submit">保存并应用</button></div>
+          </form>
+
+          <article class="banner banner-warning web-warning-panel" id="webWarningPanel" role="status" hidden>
+            <strong>安全与兼容性提醒</strong>
+            <ul id="webWarnings"></ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" data-view="profiles" aria-labelledby="profilesHeading" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">CONFIGURATION</p><h3 id="profilesHeading">Profiles</h3></div>
+          <button class="button button-primary" id="createProfileSecondaryButton" type="button">新建 Profile</button>
+        </div>
+        <div class="table-panel">
+          <table>
+            <thead><tr><th>Profile</th><th>网络</th><th>实例状态</th><th>版本</th><th class="align-right">操作</th></tr></thead>
+            <tbody id="profilesTableBody"></tbody>
+          </table>
+          <div id="profilesEmpty" class="empty-state">还没有 EasyTier Profile。</div>
+        </div>
+      </section>
+
+      <section class="view" data-view="topology" aria-labelledby="topologyHeading" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">LIVE TOPOLOGY</p><h3 id="topologyHeading">节点与连接</h3></div>
+          <span class="freshness" id="snapshotFreshness">尚无快照</span>
+        </div>
+        <div class="table-panel">
+          <table>
+            <thead><tr><th>节点</th><th>虚拟地址</th><th>延迟</th><th>NAT</th><th>隧道</th><th>路径</th></tr></thead>
+            <tbody id="peersTableBody"></tbody>
+          </table>
+          <div id="peersEmpty" class="empty-state">实例运行后，这里会显示实时 Peer。</div>
+        </div>
+      </section>
+
+      <section class="view" data-view="routes" aria-labelledby="routesHeading" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">ROUTING TABLE</p><h3 id="routesHeading">路由</h3></div>
+        </div>
+        <div class="table-panel">
+          <table>
+            <thead><tr><th>目标</th><th>下一跳</th><th>接口</th><th>Metric</th><th>类型</th></tr></thead>
+            <tbody id="routesTableBody"></tbody>
+          </table>
+          <div id="routesEmpty" class="empty-state">尚未采集到路由数据。</div>
+        </div>
+      </section>
+
+      <section class="view" data-view="actions" aria-labelledby="actionsHeading" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">RUNTIME RPC</p><h3 id="actionsHeading">运行时操作</h3></div>
+          <span class="hint">操作成功后会同步写回 Profile</span>
+        </div>
+        <div class="action-grid">
+          <form class="panel action-form" id="connectorForm">
+            <div><p class="eyebrow">CONNECTOR</p><h4>连接器</h4></div>
+            <label for="connectorUri">Peer URI</label>
+            <input id="connectorUri" name="uri" type="url" required placeholder="tcp://1.2.3.4:11010">
+            <div class="form-actions"><button class="button button-primary" type="submit" data-action="add">添加</button><button class="button button-quiet" type="submit" data-action="remove">移除</button></div>
+          </form>
+          <form class="panel action-form" id="mappedListenerForm">
+            <div><p class="eyebrow">MAPPED LISTENER</p><h4>映射监听器</h4></div>
+            <label for="mappedListenerUri">监听 URI</label>
+            <input id="mappedListenerUri" name="uri" type="text" required placeholder="tcp://0.0.0.0:11010">
+            <div class="form-actions"><button class="button button-primary" type="submit" data-action="add">添加</button><button class="button button-quiet" type="submit" data-action="remove">移除</button></div>
+          </form>
+          <form class="panel action-form" id="portForwardForm">
+            <div><p class="eyebrow">PORT FORWARD</p><h4>端口转发</h4></div>
+            <label for="portForwardId">规则 ID</label><input id="portForwardId" name="id" required placeholder="game-server">
+            <div class="field-row"><div><label for="portForwardProto">协议</label><select id="portForwardProto" name="proto"><option>tcp</option><option>udp</option></select></div><div><label for="portForwardBind">监听地址</label><input id="portForwardBind" name="bindAddr" required placeholder="0.0.0.0:25565"></div></div>
+            <label for="portForwardDestination">目标地址</label><input id="portForwardDestination" name="dstAddr" required placeholder="10.10.0.2:25565">
+            <div class="form-actions"><button class="button button-primary" type="submit" data-action="add">添加</button><button class="button button-quiet" type="submit" data-action="remove" formnovalidate>按 ID 移除</button></div>
+          </form>
+          <form class="panel action-form" id="whitelistForm">
+            <div><p class="eyebrow">WHITELIST</p><h4>端口白名单</h4></div>
+            <label for="whitelistProtocol">协议</label><select id="whitelistProtocol" name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
+            <label for="whitelistValues">端口或范围</label><input id="whitelistValues" name="values" placeholder="80, 443, 25565-25570" aria-describedby="whitelistHint">
+            <p id="whitelistHint" class="hint">留空并保存可清除对应白名单。</p>
+            <button class="button button-primary" type="submit">保存白名单</button>
+          </form>
+          <form class="panel action-form" id="loggerForm">
+            <div><p class="eyebrow">LOGGER</p><h4>运行时日志级别</h4></div>
+            <label for="loggerLevel">日志级别</label><select id="loggerLevel" name="level"><option>disabled</option><option>error</option><option>warning</option><option selected>info</option><option>debug</option><option>trace</option></select>
+            <button class="button button-primary" type="submit">应用</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="view" data-view="security" aria-labelledby="securityHeading" hidden>
+        <div class="section-heading"><div><p class="eyebrow">ZERO TRUST</p><h3 id="securityHeading">Secure Mode</h3></div></div>
+        <div class="security-layout">
+          <article class="panel security-hero">
+            <span class="security-icon" aria-hidden="true">◇</span>
+            <div><h4>静态密钥与临时凭据</h4><p>能力检测通过后，可在此管理节点身份、Peer 公钥固定、一次性凭据和 ACL。</p></div>
+            <span class="status-pill" id="secureModeStatus" data-state="unknown">未配置</span>
+          </article>
+          <div id="securityCapabilityNotice" class="banner banner-neutral">Secure Mode 管理将在兼容能力确认后启用。</div>
+          <div id="securityWorkspace" class="security-workspace">
+            <form class="panel security-form" id="secureModeForm">
+              <div class="panel-heading"><div><p class="eyebrow">IDENTITY</p><h4>节点静态身份</h4></div><label class="switch-row" for="secureModeEnabled"><input id="secureModeEnabled" name="enabled" type="checkbox"><span>启用 Secure Mode</span></label></div>
+              <label for="localPublicKey">本地公钥</label><input class="mono" id="localPublicKey" name="localPublicKey" readonly placeholder="尚未配置固定密钥">
+              <label for="localPrivateKey">导入私钥（可选）</label><input class="mono" id="localPrivateKey" name="localPrivateKey" type="password" autocomplete="new-password" placeholder="32 字节 X25519 私钥的 base64"><p class="hint">私钥仅通过本次请求提交，服务端加密保存；留空保留现有密钥。</p>
+              <div class="form-actions"><button class="button button-primary" type="submit">保存安全设置</button><button class="button button-quiet" id="generateStaticKeyButton" type="button">生成并轮换密钥</button></div>
+            </form>
+
+            <article class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">PEER PINNING</p><h4>Peer 公钥固定</h4></div><span class="hint">阻止共享节点被冒充</span></div>
+              <form id="peerPinsForm"><div id="peerPinsList" class="stack-list"><p class="empty-state">当前 Profile 没有 Peer。</p></div><div class="form-actions"><button class="button button-primary" type="submit">保存 Peer 固定</button></div></form>
+            </article>
+
+            <article class="panel acl-panel">
+              <div class="panel-heading"><div><p class="eyebrow">ACCESS CONTROL</p><h4>ACL 策略</h4></div><button class="text-button" id="refreshAclStatsButton" type="button">查看命中统计</button></div>
+              <form id="aclPolicyForm" class="acl-policy-form">
+                <div><label for="aclDefaultAction">未匹配的入站流量</label><select id="aclDefaultAction" name="aclDefaultAction"><option value="allow">默认允许</option><option value="deny">默认拒绝（白名单模式）</option></select></div>
+                <p class="hint" id="aclPolicyHint">默认允许适合增量拒绝；默认拒绝要求先添加必要的允许规则。</p>
+                <button class="button button-quiet" type="submit">保存默认策略</button>
+              </form>
+              <form id="aclRuleForm" class="inline-rule-form" novalidate>
+                <input id="aclRuleId" name="id" required aria-label="规则 ID" placeholder="规则 ID">
+                <select id="aclRuleAction" name="action" aria-label="规则动作"><option value="allow">允许</option><option value="deny">拒绝</option></select>
+                <select id="aclRuleProtocol" name="protocol" aria-label="规则协议"><option value="any">任意协议</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
+                <input id="aclRuleSourceGroups" name="sourceGroups" aria-label="源 ACL 分组" placeholder="源分组 guest,admin">
+                <input id="aclRuleDestinationGroups" name="destinationGroups" aria-label="目标 ACL 分组" placeholder="目标分组 game,db">
+                <input id="aclRuleSource" name="source" aria-label="源 CIDR" placeholder="源 CIDR（可空）">
+                <input id="aclRuleDestination" name="destination" aria-label="目标 CIDR" placeholder="目标 CIDR（可空）">
+                <input id="aclRuleDestinationPort" name="destinationPort" aria-label="目标端口" placeholder="目标端口 80,443">
+                <input id="aclRuleDescription" name="description" aria-label="规则说明" placeholder="说明（可选）">
+                <button class="button button-primary" type="submit">添加规则</button>
+              </form>
+              <div class="table-panel nested-table"><table><thead><tr><th>规则</th><th>动作</th><th>协议</th><th>源 / 目标（CIDR / 分组）</th><th>端口</th><th class="align-right">操作</th></tr></thead><tbody id="aclRulesTableBody"></tbody></table><div id="aclRulesEmpty" class="empty-state">当前没有 ACL 规则；默认允许入站流量。</div></div>
+              <pre id="aclStatsOutput" class="compact-output" hidden>{}</pre>
+            </article>
+
+            <article class="panel credential-panel">
+              <div class="panel-heading"><div><p class="eyebrow">TEMPORARY ACCESS</p><h4>临时凭据</h4></div><button class="text-button" id="refreshCredentialsButton" type="button">刷新列表</button></div>
+              <form id="credentialForm" class="credential-form">
+                <div><label for="credentialTtl">有效期</label><select id="credentialTtl" name="ttlSeconds"><option value="3600">1 小时</option><option value="86400" selected>1 天</option><option value="604800">7 天</option><option value="2592000">30 天</option></select></div>
+                <div><label for="credentialGroups">ACL 分组</label><input id="credentialGroups" name="groups" placeholder="guest, game"></div>
+                <div><label for="credentialCidrs">允许代理的 CIDR</label><input id="credentialCidrs" name="allowedProxyCidrs" placeholder="192.168.10.0/24"></div>
+                <label class="check-row" for="credentialAllowRelay"><input id="credentialAllowRelay" name="allowRelay" type="checkbox"><span>允许参与中继</span></label>
+              <label class="check-row" for="credentialReusable"><input id="credentialReusable" name="reusable" type="checkbox"><span>允许重复使用</span></label>
+                <button class="button button-primary" type="submit">生成一次性凭据</button>
+              </form>
+              <div class="table-panel nested-table"><table><thead><tr><th>凭据 ID</th><th>分组</th><th>到期时间</th><th>权限</th><th class="align-right">操作</th></tr></thead><tbody id="credentialsTableBody"></tbody></table><div id="credentialsEmpty" class="empty-state">实例运行后可读取临时凭据。</div></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="diagnostics" aria-labelledby="diagnosticsHeading" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">DIAGNOSTICS</p><h3 id="diagnosticsHeading">兼容性与原始快照</h3></div>
+          <button class="button button-quiet" id="copyDiagnosticsButton" type="button">复制诊断信息</button>
+        </div>
+        <div class="diagnostic-grid">
+          <article class="panel"><h4>兼容性提醒</h4><ul class="diagnostic-list" id="diagnosticWarnings"><li>选择 Profile 后显示。</li></ul></article>
+          <article class="panel raw-panel"><h4>原始快照</h4><pre id="rawSnapshot" tabindex="0">{}</pre></article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="profileModal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle" hidden>
+    <div class="modal-card" tabindex="-1">
+      <div class="modal-heading"><div><p class="eyebrow">PROFILE EDITOR</p><h2 id="profileModalTitle">新建 Profile</h2></div><button class="icon-button" type="button" data-close-modal aria-label="关闭">×</button></div>
+      <form id="profileForm" novalidate>
+        <input id="profileId" name="id" type="hidden">
+        <div class="form-grid">
+          <div><label for="profileName">Profile 名称 <span aria-hidden="true">*</span></label><input id="profileName" name="name" required maxlength="128"></div>
+          <div><label for="profilePreset">用途预设</label><select id="profilePreset" name="preset"><option value="game-node">游戏节点</option><option value="shared-node">共享节点</option><option value="subnet-gateway">子网网关</option><option value="exit-node">出口节点</option><option value="vpn-portal">VPN Portal</option><option value="custom">自定义</option></select></div>
+          <div><label for="networkName">网络名称 <span aria-hidden="true">*</span></label><input id="networkName" name="networkName" required></div>
+          <div><label for="hostname">节点主机名 <span aria-hidden="true">*</span></label><input id="hostname" name="hostname" required></div>
+          <div class="span-2"><label for="corePath">easytier-core 路径 <span aria-hidden="true">*</span></label><input id="corePath" name="corePath" required placeholder="/path/to/easytier-core"></div>
+          <div class="span-2"><label for="cliPath">easytier-cli 路径</label><input id="cliPath" name="cliPath" placeholder="留空时自动发现同目录 CLI"></div>
+          <div class="span-2"><label for="networkSecret">网络密钥 <span aria-hidden="true">*</span></label><input id="networkSecret" name="networkSecret" type="password" autocomplete="new-password" aria-describedby="networkSecretHint"><p id="networkSecretHint" class="hint">新建时必填；编辑时留空将保留现有密钥。</p></div>
+          <div class="span-2"><label for="peerUris">初始 Peer URI</label><textarea id="peerUris" name="peerUris" rows="3" placeholder="每行一个，例如 tcp://1.2.3.4:11010"></textarea></div>
+          <label class="check-row span-2" for="autoStart"><input id="autoStart" name="autoStart" type="checkbox"><span>随 GSM3 自动启动托管实例</span></label>
+        </div>
+        <p class="form-error" id="profileFormError" role="alert" hidden></p>
+        <div class="modal-actions"><button class="button button-quiet" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存 Profile</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="confirmModal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage" hidden>
+    <div class="modal-card modal-card-small" tabindex="-1">
+      <div class="modal-heading"><div><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirmTitle">确认操作</h2></div></div>
+      <p id="confirmMessage">确定继续吗？</p>
+      <label class="check-row" id="deleteInstanceRow" for="deleteManagedInstance"><input id="deleteManagedInstance" type="checkbox" checked><span>同时删除托管实例</span></label>
+      <div class="modal-actions"><button class="button button-quiet" id="cancelConfirmButton" type="button">取消</button><button class="button button-danger" id="acceptConfirmButton" type="button">确认</button></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="credentialSecretModal" role="dialog" aria-modal="true" aria-labelledby="credentialSecretTitle" aria-describedby="credentialSecretNotice" hidden>
+    <div class="modal-card modal-card-small" tabindex="-1">
+      <div class="modal-heading"><div><p class="eyebrow">ONE-TIME SECRET</p><h2 id="credentialSecretTitle">保存临时凭据</h2></div></div>
+      <p id="credentialSecretNotice">这是唯一一次显示凭据私钥。关闭后无法再次查看，请立即通过安全渠道保存。</p>
+      <pre class="secret-output" id="credentialSecretValue" tabindex="0"></pre>
+        <div class="modal-actions"><button class="button button-quiet" id="copyCredentialSecretButton" type="button">复制私钥</button><button class="button button-primary" id="closeCredentialSecretButton" data-close-modal type="button">我已保存</button></div>
+    </div>
+  </div>
+</body>
+</html>

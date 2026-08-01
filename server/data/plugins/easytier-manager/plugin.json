@@ -1,0 +1,12 @@
+{
+  "name": "easytier-manager",
+  "displayName": "EasyTier 管理控制台",
+  "description": "一键安装 EasyTier，托管 Web 控制台，并管理网络 Profile、实时拓扑、路由、运行时动作与 Secure Mode。",
+  "version": "1.1.0",
+  "author": "GSM3 Community",
+  "enabled": false,
+  "hasWebInterface": true,
+  "entryPoint": "index.html",
+  "icon": "network",
+  "category": "工具"
+}
