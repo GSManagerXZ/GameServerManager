@@ -35,6 +35,8 @@ data/wallpapers/
 data/lib/
 data/tunnels/
 data/tools/
+data/terminal-control/
+server/data/terminal-control/
 
 
 dist/
