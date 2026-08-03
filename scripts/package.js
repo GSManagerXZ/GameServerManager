@@ -1,7 +1,7 @@
 const fs = require('fs-extra')
 const path = require('path')
 const archiver = require('archiver')
-const { execSync } = require('child_process')
+const { execFileSync, execSync } = require('child_process')
 const https = require('https')
 const { pipeline } = require('stream')
 const { promisify } = require('util')
@@ -16,9 +16,23 @@ const packageDir = path.join(distDir, 'package')
 
 // 获取命令行参数
 const args = process.argv.slice(2)
-const buildTarget = args.find(arg => arg.startsWith('--target='))?.split('=')[1]
+const requestedBuildTarget = args.find(arg => arg.startsWith('--target='))?.split('=')[1]
 const skipZip = args.includes('--no-zip') || args.includes('--skip-zip')
-const outputFile = buildTarget 
+
+function resolveBuildTarget(target) {
+  if (!target || target === 'windows' || target === 'linux-x64' || target === 'linux-arm64') {
+    return target
+  }
+  if (target === 'linux') {
+    if (process.arch === 'x64') return 'linux-x64'
+    if (process.arch === 'arm64') return 'linux-arm64'
+    throw new Error(`不支持当前架构的 Linux 打包: ${process.arch}`)
+  }
+  throw new Error(`不支持的打包目标: ${target}`)
+}
+
+const buildTarget = resolveBuildTarget(requestedBuildTarget)
+const outputFile = buildTarget
   ? path.join(distDir, `${packageName}-${buildTarget}-v${version}.zip`)
   : path.join(distDir, `${packageName}-v${version}.zip`)
 
@@ -27,21 +41,14 @@ const nodeVersion = '22.17.0'
 // Zip-Tools GitHub 下载配置（始终使用最新版本）
 const ZIP_TOOLS_GITHUB_URL = 'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
 
-// PTY GitHub 下载配置（tag 名为 latest）
-const PTY_GITHUB_URL = 'https://github.com/MCSManager/PTY/releases/download/latest/'
-
 /**
- * 获取目标平台对应的 Zip-Tools 二进制文件名列表
- * 打包时下载所有该平台支持的架构版本
+ * 获取目标包对应的 Zip-Tools 二进制文件名列表
  */
-function getZipToolsBinaries(platform) {
-  if (platform === 'linux') {
-    return ['file_zip_linux_x64', 'file_zip_linux_arm64']
-  } else if (platform === 'windows') {
-    // GitHub Releases 上 Zip-Tools 只有 win32_x64 版本
-    return ['file_zip_win32_x64.exe']
-  }
-  // 未指定平台时下载所有版本
+function getZipToolsBinaries(target) {
+  if (target === 'linux-x64') return ['file_zip_linux_x64']
+  if (target === 'linux-arm64') return ['file_zip_linux_arm64']
+  if (target === 'windows') return ['file_zip_win32_x64.exe']
+  // 未指定目标时下载所有版本
   return [
     'file_zip_linux_x64',
     'file_zip_linux_arm64',
@@ -52,16 +59,13 @@ function getZipToolsBinaries(platform) {
 }
 
 /**
- * 获取目标平台对应的 7z 二进制文件名列表
- * 打包时下载所有该平台支持的架构版本
+ * 获取目标包对应的 7z 二进制文件名列表
  */
-function get7zBinaries(platform) {
-  if (platform === 'linux') {
-    return ['7z_linux_x64', '7z_linux_arm64']
-  } else if (platform === 'windows') {
-    return ['7z_win32_x64.exe', '7z_win32_arm64.exe']
-  }
-  // 未指定平台时下载所有版本
+function get7zBinaries(target) {
+  if (target === 'linux-x64') return ['7z_linux_x64']
+  if (target === 'linux-arm64') return ['7z_linux_arm64']
+  if (target === 'windows') return ['7z_win32_x64.exe', '7z_win32_arm64.exe']
+  // 未指定目标时下载所有版本
   return [
     '7z_linux_x64', '7z_linux_arm64', '7z_linux_386', '7z_linux_arm',
     '7z_win32_x64.exe', '7z_win32_arm64.exe',
@@ -213,79 +217,51 @@ async function download7z(platform) {
 }
 
 /**
- * 获取目标平台对应的 PTY 二进制文件名列表
- * 打包时下载所有该平台支持的架构版本
+ * 获取目标包对应的固定 PTY 资产键列表
  */
-function getPtyBinaries(platform) {
-  if (platform === 'linux') {
-    return ['pty_linux_x64', 'pty_linux_arm64']
-  } else if (platform === 'windows') {
-    return ['pty_win32_x64.exe']
-  }
-  // 未指定平台时下载所有版本
-  return [
-    'pty_linux_x64',
-    'pty_linux_arm64',
-    'pty_win32_x64.exe',
-  ]
+function getPtyAssetKeys(target) {
+  if (target === 'linux-x64') return ['linux-x64']
+  if (target === 'linux-arm64') return ['linux-arm64']
+  if (target === 'windows') return ['win32-x64']
+  return ['linux-x64', 'linux-arm64', 'win32-x64']
 }
 
 /**
- * 下载 PTY 二进制文件到打包目录的 data/lib/
- * 从 GitHub Releases 下载，确保打包产物内置 PTY
+ * 通过服务端固定资产 CLI 校验或下载 PTY 到打包目录
  */
-async function downloadPty(platform) {
-  const binaries = getPtyBinaries(platform)
+async function ensurePtyAssets(target) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
 
-  console.log('📥 正在从 GitHub 下载 PTY (latest)...')
-  let hasSuccess = false
-
-  for (const binaryName of binaries) {
-    const url = `${PTY_GITHUB_URL}${binaryName}`
-    const destPath = path.join(libDir, binaryName)
-
-    console.log(`   下载: ${binaryName}`)
-    try {
-      await downloadFile(url, destPath)
-      // 非 Windows 二进制文件设置可执行权限
-      if (!binaryName.endsWith('.exe')) {
-        try {
-          execSync(`chmod +x "${destPath}"`)
-        } catch (e) {
-          // Windows 构建环境无法 chmod，忽略
-        }
-      }
-      console.log(`   ✅ ${binaryName} 下载完成`)
-      hasSuccess = true
-    } catch (err) {
-      console.error(`   ⚠️ ${binaryName} 下载失败（跳过）: ${err.message}`)
-    }
+  console.log('📥 正在校验固定 PTY 资产...')
+  for (const assetKey of getPtyAssetKeys(target)) {
+    execFileSync(process.execPath, [
+      path.join(packageDir, 'server', 'utils', 'ptyAssetCli.js'),
+      'ensure',
+      '--asset', assetKey,
+      '--target-dir', libDir
+    ], { stdio: 'inherit' })
   }
-
-  if (!hasSuccess) {
-    throw new Error('所有 PTY 文件下载均失败')
-  }
-  console.log('✅ PTY 下载完成')
+  console.log('✅ PTY 资产校验完成')
 }
 
-async function downloadNodejs(platform) {
+async function downloadNodejs(target) {
   const nodeUrls = {
-    linux: `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-linux-x64.tar.xz`,
+    'linux-x64': `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-linux-x64.tar.xz`,
+    'linux-arm64': `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-linux-arm64.tar.xz`,
     windows: `https://nodejs.org/download/release/latest-v22.x/win-x64/node.exe`
   }
-  
-  const url = nodeUrls[platform]
+
+  const url = nodeUrls[target]
   if (!url) {
-    throw new Error(`不支持的平台: ${platform}`)
+    throw new Error(`不支持的 Node.js 打包目标: ${target}`)
   }
-  
+
   const fileName = url.split('/').pop()
   const filePath = path.join(__dirname, '..', fileName)
-  
-  console.log(`📥 正在下载 Node.js ${nodeVersion} for ${platform}...`)
-  
+
+  console.log(`📥 正在下载 Node.js ${nodeVersion} for ${target}...`)
+
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(filePath)
     https.get(url, (response) => {
@@ -293,7 +269,7 @@ async function downloadNodejs(platform) {
         reject(new Error(`下载失败: ${response.statusCode}`))
         return
       }
-      
+
       response.pipe(file)
       file.on('finish', () => {
         file.close()
@@ -308,33 +284,36 @@ async function downloadNodejs(platform) {
 }
 
 // 解压和部署Node.js
-async function deployNodejs(platform, downloadedFile) {
+async function deployNodejs(target, downloadedFile) {
   const projectRoot = path.join(__dirname, '..')
-  
-  if (platform === 'linux') {
+
+  if (target === 'linux-x64' || target === 'linux-arm64') {
     console.log('📦 正在解压 Linux Node.js...')
     // 解压到临时目录
     execSync(`tar -xf "${downloadedFile}"`, { cwd: projectRoot })
-    
-    // 重命名为node文件夹
-    const extractedDir = path.join(projectRoot, `node-v${nodeVersion}-linux-x64`)
+
+    const extractedDirNames = {
+      'linux-x64': `node-v${nodeVersion}-linux-x64`,
+      'linux-arm64': `node-v${nodeVersion}-linux-arm64`
+    }
+    const extractedDir = path.join(projectRoot, extractedDirNames[target])
     const targetDir = path.join(packageDir, 'node')
-    
+
     if (await fs.pathExists(extractedDir)) {
       await fs.move(extractedDir, targetDir)
       console.log('✅ Linux Node.js 部署到项目根目录/node')
     } else {
       throw new Error('Linux Node.js 解压失败')
     }
-  } else if (platform === 'windows') {
+  } else if (target === 'windows') {
     console.log('📦 正在部署 Windows Node.js...')
     // 复制node.exe到打包根目录（start.bat不再cd server，cwd为根目录）
     const targetFile = path.join(packageDir, 'node.exe')
-    
+
     await fs.copy(downloadedFile, targetFile)
     console.log('✅ Windows Node.js 部署到打包根目录/node.exe')
   }
-  
+
   // 清理下载的文件
   await fs.remove(downloadedFile)
 }
@@ -360,7 +339,7 @@ async function createPackage() {
       path.join(packageDir, 'server', 'package.json')
     )
     
-    // PTY 文件不再从本地复制，改为从 GitHub 下载到 data/lib/ 目录
+    // PTY 文件不从本地复制，待生产依赖安装后由固定资产 CLI 写入 data/lib/
     
     // 复制环境变量配置文件
     await fs.copy(
@@ -425,6 +404,9 @@ async function createPackage() {
       console.error('❌ 服务端依赖安装失败:', error)
       throw error
     }
+
+    // 服务端构建文件和生产依赖就绪后，通过固定清单校验或下载 PTY
+    await ensurePtyAssets(buildTarget)
     
     console.log('🎨 复制前端文件...')
     // 复制前端构建文件
@@ -457,14 +439,6 @@ async function createPackage() {
       console.log('   用户启动时会自动从镜像站下载')
     }
     
-    // 下载 PTY 二进制文件（从 GitHub Releases）
-    try {
-      await downloadPty(buildTarget)
-    } catch (error) {
-      console.error('⚠️  PTY 下载失败，打包产物中将不包含 PTY:', error.message)
-      console.log('   用户启动时会自动从镜像站下载')
-    }
-    
     console.log('📝 创建启动脚本...')
     // 根据目标平台创建启动脚本
     if (buildTarget === 'windows') {
@@ -473,7 +447,7 @@ async function createPackage() {
         path.join(__dirname, 'start.bat'),
         path.join(packageDir, 'start.bat')
       )
-    } else if (buildTarget === 'linux') {
+    } else if (buildTarget === 'linux-x64' || buildTarget === 'linux-arm64') {
       const startShScript = `#!/bin/bash
 echo "正在启动GSM3管理面板..."
 # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测

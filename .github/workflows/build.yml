@@ -59,6 +59,15 @@ jobs:
     needs: resolve_version
     if: github.event.inputs.build_linux == 'true' || github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            package_command: npm run package:linux:x64
+            artifact_name: gsm3-management-panel-linux-x64-build
+          - arch: arm64
+            package_command: npm run package:linux:arm64
+            artifact_name: gsm3-management-panel-linux-arm64-build
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js for build
@@ -72,17 +81,17 @@ jobs:
           npm install
           cd client && npm install
           cd ../server && npm install
-      - name: Build package
-        run: npm run package:linux
+      - name: Build Linux ${{ matrix.arch }} package
+        run: ${{ matrix.package_command }}
         env:
           CI: true
           NODE_ENV: production
           APP_VERSION: ${{ needs.resolve_version.outputs.version }}
           VITE_APP_VERSION: ${{ needs.resolve_version.outputs.version }}
-      - name: Upload artifacts
+      - name: Upload Linux ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gsm3-management-panel-linux-build
+          name: ${{ matrix.artifact_name }}
           path: dist/package/
           retention-days: 30
 
@@ -205,29 +214,33 @@ jobs:
     needs: [resolve_version, build_linux, build_windows]
     runs-on: ubuntu-latest
     steps:
-      - name: Download Linux artifact
+      - name: Download Linux x64 artifact
         uses: actions/download-artifact@v4
         with:
-          name: gsm3-management-panel-linux-build
-          path: linux-build/
+          name: gsm3-management-panel-linux-x64-build
+          path: linux-x64-build/
+      - name: Download Linux arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gsm3-management-panel-linux-arm64-build
+          path: linux-arm64-build/
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: gsm3-management-panel-windows-build
           path: windows-build/
-      - name: Create Linux tar.gz
+      - name: Create platform archives
         run: |
-          cd linux-build
-          tar -czf ../gsm3-management-panel-linux-v${{ needs.resolve_version.outputs.version }}.tar.gz *
-      - name: Create Windows zip
-        run: |
+          tar -czf gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz -C linux-x64-build .
+          tar -czf gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz -C linux-arm64-build .
           cd windows-build
-          zip -r ../gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip *
+          zip -r ../gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip .
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            gsm3-management-panel-linux-v${{ needs.resolve_version.outputs.version }}.tar.gz
+            gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz
+            gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz
             gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip
           generate_release_notes: true
           draft: false

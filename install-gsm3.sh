@@ -105,10 +105,27 @@ mkdir -pv "$install_path"
 cd "$install_path"
 
 if test "$install_type" = "1"; then
+	ARCH=$(uname -m)
+	case "$ARCH" in
+		x86_64|amd64)
+			ARCHIVE_NAME="gsm3-management-panel-linux-x64.tar.gz"
+			PTY_ASSET="linux-x64"
+			;;
+		aarch64|arm64)
+			ARCHIVE_NAME="gsm3-management-panel-linux-arm64.tar.gz"
+			PTY_ASSET="linux-arm64"
+			;;
+		*)
+			echo -e "\x1b[31m不支持的系统架构: $ARCH\x1b[0m"
+			exit 1
+			;;
+	esac
+	DOWNLOAD_URL="https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest/download/$ARCHIVE_NAME"
+
 	if command -v curl &>/dev/null;then
-		curl -Lo gsm3.tgz https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest/download/gsm3-management-panel-linux.tar.gz
+		curl -Lo gsm3.tgz "$DOWNLOAD_URL"
 	elif command -v wget &>/dev/null; then
-		wget -O gsm3.tgz https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest/download/gsm3-management-panel-linux.tar.gz
+		wget -O gsm3.tgz "$DOWNLOAD_URL"
 	else
 		echo -e "\x1b[31m错误：既没有安装curl也没有安装wget，无法下载gsm3程序，请安装这俩其中一个工具后再次执行该脚本！"
 		exit 1
@@ -123,51 +140,16 @@ if test "$install_type" = "1"; then
 	rm -rf gsm3.tgz
 	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" 2>/dev/null || true
 
-	# 验证并修复PTY二进制文件
-	ARCH=$(uname -m)
-	if [ "$ARCH" = "x86_64" ]; then
-		PTY_NAME="pty_linux_x64"
-	elif [ "$ARCH" = "aarch64" ]; then
-		PTY_NAME="pty_linux_arm64"
+	# 通过打包产物中的固定资产 CLI 校验或修复 PTY
+	mkdir -p "$install_path/data/lib"
+	echo -e "\x1b[33m正在校验固定 PTY 资产...\x1b[0m"
+	if "$install_path/node/bin/node" \
+		"$install_path/server/utils/ptyAssetCli.js" ensure \
+		--asset "$PTY_ASSET" \
+		--target-dir "$install_path/data/lib"; then
+		echo -e "\x1b[32mPTY 资产校验完成\x1b[0m"
 	else
-		PTY_NAME=""
-	fi
-
-	if [ -n "$PTY_NAME" ]; then
-		PTY_FILE="$install_path/data/lib/$PTY_NAME"
-		PTY_VALID=false
-
-		# 检查PTY文件是否存在且为有效的ELF二进制文件
-		if [ -f "$PTY_FILE" ]; then
-			if file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
-				PTY_VALID=true
-			else
-				echo -e "\x1b[33mPTY文件无效（非ELF二进制），将重新下载...\x1b[0m"
-				rm -f "$PTY_FILE"
-			fi
-		fi
-
-		if [ "$PTY_VALID" = "false" ]; then
-			echo -e "\x1b[33m正在下载PTY二进制文件...\x1b[0m"
-			mkdir -p "$install_path/data/lib"
-			PTY_URL="https://github.com/MCSManager/PTY/releases/download/latest/$PTY_NAME"
-			if command -v curl &>/dev/null; then
-				curl -Lo "$PTY_FILE" "$PTY_URL"
-			elif command -v wget &>/dev/null; then
-				wget -O "$PTY_FILE" "$PTY_URL"
-			fi
-			if [ -f "$PTY_FILE" ] && file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
-				echo -e "\x1b[32mPTY下载完成\x1b[0m"
-			else
-				echo -e "\x1b[33mPTY下载失败，终端功能将在服务启动时自动重试下载\x1b[0m"
-				rm -f "$PTY_FILE" 2>/dev/null
-			fi
-		fi
-
-		# 设置可执行权限
-		if [ -f "$PTY_FILE" ]; then
-			chmod 755 "$PTY_FILE"
-		fi
+		echo -e "\x1b[33mPTY 资产校验或下载失败；在运行时校验成功前，终端创建功能将保持不可用\x1b[0m"
 	fi
 
 	# 设置其他lib文件权限

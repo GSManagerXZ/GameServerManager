@@ -228,11 +228,11 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
         npm config set fetch-retry-maxtimeout 120000 && \
         npm config set fetch-timeout 300000 && \
         npm run install:all && \
-        npm run package:linux:no-zip; \
+        npm run package:linux:arm64:no-zip; \
     else \
         echo "AMD64架构构建，使用标准配置..." && \
         npm run install:all && \
-        npm run package:linux:no-zip; \
+        npm run package:linux:x64:no-zip; \
     fi
 
 # ---------- 运行阶段（最终镜像） ----------
@@ -297,18 +297,17 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     chmod 755 /root/server/data/lib/${BINARY_7Z} && \
     echo "7z 下载完成: ${BINARY_7Z}"
 
-# 下载 PTY 二进制文件（从 GitHub Releases latest，构建时预置）
+# 通过打包产物中的固定资产 CLI 校验并预置当前架构的 PTY
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        PTY_NAME="pty_linux_x64"; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        PTY_NAME="pty_linux_arm64"; \
-    fi && \
-    echo "正在下载 PTY (${PTY_NAME})..." && \
-    wget -t 3 --retry-connrefused --waitretry=2 --read-timeout=30 --timeout=15 \
-        -O /root/server/data/lib/${PTY_NAME} \
-        "https://github.com/MCSManager/PTY/releases/download/latest/${PTY_NAME}" && \
-    chmod 755 /root/server/data/lib/${PTY_NAME} && \
-    echo "PTY 下载完成: ${PTY_NAME}"
+        PTY_ASSET="linux-x64"; \
+      elif [ "$TARGETARCH" = "arm64" ]; then \
+        PTY_ASSET="linux-arm64"; \
+      else \
+        echo "不支持的 PTY 架构: $TARGETARCH" >&2; exit 1; \
+      fi && \
+      node /root/server/utils/ptyAssetCli.js ensure \
+        --asset "$PTY_ASSET" \
+        --target-dir /root/server/data/lib
 # 拷贝 Python 依赖清单并安装
 COPY --from=builder /app/server/src/Python/requirements.txt /tmp/requirements.txt
 # 安装Python依赖并配置最终权限
