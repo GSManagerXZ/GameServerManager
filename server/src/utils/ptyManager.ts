@@ -1,178 +1,119 @@
-import path from 'path'
+import { constants as fsConstants } from 'fs'
 import fs from 'fs/promises'
-import { createWriteStream } from 'fs'
-import { pipeline } from 'stream/promises'
+import path from 'path'
 import logger from './logger.js'
-
-/**
- * 支持的操作系统平台列表
- */
-const SUPPORTED_PLATFORMS = new Set(['win32', 'linux'])
-
-/**
- * 支持的 CPU 架构列表
- */
-const SUPPORTED_ARCHS = new Set(['x64', 'arm64'])
+import {
+  ensurePtyAsset,
+  getPtyAsset,
+  probePtyAsset,
+  verifyPtyAsset
+} from './ptyAssets.js'
 
 /**
  * PTY 二进制文件管理器
- * 负责 PTY 二进制文件的路径解析、检测、下载
- * 参照 ZipToolsManager 的设计模式
+ * 负责按固定清单解析、校验、探测和安装 PTY 二进制文件。
  */
 class PtyManager {
-  /** GitHub Releases 下载 URL（tag 名为 latest） */
-  private readonly DOWNLOAD_URL =
-    'https://github.com/MCSManager/PTY/releases/download/latest/'
-
-  /**
-   * 获取当前平台对应的 PTY 二进制文件名
-   * 命名规则：pty_{platform}_{arch}，Windows 追加 .exe
-   *
-   * 实际文件命名：
-   *   - win32/x64   → pty_win32_x64.exe
-   *   - linux/x64   → pty_linux_x64
-   *   - linux/arm64  → pty_linux_arm64
-   */
+  /** 获取当前平台对应的固定 PTY 二进制文件名。 */
   getBinaryName(): string {
-    const platform = process.platform
-    const arch = process.arch
-
-    if (!SUPPORTED_PLATFORMS.has(platform)) {
-      throw new Error(`不支持的操作系统平台: ${platform}`)
-    }
-    if (!SUPPORTED_ARCHS.has(arch)) {
-      throw new Error(`不支持的 CPU 架构: ${arch}`)
-    }
-
-    const name = `pty_${platform}_${arch}`
-    return platform === 'win32' ? `${name}.exe` : name
+    return getPtyAsset().name
   }
 
   /**
-   * 获取 lib 目录的候选路径列表
-   * 使用多路径尝试策略，兼容打包后环境和开发环境
+   * 获取 lib 目录的候选路径列表。
+   * 顺序兼容打包后环境和开发环境，不得改变。
    */
   private getLibDirCandidates(): string[] {
-    const baseDir = process.cwd()
-    return [
-      path.join(baseDir, 'data', 'lib'),           // 打包后环境
-      path.join(baseDir, 'server', 'data', 'lib'), // 开发环境
+    const candidates = [
+      path.join(process.cwd(), 'data', 'lib'),
+      path.join(process.cwd(), 'server', 'data', 'lib')
     ]
+    return candidates
+  }
+
+  /** 优先使用第一个已存在目录；均不存在时创建第一个可写目录。 */
+  private async getTargetDir(): Promise<string> {
+    const candidates = this.getLibDirCandidates()
+
+    for (const candidate of candidates) {
+      try {
+        const stat = await fs.stat(candidate)
+        if (!stat.isDirectory()) {
+          throw new Error(`PTY 候选路径不是目录: ${candidate}`)
+        }
+        return candidate
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') {
+          continue
+        }
+        throw error
+      }
+    }
+
+    for (const candidate of candidates) {
+      try {
+        await fs.mkdir(candidate, { recursive: true })
+        await fs.access(candidate, fsConstants.W_OK)
+        return candidate
+      } catch (error) {
+        logger.warn(`PTY 候选目录不可写: ${candidate}`)
+      }
+    }
+
+    throw new Error(`无法创建可写的 PTY lib 目录，已尝试: ${candidates.join(', ')}`)
   }
 
   /**
-   * 使用多路径尝试策略获取 PTY 二进制文件绝对路径
-   * 依次尝试 data/lib/ 和 server/data/lib/ 目录
+   * 返回经过固定清单校验和本机能力探测的 PTY 路径。
+   * 缺失、损坏或不支持 -fifo 的资产会在选定候选目录中被固定版本替换。
    */
   async getPtyPath(): Promise<string> {
-    const binaryName = this.getBinaryName()
-    const candidates = this.getLibDirCandidates()
-
-    for (const libDir of candidates) {
-      const fullPath = path.join(libDir, binaryName)
-      try {
-        await fs.access(fullPath)
-        return fullPath
-      } catch {
-        // 该路径不存在，尝试下一个
-      }
-    }
-
-    throw new Error(
-      `未找到 PTY 二进制文件 (${binaryName})，已尝试路径: ${candidates.map(d => path.join(d, binaryName)).join(', ')}`
-    )
+    const asset = getPtyAsset()
+    const targetDir = await this.getTargetDir()
+    return ensurePtyAsset({ asset, targetDir, logger })
   }
 
-  /**
-   * 检测 PTY 二进制文件是否存在
-   */
+  /** 检查首个已存在候选目录中的 PTY 是否可信且可用，不触发下载。 */
   async isInstalled(): Promise<boolean> {
-    try {
-      await this.getPtyPath()
-      return true
-    } catch {
-      return false
-    }
-  }
+    const asset = getPtyAsset()
 
-  /**
-   * 从指定 URL 下载二进制文件到目标路径
-   * 非 Windows 平台设置 chmod 0o755
-   */
-  private async downloadFromUrl(url: string, targetPath: string): Promise<void> {
-    const axios = (await import('axios')).default
-    const response = await axios.get(url, {
-      responseType: 'stream',
-      timeout: 60000, // 60 秒超时
-    })
-
-    // 使用流式写入文件
-    const writer = createWriteStream(targetPath)
-    await pipeline(response.data, writer)
-
-    // 检查文件大小，防止下载空文件
-    const stat = await fs.stat(targetPath)
-    if (stat.size === 0) {
-      await fs.unlink(targetPath)
-      throw new Error('下载的文件大小为 0，已删除')
-    }
-
-    // 非 Windows 平台设置可执行权限
-    if (process.platform !== 'win32') {
-      await fs.chmod(targetPath, 0o755)
-    }
-  }
-
-  /**
-   * 下载 PTY 二进制文件到第一个可写的 lib 目录
-   * 从 GitHub Releases 下载
-   */
-  async download(): Promise<void> {
-    const binaryName = this.getBinaryName()
-    const candidates = this.getLibDirCandidates()
-
-    // 选择第一个可用的 lib 目录（优先打包后路径）
-    let targetDir: string | null = null
-    for (const dir of candidates) {
+    for (const candidate of this.getLibDirCandidates()) {
       try {
-        await fs.mkdir(dir, { recursive: true })
-        targetDir = dir
-        break
+        const stat = await fs.stat(candidate)
+        if (!stat.isDirectory()) {
+          return false
+        }
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') {
+          continue
+        }
+        return false
+      }
+
+      const targetPath = path.join(candidate, asset.name)
+      if (!await verifyPtyAsset(targetPath, asset)) {
+        return false
+      }
+      try {
+        await probePtyAsset(targetPath, asset)
+        return true
       } catch {
-        // 无法创建该目录，尝试下一个
+        return false
       }
     }
 
-    if (!targetDir) {
-      throw new Error(`无法创建 lib 目录，已尝试: ${candidates.join(', ')}`)
-    }
-
-    const targetPath = path.join(targetDir, binaryName)
-    const downloadUrl = `${this.DOWNLOAD_URL}${binaryName}`
-
-    logger.info(`正在从 GitHub 下载 PTY: ${downloadUrl}`)
-    try {
-      await this.downloadFromUrl(downloadUrl, targetPath)
-      logger.info(`PTY 下载完成: ${targetPath}`)
-    } catch (error: any) {
-      // 清理可能的残留文件
-      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
-      const message = `PTY 下载失败（GitHub）: ${error.message || error}`
-      logger.error(message)
-      throw new Error(message)
-    }
+    return false
   }
 
-  /**
-   * 确保 PTY 二进制文件可用（检测 + 自动下载）
-   * 服务端启动时调用
-   */
+  /** 安装或替换当前平台的固定 PTY 资产。 */
+  async download(): Promise<void> {
+    await this.getPtyPath()
+  }
+
+  /** 服务启动时确保可信 PTY 资产可用。 */
   async ensureInstalled(): Promise<void> {
-    if (await this.isInstalled()) {
-      logger.info('PTY 已存在，跳过下载')
-      return
-    }
-    await this.download()
+    const ptyPath = await this.getPtyPath()
+    logger.info(`PTY 已就绪: ${ptyPath}`)
   }
 }
 
