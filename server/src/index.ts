@@ -58,6 +58,7 @@ import { consoleLogBuffer } from './utils/logger.js'
 import { zipToolsManager } from './utils/zipToolsManager.js'
 import { ptyManager } from './utils/ptyManager.js'
 import { cleanupSteamCMDRunScripts } from './utils/steamcmdRunScript.js'
+import { registerTerminalSocketHandlers } from './socket/terminalSocketHandlers.js'
 
 // 获取当前文件目录
 const __filename = fileURLToPath(import.meta.url)
@@ -184,106 +185,167 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // 404处理将在startServer函数中设置
 
 // 优雅关闭处理
+type SettledCleanup = () => void | Promise<void>
+
+async function settle(name: string, cleanup: SettledCleanup): Promise<void> {
+  try {
+    await cleanup()
+  } catch (error) {
+    try {
+      logger.error(`${name} 清理失败:`, error)
+    } catch {
+      // 清理错误不得阻断后续关闭步骤
+    }
+  }
+}
+
+function closeSocketIOServer(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      if (
+        !error ||
+        (error as NodeJS.ErrnoException | undefined)?.code === 'ERR_SERVER_NOT_RUNNING'
+      ) {
+        resolve()
+        return
+      }
+      reject(error)
+    }
+
+    try {
+      const closeResult: unknown = io.close(error => finish(error))
+      if (
+        closeResult !== null &&
+        (
+          typeof closeResult === 'object' ||
+          typeof closeResult === 'function'
+        ) &&
+        typeof (closeResult as PromiseLike<void>).then === 'function'
+      ) {
+        void Promise.resolve(closeResult).then(
+          () => finish(),
+          error => finish(error)
+        )
+      }
+    } catch (error) {
+      finish(error)
+    }
+  })
+}
+
+/** HTTP/Socket 关闭（幂等）：在 final flush 之前调用以冻结外部准入，可重复调用。 */
+let httpAndSocketsClosed = false
+async function closeHttpAndSockets(): Promise<void> {
+  if (httpAndSocketsClosed) {
+    return
+  }
+  httpAndSocketsClosed = true
+  logger.info('开始关闭服务器...')
+  logger.info(`正在销毁 ${sockets.size} 个活动的socket...`)
+  let socketIndex = 0
+  for (const socket of sockets) {
+    const currentSocketIndex = socketIndex
+    socketIndex += 1
+    await settle(`Raw socket ${currentSocketIndex}`, () => {
+      socket.destroy()
+    })
+  }
+
+  const closeResults = await Promise.allSettled([
+    closeSocketIOServer(),
+    new Promise<void>((resolve, reject) => {
+      server.close(err => {
+        if (err && (err as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING') {
+          reject(err)
+          return
+        }
+        logger.info('HTTP服务器已关闭。')
+        resolve()
+      })
+    })
+  ])
+
+  const [ioCloseResult, httpCloseResult] = closeResults
+  if (ioCloseResult.status === 'rejected') {
+    logger.error('关闭Socket.IO服务器时出错:', ioCloseResult.reason)
+  } else {
+    logger.info('Socket.IO 服务器已关闭')
+  }
+  if (httpCloseResult.status === 'rejected') {
+    logger.error('关闭HTTP服务器时出错:', httpCloseResult.reason)
+  }
+}
+
 let shuttingDown = false
-async function gracefulShutdown(signal: string, exitCode = 0) {
+async function gracefulShutdown(signal: string, exitCode = 0): Promise<void> {
   if (shuttingDown) {
     logger.warn('已在关闭中，忽略重复信号。')
     return
   }
   shuttingDown = true
-
-  logger.info(`收到${signal}信号，开始优雅关闭...`)
-  const forceExitTimer = setTimeout(() => {
+  const forcedExitTimer = setTimeout(() => {
     logger.error('优雅关闭超时，强制退出！')
     process.exit(1)
-  }, 5000)
+  }, 15000)
 
-  // 1. 立即清理所有管理器，特别是会创建子进程的TerminalManager
-  logger.info('开始清理管理器...')
+  logger.info(`收到${signal}信号，开始优雅关闭...`)
+
   try {
-    if (terminalManager) {
-      await terminalManager.cleanup()
-      logger.info('TerminalManager 已清理')
-    }
-    if (gameManager) {
-      await gameManager.cleanup()
-      logger.info('GameManager 已清理')
-    }
-    if (systemManager) {
-      await systemManager.cleanup()
-      logger.info('SystemManager 已清理')
-    }
-    if (easyTierManager) {
-      easyTierManager.cleanup()
-      logger.info('EasyTierManager 已清理')
-    }
-    if (fileWatchManager) {
-      await fileWatchManager.cleanup()
-      logger.info('FileWatchManager 已清理')
-    }
-    if (instanceManager) {
-      await instanceManager.cleanup()
-      logger.info('InstanceManager 已清理')
-    }
-    if (steamcmdManager) {
-      await steamcmdManager.cleanup()
-      logger.info('SteamCMDManager 已清理')
-    }
-    if (schedulerManager) {
-      await schedulerManager.destroy()
-      logger.info('SchedulerManager 已清理')
-    }
-    if (pluginManager) {
-      await pluginManager.cleanup()
-      logger.info('PluginManager 已清理')
-    }
+    logger.info('开始清理管理器...')
+    // N-I3b/N5-I1：先冻结传输层准入（幂等 closeHttpAndSockets，at-most-once）——
+    // HTTP/Socket 不再接受新请求，新 mutation 无法产生；已准入的 async handler 的
+    // mutation 由 InstanceManager 的 admission gate + mutationChain drain 兜底：
+    // cleanup 先 drain 链尾（已准入 mutation 全部 settle 并落盘），再并行 internal 停止。
+    await settle('HTTP/Socket 关闭', () => closeHttpAndSockets())
+    // 再冻结任务调度（停 cron、等待在途任务 settle），之后不再产生新的 scheduler 触发的实例保存；
+    // 否则 InstanceManager final flush 之后仍可能有新 save 丢失。
+    await settle('SchedulerManager', () => schedulerManager?.destroy())
+    await settle('InstanceManager', () => instanceManager?.cleanup())
+    await settle('TerminalManager', () => terminalManager?.cleanup())
+    // TerminalManager.cleanup 关闭会话时会触发实例最终状态保存（fire-and-forget）：
+    // 必须在退出前强制 flush，保证最新最终状态真正落盘（process exit 前最后一次写入）。
+    await settle('InstanceManager final flush', () => instanceManager?.flushPendingSaves())
+    await settle('GameManager', () => gameManager?.cleanup())
+    await settle('SystemManager', () => systemManager?.cleanup())
+    await settle('EasyTierManager', () => easyTierManager?.cleanup())
+    await settle('FileWatchManager', () => fileWatchManager?.cleanup())
+    await settle('SteamCMDManager', () => steamcmdManager?.cleanup())
+    await settle('PluginManager', () => pluginManager?.cleanup())
     logger.info('管理器清理完成。')
-  } catch (cleanupErr) {
-    logger.error('清理管理器时出错:', cleanupErr)
+  } finally {
+    // 错误路径兜底：重复调用幂等，已关闭则直接返回。
+    await settle('HTTP/Socket 关闭(finally)', () => closeHttpAndSockets())
   }
 
-  // 2. 关闭服务器
-  logger.info('开始关闭服务器...')
-  // 强制销毁所有活动的socket
-  logger.info(`正在销毁 ${sockets.size} 个活动的socket...`)
-  for (const socket of sockets) {
-    socket.destroy()
-  }
+  clearTimeout(forcedExitTimer)
+  logger.info('优雅关闭完成，服务器退出。')
+  process.exit(exitCode)
+}
 
-  server.close(err => {
-    if (err && (err as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING') {
-      logger.error('关闭HTTP服务器时出错:', err)
-    } else {
-      logger.info('HTTP服务器已关闭。')
-    }
-    // 无论HTTP服务器关闭是否出错，都准备退出
-    logger.info('优雅关闭完成，服务器退出。')
-    clearTimeout(forceExitTimer)
-    process.exit(exitCode)
-  })
-
-  io.close(() => {
-    logger.info('Socket.IO 服务器已关闭')
-  })
-
+function handleShutdownEscape(error: unknown): void {
+  logger.error('优雅关闭发生未隔离异常，立即退出:', error)
+  process.exit(1)
 }
 
 process.on('SIGTERM', () => {
-  void gracefulShutdown('SIGTERM')
+  void gracefulShutdown('SIGTERM').catch(handleShutdownEscape)
 })
 process.on('SIGINT', () => {
-  void gracefulShutdown('SIGINT')
+  void gracefulShutdown('SIGINT').catch(handleShutdownEscape)
 })
 
 // 未捕获异常处理
 process.on('uncaughtException', (error) => {
   logger.error('未捕获的异常:', error)
-  void gracefulShutdown('未捕获异常', 1)
+  void gracefulShutdown('未捕获异常', 1).catch(handleShutdownEscape)
 })
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('未处理的Promise拒绝:', reason)
-  void gracefulShutdown('未处理的Promise拒绝', 1)
+  void gracefulShutdown('未处理的Promise拒绝', 1).catch(handleShutdownEscape)
 })
 
 // 艺术字输出函数
@@ -848,36 +910,7 @@ app.use('/api/easytier', createEasyTierRouter(easyTierManager, easyTierInstaller
       }
 
       // 终端相关事件
-      socket.on('create-pty', async (data) => {
-        // 将前端的cwd参数映射到后端的workingDirectory
-        const mappedData = {
-          ...data,
-          workingDirectory: data.cwd || data.workingDirectory
-        }
-        delete mappedData.cwd
-        await terminalManager.createPty(socket, mappedData)
-      })
-
-      socket.on('terminal-input', (data) => {
-        terminalManager.handleInput(socket, data)
-      })
-
-      socket.on('terminal-resize', (data) => {
-        terminalManager.resizeTerminal(socket, data)
-      })
-
-      socket.on('close-pty', (data) => {
-        terminalManager.closePty(socket, data)
-      })
-
-      socket.on('reconnect-session', (data) => {
-        const success = terminalManager.reconnectSession(socket, data.sessionId)
-        if (success) {
-          socket.emit('session-reconnected', { sessionId: data.sessionId })
-        } else {
-          socket.emit('session-reconnect-failed', { sessionId: data.sessionId })
-        }
-      })
+      registerTerminalSocketHandlers(socket, terminalManager, logger)
 
       // 游戏管理事件
       socket.on('game-start', (data) => {

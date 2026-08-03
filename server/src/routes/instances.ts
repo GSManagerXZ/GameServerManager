@@ -427,10 +427,13 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
     })
   } catch (error: any) {
     logger.error('删除实例失败:', error)
-    if (typeof error.message === 'string' && error.message.startsWith('实例正在')) {
+    if (
+      typeof error.message === 'string' &&
+      (error.message.startsWith('实例正在') || error.message.includes('终端仍在运行'))
+    ) {
       return res.status(409).json({
         success: false,
-        error: '实例正在执行其他操作',
+        error: '实例暂时无法删除',
         message: error.message
       })
     }
@@ -491,13 +494,21 @@ router.post('/:id/stop', authenticateToken, async (req: Request, res: Response) 
     }
     
     const { id } = req.params
-    await instanceManager.stopInstance(id)
-    
+    const result = await instanceManager.stopInstance(id)
+    if (result.status === 'still-running') {
+      return res.status(409).json({
+        success: false,
+        error: '实例仍在停止中',
+        message: '终端进程未在关闭期限内退出，请稍后重试。',
+        data: result
+      })
+    }
+
     logger.info(`用户停止实例: ${id}`)
-    
     res.json({
       success: true,
-      message: '实例停止成功'
+      message: '实例停止成功',
+      data: result
     })
   } catch (error: any) {
     logger.error('停止实例失败:', error)
@@ -526,13 +537,21 @@ router.post('/:id/close-terminal', authenticateToken, async (req: Request, res: 
     }
     
     const { id } = req.params
-    await instanceManager.closeTerminal(id)
-    
+    const result = await instanceManager.closeTerminal(id)
+    if (result.status === 'still-running') {
+      return res.status(409).json({
+        success: false,
+        error: '终端仍在关闭中',
+        message: '终端进程未在关闭期限内退出，请稍后重试。',
+        data: result
+      })
+    }
+
     logger.info(`用户关闭实例终端: ${id}`)
-    
     res.json({
       success: true,
-      message: '终端关闭成功'
+      message: '终端关闭成功',
+      data: result
     })
   } catch (error: any) {
     logger.error('关闭终端失败:', error)
