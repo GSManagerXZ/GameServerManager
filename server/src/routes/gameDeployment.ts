@@ -1690,7 +1690,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
         ? ['sudo', '-u', 'root', steamcmdPath, ...steamArguments]
         : [steamcmdPath, ...steamArguments]
 
-      await terminalManager.createPty(virtualSocket, {
+      const createResult = await terminalManager.createPty(virtualSocket, {
         sessionId: terminalSessionId,
         cols: 80,
         rows: 24,
@@ -1712,9 +1712,18 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
           releaseInstallOperationLock()
         }
       })
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      if (!terminalManager.hasSession(terminalSessionId)) {
-        throw new Error('SteamCMD终端会话未能启动')
+      if (createResult.status !== 'ready') {
+        if (createResult.status === 'failed-retained') {
+          installProcessStarted = true
+        }
+        const createError = new Error(createResult.error)
+        // 可操作的 retained handle：failed-retained 时向调用方暴露 retained 终端 ID，
+        // 便于重试关闭该会话后再发起安装；不再只发无 handle 的 500。
+        ;(createError as any).retainedTerminalSessionId =
+          createResult.status === 'failed-retained'
+            ? createResult.sessionId
+            : undefined
+        throw createError
       }
       installProcessStarted = true
       
@@ -1740,7 +1749,9 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       res.status(500).json({
         success: false,
         error: '创建安装会话失败',
-        message: error.message
+        message: error.message,
+        // failed-retained 时携带 retained terminal ID，调用方可先关闭该会话再重试
+        retainedTerminalSessionId: error.retainedTerminalSessionId
       })
     }
     

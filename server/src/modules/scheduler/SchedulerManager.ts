@@ -51,6 +51,12 @@ export class SchedulerManager extends EventEmitter {
   private gameManager: GameManager | null = null
   private instanceManager: InstanceManager | null = null
   private terminalManager: TerminalManager | null = null
+  /** 正在执行的（含 cron 回调与立即执行）任务 promise 集合，destroy 时等待其 settle。 */
+  private inFlightExecutions = new Set<Promise<void>>()
+  /** destroy 完成后置位：saveTasks 不得再覆盖任务文件（map 已清空）。 */
+  private destroyed = false
+  /** destroy 等待在途任务 settle 的有界预算。 */
+  private static readonly DESTROY_WAIT_MS = 5000
 
   constructor(dataDir: string, logger: winston.Logger) {
     super()
@@ -144,6 +150,11 @@ export class SchedulerManager extends EventEmitter {
   }
 
   private async saveTasks(): Promise<void> {
+    if (this.destroyed) {
+      // destroy 已清空任务 map：在途任务完成后的保存不得把任务文件覆盖为空数组。
+      this.logger.debug('定时任务管理器已销毁，跳过任务文件保存')
+      return
+    }
     try {
       const tasks = Array.from(this.tasks.values()).map(task => {
         const { job, ...taskData } = task
@@ -206,10 +217,27 @@ export class SchedulerManager extends EventEmitter {
       return
     }
 
-    await this.executeTaskDirectly(taskId)
+    try {
+      await this.executeTaskDirectly(taskId)
+    } catch (error) {
+      // cron 调度路径：失败已由 executeTaskDirectly 发出 success:false audit 并 rethrow；
+      // 此处消费 rejection，避免定时回调产生未处理 rejection。
+      this.logger.debug(`定时任务 ${task.name} 执行失败已记录:`, error)
+    }
   }
 
-  private async executeTaskDirectly(taskId: string): Promise<void> {
+  private executeTaskDirectly(taskId: string): Promise<void> {
+    const tracked = this.runTaskDirectly(taskId)
+    this.inFlightExecutions.add(tracked)
+    void tracked.finally(() => {
+      this.inFlightExecutions.delete(tracked)
+    }).catch(() => {
+      // 追踪 promise 的 rejection 已由调用方消费，此处仅确保追踪链不产生未处理 rejection。
+    })
+    return tracked
+  }
+
+  private async runTaskDirectly(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId)
     if (!task) {
       return
@@ -251,6 +279,10 @@ export class SchedulerManager extends EventEmitter {
         success: false,
         error: error instanceof Error ? error.message : String(error)
       })
+
+      // 失败必须传播给调用方：executeTaskImmediately 因此 reject、HTTP 路由返回非成功、
+      // 客户端显示失败；内部 success:false audit 只发一次，不双重报错。
+      throw error
     }
   }
 
@@ -263,9 +295,13 @@ export class SchedulerManager extends EventEmitter {
       case 'start':
         await this.instanceManager.startInstance(instanceId)
         break
-      case 'stop':
-        await this.instanceManager.stopInstance(instanceId)
+      case 'stop': {
+        const result = await this.instanceManager.stopInstance(instanceId)
+        if (result.status === 'still-running') {
+          throw new Error('实例仍在运行，停止未完成，请稍后重试')
+        }
         break
+      }
       case 'restart':
         await this.instanceManager.restartInstance(instanceId)
         break
@@ -602,12 +638,42 @@ export class SchedulerManager extends EventEmitter {
   }
 
   // 清理所有任务
-  destroy(): void {
+  async destroy(): Promise<void> {
     for (const task of this.tasks.values()) {
       if (task.job) {
         task.job.stop()
       }
     }
+
+    // 先等待在途任务 settle（有界预算），其完成时的 saveTasks 仍正常写入最后状态；
+    // 超时后不再等待，由 destroyed 标志保护文件不被覆盖。
+    // N-I3b：等待必须真正有界——每轮以剩余预算做 Promise.race，任一在途任务 settle
+    // 或预算耗尽即进入下一轮检查；单个永不 settle 的任务不得把 destroy 永久阻塞
+    // （否则只能被全局 15s forced exit 截断，后续 Instance/Terminal cleanup 与 final flush 不可达）。
+    if (this.inFlightExecutions.size > 0) {
+      const deadline = Date.now() + SchedulerManager.DESTROY_WAIT_MS
+      while (this.inFlightExecutions.size > 0) {
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) {
+          break
+        }
+        const snapshot = Array.from(this.inFlightExecutions)
+        let budgetTimer: NodeJS.Timeout | undefined
+        const budgetElapsed = new Promise<void>(resolve => {
+          budgetTimer = setTimeout(resolve, remaining)
+          budgetTimer.unref?.()
+        })
+        await Promise.race([Promise.allSettled(snapshot), budgetElapsed])
+        if (budgetTimer) {
+          clearTimeout(budgetTimer)
+        }
+      }
+      if (this.inFlightExecutions.size > 0) {
+        this.logger.warn(`定时任务管理器销毁时仍有 ${this.inFlightExecutions.size} 个任务在执行，已停止等待`)
+      }
+    }
+
+    this.destroyed = true
     this.tasks.clear()
     this.logger.info('定时任务管理器已销毁')
   }

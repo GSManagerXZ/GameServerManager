@@ -1224,6 +1224,13 @@ router.post('/instances/:id/stop', async (req: Request, res: Response) => {
     }
 
     const result = await instanceManager.stopInstance(id)
+    if (result.status === 'still-running') {
+      return res.status(409).json({
+        success: false,
+        data: result,
+        message: '实例终端仍在运行，请稍后重试停止。'
+      })
+    }
     res.json({
       success: true,
       data: result,

@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import winston from 'winston'
 
 // 终端会话持久化数据接口
@@ -27,6 +28,7 @@ export class TerminalSessionManager {
   private configPath: string
   private logger: winston.Logger
   private config: TerminalSessionsConfig
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   constructor(logger: winston.Logger) {
     this.logger = logger
@@ -93,15 +95,30 @@ export class TerminalSessionManager {
     }
   }
 
+  private enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const operation = this.mutationQueue.then(mutation)
+    this.mutationQueue = operation.then(
+      () => undefined,
+      () => undefined
+    )
+    return operation
+  }
+
   /**
-   * 保存配置文件
+   * 使用同目录临时文件和原子 rename 保存完整配置。
    */
   private async saveConfig(): Promise<void> {
+    this.config.lastUpdated = new Date().toISOString()
+    const tempPath = path.join(
+      this.configDir,
+      `.${path.basename(this.configPath)}.${process.pid}.${randomUUID()}.tmp`
+    )
     try {
-      this.config.lastUpdated = new Date().toISOString()
-      await fs.writeFile(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8')
+      await fs.writeFile(tempPath, JSON.stringify(this.config, null, 2), 'utf-8')
+      await fs.rename(tempPath, this.configPath)
       this.logger.debug('终端会话配置保存成功')
     } catch (error) {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined)
       this.logger.error('保存终端会话配置失败:', error)
       throw error
     }
@@ -119,29 +136,29 @@ export class TerminalSessionManager {
     isActive: boolean
   }): Promise<void> {
     try {
-      const persistedSession: PersistedTerminalSession = {
-        id: sessionData.id,
-        name: sessionData.name,
-        workingDirectory: sessionData.workingDirectory,
-        createdAt: sessionData.createdAt.toISOString(),
-        lastActivity: sessionData.lastActivity.toISOString(),
-        isActive: sessionData.isActive
-      }
+      await this.enqueueMutation(async () => {
+        const persistedSession: PersistedTerminalSession = {
+          id: sessionData.id,
+          name: sessionData.name,
+          workingDirectory: sessionData.workingDirectory,
+          createdAt: sessionData.createdAt.toISOString(),
+          lastActivity: sessionData.lastActivity.toISOString(),
+          isActive: sessionData.isActive
+        }
 
-      // 查找是否已存在该会话
-      const existingIndex = this.config.sessions.findIndex(s => s.id === sessionData.id)
-      
-      if (existingIndex >= 0) {
-        // 更新现有会话
-        this.config.sessions[existingIndex] = persistedSession
-        this.logger.debug(`更新终端会话: ${sessionData.id} - ${sessionData.name}`)
-      } else {
-        // 添加新会话
-        this.config.sessions.push(persistedSession)
-        this.logger.debug(`保存新终端会话: ${sessionData.id} - ${sessionData.name}`)
-      }
+        const existingIndex = this.config.sessions.findIndex(
+          session => session.id === sessionData.id
+        )
+        if (existingIndex >= 0) {
+          this.config.sessions[existingIndex] = persistedSession
+          this.logger.debug(`更新终端会话: ${sessionData.id} - ${sessionData.name}`)
+        } else {
+          this.config.sessions.push(persistedSession)
+          this.logger.debug(`保存新终端会话: ${sessionData.id} - ${sessionData.name}`)
+        }
 
-      await this.saveConfig()
+        await this.saveConfig()
+      })
     } catch (error) {
       this.logger.error('保存终端会话失败:', error)
       throw error
@@ -153,16 +170,17 @@ export class TerminalSessionManager {
    */
   async updateSessionName(sessionId: string, newName: string): Promise<void> {
     try {
-      const session = this.config.sessions.find(s => s.id === sessionId)
-      
-      if (session) {
-        session.name = newName
-        session.lastActivity = new Date().toISOString()
-        await this.saveConfig()
-        this.logger.info(`更新终端会话名称: ${sessionId} -> ${newName}`)
-      } else {
-        this.logger.warn(`尝试更新不存在的会话名称: ${sessionId}`)
-      }
+      await this.enqueueMutation(async () => {
+        const session = this.config.sessions.find(s => s.id === sessionId)
+        if (session) {
+          session.name = newName
+          session.lastActivity = new Date().toISOString()
+          await this.saveConfig()
+          this.logger.info(`更新终端会话名称: ${sessionId} -> ${newName}`)
+        } else {
+          this.logger.warn(`尝试更新不存在的会话名称: ${sessionId}`)
+        }
+      })
     } catch (error) {
       this.logger.error('更新会话名称失败:', error)
       throw error
@@ -174,16 +192,16 @@ export class TerminalSessionManager {
    */
   async removeSession(sessionId: string): Promise<void> {
     try {
-      const initialLength = this.config.sessions.length
-      this.config.sessions = this.config.sessions.filter(s => s.id !== sessionId)
-      
-      if (this.config.sessions.length < initialLength) {
-        await this.saveConfig()
-        this.logger.info(`删除终端会话: ${sessionId}`)
-      } else {
-        // 改为debug级别，避免不必要的警告日志
-        this.logger.debug(`尝试删除不存在的会话: ${sessionId}`)
-      }
+      await this.enqueueMutation(async () => {
+        const initialLength = this.config.sessions.length
+        this.config.sessions = this.config.sessions.filter(s => s.id !== sessionId)
+        if (this.config.sessions.length < initialLength) {
+          await this.saveConfig()
+          this.logger.info(`删除终端会话: ${sessionId}`)
+        } else {
+          this.logger.debug(`尝试删除不存在的会话: ${sessionId}`)
+        }
+      })
     } catch (error) {
       this.logger.error('删除会话失败:', error)
       throw error
@@ -209,21 +227,22 @@ export class TerminalSessionManager {
    */
   async cleanupExpiredSessions(): Promise<void> {
     try {
-      const now = new Date()
-      const expirationThreshold = 7 * 24 * 60 * 60 * 1000 // 7天
-      
-      const initialLength = this.config.sessions.length
-      this.config.sessions = this.config.sessions.filter(session => {
-        const lastActivity = new Date(session.lastActivity)
-        const timeDiff = now.getTime() - lastActivity.getTime()
-        return timeDiff < expirationThreshold
+      await this.enqueueMutation(async () => {
+        const now = new Date()
+        const expirationThreshold = 7 * 24 * 60 * 60 * 1000 // 7天
+        const initialLength = this.config.sessions.length
+        this.config.sessions = this.config.sessions.filter(session => {
+          const lastActivity = new Date(session.lastActivity)
+          const timeDiff = now.getTime() - lastActivity.getTime()
+          return timeDiff < expirationThreshold
+        })
+
+        const removedCount = initialLength - this.config.sessions.length
+        if (removedCount > 0) {
+          await this.saveConfig()
+          this.logger.info(`清理了 ${removedCount} 个过期的终端会话`)
+        }
       })
-      
-      const removedCount = initialLength - this.config.sessions.length
-      if (removedCount > 0) {
-        await this.saveConfig()
-        this.logger.info(`清理了 ${removedCount} 个过期的终端会话`)
-      }
     } catch (error) {
       this.logger.error('清理过期会话失败:', error)
     }
@@ -234,14 +253,15 @@ export class TerminalSessionManager {
    */
   async setSessionActive(sessionId: string, isActive: boolean): Promise<void> {
     try {
-      const session = this.config.sessions.find(s => s.id === sessionId)
-      
-      if (session) {
-        session.isActive = isActive
-        session.lastActivity = new Date().toISOString()
-        await this.saveConfig()
-        this.logger.debug(`设置会话活动状态: ${sessionId} -> ${isActive}`)
-      }
+      await this.enqueueMutation(async () => {
+        const session = this.config.sessions.find(s => s.id === sessionId)
+        if (session) {
+          session.isActive = isActive
+          session.lastActivity = new Date().toISOString()
+          await this.saveConfig()
+          this.logger.debug(`设置会话活动状态: ${sessionId} -> ${isActive}`)
+        }
+      })
     } catch (error) {
       this.logger.error('设置会话活动状态失败:', error)
       throw error
