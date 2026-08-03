@@ -80,11 +80,27 @@ export interface TerminalSession {
   lastActivity: string
 }
 
-export interface TerminalState {
-  sessions: TerminalSession[]
-  activeSessionId: string | null
-  connected: boolean
-  loading: boolean
+export interface CreateTerminalRequest {
+  sessionId: string
+  name?: string
+  cols: number
+  rows: number
+  cwd?: string
+  enableStreamForward?: boolean
+  programPath?: string
+}
+
+export type TerminalOperation =
+  | 'create'
+  | 'input'
+  | 'resize'
+  | 'close'
+
+export interface TerminalErrorEvent {
+  sessionId: string
+  operation: TerminalOperation
+  error: string
+  retained?: boolean
 }
 
 // 系统信息类型
@@ -229,9 +245,36 @@ export interface ApiResponse<T = any> {
 // Socket事件类型
 export interface SocketEvents {
   // 终端事件
-  'terminal-output': (data: { sessionId: string; data: string }) => void
-  'terminal-created': (data: { sessionId: string; name: string }) => void
-  'terminal-closed': (data: { sessionId: string }) => void
+  'pty-created': (data: {
+    sessionId: string
+    workingDirectory: string
+  }) => void
+  'pty-closed': (data: { sessionId: string }) => void
+  'terminal-output': (data: {
+    sessionId: string
+    data: string
+    isHistorical?: boolean
+  }) => void
+  'terminal-resized': (data: {
+    sessionId: string
+    cols: number
+    rows: number
+  }) => void
+  'terminal-error': (data: TerminalErrorEvent) => void
+  'terminal-exit': (data: {
+    sessionId: string
+    code: number | null
+    signal: string | null
+  }) => void
+  'session-reconnected': (data: {
+    sessionId: string
+    state: 'ready' | 'closing'
+  }) => void
+  'session-reconnect-failed': (data: { sessionId: string }) => void
+  'connection-status': (data: {
+    connected: boolean
+    reason?: string
+  }) => void
 
   // 系统监控事件
   'system-stats': (data: SystemStats) => void
