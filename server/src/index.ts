@@ -185,6 +185,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // 404处理将在startServer函数中设置
 
 // 优雅关闭处理
+const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 30000
+
 type SettledCleanup = () => void | Promise<void>
 
 async function settle(name: string, cleanup: SettledCleanup): Promise<void> {
@@ -289,7 +291,7 @@ async function gracefulShutdown(signal: string, exitCode = 0): Promise<void> {
   const forcedExitTimer = setTimeout(() => {
     logger.error('优雅关闭超时，强制退出！')
     process.exit(1)
-  }, 15000)
+  }, SHUTDOWN_FORCE_EXIT_TIMEOUT_MS)
 
   logger.info(`收到${signal}信号，开始优雅关闭...`)
 

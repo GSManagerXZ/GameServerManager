@@ -235,6 +235,14 @@ const GameDeploymentPage: React.FC = () => {
   // 安装失败时服务端 500 响应携带的 retained 终端会话 ID 与关闭状态
   const [retainedTerminalSessionId, setRetainedTerminalSessionId] = useState<string | null>(null)
   const [closingRetainedTerminal, setClosingRetainedTerminal] = useState(false)
+  const retainedTerminalCloseCleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    return () => {
+      retainedTerminalCloseCleanupRef.current?.()
+      retainedTerminalCloseCleanupRef.current = null
+    }
+  }, [])
   
   // 实例更新确认弹窗相关状态
   const [showInstanceUpdateDialog, setShowInstanceUpdateDialog] = useState(false)
@@ -3198,17 +3206,32 @@ const GameDeploymentPage: React.FC = () => {
       return
     }
 
+    retainedTerminalCloseCleanupRef.current?.()
     setClosingRetainedTerminal(true)
     let settled = false
 
-    const onPtyClosed = (data: { sessionId?: string }) => {
-      if (settled || data?.sessionId !== sessionId) {
-        return
-      }
-      settled = true
+    const cleanupListeners = () => {
       socketClient.off('pty-closed', onPtyClosed)
       socketClient.off('terminal-error', onTerminalError)
+      if (retainedTerminalCloseCleanupRef.current === cleanupListeners) {
+        retainedTerminalCloseCleanupRef.current = null
+      }
+    }
+
+    const settleClose = (): boolean => {
+      if (settled) {
+        return false
+      }
+      settled = true
+      cleanupListeners()
       setClosingRetainedTerminal(false)
+      return true
+    }
+
+    const onPtyClosed = (data: { sessionId?: string }) => {
+      if (data?.sessionId !== sessionId || !settleClose()) {
+        return
+      }
       setRetainedTerminalSessionId(null)
       addNotification({
         type: 'success',
@@ -3217,23 +3240,22 @@ const GameDeploymentPage: React.FC = () => {
       })
     }
 
-    const onTerminalError = (data: { sessionId?: string; retained?: boolean }) => {
-      if (settled || data?.sessionId !== sessionId || !data?.retained) {
+    const onTerminalError = (data: { sessionId?: string; retained?: boolean; error?: string }) => {
+      if (data?.sessionId !== sessionId || !settleClose()) {
         return
       }
-      settled = true
-      socketClient.off('pty-closed', onPtyClosed)
-      socketClient.off('terminal-error', onTerminalError)
-      setClosingRetainedTerminal(false)
       addNotification({
         type: 'error',
-        title: '残留终端仍在运行',
-        message: '终端进程仍在运行，会话已保留，请稍后重试关闭。'
+        title: data?.retained ? '残留终端仍在运行' : '关闭残留终端失败',
+        message: data?.retained
+          ? '终端进程仍在运行，会话已保留，请稍后重试关闭。'
+          : (data?.error || '关闭残留终端会话失败，请稍后重试。')
       })
     }
 
     socketClient.on('pty-closed', onPtyClosed)
     socketClient.on('terminal-error', onTerminalError)
+    retainedTerminalCloseCleanupRef.current = cleanupListeners
     socketClient.closeTerminal(sessionId)
   }, [retainedTerminalSessionId, closingRetainedTerminal, addNotification])
 

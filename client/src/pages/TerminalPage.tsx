@@ -718,6 +718,7 @@ const TerminalPage: React.FC = () => {
       case 'reconnecting':
         runtime.state = 'closing'
         clearPendingResize(runtime)
+        requestCloseIfIdle(sessionId)
         return
       case 'closing':
         requestCloseIfIdle(sessionId)
