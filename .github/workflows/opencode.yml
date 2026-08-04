@@ -14,6 +14,7 @@ jobs:
       contains(github.event.comment.body, ' /opencode') ||
       startsWith(github.event.comment.body, '/opencode')
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # 兜底超时，防止无限挂起
     permissions:
       id-token: write
       contents: read
@@ -25,9 +26,26 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Generate full allow opencode config
+        run: |
+          cat > opencode.config.json << 'EOF'
+          {
+            "permissions": [
+              { "permission": "bash", "pattern": "*", "action": "allow" },
+              { "permission": "read", "pattern": "*", "action": "allow" },
+              { "permission": "write", "pattern": "*", "action": "allow" },
+              { "permission": "delete", "pattern": "*", "action": "allow" },
+              { "permission": "external_directory", "pattern": "*", "action": "allow" },
+              { "permission": "network", "pattern": "*", "action": "allow" },
+              { "permission": "process", "pattern": "*", "action": "allow" }
+            ]
+          }
+          EOF
+
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         with:
           model: deepseek/deepseek-v4-flash
+          config: ./opencode.config.json
