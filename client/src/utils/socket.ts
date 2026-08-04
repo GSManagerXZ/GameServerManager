@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client'
-import { SocketEvents } from '@/types'
+import type { CreateTerminalRequest, SocketEvents, TerminalErrorEvent } from '@/types'
 import config from '@/config'
 
 class SocketClient {
@@ -15,6 +15,21 @@ class SocketClient {
   private visibilityChangeHandler?: () => void
   private intersectionObserver?: IntersectionObserver
   private disconnectContext: 'manual' | 'low-power' | 'auth-update' | null = null
+  /**
+   * ACK-owned close-pty 重试队列（N2-I2）：
+   * - pendingCloseOnReconnect：待发送项（断线时 closeTerminal 入队，或已发送未确认项在
+   *   断线时放回）；
+   * - awaitingCloseAck：当前连接已发送、等待 pty-closed/terminal-exit（或明确失败）的请求；
+   * - closeSentForConnection：当前连接已发送过的 ID（同一连接内自动重发只发生一次，
+   *   防重发风暴）。
+   * 只有收到 pty-closed / terminal-exit（确认关闭）才从队列移除；terminal-error
+   * {operation:'close', retained:true} 表示该次 close 未完成（target 被保留），放回待发送
+   * 队列，下次连接自动重发（服务端对 retained target 每次 close-pty 都重新驱动有界关闭）。
+   * 队列挂在单例上，跨页面卸载存活——页面卸载不再能丢失唯一 cleanup handle。
+   */
+  private pendingCloseOnReconnect = new Set<string>()
+  private awaitingCloseAck = new Set<string>()
+  private closeSentForConnection = new Set<string>()
 
   constructor() {
     // 不在构造函数中立即连接，等待用户登录后再连接
@@ -71,10 +86,20 @@ class SocketClient {
       this.clearReconnectTimer()
       this.reconnectAttempts = 0
       this.emit('connection-status', { connected: true })
+      // 重发断线期间排队的 close 请求（N2-I2：ACK-owned，发送后保留到确认/断线放回）
+      this.flushPendingCloseOnReconnect()
     })
 
     socket.on('disconnect', (reason) => {
       console.log('Socket断开连接:', reason)
+      // N2-I2：已发送未确认的 close 请求放回待发送队列——服务端会在断开时移除 requester，
+      // 若 target 再次 timeout retained，重连后必须重发，否则唯一 cleanup handle 随断线丢失。
+      for (const sessionId of this.awaitingCloseAck) {
+        this.pendingCloseOnReconnect.add(sessionId)
+      }
+      this.awaitingCloseAck.clear()
+      this.closeSentForConnection.clear()
+
       this.emit('connection-status', { connected: false, reason })
 
       if (this.shouldReconnect(reason)) {
@@ -82,6 +107,22 @@ class SocketClient {
       }
 
       this.disconnectContext = null
+    })
+
+    // N2-I2：close 请求的 ACK 跟踪（队列在单例上，跨页面卸载存活）
+    socket.on('pty-closed', (data: { sessionId: string }) => {
+      this.handleCloseAcknowledged(data?.sessionId)
+    })
+    socket.on('terminal-exit', (data: { sessionId: string }) => {
+      this.handleCloseAcknowledged(data?.sessionId)
+    })
+    socket.on('terminal-error', (data: TerminalErrorEvent) => {
+      if (data?.operation === 'close' && data?.retained) {
+        // 该次 close 未完成（target 被服务端保留）：放回待发送队列，下次连接自动重发
+        if (this.awaitingCloseAck.delete(data.sessionId)) {
+          this.pendingCloseOnReconnect.add(data.sessionId)
+        }
+      }
     })
 
     socket.on('connect_error', (error) => {
@@ -122,6 +163,14 @@ class SocketClient {
     if (!this.socket) {
       return
     }
+
+    // N2-I2：removeAllListeners 会阻止 disconnect handler 把未确认 close 放回队列，
+    // 因此先在这里显式迁移（未确认项在重连后重发，不随 socket 销毁丢失）。
+    for (const sessionId of this.awaitingCloseAck) {
+      this.pendingCloseOnReconnect.add(sessionId)
+    }
+    this.awaitingCloseAck.clear()
+    this.closeSentForConnection.clear()
 
     this.socket.removeAllListeners()
     this.socket.disconnect()
@@ -316,7 +365,7 @@ class SocketClient {
   }
 
   // 终端相关方法
-  createTerminal(data: { sessionId: string; name?: string; cols?: number; rows?: number; cwd?: string; enableStreamForward?: boolean; programPath?: string }) {
+  createTerminal(data: CreateTerminalRequest): void {
     this.emit('create-pty', data)
   }
 
@@ -329,7 +378,60 @@ class SocketClient {
   }
 
   closeTerminal(sessionId: string) {
-    this.emit('close-pty', { sessionId })
+    if (this.socket?.connected) {
+      // N2-I2：已在飞行且未收到结果（pty-closed/terminal-exit/明确失败）时幂等跳过——
+      // 该请求已被 ACK-owned 队列跟踪，unmount/重复点击不会重复发送；断线时自动回到
+      // 待发送队列。terminal-error{retained} 会把该项放回待发送队列，用户重试可再次发送。
+      if (this.awaitingCloseAck.has(sessionId)) {
+        return
+      }
+      this.pendingCloseOnReconnect.delete(sessionId)
+      this.awaitingCloseAck.add(sessionId)
+      this.closeSentForConnection.add(sessionId)
+      this.emit('close-pty', { sessionId })
+    } else {
+      // N2-I2：断线时不静默丢弃——排队待重连后重发（对 retained target 服务端继续 bounded close）
+      this.pendingCloseOnReconnect.add(sessionId)
+      console.warn('Socket未连接，close 请求已排队，将在重连后重发:', sessionId)
+    }
+  }
+
+  /** connect 后重发断线期间排队的 close-pty 请求（N2-I2，ACK-owned）。 */
+  private flushPendingCloseOnReconnect(): void {
+    if (!this.socket?.connected) {
+      return
+    }
+    if (this.pendingCloseOnReconnect.size === 0) {
+      return
+    }
+    const pending = Array.from(this.pendingCloseOnReconnect)
+    this.pendingCloseOnReconnect.clear()
+    pending.forEach(sessionId => {
+      // 同一连接内已发送过（且未确认）：不再重发，等待 ACK 或断线放回
+      if (this.closeSentForConnection.has(sessionId)) {
+        return
+      }
+      this.closeSentForConnection.add(sessionId)
+      this.awaitingCloseAck.add(sessionId)
+      this.emit('close-pty', { sessionId })
+    })
+  }
+
+  /** close-pty 被确认（pty-closed / terminal-exit）：从所有队列移除。 */
+  private handleCloseAcknowledged(sessionId: string | undefined): void {
+    if (!sessionId) {
+      return
+    }
+    this.awaitingCloseAck.delete(sessionId)
+    this.pendingCloseOnReconnect.delete(sessionId)
+    // Minor：确认关闭后同步删除 closeSentForConnection 对应项，避免长连接按历史
+    // 关闭数无限增长；flush 重发守卫语义保持——被守卫的是未确认项（仍在 awaiting/
+    // pending 的 ID 不会被误删，重新 closeTerminal 会再次加入）
+    this.closeSentForConnection.delete(sessionId)
+  }
+
+  reconnectTerminal(sessionId: string): void {
+    this.emit('reconnect-session', { sessionId })
   }
 
   // 系统监控相关方法

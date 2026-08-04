@@ -106,28 +106,36 @@ docker run -d \
 
 - `./game_data` → `/home/steam/games` - 游戏数据
 - `./game_file` → `/home/steam/.config` 和 `/home/steam/.local` - 游戏配置
-- `./gsm3_data` → `/home/steam/server/data` - GSM3 应用数据
+- `./gsm3_data` → `/root/server/data` - GSM3 应用数据
 
 ## 运行依赖预置目录说明
 
-为避免容器启动后重复下载运行依赖，Docker 构建阶段下载的二进制文件（如 `file_zip_linux_x64`、`7z_linux_x64`、`pty_linux_x64`）需要预置到以下目录：
+运行时路径候选以 Node.js 的 `process.cwd()` 为基准，`data/lib` 与 `server/data/lib` 都相对于该目录解析，并按此顺序尝试。Docker 的 `/root/start.sh` 在启动 Node.js 前执行 `cd server`，因此服务进程的 cwd 是 `/root/server`，两个实际候选依次是：
 
-- `/root/server/data/lib`
+1. `/root/server/data/lib`
+2. `/root/server/server/data/lib`
 
-原因：
+为避免容器启动后重复下载运行依赖，同时避免 `./gsm3_data` 数据卷遮蔽镜像内置文件，Docker 构建阶段将当前镜像架构需要的二进制文件预置到 `/root/server/builtin/data/lib`；`/root/start.sh` 启动时只补齐缺失文件到第一候选 `/root/server/data/lib`，不覆盖用户已有资产。这只是明确现有候选路径的解析基准，不改变运行时查找顺序。
 
-- 服务启动时会优先从 `/root/server/data/lib` 检测依赖是否就绪。
-- 若构建阶段写入了其他目录（例如 `/root/data/lib`），启动时仍会触发二次下载。
+### PTY 固定资产策略
 
-### 下载源策略
+`Zip-Tools` 和 `7z` 保持现有 GitHub Releases 下载逻辑；PTY 不使用可变发布下载地址。应用打包完成后，最终镜像调用已经随服务端产物打包的 CLI：
 
-Docker 构建阶段对 `Zip-Tools`、`7z`、`PTY` 统一从 GitHub Releases 下载。
+```text
+node /root/server/utils/ptyAssetCli.js ensure \
+  --asset <asset-key> \
+  --target-dir /root/server/builtin/data/lib
+```
 
-其中 PTY 的下载地址使用：
+`TARGETARCH` 与资产键的映射为：
 
-- `https://github.com/MCSManager/PTY/releases/download/latest/<binary>`
+- `amd64` → `linux-x64`
+- `arm64` → `linux-arm64`
+- 其他架构 → 构建失败
 
-说明：`PTY` 项目发布资产不保证支持 `releases/latest/download/<binary>` 形式，使用 `releases/download/latest/<binary>` 更稳定。
+CLI 读取服务端唯一的固定 release/asset manifest，通过 GitHub API 获取固定资产，并要求文件名、字节数和 SHA-256 全部匹配。最终镜像只选择当前镜像的原生架构，因此只对该原生 PTY 执行 `-h` 能力探测，并要求帮助文本包含 `-fifo`；不会在镜像构建中执行其他架构的二进制文件。
+
+无法验证、无法下载、原生探测失败或架构不受支持时，Docker 构建直接失败，不会保留或接受不可验证的 PTY 文件。固定 release ID、asset ID、大小和哈希详见 `docs/PTY集成说明.md`，不要在 Dockerfile 中另行维护或添加可变 URL 回退。
 
 ## 访问管理界面
 

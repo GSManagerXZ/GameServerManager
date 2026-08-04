@@ -37,6 +37,8 @@ data/lib/
 data/tunnels/
 data/easytier/
 data/tools/
+data/terminal-control/
+server/data/terminal-control/
 
 
 dist/

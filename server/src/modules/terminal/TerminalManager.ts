@@ -14,8 +14,14 @@ import { ConfigManager } from '../config/ConfigManager.js'
 import { ptyManager } from '../../utils/ptyManager.js'
 import { buildUtf8LocaleEnv } from '../../utils/filenameEncoding.js'
 import { StreamingRedactor } from '../../utils/streamingRedactor.js'
-import { getCurrentUsername } from '../../utils/currentUser.js'
 import { buildChildProcessEnvironment } from '../../utils/childProcessEnvironment.js'
+import {
+  createPtyControlChannel,
+  PtyControlChannel,
+  PtySize,
+  removePtyControlEndpoint,
+  validatePtySize
+} from '../../utils/ptyControlChannel.js'
 
 const execAsync = promisify(exec)
 const buildManagedChildEnvironment = (overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => (
@@ -28,7 +34,11 @@ const __dirname = path.dirname(__filename)
 interface PtySession {
   id: string
   name: string // 终端会话名称
+  state: 'ready' | 'closing'
+  size: PtySize
   process: ChildProcess
+  control: PtyControlChannel
+  endpoint: string
   socket: Socket
   workingDirectory: string
   createdAt: Date
@@ -37,6 +47,8 @@ interface PtySession {
   disconnectedAt?: Date
   outputBuffer: string[] // 存储终端输出历史
   streamForwardProcess?: ChildProcess // 输出流转发进程
+  pendingForwardAutoCloseProcess?: ChildProcess
+  streamForwardRestartGeneration: number
   enableStreamForward?: boolean // 是否启用输出流转发
   programPath?: string // 程序启动参数的绝对路径
   autoCloseOnForwardExit?: boolean // 转发进程退出时是否自动关闭终端会话
@@ -46,6 +58,21 @@ interface PtySession {
   onOutput?: (output: string) => void
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
   exitNotified?: boolean
+  closePromise?: Promise<CloseResult>
+  controlClosePromise?: Promise<void>
+  finalizationPromise?: Promise<CloseResult>
+  closeContext?: CloseContext
+  persistenceRemoval?: Promise<void>
+  activePersistenceOwned: boolean
+  processExited: boolean
+  processExitCode?: number | null
+  processExitSignal?: NodeJS.Signals | null
+  processErrorSent?: boolean
+  finalEventSent: boolean
+  publicCloseRequesters?: Map<string, Socket>
+  publicCloseAckedIds?: Set<string>
+  notifyRetainedOnTimeout?: boolean
+  retainedTimeoutNotified?: boolean
 }
 
 interface CreatePtyData {
@@ -89,6 +116,98 @@ export interface PtyRuntimeOptions {
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
 }
 
+export type CloseResult = 'closed' | 'not-found' | 'still-running'
+export type CreatePtyResult =
+  | { status: 'ready'; sessionId: string }
+  | { status: 'failed-closed'; sessionId: string; error: string }
+  | { status: 'failed-retained'; sessionId: string; error: string }
+export type ReconnectResult = 'ready' | 'pending' | 'closing' | 'not-found'
+
+interface CloseContext {
+  readonly intentional: boolean
+  readonly emitEvents: boolean
+  readonly emitTimeoutError: boolean
+}
+
+interface CloseRequestOptions extends CloseContext {
+  readonly publicRequester?: Socket
+  readonly notifyRetained?: boolean
+}
+
+type CreateAttemptPhase =
+  | 'starting'
+  | 'fallback'
+  | 'closing'
+  | 'close-retained'
+
+interface CreateCancellationToken {
+  cancelled: boolean
+}
+
+interface CreateAttempt {
+  id: string
+  name: string
+  phase: CreateAttemptPhase
+  cancellation: CreateCancellationToken
+  createSize: PtySize
+  process?: ChildProcess
+  control?: PtyControlChannel
+  endpoint?: string
+  socket: Socket
+  workingDirectory: string
+  createdAt: Date
+  lastActivity: Date
+  outputBuffer: string[]
+  streamForwardProcess?: ChildProcess
+  enableStreamForward?: boolean
+  programPath?: string
+  autoCloseOnForwardExit?: boolean
+  stdoutRedactor: StreamingRedactor
+  stderrRedactor: StreamingRedactor
+  onOutput?: (output: string) => void
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
+  exitNotified?: boolean
+  runtimeOptions: PtyRuntimeOptions
+  selectedUser: string
+  fallbackEligibleFromConfiguredDefault: boolean
+  terminalEnv: NodeJS.ProcessEnv
+  closePromise?: Promise<CloseResult>
+  controlClosePromise?: Promise<void>
+  finalizationPromise?: Promise<CloseResult>
+  closeContext?: CloseContext
+  activePersistenceOwned: boolean
+  processExited: boolean
+  processExitCode?: number | null
+  processExitSignal?: NodeJS.Signals | null
+  processError?: Error
+  failureMessage?: string
+  finalEventSent: boolean
+  publicCloseRequesters?: Map<string, Socket>
+  publicCloseAckedIds?: Set<string>
+  notifyRetainedOnTimeout?: boolean
+  retainedTimeoutNotified?: boolean
+}
+
+export interface TerminalManagerDependencies {
+  spawnPty?: typeof spawn
+  createControlChannel?: typeof createPtyControlChannel
+}
+
+interface PtyProcessOutcome {
+  kind: 'close' | 'error'
+  code: number | null
+  signal: NodeJS.Signals | null
+  error?: Error
+  elapsedMs: number
+}
+
+interface PtyProcessLaunch {
+  process: ChildProcess
+  control: PtyControlChannel
+  endpoint: string
+  outcome: Promise<PtyProcessOutcome>
+}
+
 interface ManagedProcessResult {
   code: number | null
   signal: NodeJS.Signals | null
@@ -98,17 +217,32 @@ interface ManagedProcessResult {
 export class TerminalManager {
   private sessions: Map<string, PtySession> = new Map()
   private managedProcesses: Set<ChildProcess> = new Set()
+  private createAttempts = new Map<string, CreateAttempt>()
+  private persistenceOperations = new Map<string, Promise<void>>()
+  private internallyStoppedForwardProcesses = new WeakSet<ChildProcess>()
+  private ptyStdinHandlers = new WeakSet<ChildProcess>()
+  private forwardStdinHandlers = new WeakSet<ChildProcess>()
+  private acceptingTerminalOperations = true
   private io: SocketIOServer
   private logger: winston.Logger
   private ptyPath: string
   private sessionManager: TerminalSessionManager
   private configManager: ConfigManager
+  private readonly spawnPty: typeof spawn
+  private readonly createControlChannel: typeof createPtyControlChannel
 
-  constructor(io: SocketIOServer, logger: winston.Logger, configManager: ConfigManager) {
+  constructor(
+    io: SocketIOServer,
+    logger: winston.Logger,
+    configManager: ConfigManager,
+    dependencies: TerminalManagerDependencies = {}
+  ) {
     this.io = io
     this.logger = logger
     this.configManager = configManager
     this.sessionManager = new TerminalSessionManager(logger)
+    this.spawnPty = dependencies.spawnPty ?? spawn
+    this.createControlChannel = dependencies.createControlChannel ?? createPtyControlChannel
     
     // PTY 路径将在 initialize() 中通过 ptyManager 异步获取
     this.ptyPath = ''
@@ -131,20 +265,13 @@ export class TerminalManager {
   async initialize(): Promise<void> {
     await this.sessionManager.initialize()
     
-    // 通过 ptyManager 获取 PTY 路径（已在启动时确保下载）
+    // 仅使用已经过固定清单校验和本机能力探测的 PTY 路径。
     try {
       this.ptyPath = await ptyManager.getPtyPath()
       this.logger.info(`终端管理器初始化完成，PTY路径: ${this.ptyPath}`)
     } catch (error: any) {
-      this.logger.error(`无法找到 PTY 文件: ${error.message}`)
-      // 使用 ptyManager 获取平台对应的文件名作为备用路径
-      try {
-        const ptyFileName = ptyManager.getBinaryName()
-        this.ptyPath = path.join(process.cwd(), 'data', 'lib', ptyFileName)
-        this.logger.warn(`使用备用 PTY 路径: ${this.ptyPath}`)
-      } catch (nameError: any) {
-        this.logger.error(`无法获取 PTY 文件名: ${nameError.message}`)
-      }
+      this.ptyPath = ''
+      this.logger.error(`PTY 能力不可用，终端会话将无法创建: ${error.message}`)
     }
   }
 
@@ -165,7 +292,7 @@ export class TerminalManager {
       const child = spawn(executablePath, args, {
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         cwd: workingDirectory,
-      env: buildManagedChildEnvironment(),
+        env: buildManagedChildEnvironment(),
         shell: false,
         windowsHide: true
       })
@@ -251,532 +378,1808 @@ export class TerminalManager {
     socket: Socket,
     data: CreatePtyData,
     runtimeOptions: PtyRuntimeOptions = {}
-  ): Promise<void> {
+  ): Promise<CreatePtyResult> {
+    const sessionId = typeof data?.sessionId === 'string' ? data.sessionId : ''
+    let attempt: CreateAttempt
+
     try {
-      const { sessionId, name, cols, rows, workingDirectory: rawWorkingDirectory = process.cwd(), enableStreamForward = false, programPath, autoCloseOnForwardExit = false, terminalUser } = data
-      const {
-        command,
-        environmentOverrides = {},
-        redactValues = [],
-        onOutput,
-        onExit
-      } = runtimeOptions
-      const workingDirectory = path.resolve(rawWorkingDirectory)
-      const sessionName = name || `终端会话 ${sessionId.slice(-8)}`
+      if (!this.acceptingTerminalOperations) {
+        const error = '终端管理器正在关闭'
+        this.emitTerminalError(socket, sessionId, 'create', error)
+        return { status: 'failed-closed', sessionId, error }
+      }
+      if (!this.ptyPath) {
+        const error = 'PTY 能力不可用：可信 PTY 运行时未初始化'
+        this.logger.error(`创建PTY会话失败: ${error}`)
+        this.emitTerminalError(socket, sessionId, 'create', error)
+        return { status: 'failed-closed', sessionId, error }
+      }
+      if (!data || typeof data.sessionId !== 'string' || data.sessionId.trim() === '') {
+        throw new Error('会话ID不能为空')
+      }
 
-       // 获取终端配置和默认用户（提升到方法开始处）
+      const createSize = validatePtySize(data.cols, data.rows)
+      const workingDirectory = path.resolve(data.workingDirectory ?? process.cwd())
+      const enableStreamForward = data.enableStreamForward ?? false
+      const autoCloseOnForwardExit = data.autoCloseOnForwardExit ?? false
+      this.validateStreamForwardArguments(enableStreamForward, data.programPath)
+
       const terminalConfig = this.configManager.getTerminalConfig()
-      // 优先使用传入的terminalUser，如果没有则使用配置的defaultUser
-      const defaultUser = terminalUser || terminalConfig.defaultUser
-      const currentUser = getCurrentUsername()
-      const shouldSwitchUser = os.platform() === 'linux' && Boolean(
-        defaultUser && defaultUser.trim() !== '' && (!currentUser || defaultUser !== currentUser)
-      )
-
-      // 如果是Linux系统且使用非root用户，先设置工作目录权限为777
-      if (shouldSwitchUser && defaultUser !== 'root') {
-        try {
-          await this.setDirectoryPermissions777(workingDirectory)
-          this.logger.info(`已为非root用户 ${defaultUser} 设置工作目录权限为777: ${workingDirectory}`)
-        } catch (error) {
-          this.logger.warn(`设置工作目录权限失败: ${error}`)
-        }
-      }
-      
-      // 验证输出流转发参数
-      if (enableStreamForward && os.platform() !== 'win32') {
-        this.logger.warn(`输出流转发功能仅在Windows平台支持，当前平台: ${os.platform()}`)
-        socket.emit('terminal-error', {
-          sessionId,
-          error: '输出流转发功能仅在Windows平台支持'
-        })
-        return
-      }
-      
-      if (enableStreamForward && !programPath) {
-        this.logger.warn(`启用输出流转发时必须提供程序启动命令`)
-        socket.emit('terminal-error', {
-          sessionId,
-          error: '启用输出流转发时必须提供程序启动命令'
-        })
-        return
-      }
-      
-      if (enableStreamForward && programPath) {
-        // 解析命令行，检查可执行文件路径是否为绝对路径
-        const commandLine = programPath.trim()
-        let executablePath: string
-        
-        if (commandLine.startsWith('"')) {
-          // 处理带引号的可执行文件路径
-          const endQuoteIndex = commandLine.indexOf('"', 1)
-          if (endQuoteIndex === -1) {
-            this.logger.warn(`未找到匹配的引号: ${commandLine}`)
-            socket.emit('terminal-error', {
-              sessionId,
-              error: '未找到匹配的引号'
-            })
-            return
-          }
-          executablePath = commandLine.substring(1, endQuoteIndex)
-        } else {
-          // 处理不带引号的路径
-          const parts = commandLine.split(/\s+/)
-          executablePath = parts[0]
-        }
-        
-        if (!path.isAbsolute(executablePath)) {
-          this.logger.warn(`可执行文件路径必须是绝对路径: ${executablePath}`)
-          socket.emit('terminal-error', {
-            sessionId,
-            error: '可执行文件路径必须是绝对路径'
-          })
-          return
-        }
-      }
-      
-      this.logger.info(`创建PTY会话: ${sessionId} (${sessionName}), 大小: ${cols}x${rows}`)
-      
-      // 检查会话是否已存在
-      if (this.sessions.has(sessionId)) {
-        this.logger.warn(`会话 ${sessionId} 已存在，先关闭旧会话`)
-        this.closePty(socket, { sessionId })
-      }
-      
-      // 构建PTY命令参数
-      const args = [
-        '-dir', workingDirectory,
-        '-size', `${cols},${rows}`,
-        '-coder', 'UTF-8'
-      ]
-
+      const configuredDefaultUser = terminalConfig.defaultUser || ''
+      const selectedUser = data.terminalUser || configuredDefaultUser
+      const environmentOverrides = runtimeOptions.environmentOverrides ?? {}
       const terminalEnv = buildManagedChildEnvironment({
         ...environmentOverrides,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor'
       })
-      const preservedEnvironmentNames = Object.keys(environmentOverrides)
-        .filter(name => /^[A-Z_][A-Z0-9_]*$/i.test(name))
-      const shellLocaleEnvArgs = this.buildShellLocaleEnvArgs(terminalEnv)
-      const shellLocaleExport = this.buildShellLocaleExport(terminalEnv)
+      const sessionName = data.name || `终端会话 ${sessionId.slice(-8)}`
 
-      // 内部调用方可以直接启动目标程序，避免将敏感命令写入shell历史。
-      if (command && command.length > 0) {
-        args.push('-cmd', JSON.stringify(command))
-      } else if (os.platform() === 'win32') {
-        args.push('-cmd', JSON.stringify(['powershell.exe']))
-      } else {
-        // Linux下检查是否配置了默认用户
-        if (defaultUser && defaultUser.trim() !== '' && (!currentUser || defaultUser !== currentUser)) {
-          // 检查用户是否存在
-          const userExists = await this.checkUserExists(defaultUser)
-          if (userExists) {
-            // 检查sudo命令是否存在
-            const sudoExists = await this.checkCommandExists('sudo')
-            
-            if (sudoExists) {
-              // 如果sudo存在，使用sudo切换用户，使用简化的方式
-              args.push('-cmd', JSON.stringify([
-                'sudo',
-                ...(preservedEnvironmentNames.length > 0
-                  ? [`--preserve-env=${preservedEnvironmentNames.join(',')}`]
-                  : []),
-                '-u', defaultUser,
-                'env',
-                ...shellLocaleEnvArgs,
-                '/bin/bash', '-c',
-                `cd "${workingDirectory}" && exec /bin/bash --login`
-              ]))
-              this.logger.info(`使用sudo切换到默认用户启动终端: ${defaultUser}，工作目录: ${workingDirectory}`)
-            } else {
-              // 如果sudo不存在，检查su命令
-              const suExists = await this.checkCommandExists('su')
-              
-              if (suExists) {
-                // 使用su命令切换用户，使用简化的方式
-                args.push('-cmd', JSON.stringify([
-                  'su',
-                  ...(preservedEnvironmentNames.length > 0 ? ['-m'] : []),
-                  defaultUser, '-c',
-                  `${shellLocaleExport}; ` +
-                  `cd "${workingDirectory}" && exec /bin/bash --login`
-                ]))
-                this.logger.info(`使用su切换到默认用户启动终端: ${defaultUser}，工作目录: ${workingDirectory}`)
-              } else {
-                // 既没有sudo也没有su，记录警告并使用当前用户
-                this.logger.warn(`系统中既没有sudo也没有su命令，无法切换到用户 '${defaultUser}'，使用当前用户`)
-                args.push('-cmd', JSON.stringify(['/bin/bash', '--login']))
-              }
-            }
-          } else {
-            // 用户不存在，记录警告并使用默认bash
-            this.logger.warn(`配置的默认用户 '${defaultUser}' 不存在，使用默认bash`)
-            args.push('-cmd', JSON.stringify(['/bin/bash', '--login']))
-          }
-        } else {
-          // 没有配置默认用户，使用默认bash
-          args.push('-cmd', JSON.stringify(['/bin/bash', '--login']))
-        }
+      if (
+        this.sessions.has(sessionId) ||
+        this.createAttempts.has(sessionId)
+      ) {
+        const error = '会话ID已存在'
+        this.emitTerminalError(socket, sessionId, 'create', error)
+        return { status: 'failed-closed', sessionId, error }
       }
-      
-      this.logger.info(`启动PTY进程: ${this.ptyPath} ${args.join(' ')}`)
-      
-      // 启动PTY进程
-      const ptyProcess = spawn(this.ptyPath, args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: workingDirectory,
-        env: terminalEnv,
-        // Linux下创建新的进程组，确保信号正确传递
-        detached: os.platform() !== 'win32'
-      })
-      
-      this.logger.info(`PTY进程已启动，PID: ${ptyProcess.pid}`)
-      
-      // 创建会话对象
-      const session: PtySession = {
-        id: sessionId,
-        name: sessionName,
-        process: ptyProcess,
+
+      attempt = this.createAttemptRecord({
+        sessionId,
+        sessionName,
         socket,
         workingDirectory,
-        createdAt: new Date(),
-        lastActivity: new Date(),
-        outputBuffer: [],
+        createSize,
         enableStreamForward,
-        programPath,
+        programPath: data.programPath,
         autoCloseOnForwardExit,
-        stdoutRedactor: new StreamingRedactor(redactValues),
-        stderrRedactor: new StreamingRedactor(redactValues),
-        onOutput,
-        onExit
+        runtimeOptions,
+        selectedUser,
+        fallbackEligibleFromConfiguredDefault: configuredDefaultUser.trim() !== '',
+        terminalEnv
+      })
+      this.createAttempts.set(sessionId, attempt)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误'
+      this.logger.error(`创建PTY会话失败: ${message}`)
+      this.emitTerminalError(socket, sessionId, 'create', message)
+      return { status: 'failed-closed', sessionId, error: message }
+    }
+
+    try {
+      this.logger.info(
+        `创建PTY会话: ${attempt.id} (${attempt.name}), ` +
+        `大小: ${attempt.createSize.cols}x${attempt.createSize.rows}`
+      )
+
+      await this.prepareAttemptDirectory(attempt)
+      if (!this.isActiveAttempt(attempt)) {
+        return this.resolveCreatePtyResult(attempt)
       }
-      
-      // 保存会话到内存
-      this.sessions.set(sessionId, session)
-      
-      // 持久化保存会话信息
+
+      const primaryCommand = await this.buildPrimaryCommand(attempt)
+      if (!this.isActiveAttempt(attempt) || !primaryCommand) {
+        return this.resolveCreatePtyResult(attempt)
+      }
+
+      const primary = await this.launchAttemptProcess(
+        attempt,
+        primaryCommand,
+        'PTY进程'
+      )
+      if (!this.isActiveAttempt(attempt) || !primary) {
+        return this.resolveCreatePtyResult(attempt)
+      }
+
+      await this.establishPrimaryAttempt(attempt, primary)
+    } catch (error) {
+      if (!this.isActiveAttempt(attempt)) {
+        return this.resolveCreatePtyResult(attempt)
+      }
+      const message = error instanceof Error ? error.message : '未知错误'
+      this.logger.error(`创建PTY会话失败: ${attempt.id}`, error)
+      await this.failCreateAttempt(attempt, message)
+    }
+
+    return this.resolveCreatePtyResult(attempt)
+  }
+
+  private resolveCreatePtyResult(attempt: CreateAttempt): CreatePtyResult {
+    if (this.sessions.has(attempt.id)) {
+      return { status: 'ready', sessionId: attempt.id }
+    }
+
+    const error = attempt.failureMessage ?? '终端会话创建未完成'
+    if (this.createAttempts.get(attempt.id) === attempt) {
+      return { status: 'failed-retained', sessionId: attempt.id, error }
+    }
+    return { status: 'failed-closed', sessionId: attempt.id, error }
+  }
+
+  private createAttemptRecord(options: {
+    sessionId: string
+    sessionName: string
+    socket: Socket
+    workingDirectory: string
+    createSize: PtySize
+    enableStreamForward: boolean
+    programPath?: string
+    autoCloseOnForwardExit: boolean
+    runtimeOptions: PtyRuntimeOptions
+    selectedUser: string
+    fallbackEligibleFromConfiguredDefault: boolean
+    terminalEnv: NodeJS.ProcessEnv
+  }): CreateAttempt {
+    const now = new Date()
+    const redactValues = options.runtimeOptions.redactValues ?? []
+    return {
+      id: options.sessionId,
+      name: options.sessionName,
+      phase: 'starting',
+      cancellation: { cancelled: false },
+      createSize: {
+        cols: options.createSize.cols,
+        rows: options.createSize.rows
+      },
+      socket: options.socket,
+      workingDirectory: options.workingDirectory,
+      createdAt: now,
+      lastActivity: now,
+      outputBuffer: [],
+      enableStreamForward: options.enableStreamForward,
+      programPath: options.programPath,
+      autoCloseOnForwardExit: options.autoCloseOnForwardExit,
+      stdoutRedactor: new StreamingRedactor(redactValues),
+      stderrRedactor: new StreamingRedactor(redactValues),
+      onOutput: options.runtimeOptions.onOutput,
+      onExit: options.runtimeOptions.onExit,
+      runtimeOptions: options.runtimeOptions,
+      selectedUser: options.selectedUser,
+      fallbackEligibleFromConfiguredDefault:
+        options.fallbackEligibleFromConfiguredDefault,
+      terminalEnv: options.terminalEnv,
+      activePersistenceOwned: false,
+      processExited: false,
+      finalEventSent: false
+    }
+  }
+
+  private validateStreamForwardArguments(
+    enableStreamForward: boolean,
+    programPath?: string
+  ): void {
+    if (enableStreamForward && os.platform() !== 'win32') {
+      throw new Error('输出流转发功能仅在Windows平台支持')
+    }
+    if (enableStreamForward && !programPath) {
+      throw new Error('启用输出流转发时必须提供程序启动命令')
+    }
+    if (!enableStreamForward || !programPath) return
+
+    const commandLine = programPath.trim()
+    let executablePath: string
+    if (commandLine.startsWith('"')) {
+      const endQuoteIndex = commandLine.indexOf('"', 1)
+      if (endQuoteIndex === -1) {
+        throw new Error('未找到匹配的引号')
+      }
+      executablePath = commandLine.substring(1, endQuoteIndex)
+    } else {
+      executablePath = commandLine.split(/\s+/)[0]
+    }
+
+    if (!path.isAbsolute(executablePath)) {
+      throw new Error('可执行文件路径必须是绝对路径')
+    }
+  }
+
+  private isActiveAttempt(attempt: CreateAttempt): boolean {
+    return !attempt.cancellation.cancelled &&
+      this.createAttempts.get(attempt.id) === attempt
+  }
+
+  private hasAttemptIdentity(attempt: CreateAttempt): boolean {
+    return this.createAttempts.get(attempt.id) === attempt
+  }
+
+  private async prepareAttemptDirectory(attempt: CreateAttempt): Promise<void> {
+    if (!this.isActiveAttempt(attempt)) return
+    if (
+      os.platform() !== 'linux' ||
+      !attempt.selectedUser ||
+      attempt.selectedUser.trim() === '' ||
+      attempt.selectedUser === 'root'
+    ) {
+      return
+    }
+
+    try {
+      await this.setDirectoryPermissions777(attempt.workingDirectory)
+      if (!this.isActiveAttempt(attempt)) return
+      this.logger.info(
+        `已为非root用户 ${attempt.selectedUser} 设置工作目录权限为777: ` +
+        attempt.workingDirectory
+      )
+    } catch (error) {
+      if (!this.isActiveAttempt(attempt)) return
+      this.logger.warn(`设置工作目录权限失败: ${error}`)
+    }
+  }
+
+  private async buildPrimaryCommand(
+    attempt: CreateAttempt
+  ): Promise<string[] | null> {
+    if (!this.isActiveAttempt(attempt)) return null
+
+    const command = attempt.runtimeOptions.command
+    if (command && command.length > 0) {
+      return [...command]
+    }
+    if (os.platform() === 'win32') {
+      return ['powershell.exe']
+    }
+    if (!attempt.selectedUser || attempt.selectedUser.trim() === '') {
+      return ['/bin/bash', '--login']
+    }
+
+    const userExists = await this.checkUserExists(attempt.selectedUser)
+    if (!this.isActiveAttempt(attempt)) return null
+    if (!userExists) {
+      this.logger.warn(
+        `配置的默认用户 '${attempt.selectedUser}' 不存在，使用默认bash`
+      )
+      return ['/bin/bash', '--login']
+    }
+
+    const environmentOverrides = attempt.runtimeOptions.environmentOverrides ?? {}
+    const preservedEnvironmentNames = Object.keys(environmentOverrides)
+      .filter(name => /^[A-Z_][A-Z0-9_]*$/i.test(name))
+    const shellLocaleEnvArgs = this.buildShellLocaleEnvArgs(attempt.terminalEnv)
+    const shellLocaleExport = this.buildShellLocaleExport(attempt.terminalEnv)
+    const sudoExists = await this.checkCommandExists('sudo')
+    if (!this.isActiveAttempt(attempt)) return null
+    if (sudoExists) {
+      this.logger.info(
+        `使用sudo切换到默认用户启动终端: ${attempt.selectedUser}，` +
+        `工作目录: ${attempt.workingDirectory}`
+      )
+      return [
+        'sudo',
+        ...(preservedEnvironmentNames.length > 0
+          ? [`--preserve-env=${preservedEnvironmentNames.join(',')}`]
+          : []),
+        '-u', attempt.selectedUser,
+        'env',
+        ...shellLocaleEnvArgs,
+        '/bin/bash', '-c',
+        `cd "${attempt.workingDirectory}" && exec /bin/bash --login`
+      ]
+    }
+
+    const suExists = await this.checkCommandExists('su')
+    if (!this.isActiveAttempt(attempt)) return null
+    if (suExists) {
+      this.logger.info(
+        `使用su切换到默认用户启动终端: ${attempt.selectedUser}，` +
+        `工作目录: ${attempt.workingDirectory}`
+      )
+      return [
+        'su',
+        ...(preservedEnvironmentNames.length > 0 ? ['-m'] : []),
+        attempt.selectedUser, '-c',
+        `${shellLocaleExport}; ` +
+        `cd "${attempt.workingDirectory}" && exec /bin/bash --login`
+      ]
+    }
+
+    this.logger.warn(
+      `系统中既没有sudo也没有su命令，无法切换到用户 ` +
+      `'${attempt.selectedUser}'，使用当前用户`
+    )
+    return ['/bin/bash', '--login']
+  }
+
+  private async launchAttemptProcess(
+    attempt: CreateAttempt,
+    command: string[],
+    processLabel: string
+  ): Promise<PtyProcessLaunch | null> {
+    if (!this.isActiveAttempt(attempt)) return null
+
+    const control = await this.createControlChannel({
+      sessionId: attempt.id,
+      logger: this.logger
+    })
+    if (!this.isActiveAttempt(attempt)) {
+      await this.closeControlQuietly(attempt.id, control)
+      return null
+    }
+
+    attempt.control = control
+    attempt.endpoint = control.endpoint
+    attempt.controlClosePromise = undefined
+    attempt.finalizationPromise = undefined
+    attempt.closeContext = undefined
+    attempt.processExited = false
+    attempt.processExitCode = undefined
+    attempt.processExitSignal = undefined
+    attempt.processError = undefined
+
+    const args = [
+      '-dir', attempt.workingDirectory,
+      '-size', `${attempt.createSize.cols},${attempt.createSize.rows}`,
+      '-coder', 'UTF-8',
+      '-fifo', control.endpoint,
+      '-cmd', JSON.stringify(command)
+    ]
+    const startedAt = Date.now()
+
+    this.logger.info(
+      `启动${processLabel}: sessionId=${attempt.id}, ` +
+      `cwd=${attempt.workingDirectory}, ` +
+      `size=${attempt.createSize.cols}x${attempt.createSize.rows}`
+    )
+    let ptyProcess: ChildProcess
+    try {
+      ptyProcess = this.spawnPty(this.ptyPath, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: attempt.workingDirectory,
+        env: attempt.terminalEnv,
+        detached: os.platform() !== 'win32'
+      })
+    } catch (error) {
+      attempt.processExited = true
+      await this.closeControlQuietly(attempt.id, control)
+      if (this.isActiveAttempt(attempt) && attempt.control === control) {
+        await this.removeEndpointQuietly(attempt.id, control.endpoint)
+      }
+      if (this.isActiveAttempt(attempt) && attempt.control === control) {
+        attempt.control = undefined
+        attempt.endpoint = undefined
+      }
+      throw error
+    }
+
+    if (!this.isActiveAttempt(attempt)) {
       try {
-        await this.sessionManager.saveSession({
-          id: sessionId,
-          name: sessionName,
-          workingDirectory,
-          createdAt: session.createdAt,
-          lastActivity: session.lastActivity,
-          isActive: true
-        })
+        ptyProcess.kill('SIGTERM')
       } catch (error) {
-        this.logger.error(`保存会话到配置文件失败: ${sessionId}`, error)
+        this.logger.warn(`取消创建时终止PTY进程失败: ${attempt.id}`, error)
+      }
+      await this.closeControlQuietly(attempt.id, control)
+      return null
+    }
+
+    attempt.process = ptyProcess
+    const outcome = this.registerPtyProcessHandlers(
+      attempt.id,
+      ptyProcess,
+      startedAt
+    )
+    this.logger.info(`${processLabel}已启动，PID: ${ptyProcess.pid}`)
+
+    if (os.platform() !== 'win32' && ptyProcess.pid) {
+      try {
+        process.kill(-ptyProcess.pid, 0)
+        this.logger.info(`PTY进程组设置成功: ${ptyProcess.pid}`)
+      } catch (error) {
+        this.logger.warn(`设置PTY进程组失败: ${error}`)
+      }
+    }
+
+    return {
+      process: ptyProcess,
+      control,
+      endpoint: control.endpoint,
+      outcome
+    }
+  }
+
+  private observeControlReadiness(control: PtyControlChannel): Promise<{
+    ready: boolean
+    error?: unknown
+  }> {
+    return control.waitUntilReady(3000).then(
+      () => ({ ready: true }),
+      error => ({ ready: false, error })
+    )
+  }
+
+  private async establishPrimaryAttempt(
+    attempt: CreateAttempt,
+    launch: PtyProcessLaunch
+  ): Promise<void> {
+    const readiness = this.observeControlReadiness(launch.control)
+    const stability = await Promise.race([
+      launch.outcome.then(outcome => ({ stable: false as const, outcome })),
+      new Promise<{ stable: true }>(resolve => {
+        setTimeout(() => resolve({ stable: true }), 1000)
+      })
+    ])
+    if (!this.isActiveAttempt(attempt)) return
+
+    if ('outcome' in stability) {
+      const outcome = stability.outcome
+      if (this.shouldFallback(attempt, outcome)) {
+        await this.retireExitedLaunch(attempt, launch)
+        if (!this.isActiveAttempt(attempt)) return
+
+        attempt.phase = 'fallback'
+        this.logger.info(`尝试使用当前用户重新启动终端: ${attempt.id}`)
+        const fallback = await this.launchAttemptProcess(
+          attempt,
+          ['/bin/bash', '--login'],
+          'PTY回退进程'
+        )
+        if (!this.isActiveAttempt(attempt) || !fallback) return
+        await this.establishFallbackAttempt(attempt, fallback)
+        return
       }
 
-      const emitOutput = (output: string, isError = false) => {
-        if (!output) return
-        session.lastActivity = new Date()
-        session.outputBuffer.push(output)
-        if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift()
-        }
-        try {
-          session.onOutput?.(output)
-        } catch (error) {
-          this.logger.warn(`PTY输出回调执行失败: ${sessionId}`, error)
-        }
-        if (isError) {
-          this.logger.warn(`PTY错误输出 ${sessionId}: ${JSON.stringify(output)}`)
-        } else {
-          this.logger.debug(`PTY输出 ${sessionId}: ${JSON.stringify(output)}`)
-        }
-        session.socket.emit('terminal-output', { sessionId, data: output })
-      }
+      await this.failCreateAttempt(
+        attempt,
+        this.describeStartupOutcome(outcome)
+      )
+      return
+    }
 
-      // 处理PTY输出
-      ptyProcess.stdout?.on('data', (data: Buffer) => {
-        emitOutput(session.stdoutRedactor.write(data))
-      })
-      ptyProcess.stdout?.once('end', () => emitOutput(session.stdoutRedactor.end()))
-      
-      // 处理PTY错误输出
-      ptyProcess.stderr?.on('data', (data: Buffer) => {
-        emitOutput(session.stderrRedactor.write(data), true)
-      })
-      ptyProcess.stderr?.once('end', () => emitOutput(session.stderrRedactor.end(), true))
-      
-      // 处理进程退出
-      ptyProcess.once('close', (code, signal) => {
-        this.logger.info(`PTY进程退出: ${sessionId}, 退出码: ${code}, 信号: ${signal}`)
-        
-        // 如果退出码为0但进程立即退出，可能是命令执行有问题
-        if (code === 0 && (Date.now() - session.createdAt.getTime()) < 1000) {
-          this.logger.warn(`PTY进程启动后立即退出，可能是用户切换命令有问题: ${sessionId}`)
-          this.logger.warn(`使用的命令参数: ${JSON.stringify(args)}`)
-          
-          // 如果是用户切换失败，尝试使用当前用户重新启动
-          if (!command && defaultUser && defaultUser.trim() !== '' && !session.fallbackRetried) {
-            this.logger.info(`尝试使用当前用户重新启动终端: ${sessionId}`)
-            session.fallbackRetried = true
-            
-            // 使用当前用户重新启动
-            setTimeout(() => {
-              this.createPtyFallback(
-                sessionId,
-                sessionName,
-                workingDirectory,
-                socket,
-                enableStreamForward,
-                programPath,
-                autoCloseOnForwardExit,
-                runtimeOptions
-              )
-            }, 100)
+    const readinessResult = await readiness
+    if (!this.isActiveAttempt(attempt)) return
+    if (!readinessResult.ready) {
+      await this.failCreateAttempt(
+        attempt,
+        this.describeReadinessError(readinessResult.error)
+      )
+      return
+    }
+    if (
+      attempt.processError ||
+      attempt.processExited ||
+      attempt.process !== launch.process ||
+      attempt.control !== launch.control
+    ) {
+      await this.failCreateAttempt(
+        attempt,
+        attempt.processError?.message || 'PTY进程在创建完成前退出'
+      )
+      return
+    }
+
+    await this.promoteAttempt(attempt, launch)
+  }
+
+  private async establishFallbackAttempt(
+    attempt: CreateAttempt,
+    launch: PtyProcessLaunch
+  ): Promise<void> {
+    const readiness = this.observeControlReadiness(launch.control)
+    const result = await Promise.race([
+      readiness.then(value => ({ kind: 'readiness' as const, value })),
+      launch.outcome.then(value => ({ kind: 'outcome' as const, value }))
+    ])
+    if (!this.isActiveAttempt(attempt)) return
+
+    if (result.kind === 'outcome') {
+      await this.failCreateAttempt(
+        attempt,
+        this.describeStartupOutcome(result.value)
+      )
+      return
+    }
+    if (!result.value.ready) {
+      await this.failCreateAttempt(
+        attempt,
+        this.describeReadinessError(result.value.error)
+      )
+      return
+    }
+    if (
+      attempt.processError ||
+      attempt.processExited ||
+      attempt.process !== launch.process ||
+      attempt.control !== launch.control
+    ) {
+      await this.failCreateAttempt(
+        attempt,
+        attempt.processError?.message || 'PTY回退进程在创建完成前退出'
+      )
+      return
+    }
+
+    await this.promoteAttempt(attempt, launch)
+  }
+
+  private shouldFallback(
+    attempt: CreateAttempt,
+    outcome: PtyProcessOutcome
+  ): boolean {
+    return attempt.runtimeOptions.command === undefined &&
+      attempt.fallbackEligibleFromConfiguredDefault &&
+      outcome.kind === 'close' &&
+      outcome.code === 0 &&
+      outcome.elapsedMs < 1000
+  }
+
+  private describeStartupOutcome(outcome: PtyProcessOutcome): string {
+    if (outcome.kind === 'error') {
+      return outcome.error?.message || 'PTY进程启动失败'
+    }
+    return `PTY进程在创建期间退出（退出码: ${outcome.code ?? 'null'}，` +
+      `信号: ${outcome.signal ?? 'none'}）`
+  }
+
+  private describeReadinessError(error: unknown): string {
+    if (error instanceof Error) {
+      return `PTY控制通道未就绪: ${error.message}`
+    }
+    return 'PTY控制通道未就绪'
+  }
+
+  private async retireExitedLaunch(
+    attempt: CreateAttempt,
+    launch: PtyProcessLaunch
+  ): Promise<void> {
+    if (
+      !this.isActiveAttempt(attempt) ||
+      attempt.process !== launch.process ||
+      !attempt.processExited
+    ) {
+      return
+    }
+
+    await this.closeControlQuietly(attempt.id, launch.control)
+    if (!this.isActiveAttempt(attempt)) return
+
+    await this.removeEndpointQuietly(attempt.id, launch.endpoint)
+    if (!this.isActiveAttempt(attempt)) return
+    if (attempt.process === launch.process) {
+      attempt.process = undefined
+    }
+    if (attempt.control === launch.control) {
+      attempt.control = undefined
+      attempt.endpoint = undefined
+    }
+  }
+
+  private runPersistenceOperation<T>(
+    sessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.persistenceOperations.get(sessionId) ?? Promise.resolve()
+    const result = previous.catch(() => undefined).then(operation)
+    const barrier = result.then(() => undefined, () => undefined)
+    this.persistenceOperations.set(sessionId, barrier)
+    void barrier.then(() => {
+      if (this.persistenceOperations.get(sessionId) === barrier) {
+        this.persistenceOperations.delete(sessionId)
+      }
+    })
+    return result
+  }
+
+  private hasReplacementPersistenceOwner(
+    sessionId: string,
+    owner: PtySession | CreateAttempt
+  ): boolean {
+    const currentSession = this.sessions.get(sessionId)
+    if (
+      currentSession &&
+      currentSession !== owner &&
+      currentSession.activePersistenceOwned
+    ) {
+      return true
+    }
+    const currentAttempt = this.createAttempts.get(sessionId)
+    return Boolean(
+      currentAttempt &&
+      currentAttempt !== owner &&
+      currentAttempt.activePersistenceOwned
+    )
+  }
+
+  private async removePersistenceWithRetry(
+    sessionId: string,
+    owner: PtySession | CreateAttempt,
+    maxAttempts = 2
+  ): Promise<void> {
+    let lastError: unknown
+    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
+      try {
+        await this.runPersistenceOperation(sessionId, async () => {
+          if (this.hasReplacementPersistenceOwner(sessionId, owner)) {
+            owner.activePersistenceOwned = false
             return
           }
-        }
-        
-        // 清理输出流转发进程
-        if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-          this.logger.info(`PTY退出时清理输出流转发进程: ${sessionId}`)
-          this.forceKillProcess(session.streamForwardProcess, '输出流转发进程', () => {
-            session.streamForwardProcess = undefined
-          })
-        }
-        
-        session.socket.emit('terminal-exit', {
-          sessionId,
-          code: code || 0,
-          signal
+          await this.sessionManager.removeSession(sessionId)
+          owner.activePersistenceOwned = false
         })
-        if (!session.exitNotified) {
-          session.exitNotified = true
-          session.onExit?.(code, signal)
-        }
-        
-        // 从内存中删除会话
-        this.sessions.delete(sessionId)
-        
-        // 从持久化存储中删除会话
-        this.sessionManager.removeSession(sessionId).catch(error => {
-          this.logger.error(`PTY退出时从配置文件删除会话失败: ${sessionId}`, error)
-        })
-      })
-      
-      // 处理进程错误
-      ptyProcess.on('error', (error) => {
-        this.logger.error(`PTY进程错误 ${sessionId}:`, error)
-        
-        // 清理输出流转发进程
-        if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-          this.logger.info(`PTY错误时清理输出流转发进程: ${sessionId}`)
-          this.forceKillProcess(session.streamForwardProcess, '输出流转发进程', () => {
-            session.streamForwardProcess = undefined
-          })
-        }
-        
-        session.socket.emit('terminal-error', {
-          sessionId,
-          error: error.message
-        })
-        
-        // 从内存中删除会话
-        this.sessions.delete(sessionId)
-        
-        // 从持久化存储中删除会话
-        this.sessionManager.removeSession(sessionId).catch(error => {
-          this.logger.error(`PTY错误时从配置文件删除会话失败: ${sessionId}`, error)
-        })
-      })
-      
-      // Linux下设置进程组，确保信号正确传递
-      if (os.platform() !== 'win32' && ptyProcess.pid) {
-        try {
-          // 将PTY进程设置为新进程组的组长
-          process.kill(-ptyProcess.pid, 0) // 测试进程组是否存在
-          this.logger.info(`PTY进程组设置成功: ${ptyProcess.pid}`)
-        } catch (error) {
-          this.logger.warn(`设置PTY进程组失败: ${error}`)
+        return
+      } catch (error) {
+        lastError = error
+        if (attemptNumber < maxAttempts) {
+          this.logger.warn(
+            `删除PTY会话持久化失败，将重试: ${sessionId}`,
+            error
+          )
         }
       }
-      
-      // 如果启用了输出流转发，启动转发进程
-      if (enableStreamForward && programPath) {
-        this.startStreamForwardProcess(session, programPath)
+    }
+    throw lastError
+  }
+
+  private async promoteAttempt(
+    attempt: CreateAttempt,
+    launch: PtyProcessLaunch
+  ): Promise<void> {
+    if (
+      !this.isActiveAttempt(attempt) ||
+      attempt.processError ||
+      attempt.processExited ||
+      attempt.process !== launch.process ||
+      attempt.control !== launch.control
+    ) {
+      return
+    }
+
+    let promoted = false
+    let rollbackRetry: Promise<void> | undefined
+    await this.runPersistenceOperation(attempt.id, async () => {
+      let activeSaved = false
+      attempt.activePersistenceOwned = false
+      try {
+        await this.sessionManager.saveSession({
+          id: attempt.id,
+          name: attempt.name,
+          workingDirectory: attempt.workingDirectory,
+          createdAt: attempt.createdAt,
+          lastActivity: attempt.lastActivity,
+          isActive: true
+        })
+        activeSaved = true
+        attempt.activePersistenceOwned = true
+      } catch (error) {
+        this.logger.error(`保存会话到配置文件失败: ${attempt.id}`, error)
       }
-      
-      // 发送创建成功事件
-      socket.emit('pty-created', {
-        sessionId,
-        workingDirectory
+
+      const canPromote =
+        this.isActiveAttempt(attempt) &&
+        !attempt.processError &&
+        !attempt.processExited &&
+        attempt.process === launch.process &&
+        attempt.control === launch.control
+      if (!canPromote) {
+        if (activeSaved) {
+          if (this.hasReplacementPersistenceOwner(attempt.id, attempt)) {
+            attempt.activePersistenceOwned = false
+          } else {
+            try {
+              await this.sessionManager.removeSession(attempt.id)
+              attempt.activePersistenceOwned = false
+            } catch (error) {
+              this.logger.error(`回滚未完成PTY会话失败: ${attempt.id}`, error)
+              rollbackRetry = this.removePersistenceWithRetry(
+                attempt.id,
+                attempt,
+                1
+              )
+            }
+          }
+        }
+        return
+      }
+
+      const session: PtySession = {
+        id: attempt.id,
+        name: attempt.name,
+        state: 'ready',
+        size: {
+          cols: attempt.createSize.cols,
+          rows: attempt.createSize.rows
+        },
+        process: launch.process,
+        control: launch.control,
+        endpoint: launch.endpoint,
+        socket: attempt.socket,
+        workingDirectory: attempt.workingDirectory,
+        createdAt: attempt.createdAt,
+        lastActivity: attempt.lastActivity,
+        outputBuffer: attempt.outputBuffer,
+        streamForwardProcess: attempt.streamForwardProcess,
+        streamForwardRestartGeneration: 0,
+        enableStreamForward: attempt.enableStreamForward,
+        programPath: attempt.programPath,
+        autoCloseOnForwardExit: attempt.autoCloseOnForwardExit,
+        fallbackRetried: attempt.phase === 'fallback',
+        stdoutRedactor: attempt.stdoutRedactor,
+        stderrRedactor: attempt.stderrRedactor,
+        onOutput: attempt.onOutput,
+        onExit: attempt.onExit,
+        exitNotified: attempt.exitNotified,
+        activePersistenceOwned: attempt.activePersistenceOwned,
+        processExited: false,
+        finalEventSent: false
+      }
+
+      this.sessions.set(attempt.id, session)
+      attempt.activePersistenceOwned = false
+      this.createAttempts.delete(attempt.id)
+      session.socket.emit('pty-created', {
+        sessionId: session.id,
+        workingDirectory: session.workingDirectory
       })
-      
-      this.logger.info(`PTY会话创建成功: ${sessionId}`)
-      
-      // 发送初始欢迎信息和提示符
+      this.logger.info(`PTY会话创建成功: ${session.id}`)
+
+      if (session.enableStreamForward && session.programPath) {
+        this.startStreamForwardProcess(session, session.programPath)
+      }
+
       setTimeout(() => {
-        if (ptyProcess.stdin && !ptyProcess.stdin.destroyed) {
-          // 发送一个回车来触发初始提示符
-          ptyProcess.stdin.write('\r')
+        const current = this.sessions.get(session.id)
+        if (
+          current !== session ||
+          current.state !== 'ready' ||
+          current.process !== launch.process ||
+          current.processExited
+        ) {
+          return
         }
-      }, 500) // 延迟500ms确保PTY完全初始化
-      
-    } catch (error) {
-      this.logger.error(`创建PTY会话失败:`, error)
-      socket.emit('terminal-error', {
-        sessionId: data.sessionId,
-        error: error instanceof Error ? error.message : '未知错误'
+        this.writePtyStdin(current, '\r')
+      }, 500)
+      promoted = true
+    })
+
+    if (rollbackRetry) {
+      try {
+        await rollbackRetry
+      } catch (error) {
+        this.logger.error(`重试回滚未完成PTY会话失败: ${attempt.id}`, error)
+      }
+    }
+
+    if (
+      !promoted &&
+      this.isActiveAttempt(attempt) &&
+      (attempt.processError || attempt.processExited)
+    ) {
+      await this.failCreateAttempt(
+        attempt,
+        attempt.processError?.message || 'PTY进程在创建完成前退出'
+      )
+    }
+  }
+
+  private registerPtyProcessHandlers(
+    sessionId: string,
+    ptyProcess: ChildProcess,
+    startedAt: number
+  ): Promise<PtyProcessOutcome> {
+    this.installPtyStdinErrorHandler(sessionId, ptyProcess)
+    let settled = false
+    let resolveOutcome!: (outcome: PtyProcessOutcome) => void
+    const outcome = new Promise<PtyProcessOutcome>(resolve => {
+      resolveOutcome = resolve
+    })
+    const settleOutcome = (value: PtyProcessOutcome) => {
+      if (settled) return
+      settled = true
+      resolveOutcome(value)
+    }
+
+    ptyProcess.stdout?.on('data', (data: Buffer) => {
+      const owner = this.resolveProcessOwner(sessionId, ptyProcess)
+      if (!owner || !this.canForwardPtyOutput(owner)) return
+      this.emitPtyOutput(owner, owner.stdoutRedactor.write(data))
+    })
+    ptyProcess.stdout?.once('end', () => {
+      const owner = this.resolveProcessOwner(sessionId, ptyProcess)
+      if (!owner || !this.canForwardPtyOutput(owner)) return
+      this.emitPtyOutput(owner, owner.stdoutRedactor.end())
+    })
+    ptyProcess.stderr?.on('data', (data: Buffer) => {
+      const owner = this.resolveProcessOwner(sessionId, ptyProcess)
+      if (!owner || !this.canForwardPtyOutput(owner)) return
+      this.emitPtyOutput(owner, owner.stderrRedactor.write(data), true)
+    })
+    ptyProcess.stderr?.once('end', () => {
+      const owner = this.resolveProcessOwner(sessionId, ptyProcess)
+      if (!owner || !this.canForwardPtyOutput(owner)) return
+      this.emitPtyOutput(owner, owner.stderrRedactor.end(), true)
+    })
+
+    const observeProcessExit = (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
+      const current = this.resolveProcessOwner(sessionId, ptyProcess)
+      if (!current) return
+
+      this.ensureCloseContext(current, {
+        intentional: false,
+        emitEvents: true,
+        emitTimeoutError: false
       })
+      const firstObservation = !current.processExited
+      if (firstObservation) {
+        current.processExited = true
+        current.processExitCode = code
+        current.processExitSignal = signal
+        this.logger.info(
+          `PTY进程退出: ${sessionId}, 退出码: ${code}, 信号: ${signal}`
+        )
+      }
+
+      if ('phase' in current) {
+        if (
+          current.cancellation.cancelled ||
+          current.phase === 'closing' ||
+          current.phase === 'close-retained'
+        ) {
+          void this.finalizeConfirmedExit(current).catch(error => {
+            this.logger.error(`清理已退出PTY创建尝试失败: ${sessionId}`, error)
+          })
+        }
+        return
+      }
+
+      void this.finalizeConfirmedExit(current).catch(error => {
+        this.logger.error(`清理已退出PTY会话失败: ${sessionId}`, error)
+      })
+    }
+
+    const settleCloseOutcome = (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
+      settleOutcome({
+        kind: 'close',
+        code,
+        signal,
+        elapsedMs: Date.now() - startedAt
+      })
+      observeProcessExit(code, signal)
+    }
+
+    ptyProcess.once('exit', settleCloseOutcome)
+    ptyProcess.once('close', settleCloseOutcome)
+
+    ptyProcess.on('error', (error: Error) => {
+      settleOutcome({
+        kind: 'error',
+        code: null,
+        signal: null,
+        error,
+        elapsedMs: Date.now() - startedAt
+      })
+      const current = this.resolveProcessOwner(sessionId, ptyProcess)
+      if (!current) return
+
+      if (!('phase' in current)) {
+        this.ensureCloseContext(current, {
+          intentional: false,
+          emitEvents: true,
+          emitTimeoutError: false
+        })
+      }
+      this.logger.error(`PTY进程错误 ${sessionId}:`, error)
+      if ('phase' in current) {
+        if (
+          !current.cancellation.cancelled &&
+          this.createAttempts.get(sessionId) === current
+        ) {
+          current.processError = error
+        }
+        return
+      }
+      this.handlePromotedSessionProcessError(
+        sessionId,
+        ptyProcess,
+        error
+      )
+    })
+
+    return outcome
+  }
+
+  private installPtyStdinErrorHandler(
+    sessionId: string,
+    ptyProcess: ChildProcess
+  ): void {
+    const stdin = ptyProcess.stdin
+    if (!stdin) return
+    if (!this.ptyStdinHandlers) {
+      this.ptyStdinHandlers = new WeakSet<ChildProcess>()
+    }
+    if (this.ptyStdinHandlers.has(ptyProcess)) return
+
+    this.ptyStdinHandlers.add(ptyProcess)
+    stdin.on('error', (error: NodeJS.ErrnoException) => {
+      this.handlePtyStdinError(sessionId, ptyProcess, error)
+    })
+  }
+
+  private isExpectedClosingStdinError(error: NodeJS.ErrnoException): boolean {
+    return error.code === 'EPIPE' || error.code === 'ERR_STREAM_DESTROYED'
+  }
+
+  private handlePtyStdinError(
+    sessionId: string,
+    ptyProcess: ChildProcess,
+    error: NodeJS.ErrnoException
+  ): void {
+    const owner = this.resolveProcessOwner(sessionId, ptyProcess)
+    if (!owner) return
+
+    const closing = owner.processExited || (
+      this.isSessionTarget(owner)
+        ? owner.state === 'closing'
+        : owner.cancellation.cancelled ||
+          owner.phase === 'closing' ||
+          owner.phase === 'close-retained'
+    )
+    if (closing) {
+      if (this.isExpectedClosingStdinError(error)) {
+        this.logger.debug(`PTY进程stdin在关闭期间已不可写: ${sessionId}`)
+      } else {
+        this.logger.warn(`PTY进程stdin在关闭期间发生错误: ${sessionId}`, error)
+      }
+      return
+    }
+
+    if (!this.isSessionTarget(owner)) {
+      if (owner.processError) return
+      owner.processError = error
+      void this.failCreateAttempt(owner, error.message || 'PTY进程stdin写入失败')
+        .catch(closeError => {
+          this.logger.error(`PTY创建期间stdin错误清理失败: ${sessionId}`, closeError)
+        })
+      return
+    }
+
+    if (owner.state !== 'ready' || owner.processErrorSent) {
+      return
+    }
+    owner.processErrorSent = true
+    owner.state = 'closing'
+    this.logger.error(`PTY进程stdin写入失败: ${sessionId}`, error)
+    this.emitTerminalError(
+      owner.socket,
+      sessionId,
+      'input',
+      error.message || 'PTY进程stdin写入失败'
+    )
+    void this.requestTargetClose(owner, {
+      intentional: false,
+      emitEvents: true,
+      emitTimeoutError: false,
+      notifyRetained: true
+    }).catch(closeError => {
+      this.logger.error(`PTY进程stdin错误后关闭失败: ${sessionId}`, closeError)
+    })
+  }
+
+  private writePtyStdin(session: PtySession, data: string): boolean {
+    if (
+      this.sessions.get(session.id) !== session ||
+      session.state !== 'ready' ||
+      session.processExited
+    ) {
+      return false
+    }
+
+    const stdin = session.process.stdin
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      stdin.writableEnded ||
+      stdin.writable === false
+    ) {
+      this.handlePtyStdinError(
+        session.id,
+        session.process,
+        Object.assign(new Error('PTY进程stdin不可用'), {
+          code: 'ERR_STREAM_DESTROYED'
+        })
+      )
+      return false
+    }
+
+    try {
+      stdin.write(data)
+      return true
+    } catch (error) {
+      this.handlePtyStdinError(
+        session.id,
+        session.process,
+        error instanceof Error ? error : new Error(String(error))
+      )
+      return false
+    }
+  }
+
+  private endPtyStdin(target: PtySession | CreateAttempt): void {
+    if (!this.ownsTarget(target) || !target.process) return
+    const stdin = target.process.stdin
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      stdin.writableEnded ||
+      stdin.writable === false
+    ) {
+      return
+    }
+
+    try {
+      stdin.end()
+    } catch (error) {
+      this.handlePtyStdinError(
+        target.id,
+        target.process,
+        error instanceof Error ? error : new Error(String(error))
+      )
     }
   }
 
   /**
-   * 强制终止进程
+   * 为输出流转发进程的 stdin 安装永久 'error' listener，与主 PTY stdin 一致。
+   * 必须在任何 write/end 之前调用；异步 EPIPE 只能由 'error' 事件消费。
    */
-  private forceKillProcess(process: any, processName: string, onKilled?: () => void): void {
-    if (!process || process.killed) {
-      onKilled?.()
+  private installForwardStdinErrorHandler(
+    session: PtySession,
+    forwardProcess: ChildProcess
+  ): void {
+    const stdin = forwardProcess.stdin
+    if (!stdin) return
+    if (this.forwardStdinHandlers.has(forwardProcess)) return
+
+    this.forwardStdinHandlers.add(forwardProcess)
+    stdin.on('error', (error: NodeJS.ErrnoException) => {
+      this.handleForwardStdinError(session, forwardProcess, error)
+    })
+  }
+
+  /**
+   * 归一化输出流转发进程 stdin 的错误：
+   * 旧 child 迟到的 EPIPE/ERR_STREAM_DESTROYED 必须先做 identity 校验（与主 PTY
+   * resolveProcessOwner 同等）：restart/internal-stop 后旧 child 的迟到错误不得关闭
+   * 健康的新 child/session；确认是当前 child 后，closing/confirmed-exit 阶段的
+   * EPIPE/ERR_STREAM_DESTROYED 视为预期关闭结果；ready 阶段真实写失败只报告一次
+   * input error，并进入统一 bounded shutdown。
+   */
+  private handleForwardStdinError(
+    session: PtySession,
+    forwardProcess: ChildProcess,
+    error: NodeJS.ErrnoException
+  ): void {
+    if (
+      this.sessions.get(session.id) !== session ||
+      session.streamForwardProcess !== forwardProcess
+    ) {
+      this.logger.debug(
+        `忽略旧输出流转发进程stdin错误: ${session.id}（当前进程已替换或会话已移除）`
+      )
       return
     }
 
-    const pid = process.pid
-    this.logger.info(`开始强制终止${processName}，PID: ${pid}`)
-
-    // 监听进程退出事件
-    const onExit = () => {
-      this.logger.info(`${processName}已退出: ${pid}`)
-      onKilled?.()
+    const closing =
+      session.processExited ||
+      session.state === 'closing' ||
+      this.internallyStoppedForwardProcesses.has(forwardProcess)
+    if (closing) {
+      if (this.isExpectedClosingStdinError(error)) {
+        this.logger.debug(`输出流转发进程stdin在关闭期间已不可写: ${session.id}`)
+      } else {
+        this.logger.warn(
+          `输出流转发进程stdin在关闭期间发生错误: ${session.id}`,
+          error
+        )
+      }
+      return
     }
-    
-    process.once('exit', onExit)
+
+    if (session.state !== 'ready' || session.processErrorSent) {
+      return
+    }
+    session.processErrorSent = true
+    session.state = 'closing'
+    this.logger.error(`输出流转发进程stdin写入失败: ${session.id}`, error)
+    this.emitTerminalError(
+      session.socket,
+      session.id,
+      'input',
+      error.message || '输出流转发进程stdin写入失败'
+    )
+    void this.requestTargetClose(session, {
+      intentional: false,
+      emitEvents: true,
+      emitTimeoutError: false,
+      notifyRetained: true
+    }).catch(closeError => {
+      this.logger.error(
+        `输出流转发进程stdin错误后关闭失败: ${session.id}`,
+        closeError
+      )
+    })
+  }
+
+  private writeForwardStdin(session: PtySession, data: string): boolean {
+    if (
+      this.sessions.get(session.id) !== session ||
+      session.state !== 'ready' ||
+      session.processExited
+    ) {
+      return false
+    }
+
+    const forwardProcess = session.streamForwardProcess
+    if (!forwardProcess || forwardProcess.killed) {
+      return false
+    }
+    const stdin = forwardProcess.stdin
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      stdin.writableEnded ||
+      stdin.writable === false
+    ) {
+      this.handleForwardStdinError(
+        session,
+        forwardProcess,
+        Object.assign(new Error('输出流转发进程stdin不可用'), {
+          code: 'ERR_STREAM_DESTROYED'
+        })
+      )
+      return false
+    }
 
     try {
-      // Linux下优先处理进程组
-      if (os.platform() !== 'win32' && pid) {
-        try {
-          // 首先尝试向整个进程组发送SIGINT信号
-          process.kill(-pid, 'SIGINT')
-          this.logger.info(`已向${processName}进程组发送SIGINT信号: -${pid}`)
-        } catch (error) {
-          // 如果进程组不存在，向单个进程发送信号
-          this.logger.warn(`向进程组发送信号失败，尝试向单个进程发送: ${error}`)
-          process.kill('SIGINT')
-          this.logger.info(`已向${processName}发送SIGINT信号: ${pid}`)
+      stdin.write(data)
+      return true
+    } catch (error) {
+      this.handleForwardStdinError(
+        session,
+        forwardProcess,
+        error instanceof Error ? error : new Error(String(error))
+      )
+      return false
+    }
+  }
+
+  private endForwardStdin(
+    session: PtySession,
+    forwardProcess: ChildProcess
+  ): void {
+    const stdin = forwardProcess.stdin
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      stdin.writableEnded ||
+      stdin.writable === false
+    ) {
+      return
+    }
+
+    try {
+      stdin.end()
+    } catch (error) {
+      this.handleForwardStdinError(
+        session,
+        forwardProcess,
+        error instanceof Error ? error : new Error(String(error))
+      )
+    }
+  }
+
+  private resolveProcessOwner(
+    sessionId: string,
+    ptyProcess: ChildProcess
+  ): PtySession | CreateAttempt | undefined {
+    const session = this.sessions.get(sessionId)
+    if (session?.process === ptyProcess) {
+      return session
+    }
+    const attempt = this.createAttempts.get(sessionId)
+    if (attempt?.process === ptyProcess) {
+      return attempt
+    }
+    return undefined
+  }
+
+  private canForwardPtyOutput(owner: PtySession | CreateAttempt): boolean {
+    if ('phase' in owner) {
+      return !owner.cancellation.cancelled &&
+        this.createAttempts.get(owner.id) === owner
+    }
+    return this.sessions.get(owner.id) === owner
+  }
+
+  private emitPtyOutput(
+    owner: PtySession | CreateAttempt,
+    output: string,
+    isError = false
+  ): void {
+    if (!output) return
+    if ('phase' in owner) {
+      if (
+        owner.cancellation.cancelled ||
+        this.createAttempts.get(owner.id) !== owner
+      ) {
+        return
+      }
+    } else if (this.sessions.get(owner.id) !== owner) {
+      return
+    }
+    owner.lastActivity = new Date()
+    owner.outputBuffer.push(output)
+    if (owner.outputBuffer.length > 1000) {
+      owner.outputBuffer.shift()
+    }
+    try {
+      owner.onOutput?.(output)
+    } catch (error) {
+      this.logger.warn(`PTY输出回调执行失败: ${owner.id}`, error)
+    }
+    if (isError) {
+      this.logger.warn(`PTY错误输出 ${owner.id}: ${JSON.stringify(output)}`)
+    } else {
+      this.logger.debug(`PTY输出 ${owner.id}: ${JSON.stringify(output)}`)
+    }
+    owner.socket.emit('terminal-output', { sessionId: owner.id, data: output })
+  }
+
+  private handlePromotedSessionProcessError(
+    sessionId: string,
+    ptyProcess: ChildProcess,
+    error: Error
+  ): void {
+    const session = this.sessions.get(sessionId)
+    if (
+      !session ||
+      session.process !== ptyProcess ||
+      session.processErrorSent
+    ) {
+      return
+    }
+
+    session.processErrorSent = true
+    session.state = 'closing'
+    this.emitTerminalError(session.socket, sessionId, 'input', error.message)
+    void this.requestTargetClose(session, {
+      intentional: false,
+      emitEvents: true,
+      emitTimeoutError: false,
+      notifyRetained: true
+    }).catch(closeError => {
+      this.logger.error(`PTY进程错误后关闭失败: ${sessionId}`, closeError)
+    })
+  }
+
+  private cancelStreamForwardRestart(session: PtySession): void {
+    session.streamForwardRestartGeneration += 1
+  }
+
+  private async stopSessionStreamForward(
+    session: PtySession,
+    logMessage: string
+  ): Promise<boolean> {
+    this.cancelStreamForwardRestart(session)
+    const forwardProcess = session.streamForwardProcess
+    if (!forwardProcess) {
+      return true
+    }
+
+    this.internallyStoppedForwardProcesses.add(forwardProcess)
+    if (session.pendingForwardAutoCloseProcess === forwardProcess) {
+      session.pendingForwardAutoCloseProcess = undefined
+    }
+    this.logger.info(`${logMessage}: ${session.id}`)
+    this.endForwardStdin(session, forwardProcess)
+
+    const exited = await this.forceKillProcess(forwardProcess, '输出流转发进程')
+    if (exited && session.streamForwardProcess === forwardProcess) {
+      session.streamForwardProcess = undefined
+    }
+    return exited
+  }
+
+  private removeSessionPersistence(session: PtySession): Promise<void> {
+    if (session.persistenceRemoval) {
+      return session.persistenceRemoval
+    }
+
+    const removal = this.removePersistenceWithRetry(session.id, session)
+    session.persistenceRemoval = removal
+    void removal.catch(() => {
+      if (session.persistenceRemoval === removal) {
+        session.persistenceRemoval = undefined
+      }
+    })
+    return removal
+  }
+
+  private createDeferred<T>(): {
+    promise: Promise<T>
+    resolve: (value: T | PromiseLike<T>) => void
+    reject: (reason?: unknown) => void
+  } {
+    let resolve!: (value: T | PromiseLike<T>) => void
+    let reject!: (reason?: unknown) => void
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise
+      reject = rejectPromise
+    })
+    return { promise, resolve, reject }
+  }
+
+  private ensureCloseContext(
+    target: PtySession | CreateAttempt,
+    requested: CloseContext
+  ): CloseContext {
+    if (target.closeContext) {
+      return target.closeContext
+    }
+
+    const context = Object.freeze({
+      intentional: requested.intentional,
+      emitEvents: requested.emitEvents,
+      emitTimeoutError: requested.emitTimeoutError
+    })
+    target.closeContext = context
+    return context
+  }
+
+  private isSessionTarget(
+    target: PtySession | CreateAttempt
+  ): target is PtySession {
+    return 'state' in target
+  }
+
+  private ownsTarget(target: PtySession | CreateAttempt): boolean {
+    if (this.isSessionTarget(target)) {
+      return this.sessions.get(target.id) === target
+    }
+    return this.createAttempts.get(target.id) === target
+  }
+
+  private closeTargetControl(
+    target: PtySession | CreateAttempt
+  ): Promise<void> {
+    if (target.controlClosePromise) {
+      return target.controlClosePromise
+    }
+
+    const deferred = this.createDeferred<void>()
+    target.controlClosePromise = deferred.promise
+    const control = target.control
+    if (!control) {
+      deferred.resolve()
+      return deferred.promise
+    }
+
+    void this.closeControlQuietly(target.id, control).then(
+      deferred.resolve,
+      deferred.reject
+    )
+    return deferred.promise
+  }
+
+  private finalizeConfirmedExit(
+    target: PtySession | CreateAttempt
+  ): Promise<CloseResult> {
+    if (!target.processExited) {
+      return Promise.resolve('still-running')
+    }
+    if (target.finalizationPromise) {
+      return target.finalizationPromise
+    }
+
+    this.ensureCloseContext(target, {
+      intentional: false,
+      emitEvents: true,
+      emitTimeoutError: false
+    })
+    const deferred = this.createDeferred<CloseResult>()
+    target.finalizationPromise = deferred.promise
+    void this.finishConfirmedExit(target).then(
+      result => {
+        if (
+          result === 'still-running' &&
+          target.finalizationPromise === deferred.promise
+        ) {
+          target.finalizationPromise = undefined
+        }
+        deferred.resolve(result)
+      },
+      error => {
+        if (target.finalizationPromise === deferred.promise) {
+          target.finalizationPromise = undefined
+        }
+        deferred.reject(error)
+      }
+    )
+    return deferred.promise
+  }
+
+  private async finishConfirmedExit(
+    target: PtySession | CreateAttempt
+  ): Promise<CloseResult> {
+    if (!target.processExited) {
+      return 'still-running'
+    }
+
+    let forwardExited = true
+    try {
+      forwardExited = this.isSessionTarget(target)
+        ? await this.stopSessionStreamForward(target, 'PTY退出时清理输出流转发进程')
+        : await this.stopAttemptStreamForward(target)
+    } catch (error) {
+      forwardExited = false
+      this.logger.warn(`PTY退出时清理输出流转发进程失败: ${target.id}`, error)
+    }
+    if (!forwardExited) {
+      this.retainTargetAfterCloseTimeout(target)
+      return 'still-running'
+    }
+
+    const ownedBeforeCleanup = this.ownsTarget(target)
+    await this.closeTargetControl(target)
+    if (!target.processExited) {
+      return 'still-running'
+    }
+
+    const stillOwned = this.ownsTarget(target)
+    if (stillOwned) {
+      if (this.isSessionTarget(target)) {
+        this.sessions.delete(target.id)
+      } else {
+        this.createAttempts.delete(target.id)
+      }
+    }
+    if (ownedBeforeCleanup && stillOwned) {
+      this.emitTargetFinalEvent(target)
+      this.notifyTargetExitCallback(target)
+    }
+
+    try {
+      if (target.activePersistenceOwned) {
+        if (this.isSessionTarget(target)) {
+          await this.removeSessionPersistence(target)
+        } else {
+          await this.removePersistenceWithRetry(target.id, target)
+        }
+      }
+    } catch (error) {
+      this.logger.error(`PTY退出时从配置文件删除会话失败: ${target.id}`, error)
+    }
+
+    if (target.endpoint) {
+      await this.removeEndpointQuietly(target.id, target.endpoint)
+    }
+    return 'closed'
+  }
+
+  private registerPublicCloseRequester(
+    target: PtySession | CreateAttempt,
+    socket: Socket
+  ): void {
+    if (!target.publicCloseRequesters) {
+      target.publicCloseRequesters = new Map()
+    }
+    if (!target.publicCloseAckedIds) {
+      target.publicCloseAckedIds = new Set()
+    }
+    if (target.publicCloseAckedIds.has(socket.id)) {
+      return
+    }
+    target.publicCloseRequesters.set(socket.id, socket)
+  }
+
+  private markTargetSocketAcked(
+    target: PtySession | CreateAttempt,
+    socket: Socket
+  ): void {
+    if (!target.publicCloseAckedIds) {
+      target.publicCloseAckedIds = new Set()
+    }
+    target.publicCloseAckedIds.add(socket.id)
+    target.publicCloseRequesters?.delete(socket.id)
+  }
+
+  /**
+   * 每个 public requester 在 confirmed removal 后恰好收到一次 pty-closed；
+   * requester 覆盖/重置不会让早期 requester 丢 ACK，final events 不会重复。
+   */
+  private emitPublicCloseAck(target: PtySession | CreateAttempt): void {
+    const requesters = target.publicCloseRequesters
+    if (!requesters || requesters.size === 0) {
+      return
+    }
+    if (!target.publicCloseAckedIds) {
+      target.publicCloseAckedIds = new Set()
+    }
+
+    for (const [socketId, requester] of [...requesters.entries()]) {
+      requesters.delete(socketId)
+      target.publicCloseAckedIds.add(socketId)
+      requester.emit('pty-closed', { sessionId: target.id })
+    }
+  }
+
+  private notifyTargetExitCallback(target: PtySession | CreateAttempt): void {
+    if (!target.process || target.exitNotified) {
+      return
+    }
+
+    target.exitNotified = true
+    try {
+      target.onExit?.(
+        target.processExitCode ?? 0,
+        target.processExitSignal ?? null
+      )
+    } catch (error) {
+      this.logger.warn(`PTY退出回调执行失败: ${target.id}`, error)
+    }
+  }
+
+  private emitTargetFinalEvent(target: PtySession | CreateAttempt): void {
+    const context = this.ensureCloseContext(target, {
+      intentional: false,
+      emitEvents: true,
+      emitTimeoutError: false
+    })
+
+    if (!target.finalEventSent && context.emitEvents) {
+      if (!this.isSessionTarget(target)) {
+        if (context.intentional) {
+          target.finalEventSent = true
+          target.socket.emit('pty-closed', { sessionId: target.id })
+          this.markTargetSocketAcked(target, target.socket)
         }
       } else {
-        // Windows下直接向进程发送信号
-        process.kill('SIGINT')
-        this.logger.info(`已向${processName}发送SIGINT信号: ${pid}`)
-      }
-
-      // 设置2秒超时，如果进程还没退出就使用SIGTERM
-      setTimeout(() => {
-        if (!process.killed) {
-          this.logger.warn(`${processName}未响应SIGINT信号，尝试SIGTERM: ${pid}`)
-          try {
-            if (os.platform() !== 'win32' && pid) {
-              try {
-                // 向进程组发送SIGTERM
-                process.kill(-pid, 'SIGTERM')
-                this.logger.info(`已向${processName}进程组发送SIGTERM信号: -${pid}`)
-              } catch (error) {
-                // 向单个进程发送SIGTERM
-                process.kill('SIGTERM')
-                this.logger.info(`已向${processName}发送SIGTERM信号: ${pid}`)
-              }
-            } else {
-              process.kill('SIGTERM')
-            }
-          } catch (error) {
-            this.logger.warn(`发送SIGTERM信号失败:`, error)
-          }
-
-          // 再等待2秒，如果还没退出就强制杀死
-          setTimeout(() => {
-            if (!process.killed) {
-              this.logger.warn(`${processName}未响应SIGTERM信号，强制杀死: ${pid}`)
-              try {
-                if (os.platform() !== 'win32' && pid) {
-                  try {
-                    // 向进程组发送SIGKILL
-                    process.kill(-pid, 'SIGKILL')
-                    this.logger.info(`已向${processName}进程组发送SIGKILL信号: -${pid}`)
-                  } catch (error) {
-                    // 向单个进程发送SIGKILL
-                    process.kill('SIGKILL')
-                    this.logger.info(`已向${processName}发送SIGKILL信号: ${pid}`)
-                  }
-                } else {
-                  process.kill('SIGKILL')
-                }
-              } catch (error) {
-                this.logger.error(`强制杀死进程失败:`, error)
-                
-                // 在Windows上尝试使用taskkill命令
-                if (os.platform() === 'win32' && pid) {
-                  exec(`taskkill /F /PID ${pid}`, (error: any) => {
-                    if (error) {
-                      this.logger.error(`taskkill命令执行失败:`, error)
-                    } else {
-                      this.logger.info(`使用taskkill成功终止${processName}: ${pid}`)
-                    }
-                    // 即使taskkill失败，也调用回调函数清理引用
-                    if (!process.killed) {
-                      process.removeListener('exit', onExit)
-                      onKilled?.()
-                    }
-                  })
-                } else {
-                  // 非Windows平台，尝试使用系统命令强制杀死进程组
-                  if (pid) {
-                    exec(`pkill -9 -g ${pid}`, (error: any) => {
-                      if (error) {
-                        this.logger.error(`pkill命令执行失败:`, error)
-                      } else {
-                        this.logger.info(`使用pkill成功终止${processName}进程组: ${pid}`)
-                      }
-                      // 强制清理引用
-                      if (!process.killed) {
-                        process.removeListener('exit', onExit)
-                        onKilled?.()
-                      }
-                    })
-                  } else {
-                    // 如果所有方法都失败，强制清理引用
-                    process.removeListener('exit', onExit)
-                    onKilled?.()
-                  }
-                }
-              }
-            }
-          }, 2000)
+        target.finalEventSent = true
+        if (context.intentional) {
+          target.socket.emit('pty-closed', { sessionId: target.id })
+          this.markTargetSocketAcked(target, target.socket)
+        } else {
+          target.socket.emit('terminal-exit', {
+            sessionId: target.id,
+            code: target.processExitCode ?? 0,
+            signal: target.processExitSignal ?? null
+          })
         }
-      }, 2000)
-
-    } catch (error) {
-      this.logger.error(`强制终止${processName}失败:`, error)
-      process.removeListener('exit', onExit)
-      onKilled?.()
+      }
     }
+
+    this.emitPublicCloseAck(target)
+  }
+
+  private async failCreateAttempt(
+    attempt: CreateAttempt,
+    error: string
+  ): Promise<void> {
+    if (!this.isActiveAttempt(attempt)) return
+
+    attempt.failureMessage = error
+    attempt.finalEventSent = true
+    this.emitTerminalError(attempt.socket, attempt.id, 'create', error)
+    await this.requestTargetClose(attempt, {
+      intentional: false,
+      emitEvents: false,
+      emitTimeoutError: false,
+      notifyRetained: true
+    })
+  }
+
+  private async closeControlQuietly(
+    sessionId: string,
+    control: PtyControlChannel
+  ): Promise<void> {
+    try {
+      await control.close()
+    } catch (error) {
+      this.logger.warn(`关闭PTY控制通道失败: ${sessionId}`, error)
+    }
+  }
+
+  private async removeEndpointQuietly(
+    sessionId: string,
+    endpoint: string
+  ): Promise<void> {
+    try {
+      await removePtyControlEndpoint(endpoint)
+    } catch (error) {
+      this.logger.warn(`删除PTY控制端点失败: ${sessionId}`, error)
+    }
+  }
+
+  private emitTerminalError(
+    socket: Socket,
+    sessionId: string,
+    operation: 'create' | 'input' | 'resize' | 'close',
+    error: string,
+    details: { retained?: boolean } = {}
+  ): void {
+    socket.emit('terminal-error', { sessionId, operation, error, ...details })
+  }
+
+  private hasChildProcessExited(child: ChildProcess): boolean {
+    if (child.exitCode !== null && child.exitCode !== undefined) {
+      return true
+    }
+    if (child.signalCode !== null && child.signalCode !== undefined) {
+      return true
+    }
+
+    const pid = child.pid
+    if (!pid) {
+      return false
+    }
+    try {
+      process.kill(pid, 0)
+      return false
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ESRCH'
+    }
+  }
+
+  private waitForChildProcessExit(
+    child: ChildProcess,
+    timeoutMs: number
+  ): Promise<boolean> {
+    if (this.hasChildProcessExited(child)) {
+      return Promise.resolve(true)
+    }
+
+    return new Promise(resolve => {
+      let settled = false
+      let timer: NodeJS.Timeout
+      const finish = (exited: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        child.removeListener('exit', onExit)
+        child.removeListener('close', onExit)
+        resolve(exited)
+      }
+      const onExit = () => finish(true)
+
+      child.once('exit', onExit)
+      child.once('close', onExit)
+      timer = setTimeout(() => finish(this.hasChildProcessExited(child)), timeoutMs)
+      timer.unref?.()
+      if (this.hasChildProcessExited(child)) {
+        finish(true)
+      }
+    })
+  }
+
+  private sendSignalToPtyProcessGroup(
+    child: ChildProcess,
+    processName: string,
+    signal: NodeJS.Signals
+  ): void {
+    const pid = child.pid
+    if (os.platform() !== 'win32' && pid) {
+      try {
+        process.kill(-pid, signal)
+        this.logger.info(`已向${processName}进程组发送${signal}信号: -${pid}`)
+        return
+      } catch (error) {
+        this.logger.warn(`向${processName}进程组发送${signal}失败，尝试主进程: ${error}`)
+      }
+    }
+
+    try {
+      child.kill(signal)
+      this.logger.info(`已向${processName}发送${signal}信号: ${pid}`)
+    } catch (error) {
+      this.logger.warn(`向${processName}发送${signal}信号失败:`, error)
+    }
+  }
+
+  /**
+   * 逐级终止进程，并且只在 exit/close 或 PID 不存在时确认退出。
+   */
+  private async forceKillProcess(
+    child: ChildProcess | undefined,
+    processName: string,
+    onKilled?: () => void
+  ): Promise<boolean> {
+    if (!child) {
+      onKilled?.()
+      return true
+    }
+
+    const complete = () => {
+      this.logger.info(`${processName}已确认退出: ${child.pid}`)
+      try {
+        onKilled?.()
+      } catch (error) {
+        this.logger.warn(`${processName}退出回调执行失败:`, error)
+      }
+      return true
+    }
+    if (this.hasChildProcessExited(child)) {
+      return complete()
+    }
+
+    const pid = child.pid
+    this.logger.info(`开始终止${processName}，PID: ${pid}`)
+    this.sendSignalToPtyProcessGroup(child, processName, 'SIGINT')
+    if (await this.waitForChildProcessExit(child, 2000)) {
+      return complete()
+    }
+
+    this.logger.warn(`${processName}未响应SIGINT，尝试SIGTERM: ${pid}`)
+    this.sendSignalToPtyProcessGroup(child, processName, 'SIGTERM')
+    if (await this.waitForChildProcessExit(child, 2000)) {
+      return complete()
+    }
+
+    this.logger.warn(`${processName}未响应SIGTERM，尝试SIGKILL: ${pid}`)
+    this.sendSignalToPtyProcessGroup(child, processName, 'SIGKILL')
+    if (await this.waitForChildProcessExit(child, 1000)) {
+      return complete()
+    }
+
+    if (os.platform() === 'win32' && pid) {
+      try {
+        await execAsync(`taskkill /F /T /PID ${pid}`, { timeout: 3000 })
+      } catch (error) {
+        this.logger.warn(`taskkill终止${processName}失败:`, error)
+      }
+      if (await this.waitForChildProcessExit(child, 1000)) {
+        return complete()
+      }
+    }
+
+    this.logger.error(`${processName}在终止期限内仍未确认退出: ${pid}`)
+    return false
   }
 
   /**
    * 重启输出流转发进程
    */
-  public restartStreamForwardProcess(sessionId: string): boolean {
+  public async restartStreamForwardProcess(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId)
-    if (!session || !session.enableStreamForward || !session.programPath) {
+    if (
+      !session ||
+      session.state !== 'ready' ||
+      !session.enableStreamForward ||
+      !session.programPath
+    ) {
       this.logger.warn(`无法重启转发进程: 会话不存在或未启用输出流转发: ${sessionId}`)
       return false
     }
 
-    // 先终止现有进程
-    if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-      this.forceKillProcess(session.streamForwardProcess, '输出流转发进程', () => {
+    const programPath = session.programPath
+    const restartGeneration = session.streamForwardRestartGeneration + 1
+    session.streamForwardRestartGeneration = restartGeneration
+
+    const forwardProcess = session.streamForwardProcess
+    if (forwardProcess) {
+      this.internallyStoppedForwardProcesses.add(forwardProcess)
+      if (session.pendingForwardAutoCloseProcess === forwardProcess) {
+        session.pendingForwardAutoCloseProcess = undefined
+      }
+      const exited = await this.forceKillProcess(forwardProcess, '输出流转发进程')
+      if (!exited) {
+        return false
+      }
+      if (
+        this.sessions.get(sessionId) !== session ||
+        session.state !== 'ready' ||
+        session.streamForwardRestartGeneration !== restartGeneration ||
+        (session.streamForwardProcess &&
+          session.streamForwardProcess !== forwardProcess)
+      ) {
+        return false
+      }
+      if (session.streamForwardProcess === forwardProcess) {
         session.streamForwardProcess = undefined
-        // 重新启动进程
-        this.startStreamForwardProcess(session, session.programPath!)
-      })
-    } else {
-      // 直接启动新进程
-      this.startStreamForwardProcess(session, session.programPath)
+      }
     }
 
+    this.startStreamForwardProcess(session, programPath)
     return true
   }
 
@@ -784,6 +2187,7 @@ export class TerminalManager {
    * 启动输出流转发进程
    */
   private startStreamForwardProcess(session: PtySession, programPath: string): void {
+    this.cancelStreamForwardRestart(session)
     try {
       this.logger.info(`启动输出流转发进程: ${programPath}`)
       
@@ -845,7 +2249,10 @@ export class TerminalManager {
         })
       }
       
+      session.pendingForwardAutoCloseProcess = undefined
       session.streamForwardProcess = forwardProcess
+      // 永久 stdin error listener：任何 write/end 之前安装，防止异步 EPIPE 逃逸为 uncaughtException
+      this.installForwardStdinErrorHandler(session, forwardProcess)
       
       this.logger.info(`输出流转发进程已启动，PID: ${forwardProcess.pid}`)
       
@@ -900,6 +2307,33 @@ export class TerminalManager {
       
       // 处理转发进程退出
       forwardProcess.on('exit', (code, signal) => {
+        if (this.internallyStoppedForwardProcesses.delete(forwardProcess)) {
+          if (session.streamForwardProcess === forwardProcess) {
+            session.streamForwardProcess = undefined
+          }
+          if (session.pendingForwardAutoCloseProcess === forwardProcess) {
+            session.pendingForwardAutoCloseProcess = undefined
+          }
+          // 首次 forward shutdown 返回 false（retained）时，后续 child exit 必须
+          // 重新触发 finalizeConfirmedExit，不能只清引用：PTY 进程已退出后，
+          // target/map/endpoint/persistence 不应继续 retained。
+          if (
+            this.sessions.get(session.id) === session &&
+            session.processExited
+          ) {
+            void this.finalizeConfirmedExit(session).catch(error => {
+              this.logger.error(`清理已退出PTY会话失败: ${session.id}`, error)
+            })
+          }
+          return
+        }
+        if (
+          session.streamForwardProcess &&
+          session.streamForwardProcess !== forwardProcess
+        ) {
+          return
+        }
+
         this.logger.info(`转发进程退出: ${session.id}, 退出码: ${code}, 信号: ${signal}`)
         
         let exitMessage: string
@@ -922,10 +2356,13 @@ export class TerminalManager {
           data: exitMessage
         })
 
-        session.streamForwardProcess = undefined
+        if (session.streamForwardProcess === forwardProcess) {
+          session.streamForwardProcess = undefined
+        }
 
         // 如果配置了自动关闭，则在转发进程退出后关闭终端会话
         if (session.autoCloseOnForwardExit) {
+          session.pendingForwardAutoCloseProcess = forwardProcess
           session.socket.emit('terminal-output', {
             sessionId: session.id,
             data: `\r\n[转发进程已退出，正在关闭终端会话...]\r\n`
@@ -933,7 +2370,18 @@ export class TerminalManager {
 
           // 延迟关闭，让用户看到消息
           setTimeout(() => {
-            this.closePty(session.socket, { sessionId: session.id })
+            if (
+              this.sessions.get(session.id) !== session ||
+              session.pendingForwardAutoCloseProcess !== forwardProcess ||
+              session.streamForwardProcess
+            ) {
+              return
+            }
+            session.pendingForwardAutoCloseProcess = undefined
+            void this.closePty(session.socket, { sessionId: session.id })
+              .catch(error => {
+                this.logger.error(`转发进程退出后关闭PTY会话失败: ${session.id}`, error)
+              })
           }, 2000)
         } else {
           // 如果是异常退出或错误退出，提供重启选项
@@ -948,6 +2396,13 @@ export class TerminalManager {
       
       // 处理转发进程错误
       forwardProcess.on('error', (error: NodeJS.ErrnoException) => {
+        if (
+          this.internallyStoppedForwardProcesses.has(forwardProcess) ||
+          (session.streamForwardProcess &&
+            session.streamForwardProcess !== forwardProcess)
+        ) {
+          return
+        }
         this.logger.error(`转发进程错误 ${session.id}:`, error)
         
         let errorMessage: string
@@ -965,7 +2420,9 @@ export class TerminalManager {
           sessionId: session.id,
           data: errorMessage
         })
-        session.streamForwardProcess = undefined
+        if (session.streamForwardProcess === forwardProcess) {
+          session.streamForwardProcess = undefined
+        }
       })
       
       // 将终端输入转发到目标进程
@@ -984,19 +2441,24 @@ export class TerminalManager {
    * 处理终端输入
    */
   public handleInput(socket: Socket, data: TerminalInputData): void {
+    const sessionId = typeof data?.sessionId === 'string' ? data.sessionId : ''
     try {
-      const { sessionId, data: inputData } = data
-      const session = this.sessions.get(sessionId)
-      
-      if (!session) {
-        this.logger.warn(`会话不存在: ${sessionId}`)
-        socket.emit('terminal-error', {
-          sessionId,
-          error: '会话不存在'
-        })
+      if (typeof data?.data !== 'string') {
+        this.emitTerminalError(socket, sessionId, 'input', '终端输入无效')
         return
       }
-      
+      const inputData = data.data
+      const session = this.sessions.get(sessionId)
+
+      if (!session) {
+        this.logger.warn(`会话不存在: ${sessionId}`)
+        this.emitTerminalError(socket, sessionId, 'input', '会话不存在')
+        return
+      }
+      if (session.state !== 'ready') {
+        return
+      }
+
       // 如果会话之前断开连接，现在重新连接
       // 仅当传入的是真实的Socket.IO socket时才替换（避免虚拟socket覆盖）
       if (session.disconnected && (socket as any).connected !== undefined) {
@@ -1005,7 +2467,7 @@ export class TerminalManager {
         session.socket = socket
         this.logger.info(`会话 ${sessionId} 重新连接成功`)
       }
-      
+
       // 更新最后活动时间
       session.lastActivity = new Date()
       
@@ -1017,13 +2479,25 @@ export class TerminalManager {
             data: `\r\n[正在重启输出流转发进程...]\r\n`
           })
           
-          const success = this.restartStreamForwardProcess(sessionId)
-          if (!success) {
-            session.socket.emit('terminal-output', {
-              sessionId: session.id,
-              data: `\r\n[重启转发进程失败]\r\n`
-            })
-          }
+          void this.restartStreamForwardProcess(sessionId).then(
+            success => {
+              if (!success && this.sessions.get(sessionId) === session) {
+                session.socket.emit('terminal-output', {
+                  sessionId: session.id,
+                  data: `\r\n[重启转发进程失败]\r\n`
+                })
+              }
+            },
+            error => {
+              this.logger.error(`重启输出流转发进程失败: ${sessionId}`, error)
+              if (this.sessions.get(sessionId) === session) {
+                session.socket.emit('terminal-output', {
+                  sessionId: session.id,
+                  data: `\r\n[重启转发进程失败]\r\n`
+                })
+              }
+            }
+          )
         } else {
           session.socket.emit('terminal-output', {
             sessionId: session.id,
@@ -1051,34 +2525,43 @@ export class TerminalManager {
         // 对于某些控制字符，直接传递给PTY而不发送信号
         if (controlChar.signal === 'EOF' || controlChar.signal === 'KILL_LINE' || controlChar.signal === 'CLEAR') {
           this.logger.info(`直接传递控制字符 ${controlChar.name} 到 PTY 进程: ${sessionId}`)
-          if (session.process.stdin && !session.process.stdin.destroyed) {
-            session.process.stdin.write(inputData)
-          }
+          this.writePtyStdin(session, inputData)
           return
         }
         
         // 如果有输出流转发进程，优先处理它
         if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-          const pid = session.streamForwardProcess.pid
+          // 捕获调用时刻的转发进程引用：异步 taskkill fallback 只作用于该进程，
+          // restart 替换 child 后旧 taskkill 失败不得误杀健康的新 child。
+          const targetForwardProcess = session.streamForwardProcess
+          const pid = targetForwardProcess.pid
           this.logger.info(`向输出流转发进程(PID: ${pid})及其子进程发送${controlChar.name}信号...`)
 
           if (os.platform() === 'win32') {
             // Windows下的处理
             if (controlChar.signal === 'SIGINT') {
-              // 使用 taskkill /T 来优雅地终止整个进程树
-              exec(`taskkill /PID ${pid} /T`, (err) => {
-                if (err) {
-                  this.logger.error(`使用 taskkill /T 终止进程树 PID: ${pid} 失败:`, err)
-                  // 作为后备，尝试原来的方法
-                  try {
-                    session.streamForwardProcess.kill('SIGINT')
-                  } catch (killError) {
-                    this.logger.error(`后备的 kill SIGINT 信号也失败了:`, killError)
-                  }
-                } else {
+              // 使用 taskkill /T 来优雅地终止整个进程树（有界超时，避免 exec 挂起）
+              void execAsync(`taskkill /PID ${pid} /T`, { timeout: 3000 }).then(
+                () => {
                   this.logger.info(`成功通过 taskkill /T 向进程树 PID: ${pid} 发送关闭信号`)
+                },
+                (taskkillError) => {
+                  this.logger.error(`使用 taskkill /T 终止进程树 PID: ${pid} 失败:`, taskkillError)
+                  // 作为后备，尝试原来的方法（仅作用于调用时刻捕获的进程，做 identity 校验）
+                  if (
+                    this.sessions.get(session.id) === session &&
+                    session.streamForwardProcess === targetForwardProcess
+                  ) {
+                    try {
+                      targetForwardProcess.kill('SIGINT')
+                    } catch (killError) {
+                      this.logger.error(`后备的 kill SIGINT 信号也失败了:`, killError)
+                    }
+                  } else {
+                    this.logger.debug(`输出流转发进程已替换，跳过后备 kill: ${session.id}`)
+                  }
                 }
-              })
+              )
             } else {
               // 其他信号直接发送，但需要确保是有效的信号类型
               if (typeof controlChar.signal === 'string' && controlChar.signal.startsWith('SIG')) {
@@ -1113,144 +2596,352 @@ export class TerminalManager {
         } else {
           // 如果没有输出流转发进程，则将控制字符发送到PTY进程
           this.logger.info(`向 PTY 进程发送 ${controlChar.name}: ${sessionId}`)
-          if (session.process.stdin && !session.process.stdin.destroyed) {
-            session.process.stdin.write(inputData)
-          }
+          this.writePtyStdin(session, inputData)
         }
         return
       }
-      
+
       // 发送输入到PTY进程
-      if (session.process.stdin && !session.process.stdin.destroyed) {
-        session.process.stdin.write(inputData)
-      } else {
-        this.logger.warn(`PTY进程stdin不可用: ${sessionId}`)
-      }
+      this.writePtyStdin(session, inputData)
       
       // 如果启用了输出流转发，也将输入转发到目标进程
       if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-        if (session.streamForwardProcess.stdin && !session.streamForwardProcess.stdin.destroyed) {
-          session.streamForwardProcess.stdin.write(inputData)
-        }
+        this.writeForwardStdin(session, inputData)
       }
-      
+
     } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误'
       this.logger.error(`处理终端输入失败:`, error)
-      socket.emit('terminal-error', {
-        sessionId: data.sessionId,
-        error: error instanceof Error ? error.message : '未知错误'
-      })
+      this.emitTerminalError(socket, sessionId, 'input', message)
     }
   }
 
   /**
    * 调整终端大小
    */
-  public resizeTerminal(socket: Socket, data: TerminalResizeData): void {
+  public async resizeTerminal(
+    socket: Socket,
+    data: TerminalResizeData
+  ): Promise<void> {
+    const sessionId = typeof data?.sessionId === 'string' ? data.sessionId : ''
+    let size: PtySize
     try {
-      const { sessionId, cols, rows } = data
-      const session = this.sessions.get(sessionId)
-      
-      if (!session) {
-        this.logger.warn(`会话不存在: ${sessionId}`)
+      size = validatePtySize(data?.cols, data?.rows)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '终端大小无效'
+      this.emitTerminalError(socket, sessionId, 'resize', message)
+      return
+    }
+
+    const session = this.sessions.get(sessionId)
+    if (!session || session.state !== 'ready') {
+      return
+    }
+
+    const control = session.control
+    try {
+      const result = await control.enqueueResize(size)
+      const current = this.sessions.get(sessionId)
+      if (
+        current !== session ||
+        current.state !== 'ready' ||
+        current.control !== control ||
+        result !== 'written'
+      ) {
         return
       }
-      
-      this.logger.info(`调整终端大小: ${sessionId}, ${cols}x${rows}`)
-      
-      // 更新最后活动时间
-      session.lastActivity = new Date()
-      
-      // 注意：由于PTY进程的限制，我们无法直接获取当前终端大小
-      // 这里直接进行大小调整操作，让PTY进程处理实际的大小变化
-      
-      // 由于当前PTY程序在启动时设置固定大小，动态调整大小功能有限
-      // 我们只发送SIGWINCH信号通知进程窗口大小变化，不发送可见的命令到终端
-      
-      // 发送SIGWINCH信号通知子进程窗口大小变化
-      try {
-        if (session.process.pid && !session.process.killed) {
-          process.kill(session.process.pid, 'SIGWINCH')
-          this.logger.info(`已发送SIGWINCH信号调整终端大小: ${sessionId}, ${cols}x${rows}`)
-        }
-      } catch (signalError) {
-        this.logger.debug(`发送SIGWINCH信号失败: ${signalError}`)
-      }
-      
-      // 通知前端大小调整完成
-      session.socket.emit('terminal-resized', {
+
+      current.size = { cols: size.cols, rows: size.rows }
+      current.lastActivity = new Date()
+      socket.emit('terminal-resized', {
         sessionId,
-        cols,
-        rows
+        cols: size.cols,
+        rows: size.rows
       })
-      
     } catch (error) {
-      this.logger.error(`调整终端大小失败:`, error)
+      const current = this.sessions.get(sessionId)
+      if (
+        current !== session ||
+        current.state !== 'ready' ||
+        current.control !== control
+      ) {
+        return
+      }
+
+      this.ensureCloseContext(session, {
+        intentional: false,
+        emitEvents: true,
+        emitTimeoutError: false
+      })
+      this.logger.error(`调整终端大小失败: ${sessionId}`, error)
+      this.emitTerminalError(
+        socket,
+        sessionId,
+        'resize',
+        'PTY 控制通道写入 resize 失败'
+      )
+      await this.terminateSession(session, { intentional: false })
     }
   }
 
-  /**
-   * 关闭PTY会话
-   */
-  public closePty(socket: Socket, data: { sessionId: string }): void {
+  private async terminateSession(
+    session: PtySession,
+    options: { intentional: boolean }
+  ): Promise<void> {
+    if (this.sessions.get(session.id) !== session) {
+      return
+    }
+    if (!options.intentional) {
+      session.processErrorSent = true
+    }
+
+    await this.requestTargetClose(session, {
+      intentional: options.intentional,
+      emitEvents: true,
+      emitTimeoutError: false,
+      notifyRetained: !options.intentional
+    })
+  }
+
+  private requestTargetClose(
+    target: PtySession | CreateAttempt,
+    options: CloseRequestOptions
+  ): Promise<CloseResult> {
+    if (options.publicRequester) {
+      this.registerPublicCloseRequester(target, options.publicRequester)
+    }
+    if (options.notifyRetained) {
+      target.notifyRetainedOnTimeout = true
+      target.retainedTimeoutNotified = false
+    }
+    if (target.closePromise) {
+      return target.closePromise
+    }
+
+    this.ensureCloseContext(target, options)
+    if (this.isSessionTarget(target)) {
+      target.state = 'closing'
+    } else {
+      target.cancellation.cancelled = true
+      target.phase = 'closing'
+    }
+
+    const deferred = this.createDeferred<CloseResult>()
+    target.closePromise = deferred.promise
+    void this.closeTarget(target).then(
+      result => {
+        if (
+          result === 'still-running' &&
+          target.closePromise === deferred.promise
+        ) {
+          target.closePromise = undefined
+        }
+        deferred.resolve(result)
+      },
+      error => {
+        if (target.closePromise === deferred.promise) {
+          target.closePromise = undefined
+        }
+        deferred.reject(error)
+      }
+    )
+    return deferred.promise
+  }
+
+  private async closeTarget(
+    target: PtySession | CreateAttempt
+  ): Promise<CloseResult> {
+    await this.closeTargetControl(target)
+
+    let forwardExited = true
     try {
-      const { sessionId } = data
-      const session = this.sessions.get(sessionId)
-      
-      if (!session) {
-        this.logger.warn(`尝试关闭不存在的会话: ${sessionId}`)
-        return
-      }
-      
-      this.logger.info(`关闭PTY会话: ${sessionId}`)
-      
-      // 终止输出流转发进程
-      if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-        this.logger.info(`终止输出流转发进程: ${sessionId}`)
-        
-        // 关闭输入流
-        if (session.streamForwardProcess.stdin && !session.streamForwardProcess.stdin.destroyed) {
-          session.streamForwardProcess.stdin.end()
-        }
-        
-        // 使用强制终止方法
-        this.forceKillProcess(session.streamForwardProcess, '输出流转发进程', () => {
-          session.streamForwardProcess = undefined
-        })
-      }
-      
-      // 终止PTY进程
-      if (!session.process.killed) {
-        // 关闭输入流
-        if (session.process.stdin && !session.process.stdin.destroyed) {
-          session.process.stdin.end()
-        }
-        
-        // 发送SIGTERM信号
-        session.process.kill('SIGTERM')
-        
-        // 如果进程在3秒内没有退出，强制杀死
-        setTimeout(() => {
-          if (!session.process.killed) {
-            this.logger.warn(`强制终止PTY进程: ${sessionId}`)
-            session.process.kill('SIGKILL')
-          }
-        }, 3000)
-      }
-      
-      // 从会话列表中移除
-      this.sessions.delete(sessionId)
-      
-      // 从持久化存储中移除会话
-      this.sessionManager.removeSession(sessionId).catch(error => {
-        this.logger.error(`从配置文件删除会话失败: ${sessionId}`, error)
-      })
-      
-      // 通知客户端会话已关闭
-      socket.emit('pty-closed', { sessionId })
-      
+      forwardExited = this.isSessionTarget(target)
+        ? await this.stopSessionStreamForward(target, '终止输出流转发进程')
+        : await this.stopAttemptStreamForward(target)
     } catch (error) {
-      this.logger.error(`关闭PTY会话失败:`, error)
+      forwardExited = false
+      this.logger.warn(`终止输出流转发进程失败: ${target.id}`, error)
+    }
+
+    const finalize = (): Promise<CloseResult> => {
+      if (!forwardExited) {
+        this.retainTargetAfterCloseTimeout(target)
+        return Promise.resolve('still-running')
+      }
+      return this.finalizeConfirmedExit(target)
+    }
+
+    const ptyProcess = target.process
+    if (!ptyProcess) {
+      target.processExited = true
+      target.processExitCode = 0
+      target.processExitSignal = null
+      return finalize()
+    }
+
+    this.endPtyStdin(target)
+
+    if (!target.processExited) {
+      this.sendSignalToPtyProcessGroup(ptyProcess, 'PTY进程', 'SIGTERM')
+    }
+    if (await this.waitForTargetExit(target, 3000)) {
+      return finalize()
+    }
+
+    this.logger.warn(`PTY进程未响应SIGTERM，发送SIGKILL: ${target.id}`)
+    this.sendSignalToPtyProcessGroup(ptyProcess, 'PTY进程', 'SIGKILL')
+    if (await this.waitForTargetExit(target, 1000)) {
+      return finalize()
+    }
+
+    this.retainTargetAfterCloseTimeout(target)
+    return 'still-running'
+  }
+
+  private retainTargetAfterCloseTimeout(
+    target: PtySession | CreateAttempt
+  ): void {
+    if (this.isSessionTarget(target)) {
+      target.state = 'closing'
+    } else {
+      target.phase = 'close-retained'
+    }
+
+    const shouldNotify =
+      target.notifyRetainedOnTimeout || target.closeContext?.emitTimeoutError
+    if (!shouldNotify || target.retainedTimeoutNotified) {
+      return
+    }
+
+    target.retainedTimeoutNotified = true
+    target.notifyRetainedOnTimeout = false
+    const requesters = target.publicCloseRequesters
+    // N6-I2：retained 通知发给全部仍连接的 public close requester（handleDisconnect
+    // 已移除断开 socket），而不是只通知最后一个——否则其余 requester 的客户端
+    // ACK-owned 队列永久停在 awaitingCloseAck。一次性 flag 语义保持：每轮每个
+    // requester 恰好一次（retainedTimeoutNotified）；requester 不在此处移出 Map，
+    // confirmed removal 的 pty-closed ACK 仍由 emitPublicCloseAck 恰好一次发出。
+    if (requesters && requesters.size > 0) {
+      for (const requester of [...requesters.values()]) {
+        this.emitTerminalError(
+          requester,
+          target.id,
+          'close',
+          'PTY进程未在关闭期限内退出，已保留会话以便重试',
+          { retained: true }
+        )
+      }
+    } else {
+      this.emitTerminalError(
+        target.socket,
+        target.id,
+        'close',
+        'PTY进程未在关闭期限内退出，已保留会话以便重试',
+        { retained: true }
+      )
+    }
+  }
+
+  private async stopAttemptStreamForward(attempt: CreateAttempt): Promise<boolean> {
+    const forwardProcess = attempt.streamForwardProcess
+    if (!forwardProcess) {
+      return true
+    }
+
+    this.internallyStoppedForwardProcesses.add(forwardProcess)
+    if (forwardProcess.stdin && !forwardProcess.stdin.destroyed) {
+      try {
+        forwardProcess.stdin.end()
+      } catch (error) {
+        this.logger.warn(`关闭创建尝试的输出流转发stdin失败: ${attempt.id}`, error)
+      }
+    }
+
+    const exited = await this.forceKillProcess(
+      forwardProcess,
+      '创建尝试的输出流转发进程'
+    )
+    if (exited && attempt.streamForwardProcess === forwardProcess) {
+      attempt.streamForwardProcess = undefined
+    }
+    return exited
+  }
+
+  private waitForTargetExit(
+    target: PtySession | CreateAttempt,
+    timeoutMs: number
+  ): Promise<boolean> {
+    if (target.processExited || !target.process) {
+      return Promise.resolve(true)
+    }
+
+    const ptyProcess = target.process
+    return new Promise(resolve => {
+      let settled = false
+      let timer: NodeJS.Timeout
+      const finish = (exited: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        ptyProcess.removeListener('exit', onExit)
+        ptyProcess.removeListener('close', onExit)
+        resolve(exited)
+      }
+      const onExit = (
+        code: number | null,
+        signal: NodeJS.Signals | null
+      ) => {
+        if (!target.processExited) {
+          target.processExited = true
+          target.processExitCode = code
+          target.processExitSignal = signal
+        }
+        finish(true)
+      }
+
+      ptyProcess.once('exit', onExit)
+      ptyProcess.once('close', onExit)
+      timer = setTimeout(() => finish(target.processExited), timeoutMs)
+      timer.unref?.()
+      if (target.processExited) {
+        finish(true)
+      }
+    })
+  }
+
+  /**
+   * 关闭PTY会话或仍处于创建阶段的PTY目标。
+   */
+  public closePty(
+    socket: Socket,
+    data: { sessionId: string }
+  ): Promise<CloseResult> {
+    const sessionId = typeof data?.sessionId === 'string' ? data.sessionId : ''
+    const target = this.sessions.get(sessionId) ?? this.createAttempts.get(sessionId)
+    if (!target) {
+      this.logger.warn(`尝试关闭不存在的会话: ${sessionId}`)
+      socket.emit('pty-closed', { sessionId })
+      return Promise.resolve('not-found')
+    }
+
+    const closePromise = this.requestTargetClose(target, {
+      intentional: true,
+      emitEvents: true,
+      emitTimeoutError: true,
+      publicRequester: socket,
+      notifyRetained: true
+    })
+    this.logger.info(`关闭PTY会话: ${sessionId}`)
+    return closePromise
+  }
+
+  /**
+   * 客户端断开时从所有目标的 publicCloseRequester 集合中移除该 socket：
+   * 避免长期 retained target 累积对已断开 Socket 的强引用。
+   */
+  private removeDisconnectedPublicRequester(socket: Socket): void {
+    for (const target of [...this.sessions.values(), ...this.createAttempts.values()]) {
+      target.publicCloseRequesters?.delete(socket.id)
     }
   }
 
@@ -1259,36 +2950,53 @@ export class TerminalManager {
    */
   public handleDisconnect(socket: Socket): void {
     try {
-      // 找到属于该socket的所有会话并标记为断开状态
-      const sessionsToMark: string[] = []
-      
-      for (const [sessionId, session] of this.sessions.entries()) {
-        if (session.socket.id === socket.id) {
-          sessionsToMark.push(sessionId)
+      this.removeDisconnectedPublicRequester(socket)
+      let markedSessionCount = 0
+      for (const session of this.sessions.values()) {
+        if (session.socket.id !== socket.id) continue
+
+        session.disconnected = true
+        session.disconnectedAt = new Date()
+        session.lastActivity = new Date()
+        markedSessionCount += 1
+        void this.sessionManager.setSessionActive(session.id, false).catch(error => {
+          this.logger.error(`更新会话断开状态失败: ${session.id}`, error)
+        })
+        this.logger.info(`会话 ${session.id} 已标记为断开状态`)
+      }
+
+      for (const attempt of this.createAttempts.values()) {
+        if (
+          attempt.socket.id !== socket.id ||
+          (attempt.phase !== 'starting' && attempt.phase !== 'fallback')
+        ) {
+          continue
         }
+
+        const termination = this.requestTargetClose(attempt, {
+          intentional: true,
+          emitEvents: false,
+          emitTimeoutError: false
+        })
+        void termination.then(
+          result => {
+            if (result === 'still-running') {
+              this.logger.error(
+                `客户端断开后PTY创建尝试仍在运行: ${attempt.id}`
+              )
+            }
+          },
+          error => {
+            this.logger.error(`客户端断开后终止PTY创建尝试失败: ${attempt.id}`, error)
+          }
+        )
       }
-      
-      for (const sessionId of sessionsToMark) {
-        const session = this.sessions.get(sessionId)
-        if (session) {
-          // 标记会话为断开状态，但不关闭PTY进程
-          session.disconnected = true
-          session.disconnectedAt = new Date()
-          session.lastActivity = new Date()
-          
-          // 更新持久化状态
-          this.sessionManager.setSessionActive(sessionId, false).catch(error => {
-            this.logger.error(`更新会话断开状态失败: ${sessionId}`, error)
-          })
-          
-          this.logger.info(`会话 ${sessionId} 已标记为断开状态`)
-        }
+
+      if (markedSessionCount > 0) {
+        this.logger.info(
+          `客户端断开连接，标记了 ${markedSessionCount} 个会话为断开状态`
+        )
       }
-      
-      if (sessionsToMark.length > 0) {
-        this.logger.info(`客户端断开连接，标记了 ${sessionsToMark.length} 个会话为断开状态`)
-      }
-      
     } catch (error) {
       this.logger.error(`处理客户端断开连接失败:`, error)
     }
@@ -1319,7 +3027,9 @@ export class TerminalManager {
         const session = this.sessions.get(sessionId)
         if (session) {
           this.logger.info(`清理会话: ${sessionId} (${session.disconnected ? '断开连接' : '不活跃'})`)
-          this.closePty(session.socket, { sessionId })
+          void this.closePty(session.socket, { sessionId }).catch(error => {
+            this.logger.error(`清理不活跃PTY会话失败: ${sessionId}`, error)
+          })
         }
       }
       
@@ -1331,43 +3041,120 @@ export class TerminalManager {
   /**
    * 重新连接现有会话
    */
-  public reconnectSession(socket: Socket, sessionId: string): boolean {
+  public async reconnectSession(
+    socket: Socket,
+    sessionId: string
+  ): Promise<ReconnectResult> {
     try {
-      const session = this.sessions.get(sessionId)
-      
-      if (!session) {
-        this.logger.warn(`尝试重连不存在的会话: ${sessionId}`)
-        return false
-      }
-      
-      // 更新socket连接
-      session.socket = socket
-      session.disconnected = false
-      session.disconnectedAt = undefined
-      session.lastActivity = new Date()
-      
-      // 更新持久化状态
-      this.sessionManager.setSessionActive(sessionId, true).catch(error => {
-        this.logger.error(`更新会话重连状态失败: ${sessionId}`, error)
-      })
+      while (true) {
+        const session = this.sessions.get(sessionId)
+        if (session) {
+          session.socket = socket
+          session.disconnected = false
+          session.disconnectedAt = undefined
+          session.lastActivity = new Date()
+          if (session.state === 'ready') {
+            void this.sessionManager.setSessionActive(sessionId, true).catch(error => {
+              this.logger.error(`更新会话重连状态失败: ${sessionId}`, error)
+            })
+          }
 
-      this.logger.info(`会话 ${sessionId} 重新连接成功`)
-      
-      // 输出监听始终通过 session.socket 发送，重连只需替换socket并重放已脱敏缓存。
-      if (session.outputBuffer.length > 0) {
-        const historicalOutput = session.outputBuffer.join('')
-        socket.emit('terminal-output', {
-          sessionId: session.id,
-          data: historicalOutput,
-          isHistorical: true
-        })
+          this.logger.info(`会话 ${sessionId} 重新连接成功`)
+          if (session.outputBuffer.length > 0) {
+            socket.emit('terminal-output', {
+              sessionId: session.id,
+              data: session.outputBuffer.join(''),
+              isHistorical: true
+            })
+          }
+          return session.state
+        }
+
+        const attempt = this.createAttempts.get(sessionId)
+        if (!attempt) {
+          this.logger.warn(`尝试重连不存在的会话: ${sessionId}`)
+          return 'not-found'
+        }
+
+        attempt.socket = socket
+        attempt.lastActivity = new Date()
+        if (attempt.phase === 'close-retained') {
+          // N2-I2：close-retained create attempt 纳入 reconnect/owner 可见性——
+          // 新 socket 重连即重新驱动 bounded close，并注册为该次 close 的 public requester
+          // （I2 多 requester ACK）：关闭确认时向新 socket 发 pty-closed；仍超时保留时
+          // 向新 socket 发 terminal-error {retained:true}。不再让唯一 cleanup handle
+          // 只存在于已断开的客户端内存中。关闭本身有界（SIGTERM 3s + SIGKILL 1s）。
+          this.logger.info(`保留的PTY创建尝试 ${sessionId} 重新连接，重新驱动有界关闭`)
+          const closePromise = this.requestTargetClose(attempt, {
+            intentional: true,
+            emitEvents: true,
+            emitTimeoutError: true,
+            publicRequester: socket,
+            notifyRetained: true
+          })
+          void closePromise.then(
+            result => {
+              if (result === 'still-running') {
+                this.logger.error(
+                  `重新连接后关闭保留的PTY创建尝试仍超时: ${sessionId}，继续保留待重试`
+                )
+              }
+            },
+            error => {
+              this.logger.error(`重新连接后关闭保留的PTY创建尝试失败: ${sessionId}`, error)
+            }
+          )
+          return 'closing'
+        }
+        if (attempt.phase === 'closing') {
+          const closePromise = attempt.closePromise ?? this.requestTargetClose(attempt, {
+            intentional: false,
+            emitEvents: false,
+            emitTimeoutError: false
+          })
+          try {
+            await closePromise
+          } catch (error) {
+            this.logger.error(`等待PTY创建尝试关闭失败: ${sessionId}`, error)
+            if (this.createAttempts.get(sessionId) === attempt) {
+              return 'closing'
+            }
+          }
+          if (
+            this.createAttempts.get(sessionId) === attempt &&
+            attempt.phase === 'closing'
+          ) {
+            return 'closing'
+          }
+          continue
+        }
+
+        this.logger.info(`创建中的PTY尝试 ${sessionId} 已绑定新连接`)
+        return 'pending'
       }
-      
-      return true
     } catch (error) {
       this.logger.error(`重连会话失败:`, error)
-      return false
+      const session = this.sessions.get(sessionId)
+      if (session) {
+        session.socket = socket
+        session.lastActivity = new Date()
+        return session.state
+      }
+
+      const attempt = this.createAttempts.get(sessionId)
+      if (!attempt) {
+        return 'not-found'
+      }
+      attempt.socket = socket
+      attempt.lastActivity = new Date()
+      return attempt.phase === 'closing' || attempt.phase === 'close-retained'
+        ? 'closing'
+        : 'pending'
     }
+  }
+
+  public hasTarget(sessionId: string): boolean {
+    return this.sessions.has(sessionId) || this.createAttempts.has(sessionId)
   }
 
   public hasSession(sessionId: string): boolean {
@@ -1685,153 +3472,7 @@ export class TerminalManager {
   }
 
   /**
-   * 使用当前用户创建PTY会话（回退方案）
-   */
-  private async createPtyFallback(
-    sessionId: string,
-    sessionName: string,
-    workingDirectory: string,
-    socket: Socket,
-    enableStreamForward?: boolean,
-    programPath?: string,
-    autoCloseOnForwardExit?: boolean,
-    runtimeOptions: PtyRuntimeOptions = {}
-  ): Promise<void> {
-    try {
-      const {
-        environmentOverrides = {},
-        redactValues = [],
-        onOutput,
-        onExit
-      } = runtimeOptions
-      workingDirectory = path.resolve(workingDirectory)
-      this.logger.info(`使用当前用户创建PTY回退会话: ${sessionId}`)
-      
-      // 构建PTY命令参数，使用当前用户
-      const args = [
-        '-dir', workingDirectory,
-        '-size', '100,30', // 使用默认大小
-        '-coder', 'UTF-8'
-      ]
-
-      const terminalEnv = buildManagedChildEnvironment({
-        ...environmentOverrides,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor'
-      })
-      
-      // 使用默认bash，不切换用户
-      args.push('-cmd', JSON.stringify(['/bin/bash', '--login']))
-      this.logger.info(`使用当前用户启动终端，工作目录: ${workingDirectory}`)
-      
-      this.logger.info(`启动PTY回退进程: ${this.ptyPath} ${args.join(' ')}`)
-      
-      // 启动PTY进程
-      const ptyProcess = spawn(this.ptyPath, args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: workingDirectory,
-        env: terminalEnv,
-        detached: os.platform() !== 'win32'
-      })
-      
-      this.logger.info(`PTY回退进程已启动，PID: ${ptyProcess.pid}`)
-      
-      // 创建会话对象
-      const session: PtySession = {
-        id: sessionId,
-        name: sessionName,
-        process: ptyProcess,
-        socket,
-        workingDirectory,
-        createdAt: new Date(),
-        lastActivity: new Date(),
-        outputBuffer: [],
-        enableStreamForward,
-        programPath,
-        autoCloseOnForwardExit,
-        stdoutRedactor: new StreamingRedactor(redactValues),
-        stderrRedactor: new StreamingRedactor(redactValues),
-        onOutput,
-        onExit,
-        fallbackRetried: true // 标记为已重试
-      }
-      
-      // 保存会话到内存
-      this.sessions.set(sessionId, session)
-      
-      // 处理PTY输出
-      ptyProcess.stdout?.on('data', (data: Buffer) => {
-        session.lastActivity = new Date()
-        const output = session.stdoutRedactor.write(data)
-        if (!output) return
-        session.outputBuffer.push(output)
-        if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift()
-        }
-        session.onOutput?.(output)
-        session.socket.emit('terminal-output', { sessionId, data: output })
-      })
-      ptyProcess.stdout?.once('end', () => {
-        const output = session.stdoutRedactor.end()
-        if (!output) return
-        session.outputBuffer.push(output)
-        session.onOutput?.(output)
-        session.socket.emit('terminal-output', { sessionId, data: output })
-      })
-      
-      // 处理PTY错误输出
-      ptyProcess.stderr?.on('data', (data: Buffer) => {
-        session.lastActivity = new Date()
-        const output = session.stderrRedactor.write(data)
-        if (!output) return
-        session.outputBuffer.push(output)
-        if (session.outputBuffer.length > 1000) {
-          session.outputBuffer.shift()
-        }
-        session.onOutput?.(output)
-        session.socket.emit('terminal-output', { sessionId, data: output })
-      })
-      ptyProcess.stderr?.once('end', () => {
-        const output = session.stderrRedactor.end()
-        if (!output) return
-        session.outputBuffer.push(output)
-        session.onOutput?.(output)
-        session.socket.emit('terminal-output', { sessionId, data: output })
-      })
-      
-      // 处理进程退出
-      ptyProcess.once('close', (code, signal) => {
-        this.logger.info(`PTY回退进程退出: ${sessionId}, 退出码: ${code}, 信号: ${signal}`)
-        session.socket.emit('terminal-exit', { sessionId, code: code || 0, signal })
-        if (!session.exitNotified) {
-          session.exitNotified = true
-          session.onExit?.(code, signal)
-        }
-        this.sessions.delete(sessionId)
-      })
-      
-      // 处理进程错误
-      ptyProcess.on('error', (error) => {
-        this.logger.error(`PTY回退进程错误 ${sessionId}:`, error)
-        session.socket.emit('terminal-error', { sessionId, error: error.message })
-        this.sessions.delete(sessionId)
-      })
-      
-      // 发送创建成功事件
-      socket.emit('pty-created', { sessionId, workingDirectory })
-      this.logger.info(`PTY回退会话创建成功: ${sessionId}`)
-      
-    } catch (error) {
-      this.logger.error(`创建PTY回退会话失败:`, error)
-      socket.emit('terminal-error', {
-        sessionId,
-        error: error instanceof Error ? error.message : '未知错误'
-      })
-    }
-  }
-
-  /**
-   * 清理所有会话
+   * 清理所有托管进程。
    */
   private async cleanupManagedProcesses(): Promise<void> {
     const processes = Array.from(this.managedProcesses)
@@ -1888,56 +3529,51 @@ export class TerminalManager {
     this.logger.info('托管进程已清理完成')
   }
 
+  /**
+   * 在有界等待内清理所有PTY目标；未确认退出的目标继续保留引用。
+   */
   public async cleanup(): Promise<void> {
     this.logger.info('开始清理所有终端会话...')
+    this.acceptingTerminalOperations = false
     this.stopActiveProcessesMonitoring()
     const managedProcessCleanup = this.cleanupManagedProcesses()
-    
-    for (const [sessionId, session] of this.sessions.entries()) {
-      try {
-        // 清理输出流转发进程
-        if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-          this.logger.info(`清理输出流转发进程: ${sessionId}`)
-          
-          // 关闭输入流
-          if (session.streamForwardProcess.stdin && !session.streamForwardProcess.stdin.destroyed) {
-            session.streamForwardProcess.stdin.end()
-          }
-          
-          session.streamForwardProcess.kill('SIGTERM')
-          
-          // 延迟强制杀死
-          setTimeout(() => {
-            if (session.streamForwardProcess && !session.streamForwardProcess.killed) {
-              session.streamForwardProcess.kill('SIGKILL')
-            }
-          }, 1000)
-        }
-        
-        // 清理PTY进程
-        if (!session.process.killed) {
-          // 关闭输入流
-          if (session.process.stdin && !session.process.stdin.destroyed) {
-            session.process.stdin.end()
-          }
-          
-          session.process.kill('SIGTERM')
-          
-          // 延迟强制杀死
-          setTimeout(() => {
-            if (!session.process.killed) {
-              session.process.kill('SIGKILL')
-            }
-          }, 1000)
-        }
-      } catch (error) {
-        this.logger.error(`清理会话 ${sessionId} 失败:`, error)
-      }
+
+    const attempts = [...this.createAttempts.values()]
+    const sessions = [...this.sessions.values()]
+    for (const attempt of attempts) {
+      attempt.cancellation.cancelled = true
     }
-    
-    this.sessions.clear()
+
+    const targets: Array<PtySession | CreateAttempt> = []
+    const tasks: Array<Promise<CloseResult>> = []
+    const seenTargets = new Set<PtySession | CreateAttempt>()
+    const collect = (target: PtySession | CreateAttempt) => {
+      if (seenTargets.has(target)) return
+      seenTargets.add(target)
+      targets.push(target)
+      tasks.push(this.requestTargetClose(target, {
+        intentional: true,
+        emitEvents: false,
+        emitTimeoutError: false
+      }))
+    }
+
+    attempts.forEach(collect)
+    sessions.forEach(collect)
+    const results = await Promise.allSettled(tasks)
     await managedProcessCleanup
-    this.logger.info('所有终端会话已清理完成')
+
+    results.forEach((result, index) => {
+      const target = targets[index]
+      if (result.status === 'rejected') {
+        this.logger.error(`清理PTY目标失败: ${target.id}`, result.reason)
+        return
+      }
+      if (result.value === 'still-running') {
+        this.logger.error(`清理期限结束后PTY目标仍在运行: ${target.id}`)
+      }
+    })
+    this.logger.info('终端会话有界清理流程已完成')
   }
 
   // WebSocket 相关方法

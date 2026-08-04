@@ -1,0 +1,11 @@
+{
+  "permissions": [
+    { "permission": "bash", "pattern": "*", "action": "allow" },
+    { "permission": "read", "pattern": "*", "action": "allow" },
+    { "permission": "write", "pattern": "*", "action": "allow" },
+    { "permission": "delete", "pattern": "*", "action": "allow" },
+    { "permission": "external_directory", "pattern": "*", "action": "allow" },
+    { "permission": "network", "pattern": "*", "action": "allow" },
+    { "permission": "process", "pattern": "*", "action": "allow" }
+  ]
+}

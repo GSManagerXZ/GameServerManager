@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
+import type { IDisposable, Terminal } from '@xterm/xterm'
+import type { FitAddon } from '@xterm/addon-fit'
+import type { TerminalErrorEvent } from '@/types'
 import socketClient from '@/utils/socket'
 import apiClient from '@/utils/api'
+import { createTerminalView } from '@/utils/terminalFactory'
 import { useNotificationStore } from '@/stores/notificationStore'
 import {
   Plus,
@@ -25,18 +26,84 @@ import {
 } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 
-interface TerminalSession {
+interface TerminalTabMeta {
   id: string
   name: string
+}
+
+type TerminalState =
+  | 'creating'
+  | 'ready'
+  | 'disconnected'
+  | 'reconnecting'
+  | 'closing'
+  | 'exited'
+  | 'disposed'
+
+interface TerminalSize {
+  cols: number
+  rows: number
+}
+
+interface TerminalRuntime {
   terminal: Terminal
   fitAddon: FitAddon
-  active: boolean
+  state: TerminalState
+  createSize?: TerminalSize
+  pendingSize?: TerminalSize
+  lastWrittenSize?: TerminalSize
+  lastReportedSize?: TerminalSize
+  resizeTimer?: ReturnType<typeof setTimeout>
+  closeRequestInFlight: boolean
+  cleanupRequired: boolean
+  disposables: IDisposable[]
+}
+
+interface PendingTerminalCreate {
+  name: string
+  cwd?: string
+  enableStreamForward?: boolean
+  programPath?: string
+}
+
+function isValidTerminalSize(
+  size: TerminalSize | null | undefined
+): size is TerminalSize {
+  return Boolean(
+    size &&
+    Number.isSafeInteger(size.cols) &&
+    Number.isSafeInteger(size.rows) &&
+    size.cols >= 2 &&
+    size.cols <= 1000 &&
+    size.rows >= 1 &&
+    size.rows <= 1000
+  )
+}
+
+function isSameTerminalSize(
+  left: TerminalSize | null | undefined,
+  right: TerminalSize | null | undefined
+): boolean {
+  return Boolean(
+    left &&
+    right &&
+    left.cols === right.cols &&
+    left.rows === right.rows
+  )
+}
+
+function clearPendingResize(runtime: TerminalRuntime): void {
+  if (runtime.resizeTimer !== undefined) {
+    clearTimeout(runtime.resizeTimer)
+    runtime.resizeTimer = undefined
+  }
+  runtime.pendingSize = undefined
 }
 
 const TerminalPage: React.FC = () => {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [sessions, setSessions] = useState<TerminalSession[]>([])
+  const [sessions, setSessions] = useState<TerminalTabMeta[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarHovered, setSidebarHovered] = useState(false)
@@ -55,64 +122,440 @@ const TerminalPage: React.FC = () => {
     enableStreamForward: false,
     programPath: ''
   })
-  
-  const terminalContainerRef = useRef<HTMLDivElement>(null)
-  // 使用useRef来保存最新的sessions状态，避免重复注册事件监听器
-  const sessionsRef = useRef<TerminalSession[]>([])
+
+  const runtimesRef = useRef(new Map<string, TerminalRuntime>())
+  const activeSessionIdRef = useRef<string | null>(null)
+  const terminalContainerRef = useRef<HTMLDivElement | null>(null)
+  const observerRef = useRef<ResizeObserver | null>(null)
+  const fitFrameRef = useRef<number | null>(null)
+  const sessionsRef = useRef<TerminalTabMeta[]>([])
+  const isMobileRef = useRef(false)
+  const isUnmountingRef = useRef(false)
+  const sessionSequenceRef = useRef(0)
+  const pendingCreatesRef = useRef(new Map<string, PendingTerminalCreate>())
+  const componentTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>())
   const processedUrlParamKey = useRef<string | null>(null)
   const { addNotification } = useNotificationStore()
-  
+
   // 检测移动端设备
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768)
+      const mobile = window.innerWidth < 768
+      isMobileRef.current = mobile
+      setIsMobile(mobile)
       // 在移动端默认折叠侧边栏
-      if (window.innerWidth < 768) {
+      if (mobile) {
         setSidebarCollapsed(true)
       }
     }
-    
+
     checkMobile()
     window.addEventListener('resize', checkMobile)
-    
+
     return () => {
       window.removeEventListener('resize', checkMobile)
     }
   }, [])
   
-  // 计算合适的终端大小
-  const calculateTerminalSize = useCallback(() => {
-    if (terminalContainerRef.current) {
-      const container = terminalContainerRef.current
-      const containerWidth = container.clientWidth || (isMobile ? 360 : 800)
-      const containerHeight = container.clientHeight || (isMobile ? 400 : 600)
-      
-      // 基于实际字体大小计算字符尺寸
-      // 移动端使用较小的字体
-      const fontSize = isMobile ? 12 : 14
-      const lineHeight = 1.2
-      const charWidth = fontSize * 0.6
-      const charHeight = fontSize * lineHeight
-      
-      const cols = Math.floor(containerWidth / charWidth)
-      const rows = Math.floor(containerHeight / charHeight)
-      
-      console.log(`容器大小: ${containerWidth}x${containerHeight}, 计算终端大小: ${cols}x${rows}`)
-      
-      // 移动端使用更小的最小值
-      const minCols = isMobile ? 40 : 80
-      const minRows = isMobile ? 20 : 24
-      
-      return { cols: Math.max(cols, minCols), rows: Math.max(rows, minRows) }
+  const setSessionTabs = useCallback((nextSessions: TerminalTabMeta[]) => {
+    sessionsRef.current = nextSessions
+    setSessions(nextSessions)
+  }, [])
+
+  const requestCloseIfIdle = useCallback((sessionId: string): void => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime || runtime.closeRequestInFlight) {
+      return
     }
-    return { cols: isMobile ? 50 : 100, rows: isMobile ? 25 : 30 }
-  }, [isMobile])
+
+    // N2-I2：socket 断开时不静默丢弃——closeTerminal 会排队并在重连后重发，
+    // 避免"服务端 retained 且客户端永久丢失"组合。
+    runtime.closeRequestInFlight = true
+    socketClient.closeTerminal(sessionId)
+  }, [])
+
+  const scheduleComponentTimeout = useCallback((callback: () => void, delay: number) => {
+    const timer = setTimeout(() => {
+      componentTimersRef.current.delete(timer)
+      callback()
+    }, delay)
+    componentTimersRef.current.add(timer)
+    return timer
+  }, [])
+
+  const flushResizeReporter = useCallback((sessionId: string) => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime) {
+      return
+    }
+
+    runtime.resizeTimer = undefined
+    const size = runtime.pendingSize
+    if (
+      activeSessionIdRef.current !== sessionId ||
+      runtime.state !== 'ready' ||
+      !socketClient.isConnected() ||
+      !isValidTerminalSize(size) ||
+      isSameTerminalSize(size, runtime.lastWrittenSize)
+    ) {
+      clearPendingResize(runtime)
+      return
+    }
+
+    socketClient.resizeTerminal(sessionId, size.cols, size.rows)
+    runtime.lastWrittenSize = { cols: size.cols, rows: size.rows }
+    clearPendingResize(runtime)
+  }, [])
+
+  const scheduleResizeReporter = useCallback((sessionId: string) => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime) {
+      return
+    }
+
+    const size = runtime.pendingSize
+    if (
+      activeSessionIdRef.current !== sessionId ||
+      runtime.state !== 'ready' ||
+      !socketClient.isConnected() ||
+      !isValidTerminalSize(size) ||
+      isSameTerminalSize(size, runtime.lastWrittenSize)
+    ) {
+      clearPendingResize(runtime)
+      return
+    }
+
+    if (runtime.resizeTimer !== undefined) {
+      clearTimeout(runtime.resizeTimer)
+    }
+    runtime.resizeTimer = setTimeout(() => flushResizeReporter(sessionId), 50)
+  }, [flushResizeReporter])
+
+  const seedResize = useCallback((sessionId: string) => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime) {
+      return
+    }
+
+    const size = {
+      cols: runtime.terminal.cols,
+      rows: runtime.terminal.rows
+    }
+    if (!isValidTerminalSize(size)) {
+      return
+    }
+
+    runtime.pendingSize = size
+    scheduleResizeReporter(sessionId)
+  }, [scheduleResizeReporter])
+
+  const createRuntime = useCallback((sessionId: string, state: TerminalState): TerminalRuntime => {
+    const existingRuntime = runtimesRef.current.get(sessionId)
+    if (existingRuntime) {
+      return existingRuntime
+    }
+
+    const { terminal, fitAddon } = createTerminalView({ isMobile: isMobileRef.current })
+    const runtime: TerminalRuntime = {
+      terminal,
+      fitAddon,
+      state,
+      closeRequestInFlight: false,
+      cleanupRequired: false,
+      disposables: []
+    }
+    runtimesRef.current.set(sessionId, runtime)
+
+    runtime.disposables.push(
+      terminal.onData((data) => {
+        const currentRuntime = runtimesRef.current.get(sessionId)
+        if (
+          currentRuntime === runtime &&
+          activeSessionIdRef.current === sessionId &&
+          currentRuntime.state === 'ready' &&
+          socketClient.isConnected()
+        ) {
+          socketClient.sendTerminalInput(sessionId, data)
+        }
+      }),
+      terminal.onResize(({ cols, rows }) => {
+        const currentRuntime = runtimesRef.current.get(sessionId)
+        const size = { cols, rows }
+        if (currentRuntime !== runtime) {
+          return
+        }
+        if (
+          activeSessionIdRef.current !== sessionId ||
+          currentRuntime.state !== 'ready' ||
+          !socketClient.isConnected() ||
+          !isValidTerminalSize(size) ||
+          isSameTerminalSize(size, currentRuntime.lastWrittenSize)
+        ) {
+          clearPendingResize(currentRuntime)
+          return
+        }
+
+        currentRuntime.pendingSize = size
+        scheduleResizeReporter(sessionId)
+      })
+    )
+
+    return runtime
+  }, [scheduleResizeReporter])
+
+  const attachTerminal = useCallback((sessionId: string, container: HTMLDivElement) => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime) {
+      return
+    }
+
+    try {
+      const terminalElement = runtime.terminal.element
+      if (terminalElement?.parentElement !== container) {
+        while (container.firstChild) {
+          container.removeChild(container.firstChild)
+        }
+
+        if (terminalElement) {
+          container.appendChild(terminalElement)
+        } else {
+          runtime.terminal.open(container)
+        }
+      }
+      runtime.terminal.focus()
+    } catch (error) {
+      console.error('挂载终端失败:', error)
+    }
+  }, [])
+
+  const scheduleFit = useCallback(() => {
+    if (fitFrameRef.current !== null) {
+      cancelAnimationFrame(fitFrameRef.current)
+    }
+
+    fitFrameRef.current = requestAnimationFrame(() => {
+      fitFrameRef.current = null
+
+      const sessionId = activeSessionIdRef.current
+      const container = terminalContainerRef.current
+      const runtime = sessionId ? runtimesRef.current.get(sessionId) : undefined
+      if (
+        !sessionId ||
+        !container ||
+        !runtime ||
+        (runtime.state !== 'creating' && runtime.state !== 'ready') ||
+        container.clientWidth <= 0 ||
+        container.clientHeight <= 0
+      ) {
+        return
+      }
+
+      try {
+        const proposal = runtime.fitAddon.proposeDimensions()
+        const proposedSize = proposal
+          ? { cols: proposal.cols, rows: proposal.rows }
+          : undefined
+        if (!isValidTerminalSize(proposedSize)) {
+          return
+        }
+
+        runtime.fitAddon.fit()
+
+        const fittedSize = {
+          cols: runtime.terminal.cols,
+          rows: runtime.terminal.rows
+        }
+        if (!isValidTerminalSize(fittedSize)) {
+          return
+        }
+
+        if (runtime.state === 'creating' && !runtime.createSize) {
+          const pendingCreate = pendingCreatesRef.current.get(sessionId)
+          if (!pendingCreate) {
+            return
+          }
+          if (!socketClient.isConnected()) {
+            pendingCreatesRef.current.delete(sessionId)
+            runtime.state = 'exited'
+            addNotification({
+              type: 'error',
+              title: '创建失败',
+              message: 'Socket 连接已断开，终端创建已取消，请连接后重试。'
+            })
+            return
+          }
+
+          runtime.createSize = fittedSize
+          pendingCreatesRef.current.delete(sessionId)
+          socketClient.createTerminal({
+            sessionId,
+            name: pendingCreate.name,
+            cols: fittedSize.cols,
+            rows: fittedSize.rows,
+            cwd: pendingCreate.cwd,
+            enableStreamForward: pendingCreate.enableStreamForward,
+            programPath: pendingCreate.programPath
+          })
+        }
+
+        if (runtime.state === 'ready') {
+          seedResize(sessionId)
+        }
+      } catch (error) {
+        console.error('调整终端大小失败:', error)
+      }
+    })
+  }, [addNotification, seedResize])
+
+  const ensureObserver = useCallback(() => {
+    if (!observerRef.current) {
+      observerRef.current = new ResizeObserver(() => {
+        scheduleFit()
+      })
+    }
+  }, [scheduleFit])
+
+  const setTerminalContainer = useCallback((node: HTMLDivElement | null) => {
+    const previousNode = terminalContainerRef.current
+    if (previousNode) {
+      observerRef.current?.unobserve(previousNode)
+    }
+
+    terminalContainerRef.current = node
+    if (node === null) {
+      return
+    }
+
+    ensureObserver()
+    const sessionId = activeSessionIdRef.current
+    if (sessionId) {
+      attachTerminal(sessionId, node)
+    }
+    observerRef.current?.observe(node)
+    scheduleFit()
+  }, [attachTerminal, ensureObserver, scheduleFit])
+
+  const activateTerminal = useCallback((sessionId: string) => {
+    if (!runtimesRef.current.has(sessionId)) {
+      return
+    }
+
+    const previousSessionId = activeSessionIdRef.current
+    if (previousSessionId && previousSessionId !== sessionId) {
+      const previousRuntime = runtimesRef.current.get(previousSessionId)
+      if (previousRuntime) {
+        clearPendingResize(previousRuntime)
+      }
+    }
+
+    activeSessionIdRef.current = sessionId
+    setActiveSessionId(sessionId)
+
+    const container = terminalContainerRef.current
+    if (container) {
+      attachTerminal(sessionId, container)
+    }
+    scheduleFit()
+  }, [attachTerminal, scheduleFit])
+
+  const disposeRuntime = useCallback((sessionId: string): void => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime || runtime.state === 'disposed') {
+      return
+    }
+
+    const nextSessions = sessionsRef.current.filter(session => session.id !== sessionId)
+    const wasActive = activeSessionIdRef.current === sessionId
+
+    runtime.state = 'disposed'
+    clearPendingResize(runtime)
+    runtime.disposables.forEach(disposable => {
+      try {
+        disposable.dispose()
+      } catch (error) {
+        console.error(`释放终端监听器失败: ${sessionId}`, error)
+      }
+    })
+    runtime.disposables = []
+    try {
+      runtime.terminal.dispose()
+    } catch (error) {
+      console.error(`释放终端失败: ${sessionId}`, error)
+    }
+    runtimesRef.current.delete(sessionId)
+    pendingCreatesRef.current.delete(sessionId)
+    setSessionTabs(nextSessions)
+
+    if (!wasActive) {
+      return
+    }
+
+    if (isUnmountingRef.current) {
+      activeSessionIdRef.current = null
+      setActiveSessionId(null)
+      return
+    }
+
+    const nextSession = nextSessions[nextSessions.length - 1]
+    if (nextSession && runtimesRef.current.has(nextSession.id)) {
+      activateTerminal(nextSession.id)
+      return
+    }
+
+    activeSessionIdRef.current = null
+    setActiveSessionId(null)
+  }, [activateTerminal, setSessionTabs])
+
+  useEffect(() => {
+    isUnmountingRef.current = false
+
+    return () => {
+      isUnmountingRef.current = true
+
+      if (fitFrameRef.current !== null) {
+        cancelAnimationFrame(fitFrameRef.current)
+        fitFrameRef.current = null
+      }
+
+      observerRef.current?.disconnect()
+      observerRef.current = null
+      terminalContainerRef.current = null
+
+      componentTimersRef.current.forEach(timer => clearTimeout(timer))
+      componentTimersRef.current.clear()
+
+      // N2-I2：cleanupRequired（failed-create/input/resize 或 close retained）、
+      // closeRequestInFlight（close 已发出但未确认）与 creating（create in-flight 断线后
+      // 服务端可能已把 attempt 关闭为 close-retained）一律先 enqueue/emit guarded close，
+      // 再 dispose。socketClient.closeTerminal 幂等：已在本连接飞行则不重复发送（ACK-owned
+      // 队列跟踪），断线时进入待发送队列、重连后自动重发——不再静默丢弃唯一 cleanup handle。
+      for (const [sessionId, runtime] of runtimesRef.current.entries()) {
+        if (runtime.state === 'disposed') {
+          continue
+        }
+        const needsGuardedClose =
+          runtime.cleanupRequired ||
+          runtime.closeRequestInFlight ||
+          runtime.state === 'creating'
+        if (!needsGuardedClose) {
+          continue
+        }
+        if (runtime.state !== 'closing') {
+          runtime.state = 'closing'
+        }
+        socketClient.closeTerminal(sessionId)
+      }
+
+      Array.from(runtimesRef.current.keys()).forEach(disposeRuntime)
+      pendingCreatesRef.current.clear()
+    }
+  }, [disposeRuntime, requestCloseIfIdle])
   
   // 打开创建终端模态框
   const openCreateModal = useCallback((cwd?: string) => {
     setCreateModalData({
-      name: cwd && typeof cwd === 'string' 
-        ? `终端 - ${cwd.split(/[/\\]/).pop()}` 
+      name: cwd && typeof cwd === 'string'
+        ? `终端 - ${cwd.split(/[/\\]/).pop()}`
         : `终端 ${sessionsRef.current.length + 1}`,
       workingDirectory: cwd || '',
       enableStreamForward: false,
@@ -120,14 +563,14 @@ const TerminalPage: React.FC = () => {
     })
     setShowCreateModal(true)
     // 延迟设置动画状态，确保DOM已渲染
-    setTimeout(() => setCreateModalAnimating(true), 10)
-  }, [])
+    scheduleComponentTimeout(() => setCreateModalAnimating(true), 10)
+  }, [scheduleComponentTimeout])
 
   // 关闭创建终端模态框
   const closeCreateModal = useCallback(() => {
     setCreateModalAnimating(false)
     // 等待淡出动画完成后再隐藏模态框
-    setTimeout(() => {
+    scheduleComponentTimeout(() => {
       setShowCreateModal(false)
       setCreateModalData({
         name: '',
@@ -136,23 +579,23 @@ const TerminalPage: React.FC = () => {
         programPath: ''
       })
     }, 300) // 300ms 动画时长
-  }, [])
+  }, [scheduleComponentTimeout])
 
   // 打开帮助模态框
   const openHelpModal = useCallback(() => {
     setShowHelpModal(true)
     // 延迟设置动画状态，确保DOM已渲染
-    setTimeout(() => setHelpModalAnimating(true), 10)
-  }, [])
+    scheduleComponentTimeout(() => setHelpModalAnimating(true), 10)
+  }, [scheduleComponentTimeout])
 
   // 关闭帮助模态框
   const closeHelpModal = useCallback(() => {
     setHelpModalAnimating(false)
     // 等待淡出动画完成后再隐藏模态框
-    setTimeout(() => {
+    scheduleComponentTimeout(() => {
       setShowHelpModal(false)
     }, 300) // 300ms 动画时长
-  }, [])
+  }, [scheduleComponentTimeout])
 
   // 创建新的终端会话
   const createTerminalSession = useCallback((options?: {
@@ -161,119 +604,33 @@ const TerminalPage: React.FC = () => {
     enableStreamForward?: boolean
     programPath?: string
   }) => {
-    const sessionId = `terminal-${Date.now()}`
-    const sessionName = options?.name || `终端 ${sessionsRef.current.length + 1}`
-    
-    // 计算初始终端大小
-    const { cols, rows } = calculateTerminalSize()
-    
-    const terminal = new Terminal({
-      cols: cols,
-      rows: rows,
-      theme: {
-        background: '#1a1a1a',
-        foreground: '#ffffff',
-        cursor: '#ffffff',
-        selectionBackground: '#ffffff30',
-        black: '#000000',
-        red: '#ff6b6b',
-        green: '#51cf66',
-        yellow: '#ffd43b',
-        blue: '#74c0fc',
-        magenta: '#f06292',
-        cyan: '#4dd0e1',
-        white: '#ffffff',
-        brightBlack: '#666666',
-        brightRed: '#ff8a80',
-        brightGreen: '#69f0ae',
-        brightYellow: '#ffff8d',
-        brightBlue: '#82b1ff',
-        brightMagenta: '#ff80ab',
-        brightCyan: '#84ffff',
-        brightWhite: '#ffffff'
-      },
-      fontFamily: 'JetBrains Mono, Fira Code, Consolas, Monaco, monospace',
-      fontSize: isMobile ? 12 : 14,
-      lineHeight: 1.2,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: isMobile ? 500 : 1000,
-      tabStopWidth: 4,
-      allowTransparency: true,
-      // 移动端优化
-      disableStdin: false,
-      convertEol: true
-    })
-    
-    const fitAddon = new FitAddon()
-    const webLinksAddon = new WebLinksAddon()
-    
-    terminal.loadAddon(fitAddon)
-    terminal.loadAddon(webLinksAddon)
-    
-    // 监听终端输入
-    terminal.onData((data) => {
-      socketClient.sendTerminalInput(sessionId, data)
-    })
-    
-    // 监听终端大小变化
-    terminal.onResize(({ cols, rows }) => {
-      if (socketClient.isConnected()) {
-        socketClient.resizeTerminal(sessionId, cols, rows)
-      }
-    })
-    
-    const newSession: TerminalSession = {
-      id: sessionId,
-      name: sessionName,
-      terminal,
-      fitAddon,
-      active: true
+    if (!socketClient.isConnected()) {
+      addNotification({
+        type: 'error',
+        title: '创建失败',
+        message: 'Socket 未连接，无法创建终端，请连接后重试。'
+      })
+      return
     }
-    
-    setSessions(prev => {
-      const updated = prev.map(s => ({ ...s, active: false }))
-      return [...updated, newSession]
-    })
 
-    setActiveSessionId(sessionId)
+    let sessionId: string
+    do {
+      sessionSequenceRef.current += 1
+      sessionId = `terminal-${Date.now()}-${sessionSequenceRef.current}`
+    } while (runtimesRef.current.has(sessionId))
 
-    // 延迟挂载终端到DOM，确保状态更新完成
-    setTimeout(() => {
-      if (terminalContainerRef.current && !newSession.terminal.element) {
-        try {
-          newSession.terminal.open(terminalContainerRef.current)
-          // 确保终端获得焦点
-          newSession.terminal.focus()
-          // 调整终端大小
-          setTimeout(() => {
-            newSession.fitAddon.fit()
-            // 再次确保焦点，防止在调整大小过程中丢失焦点
-            newSession.terminal.focus()
-          }, 50)
-        } catch (error) {
-          console.error('挂载新终端失败:', error)
-        }
-      }
-    }, 100)
-    
-    // 请求创建PTY
-    socketClient.createTerminal({
-      sessionId: sessionId,
+    const sessionName = options?.name || `终端 ${sessionsRef.current.length + 1}`
+
+    pendingCreatesRef.current.set(sessionId, {
       name: sessionName,
-      cols: cols,
-      rows: rows,
       cwd: options?.cwd,
       enableStreamForward: options?.enableStreamForward,
       programPath: options?.programPath
     })
-
-    addNotification({
-      type: 'success',
-      title: '终端创建成功',
-      message: `已创建新的终端会话: ${sessionName}`
-    })
-  }, [addNotification])
+    createRuntime(sessionId, 'creating')
+    setSessionTabs([...sessionsRef.current, { id: sessionId, name: sessionName }])
+    activateTerminal(sessionId)
+  }, [activateTerminal, addNotification, createRuntime, setSessionTabs])
 
   // 处理创建终端表单提交
   const handleCreateTerminal = useCallback(() => {
@@ -344,186 +701,78 @@ const TerminalPage: React.FC = () => {
   }, [createModalData, addNotification, createTerminalSession, closeCreateModal])
   
   // 关闭终端会话
-  const closeTerminalSession = (sessionId: string) => {
-    const session = sessions.find(s => s.id === sessionId)
-    if (!session) return
-    
-    // 清理终端
-    session.terminal.dispose()
-    
-    // 通知后端关闭PTY
-    socketClient.closeTerminal(sessionId)
-    
-    setSessions(prev => {
-      const filtered = prev.filter(s => s.id !== sessionId)
-      
-      // 如果关闭的是当前活动会话，切换到其他会话
-      if (sessionId === activeSessionId) {
-        if (filtered.length > 0) {
-          const newActive = filtered[filtered.length - 1]
-          newActive.active = true
-          setActiveSessionId(newActive.id)
-        } else {
-          setActiveSessionId(null)
-        }
-      }
-      
-      return filtered
-    })
-    
-    addNotification({
-      type: 'info',
-      title: '终端已关闭',
-      message: `终端会话 ${session.name} 已关闭`
-    })
-  }
-  
-  // 切换终端会话
-  const switchTerminalSession = useCallback((sessionId: string) => {
-    setSessions(prev => {
-      const updated = prev.map(s => ({
-        ...s,
-        active: s.id === sessionId
-      }))
-      sessionsRef.current = updated
-      return updated
-    })
-    setActiveSessionId(sessionId)
-    
-    // 延迟聚焦到切换的终端并调整大小
-    setTimeout(() => {
-      const session = sessionsRef.current.find(s => s.id === sessionId)
-      if (session && session.terminal.element) {
-        session.terminal.focus()
-        
-        // 在全屏模式下或容器大小可能变化时，调整终端大小
-        if (terminalContainerRef.current) {
-          try {
-            // 重新计算理想的终端大小
-            const { cols: targetCols, rows: targetRows } = calculateTerminalSize()
-            
-            // 先设置终端的目标大小
-            session.terminal.resize(targetCols, targetRows)
-            
-            // 调整终端大小以适应容器
-            session.fitAddon.fit()
-            
-            // 获取调整后的实际大小
-            const { cols, rows } = session.terminal
-            
-            // 通知服务端新的大小
-            if (cols && rows && socketClient.isConnected()) {
-              console.log(`切换终端会话，终端 ${session.id} 大小调整为: ${cols}x${rows} (目标: ${targetCols}x${targetRows})`)
-              socketClient.resizeTerminal(session.id, cols, rows)
-            }
-          } catch (error) {
-            console.error(`切换终端会话时调整大小失败:`, error)
-          }
-        }
-      }
-    }, 100)
-  }, [])
-
-  const createAttachedTerminalSession = useCallback((sessionId: string, name: string): TerminalSession => {
-    const { cols, rows } = calculateTerminalSize()
-    const terminal = new Terminal({
-      cols,
-      rows,
-      theme: {
-        background: '#1a1a1a',
-        foreground: '#ffffff',
-        cursor: '#ffffff',
-        selectionBackground: '#ffffff30',
-        black: '#000000',
-        red: '#ff6b6b',
-        green: '#51cf66',
-        yellow: '#ffd43b',
-        blue: '#74c0fc',
-        magenta: '#f06292',
-        cyan: '#4dd0e1',
-        white: '#ffffff',
-        brightBlack: '#666666',
-        brightRed: '#ff8a80',
-        brightGreen: '#69f0ae',
-        brightYellow: '#ffff8d',
-        brightBlue: '#82b1ff',
-        brightMagenta: '#ff80ab',
-        brightCyan: '#84ffff',
-        brightWhite: '#ffffff'
-      },
-      fontFamily: 'JetBrains Mono, Fira Code, Consolas, Monaco, monospace',
-      fontSize: isMobile ? 12 : 14,
-      lineHeight: 1.2,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: isMobile ? 500 : 1000,
-      tabStopWidth: 4,
-      allowTransparency: true,
-      disableStdin: false,
-      convertEol: true
-    })
-
-    const fitAddon = new FitAddon()
-    const webLinksAddon = new WebLinksAddon()
-    terminal.loadAddon(fitAddon)
-    terminal.loadAddon(webLinksAddon)
-
-    terminal.onData((data) => {
-      socketClient.sendTerminalInput(sessionId, data)
-    })
-
-    terminal.onResize(({ cols, rows }) => {
-      if (socketClient.isConnected()) {
-        socketClient.resizeTerminal(sessionId, cols, rows)
-      }
-    })
-
-    return {
-      id: sessionId,
-      name,
-      terminal,
-      fitAddon,
-      active: true
-    }
-  }, [calculateTerminalSize, isMobile])
-
-  const ensureTerminalSessionVisible = useCallback((sessionId: string, name: string) => {
-    const existingSession = sessionsRef.current.find(s => s.id === sessionId)
-    if (existingSession) {
-      switchTerminalSession(sessionId)
+  const closeTerminalSession = useCallback((sessionId: string) => {
+    const runtime = runtimesRef.current.get(sessionId)
+    if (!runtime) {
       return
     }
 
-    const attachedSession = createAttachedTerminalSession(sessionId, name)
-    setSessions(prev => {
-      const existingInState = prev.find(s => s.id === sessionId)
-      const updated = existingInState
-        ? prev.map(s => ({ ...s, active: s.id === sessionId }))
-        : [...prev.map(s => ({ ...s, active: false })), attachedSession]
-      sessionsRef.current = updated
-      return updated
-    })
-    setActiveSessionId(sessionId)
-  }, [createAttachedTerminalSession, switchTerminalSession])
+    switch (runtime.state) {
+      case 'creating':
+      case 'ready':
+        runtime.state = 'closing'
+        clearPendingResize(runtime)
+        requestCloseIfIdle(sessionId)
+        return
+      case 'disconnected':
+      case 'reconnecting':
+        runtime.state = 'closing'
+        clearPendingResize(runtime)
+        requestCloseIfIdle(sessionId)
+        return
+      case 'closing':
+        requestCloseIfIdle(sessionId)
+        return
+      case 'exited':
+        if (runtime.cleanupRequired) {
+          runtime.state = 'closing'
+          requestCloseIfIdle(sessionId)
+        } else {
+          disposeRuntime(sessionId)
+        }
+        return
+      case 'disposed':
+        return
+    }
+  }, [disposeRuntime, requestCloseIfIdle])
+
+  // 切换终端会话
+  const switchTerminalSession = useCallback((sessionId: string) => {
+    activateTerminal(sessionId)
+  }, [activateTerminal])
+
+  const createAttachedTerminalSession = useCallback((sessionId: string, name: string): TerminalTabMeta => {
+    createRuntime(sessionId, 'disconnected')
+    return { id: sessionId, name }
+  }, [createRuntime])
+
+  const ensureTerminalSessionVisible = useCallback((sessionId: string, name: string) => {
+    const existingSession = sessionsRef.current.find(s => s.id === sessionId)
+    if (!existingSession) {
+      const attachedSession = createAttachedTerminalSession(sessionId, name)
+      setSessionTabs([...sessionsRef.current, attachedSession])
+    } else if (!runtimesRef.current.has(sessionId)) {
+      createRuntime(sessionId, 'disconnected')
+    }
+
+    activateTerminal(sessionId)
+  }, [activateTerminal, createAttachedTerminalSession, createRuntime, setSessionTabs])
 
   const reconnectTerminalSession = useCallback((sessionId: string) => {
-    const reconnect = () => {
-      socketClient.emit('reconnect-session', { sessionId })
-
-      setTimeout(() => {
-        const { cols, rows } = calculateTerminalSize()
-        if (socketClient.isConnected()) {
-          socketClient.resizeTerminal(sessionId, cols, rows)
-        }
-      }, 300)
+    const runtime = runtimesRef.current.get(sessionId)
+    if (
+      !runtime ||
+      !socketClient.isConnected() ||
+      (runtime.state !== 'disconnected' && runtime.state !== 'closing')
+    ) {
+      return
     }
 
-    if (socketClient.isConnected()) {
-      reconnect()
-    } else {
-      socketClient.once('connect', reconnect)
+    if (runtime.state === 'disconnected') {
+      runtime.state = 'reconnecting'
     }
-  }, [calculateTerminalSize])
+    socketClient.reconnectTerminal(sessionId)
+  }, [])
   
   // 重命名终端会话
   const startRenaming = (sessionId: string, currentName: string) => {
@@ -534,14 +783,14 @@ const TerminalPage: React.FC = () => {
   const finishRenaming = async () => {
     if (editingSessionId && editingName.trim()) {
       const newName = editingName.trim()
-      
+
       // 更新本地状态
-      setSessions(prev => prev.map(s => 
-        s.id === editingSessionId 
-          ? { ...s, name: newName }
-          : s
+      setSessionTabs(sessionsRef.current.map(session =>
+        session.id === editingSessionId
+          ? { ...session, name: newName }
+          : session
       ))
-      
+
       // 调用后端API持久化保存
       try {
         const response = await apiClient.updateTerminalSessionName(editingSessionId, newName)
@@ -566,17 +815,18 @@ const TerminalPage: React.FC = () => {
     setEditingSessionId(null)
     setEditingName('')
   }
-  
+
   const cancelRenaming = () => {
     setEditingSessionId(null)
     setEditingName('')
   }
-  
+
   // 重置终端
   const resetTerminal = () => {
-    const activeSession = sessions.find(s => s.id === activeSessionId)
-    if (activeSession) {
-      activeSession.terminal.reset()
+    const sessionId = activeSessionIdRef.current
+    const runtime = sessionId ? runtimesRef.current.get(sessionId) : undefined
+    if (runtime) {
+      runtime.terminal.reset()
       addNotification({
         type: 'info',
         title: '终端已重置',
@@ -584,7 +834,7 @@ const TerminalPage: React.FC = () => {
       })
     }
   }
-  
+
   // 切换全屏模式
   const toggleFullscreen = async () => {
     try {
@@ -607,51 +857,6 @@ const TerminalPage: React.FC = () => {
           message: '全屏模式已关闭'
         })
       }
-      
-      // 调整终端大小 - 增加延迟确保DOM完全更新
-        setTimeout(() => {
-          if (terminalContainerRef.current) {
-            try {
-              // 强制重新计算容器大小
-              const container = terminalContainerRef.current
-              
-              // 强制浏览器重新计算布局
-              container.offsetHeight
-               
-              const containerWidth = container.clientWidth || 800
-              const containerHeight = container.clientHeight || 600
-               
-              console.log(`全屏切换后容器大小: ${containerWidth}x${containerHeight}, 全屏状态: ${!isFullscreen}`)
-              
-              // 重新计算理想的终端大小
-              const { cols: targetCols, rows: targetRows } = calculateTerminalSize()
-              
-              // 遍历所有终端会话并调整大小
-              sessions.forEach(session => {
-                try {
-                  // 先设置终端的目标大小
-                  session.terminal.resize(targetCols, targetRows)
-                  
-                  // 然后调整终端大小以适应容器
-                  session.fitAddon.fit()
-                  
-                  // 获取调整后的实际大小
-                  const { cols, rows } = session.terminal
-                  
-                  // 通知服务端新的大小
-                  if (cols && rows && socketClient.isConnected()) {
-                    console.log(`全屏状态变化，终端 ${session.id} 大小调整为: ${cols}x${rows} (目标: ${targetCols}x${targetRows})`)
-                    socketClient.resizeTerminal(session.id, cols, rows)
-                  }
-                } catch (error) {
-                  console.error(`调整终端 ${session.id} 大小失败:`, error)
-                }
-              })
-            } catch (error) {
-              console.error('全屏状态变化时调整终端失败:', error)
-            }
-          }
-        }, 800)
     } catch (error) {
       console.error('全屏切换失败:', error)
       addNotification({
@@ -664,220 +869,369 @@ const TerminalPage: React.FC = () => {
   
   // 页面加载时获取现有终端会话
   useEffect(() => {
+    let cancelled = false
+
     const loadExistingSessions = async () => {
       try {
         const response = await apiClient.getTerminalSessions()
-        if (response.success && response.data) {
-          // 获取活跃会话和保存的会话
-          const activeSessions = response.data.activeSessions || []
-          const savedSessions = response.data.savedSessions || []
-          
-          // 创建活跃会话ID的Set，用于去重
-          const activeSessionIds = new Set(activeSessions.map((s: any) => s.id))
-          
-          // 过滤掉已经在活跃会话中的保存会话，避免重复
-          const uniqueSavedSessions = savedSessions.filter((s: any) => !activeSessionIds.has(s.id))
-          
-          // 合并去重后的会话列表，优先使用活跃会话
-          const sessionData = [...activeSessions, ...uniqueSavedSessions]
-          
-          if (sessionData.length > 0) {
-            
-            // 在设置初始会话之前，检查URL参数
-            const params = new URLSearchParams(window.location.search)
-            const sessionIdFromUrl = params.get('sessionId')
-            const initialActiveId = sessionIdFromUrl && sessionData.some(s => s.id === sessionIdFromUrl)
-              ? sessionIdFromUrl
-              : sessionData[0].id
-          
-            const { cols, rows } = calculateTerminalSize()
-            
-            const newSessions: TerminalSession[] = sessionData.map((session: any, index: number) => {
-              const terminal = new Terminal({
-                cols: cols,
-                rows: rows,
-                theme: {
-                  background: '#1a1a1a',
-                  foreground: '#ffffff',
-                  cursor: '#ffffff',
-                  selectionBackground: '#ffffff30',
-                  black: '#000000',
-                  red: '#ff6b6b',
-                  green: '#51cf66',
-                  yellow: '#ffd43b',
-                  blue: '#74c0fc',
-                  magenta: '#f06292',
-                  cyan: '#4dd0e1',
-                  white: '#ffffff',
-                  brightBlack: '#666666',
-                  brightRed: '#ff8a80',
-                  brightGreen: '#69f0ae',
-                  brightYellow: '#ffff8d',
-                  brightBlue: '#82b1ff',
-                  brightMagenta: '#ff80ab',
-                  brightCyan: '#84ffff',
-                  brightWhite: '#ffffff'
-                },
-                fontFamily: 'JetBrains Mono, Fira Code, Consolas, Monaco, monospace',
-                fontSize: 14,
-                lineHeight: 1.2,
-                cursorBlink: true,
-                cursorStyle: 'block',
-                scrollback: 1000,
-                tabStopWidth: 4,
-                allowTransparency: true
-              })
-
-              const fitAddon = new FitAddon()
-              const webLinksAddon = new WebLinksAddon()
-              terminal.loadAddon(fitAddon)
-              terminal.loadAddon(webLinksAddon)
-
-              terminal.onData((data) => {
-                socketClient.sendTerminalInput(session.id, data)
-              })
-
-              terminal.onResize(({ cols, rows }) => {
-                if (socketClient.isConnected()) {
-                  socketClient.resizeTerminal(session.id, cols, rows)
-                }
-              })
-
-              return {
-                id: session.id,
-                name: session.name || `终端 ${index + 1}`,
-                terminal,
-                fitAddon,
-                active: session.id === initialActiveId
-              }
-            })
-          
-            sessionsRef.current = newSessions
-            setSessions(newSessions)
-            setActiveSessionId(initialActiveId)
-          
-            addNotification({
-              type: 'info',
-              title: '发现现有会话',
-              message: `找到 ${sessionData.length} 个现有终端会话，正在恢复...`
-            })
-          
-            // 延迟重连
-            setTimeout(() => {
-              const attemptReconnect = () => {
-                if (socketClient.isConnected()) {
-                  newSessions.forEach(session => {
-                    socketClient.emit('reconnect-session', { sessionId: session.id })
-                    // 通知后端调整PTY大小以匹配前端终端
-                    socketClient.resizeTerminal(session.id, cols, rows)
-                  })
-                } else {
-                  const onConnect = () => {
-                    newSessions.forEach(session => {
-                      socketClient.emit('reconnect-session', { sessionId: session.id })
-                      // 通知后端调整PTY大小以匹配前端终端
-                      socketClient.resizeTerminal(session.id, cols, rows)
-                    })
-                    socketClient.off('connect', onConnect)
-                  }
-                  socketClient.on('connect', onConnect as () => void)
-                }
-              }
-              
-              attemptReconnect()
-            }, 1000)
-          }
+        if (cancelled || !response.success || !response.data) {
+          return
         }
+
+        // 获取活跃会话和保存的会话
+        const activeSessions = response.data.activeSessions || []
+        const savedSessions = response.data.savedSessions || []
+
+        // 创建活跃会话ID的Set，用于去重
+        const activeSessionIds = new Set(activeSessions.map((session: any) => session.id))
+
+        // 过滤掉已经在活跃会话中的保存会话，避免重复
+        const uniqueSavedSessions = savedSessions.filter((session: any) => !activeSessionIds.has(session.id))
+
+        // 合并去重后的会话列表，优先使用活跃会话
+        const sessionData = [...activeSessions, ...uniqueSavedSessions]
+        if (sessionData.length === 0) {
+          return
+        }
+
+        // 在设置初始会话之前，检查URL参数
+        const params = new URLSearchParams(window.location.search)
+        const sessionIdFromUrl = params.get('sessionId')
+        const initialActiveId = sessionIdFromUrl && sessionData.some((session: any) => session.id === sessionIdFromUrl)
+          ? sessionIdFromUrl
+          : sessionData[0].id
+
+        const newSessions: TerminalTabMeta[] = sessionData.map((session: any, index: number) => {
+          createRuntime(session.id, 'disconnected')
+          return {
+            id: session.id,
+            name: session.name || `终端 ${index + 1}`
+          }
+        })
+
+        if (cancelled) {
+          return
+        }
+
+        setSessionTabs(newSessions)
+        activateTerminal(initialActiveId)
+
+        addNotification({
+          type: 'info',
+          title: '发现现有会话',
+          message: `找到 ${sessionData.length} 个现有终端会话，正在恢复...`
+        })
+
+        newSessions.forEach(session => reconnectTerminalSession(session.id))
       } catch (error) {
-        console.error('获取现有终端会话失败:', error)
+        if (!cancelled) {
+          console.error('获取现有终端会话失败:', error)
+          addNotification({
+            type: 'error',
+            title: '加载会话失败',
+            message: '无法从服务器获取现有的终端会话。'
+          })
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionsLoaded(true)
+        }
+      }
+    }
+
+    void loadExistingSessions()
+    return () => {
+      cancelled = true
+    }
+  }, [activateTerminal, addNotification, createRuntime, reconnectTerminalSession, setSessionTabs])
+  
+  useEffect(() => {
+    const fitAndSeedActiveRuntime = (sessionId: string) => {
+      if (activeSessionIdRef.current !== sessionId) {
+        return
+      }
+
+      const container = terminalContainerRef.current
+      if (container) {
+        attachTerminal(sessionId, container)
+      }
+      scheduleFit()
+    }
+
+    const handlePtyCreated = ({ sessionId }: { sessionId: string; workingDirectory: string }) => {
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime) {
+        return
+      }
+
+      if (runtime.state === 'creating' || runtime.state === 'reconnecting') {
+        runtime.state = 'ready'
+        // N6-I3：creating 断线置的 cleanupRequired 只在确认成功恢复 ready 时清除——
+        // 否则离开页面会误关已确认健康的 live session
+        runtime.cleanupRequired = false
+        fitAndSeedActiveRuntime(sessionId)
+
+        const sessionName = sessionsRef.current.find(session => session.id === sessionId)?.name || sessionId
+        addNotification({
+          type: 'success',
+          title: '终端创建成功',
+          message: `已创建新的终端会话: ${sessionName}`
+        })
+        return
+      }
+
+      if (runtime.state === 'closing') {
+        requestCloseIfIdle(sessionId)
+      }
+    }
+
+    const handlePtyClosed = ({ sessionId }: { sessionId: string }) => {
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime) {
+        return
+      }
+
+      runtime.closeRequestInFlight = false
+      runtime.cleanupRequired = false
+      if (runtime.state === 'disposed') {
+        return
+      }
+
+      const sessionName = sessionsRef.current.find(session => session.id === sessionId)?.name || sessionId
+      disposeRuntime(sessionId)
+      addNotification({
+        type: 'info',
+        title: '终端已关闭',
+        message: `终端会话 ${sessionName} 已关闭`
+      })
+    }
+
+    const handleTerminalOutput = ({ sessionId, data, isHistorical }: { sessionId: string; data: string; isHistorical?: boolean }) => {
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime || runtime.state === 'disposed') {
+        return
+      }
+
+      if (isHistorical) {
+        runtime.terminal.clear()
+      }
+      runtime.terminal.write(data)
+    }
+
+    const handleTerminalResized = ({ sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+      const runtime = runtimesRef.current.get(sessionId)
+      const size = { cols, rows }
+      if (runtime?.state === 'ready' && isValidTerminalSize(size)) {
+        runtime.lastReportedSize = size
+      }
+    }
+
+    const handleTerminalError = ({
+      sessionId,
+      operation,
+      error,
+      retained
+    }: TerminalErrorEvent) => {
+      console.error(`终端操作失败 (${operation}):`, error)
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime) {
+        return
+      }
+
+      if (operation === 'close') {
+        const closeRequestWasInFlight = runtime.closeRequestInFlight
+        runtime.closeRequestInFlight = false
+        if (retained) {
+          runtime.cleanupRequired = true
+          runtime.state = 'closing'
+          clearPendingResize(runtime)
+          addNotification({
+            type: 'error',
+            title: '终端仍在关闭',
+            message: '终端进程仍在运行，请再次点击关闭重试。'
+          })
+        } else if (runtime.state === 'closing' && closeRequestWasInFlight) {
+          addNotification({
+            type: 'error',
+            title: '终端关闭失败',
+            message: '终端关闭失败，请再次点击关闭重试。'
+          })
+        }
+        return
+      }
+
+      if (
+        operation === 'create' &&
+        (runtime.state === 'creating' || runtime.state === 'reconnecting')
+      ) {
+        runtime.state = 'exited'
+        // 服务端的 bounded close 可能仍在进行或最终保留 target：
+        // 从错误时刻起即假定 cleanup 可能未完成，关闭 tab 时走 guarded close，
+        // 避免 server retained 信号到达前关闭标签页而丢失 cleanup retry 入口。
+        runtime.cleanupRequired = true
         addNotification({
           type: 'error',
-          title: '加载会话失败',
-          message: '无法从服务器获取现有的终端会话。'
+          title: '终端创建失败',
+          message: '终端创建失败，请关闭该会话后重试。'
         })
-      } finally {
-        setSessionsLoaded(true)
+        return
+      }
+
+      if (operation === 'input' && runtime.state === 'ready') {
+        runtime.state = 'exited'
+        runtime.cleanupRequired = true
+        clearPendingResize(runtime)
+        addNotification({
+          type: 'error',
+          title: '终端输入失败',
+          message: '终端输入失败，请关闭该会话后重新创建。'
+        })
+        return
+      }
+
+      if (operation === 'resize' && runtime.state === 'ready') {
+        runtime.state = 'exited'
+        runtime.cleanupRequired = true
+        clearPendingResize(runtime)
+        addNotification({
+          type: 'error',
+          title: '终端尺寸同步失败',
+          message: '终端尺寸同步失败，请关闭该会话后重新创建。'
+        })
       }
     }
-    
-    loadExistingSessions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  
-  useEffect(() => {
-    sessionsRef.current = sessions
-  }, [sessions])
-  
-  useEffect(() => {
-    // 监听终端输出
-    const handleTerminalOutput = ({ sessionId, data, isHistorical }: { sessionId: string; data: string; isHistorical?: boolean }) => {
-      const session = sessionsRef.current.find(s => s.id === sessionId)
-      if (session) {
-        // 如果是历史输出，先清空终端再写入，避免重复显示
-        if (isHistorical) {
-          session.terminal.clear()
-        }
-        session.terminal.write(data)
+
+    const handleTerminalExit = ({ sessionId }: { sessionId: string; code: number | null; signal: string | null }) => {
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime || runtime.state === 'disposed') {
+        return
+      }
+
+      runtime.cleanupRequired = false
+      runtime.closeRequestInFlight = false
+      if (runtime.state !== 'exited') {
+        runtime.state = 'exited'
+        clearPendingResize(runtime)
       }
     }
-    
-    // 监听终端创建成功
-    const handleTerminalCreated = ({ sessionId, name }: { sessionId: string; name: string }) => {
-      console.log(`终端创建成功: ${sessionId} - ${name}`)
+
+    const handleSessionReconnected = ({
+      sessionId,
+      state
+    }: {
+      sessionId: string
+      state: 'ready' | 'closing'
+    }) => {
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime) {
+        return
+      }
+
+      if (runtime.state === 'closing') {
+        requestCloseIfIdle(sessionId)
+        return
+      }
+
+      if (runtime.state !== 'reconnecting') {
+        return
+      }
+      if (state === 'closing') {
+        runtime.state = 'closing'
+        requestCloseIfIdle(sessionId)
+        return
+      }
+
+      runtime.state = 'ready'
+      // N6-I3：确认成功恢复 ready 时清除断线遗留的 cleanupRequired（仅此分支）
+      runtime.cleanupRequired = false
+      fitAndSeedActiveRuntime(sessionId)
     }
-    
-    // 监听终端关闭
-    const handleTerminalClosed = ({ sessionId }: { sessionId: string }) => {
-      console.log(`终端已关闭: ${sessionId}`)
-    }
-    
-    // 监听会话重连成功
-    const handleSessionReconnected = ({ sessionId }: { sessionId: string }) => {
-      console.log(`会话重连成功: ${sessionId}`)
-    }
-    
-    // 监听会话重连失败
+
     const handleSessionReconnectFailed = ({ sessionId }: { sessionId: string }) => {
-      console.log(`会话重连失败: ${sessionId}`)
+      const runtime = runtimesRef.current.get(sessionId)
+      if (!runtime || (runtime.state !== 'reconnecting' && runtime.state !== 'closing')) {
+        return
+      }
+
+      if (runtime.state === 'reconnecting') {
+        runtime.state = 'exited'
+        clearPendingResize(runtime)
+      } else {
+        runtime.closeRequestInFlight = false
+        disposeRuntime(sessionId)
+      }
+
       addNotification({
         type: 'error',
         title: '会话重连失败',
-        message: `终端会话 ${sessionId} 重连失败，可能已过期`
+        message: '终端会话重连失败，请关闭该会话后重新创建。'
       })
     }
-    
-    // 监听终端大小调整完成
-    const handleTerminalResized = ({ sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
-      console.log(`终端大小调整完成: ${sessionId}, ${cols}x${rows}`)
-      const session = sessionsRef.current.find(s => s.id === sessionId)
-      if (session) {
-        // 确保前端终端的大小与服务端同步
-        setTimeout(() => {
-          try {
-            session.fitAddon.fit()
-          } catch (error) {
-            console.error('同步终端大小失败:', error)
+
+    const handleConnectionStatus = ({ connected }: { connected: boolean; reason?: string }) => {
+      if (!connected) {
+        runtimesRef.current.forEach(runtime => {
+          if (runtime.state === 'disposed' || runtime.state === 'exited') {
+            return
           }
-        }, 100)
+
+          const wasCreating = runtime.state === 'creating'
+          if (runtime.state !== 'closing') {
+            runtime.state = 'disconnected'
+          }
+          runtime.closeRequestInFlight = false
+          // N2-I2：create in-flight 断线——服务端 handleDisconnect 会对 starting/fallback
+          // attempt 执行有界关闭并可能转为 close-retained；置 cleanupRequired，unmount
+          // 时才会 enqueue guarded close，避免该 attempt 的唯一 ID 永久丢失
+          //（createAttempts 不在可重连的 active session 列表中）。
+          if (wasCreating) {
+            runtime.cleanupRequired = true
+          }
+          clearPendingResize(runtime)
+          runtime.lastWrittenSize = undefined
+          runtime.lastReportedSize = undefined
+        })
+        return
       }
+
+      runtimesRef.current.forEach((runtime, sessionId) => {
+        if (runtime.state === 'disconnected') {
+          runtime.state = 'reconnecting'
+          socketClient.reconnectTerminal(sessionId)
+        } else if (runtime.state === 'closing') {
+          socketClient.reconnectTerminal(sessionId)
+        }
+      })
     }
-    
+
+    socketClient.on('pty-created', handlePtyCreated)
+    socketClient.on('pty-closed', handlePtyClosed)
     socketClient.on('terminal-output', handleTerminalOutput)
-    socketClient.on('terminal-created', handleTerminalCreated)
-    socketClient.on('terminal-closed', handleTerminalClosed)
+    socketClient.on('terminal-resized', handleTerminalResized)
+    socketClient.on('terminal-error', handleTerminalError)
+    socketClient.on('terminal-exit', handleTerminalExit)
     socketClient.on('session-reconnected', handleSessionReconnected)
     socketClient.on('session-reconnect-failed', handleSessionReconnectFailed)
-    socketClient.on('terminal-resized', handleTerminalResized)
-    
+    socketClient.on('connection-status', handleConnectionStatus)
+
     return () => {
+      socketClient.off('pty-created', handlePtyCreated)
+      socketClient.off('pty-closed', handlePtyClosed)
       socketClient.off('terminal-output', handleTerminalOutput)
-      socketClient.off('terminal-created', handleTerminalCreated)
-      socketClient.off('terminal-closed', handleTerminalClosed)
+      socketClient.off('terminal-resized', handleTerminalResized)
+      socketClient.off('terminal-error', handleTerminalError)
+      socketClient.off('terminal-exit', handleTerminalExit)
       socketClient.off('session-reconnected', handleSessionReconnected)
       socketClient.off('session-reconnect-failed', handleSessionReconnectFailed)
-      socketClient.off('terminal-resized', handleTerminalResized)
+      socketClient.off('connection-status', handleConnectionStatus)
     }
-  }, []) // 移除addNotification依赖，避免重复注册事件监听器
+  }, [
+    addNotification,
+    attachTerminal,
+    disposeRuntime,
+    requestCloseIfIdle,
+    scheduleFit
+  ])
   
   useEffect(() => {
     // 处理URL参数：cwd和instance
@@ -907,21 +1261,12 @@ const TerminalPage: React.FC = () => {
 
     if (sessionId) {
       // 如果有sessionId参数，直接查找对应的终端会话
-      const targetSession = sessionsRef.current.find(s => s.id === sessionId)
-      
+      const targetSession = sessionsRef.current.find(session => session.id === sessionId)
+
       if (targetSession) {
         // 如果找到对应的会话，切换到该会话
         switchTerminalSession(targetSession.id)
         reconnectTerminalSession(targetSession.id)
-        
-        // 延迟调整终端大小，确保切换完成
-        setTimeout(() => {
-          const { cols, rows } = calculateTerminalSize()
-          if (socketClient.isConnected()) {
-            console.log(`切换到实例终端，调整大小为: ${cols}x${rows}`)
-            socketClient.resizeTerminal(targetSession.id, cols, rows)
-          }
-        }, 800)
       } else {
         // 启动实例后，HTTP会话列表可能还没刷新到新会话。
         // 先创建同ID的前端标签并重连，避免停留在旧的活动终端。
@@ -938,10 +1283,10 @@ const TerminalPage: React.FC = () => {
       }
     } else if (instanceId) {
       // 如果有instance参数，查找对应的终端会话
-      const instanceSession = sessionsRef.current.find(s => 
-        s.name.includes(instanceId) || s.id.includes(instanceId)
+      const instanceSession = sessionsRef.current.find(session =>
+        session.name.includes(instanceId) || session.id.includes(instanceId)
       )
-      
+
       if (instanceSession) {
         // 如果找到对应的会话，切换到该会话
         switchTerminalSession(instanceSession.id)
@@ -952,9 +1297,9 @@ const TerminalPage: React.FC = () => {
         })
       } else {
         // 如果没有找到对应的会话，等待一段时间后再次查找
-        setTimeout(() => {
-          const delayedSession = sessionsRef.current.find(s => 
-            s.name.includes(instanceId) || s.id.includes(instanceId)
+        scheduleComponentTimeout(() => {
+          const delayedSession = sessionsRef.current.find(session =>
+            session.name.includes(instanceId) || session.id.includes(instanceId)
           )
           if (delayedSession) {
             switchTerminalSession(delayedSession.id)
@@ -974,22 +1319,13 @@ const TerminalPage: React.FC = () => {
       }
     } else if (cwd) {
       // 延迟创建新终端，确保现有会话加载完成
-      setTimeout(() => {
+      scheduleComponentTimeout(() => {
         createTerminalSession({ cwd })
-        
-        // 确保新创建的终端获得焦点，延迟时间更长
-        setTimeout(() => {
-          const activeSession = sessionsRef.current.find(s => s.active)
-          if (activeSession && activeSession.terminal.element) {
-            activeSession.terminal.focus()
-          }
-        }, 500)
       }, 100)
     }
-    
+
     processedUrlParamKey.current = urlParamKey
     navigate('/terminal', { replace: true })
-    
   }, [
     sessionsLoaded,
     navigate,
@@ -998,100 +1334,11 @@ const TerminalPage: React.FC = () => {
     switchTerminalSession,
     ensureTerminalSessionVisible,
     reconnectTerminalSession,
-    calculateTerminalSize,
+    scheduleComponentTimeout,
     addNotification
   ])
 
-  // 当活动会话改变时，挂载终端到DOM
   useEffect(() => {
-    const activeSession = sessions.find(s => s.id === activeSessionId)
-    if (activeSession && terminalContainerRef.current) {
-      const container = terminalContainerRef.current
-
-      // 清空容器
-      while (container.firstChild) {
-        container.removeChild(container.firstChild)
-      }
-
-      try {
-        // 检查终端是否已经挂载到DOM
-        if (!activeSession.terminal.element) {
-          // 如果终端还没有挂载，则挂载到容器
-          activeSession.terminal.open(container)
-        } else {
-          // 如果终端已经挂载，则将其移动到当前容器
-          container.appendChild(activeSession.terminal.element)
-        }
-
-        // 确保终端获得焦点
-        activeSession.terminal.focus()
-
-        // 延迟调整大小，确保DOM更新完成
-        setTimeout(() => {
-          try {
-            // 先调整大小
-            activeSession.fitAddon.fit()
-            
-            // 获取调整后的实际大小
-            const { cols, rows } = activeSession.terminal
-            
-            // 通知服务端当前的终端大小，确保前后端同步
-            if (cols && rows && socketClient.isConnected()) {
-              console.log(`终端大小已调整为: ${cols}x${rows}`)
-              socketClient.resizeTerminal(activeSession.id, cols, rows)
-            }
-            
-            // 在调整大小后再次确保焦点
-            activeSession.terminal.focus()
-          } catch (error) {
-            console.error('调整终端大小失败:', error)
-          }
-        }, 100)
-        
-        // 额外的焦点确保机制
-        setTimeout(() => {
-          if (activeSession.terminal.element) {
-            activeSession.terminal.focus()
-          }
-        }, 200)
-      } catch (error) {
-        console.error('挂载终端失败:', error)
-      }
-    }
-  }, [activeSessionId, sessions])
-  
-  useEffect(() => {
-    // 窗口大小变化时调整终端大小
-    const handleResize = () => {
-      const activeSession = sessions.find(s => s.id === activeSessionId)
-      if (activeSession) {
-        setTimeout(() => {
-          try {
-            // 重新计算理想的终端大小
-            const { cols: targetCols, rows: targetRows } = calculateTerminalSize()
-            
-            // 先设置终端的目标大小
-            activeSession.terminal.resize(targetCols, targetRows)
-            
-            // 调整终端大小以适应容器
-            activeSession.fitAddon.fit()
-            
-            // 获取调整后的实际大小
-            const { cols, rows } = activeSession.terminal
-            
-            // 通知服务端新的大小
-            if (cols && rows && socketClient.isConnected()) {
-              console.log(`窗口大小变化，终端大小调整为: ${cols}x${rows} (目标: ${targetCols}x${targetRows})`)
-              socketClient.resizeTerminal(activeSession.id, cols, rows)
-            }
-          } catch (error) {
-            console.error('窗口大小变化时调整终端失败:', error)
-          }
-        }, 100)
-      }
-    }
-    
-    // 监听全屏状态变化
     const handleFullscreenChange = () => {
       const isCurrentlyFullscreen = !!document.fullscreenElement
       if (isCurrentlyFullscreen !== isFullscreen) {
@@ -1103,67 +1350,14 @@ const TerminalPage: React.FC = () => {
             message: '全屏模式已关闭'
           })
         }
-        
-        // 调整所有终端大小 - 增加延迟确保DOM完全更新
-        setTimeout(() => {
-          if (terminalContainerRef.current) {
-            try {
-              // 强制重新计算容器大小
-              const container = terminalContainerRef.current
-              
-              // 清除所有内联样式，让CSS类控制布局
-              container.style.width = ''
-              container.style.height = ''
-              container.style.maxWidth = ''
-              
-              // 强制浏览器重新计算布局
-              container.offsetHeight
-              
-              const containerWidth = container.clientWidth || 800
-              const containerHeight = container.clientHeight || 600
-              
-              console.log(`全屏模式切换后容器大小: ${containerWidth}x${containerHeight}, 全屏状态: ${isCurrentlyFullscreen}`)
-              
-              // 重新计算理想的终端大小
-              const { cols: targetCols, rows: targetRows } = calculateTerminalSize()
-              
-              // 调整所有终端的大小，不仅仅是当前活动的
-              sessions.forEach(session => {
-                try {
-                  // 先设置终端的目标大小
-                  session.terminal.resize(targetCols, targetRows)
-                  
-                  // 调整终端大小以适应新的容器
-                  session.fitAddon.fit()
-                  
-                  // 获取调整后的实际大小
-                  const { cols, rows } = session.terminal
-                  
-                  // 通知服务端新的大小
-                  if (cols && rows && socketClient.isConnected()) {
-                    console.log(`终端 ${session.id} 大小调整为: ${cols}x${rows} (目标: ${targetCols}x${targetRows})`)
-                    socketClient.resizeTerminal(session.id, cols, rows)
-                  }
-                } catch (error) {
-                  console.error(`调整终端 ${session.id} 大小失败:`, error)
-                }
-              })
-            } catch (error) {
-              console.error('全屏模式切换时调整终端大小失败:', error)
-            }
-          }
-        }, 300)
       }
     }
-    
-    window.addEventListener('resize', handleResize)
+
     document.addEventListener('fullscreenchange', handleFullscreenChange)
-    
     return () => {
-      window.removeEventListener('resize', handleResize)
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
-  }, [activeSessionId, sessions, isFullscreen, addNotification])
+  }, [addNotification, isFullscreen])
   
   // 计算是否应该显示侧边栏内容
   const shouldShowSidebar = (!sidebarCollapsed || sidebarHovered) && !isMobile
@@ -1237,7 +1431,7 @@ const TerminalPage: React.FC = () => {
                       key={session.id}
                       className={`
                         group relative p-3 rounded-lg cursor-pointer transition-all
-                        ${session.active
+                        ${session.id === activeSessionId
                           ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
                           : 'text-gray-300 hover:bg-white/5 hover:text-white'
                         }
@@ -1328,7 +1522,7 @@ const TerminalPage: React.FC = () => {
                       key={session.id}
                       className={`
                         w-10 h-10 rounded-lg cursor-pointer transition-all flex items-center justify-center
-                        ${session.active
+                        ${session.id === activeSessionId
                           ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
                           : 'text-gray-400 hover:bg-white/5 hover:text-white'
                         }
@@ -1426,7 +1620,7 @@ const TerminalPage: React.FC = () => {
                       <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                     </div>
                     <div className="text-sm font-medium text-white">
-                      {sessions.find(s => s.active)?.name || '终端'}
+                      {sessions.find(session => session.id === activeSessionId)?.name || '终端'}
                     </div>
                   </div>
                   
@@ -1447,7 +1641,7 @@ const TerminalPage: React.FC = () => {
               
               {/* 终端内容 */}
               <div
-                ref={terminalContainerRef}
+                ref={setTerminalContainer}
                 className="flex-1 bg-gray-900 min-h-0 w-full h-full"
               />
             </>
@@ -1539,7 +1733,7 @@ const TerminalPage: React.FC = () => {
                   key={session.id}
                   className={`
                     group relative p-3 rounded-lg cursor-pointer transition-all
-                    ${session.active
+                    ${session.id === activeSessionId
                       ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
                       : 'text-gray-300 hover:bg-white/5 hover:text-white'
                     }
@@ -1630,7 +1824,7 @@ const TerminalPage: React.FC = () => {
                   key={session.id}
                   className={`
                     w-10 h-10 rounded-lg cursor-pointer transition-all flex items-center justify-center
-                    ${session.active
+                    ${session.id === activeSessionId
                       ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
                       : 'text-gray-400 hover:bg-white/5 hover:text-white'
                     }
@@ -1714,7 +1908,7 @@ const TerminalPage: React.FC = () => {
                     <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                   </div>
                   <div className="text-sm font-medium text-white truncate">
-                    {sessions.find(s => s.active)?.name || '终端'}
+                    {sessions.find(session => session.id === activeSessionId)?.name || '终端'}
                   </div>
                 </div>
                 
@@ -1746,7 +1940,7 @@ const TerminalPage: React.FC = () => {
             
             {/* 终端内容 */}
             <div
-              ref={terminalContainerRef}
+              ref={setTerminalContainer}
               className={`flex-1 bg-gray-900 min-h-0 ${isMobile ? 'touch-manipulation' : ''}`}
               style={{
                 // 移动端优化触摸滚动

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Download,
@@ -22,6 +22,7 @@ import {
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useSystemStore } from '@/stores/systemStore'
 import apiClient from '@/utils/api'
+import socketClient from '@/utils/socket'
 import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadProgress, MoreGameInfo, Platform, InstanceType, SteamBranchInfo } from '@/types'
 import { io, Socket } from 'socket.io-client'
 import config from '@/config'
@@ -85,6 +86,7 @@ interface LastSteamcmdInstallTask {
   gameInfo: GameInfo
   request: SteamcmdInstallRequest
   terminalSessionId?: string
+  retainedTerminalSessionId?: string
   instanceId?: string
   requiresBetaPassword?: boolean
   updatedAt: string
@@ -231,6 +233,25 @@ const GameDeploymentPage: React.FC = () => {
   const steamBranchRequestId = useRef(0)
   const installModalRequestId = useRef(0)
   const installingRef = useRef(false)
+  // 安装失败时服务端 500 响应携带的 retained 终端会话 ID 与关闭状态
+  const [retainedTerminalSessionId, setRetainedTerminalSessionId] = useState<string | null>(() =>
+    lastSteamcmdInstallTask?.retainedTerminalSessionId || null
+  )
+  const [closingRetainedTerminal, setClosingRetainedTerminal] = useState(false)
+  const retainedTerminalCloseCleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    if (lastSteamcmdInstallTask?.retainedTerminalSessionId) {
+      setRetainedTerminalSessionId(lastSteamcmdInstallTask.retainedTerminalSessionId)
+    }
+  }, [lastSteamcmdInstallTask?.retainedTerminalSessionId])
+
+  useEffect(() => {
+    return () => {
+      retainedTerminalCloseCleanupRef.current?.()
+      retainedTerminalCloseCleanupRef.current = null
+    }
+  }, [])
   
   // 实例更新确认弹窗相关状态
   const [showInstanceUpdateDialog, setShowInstanceUpdateDialog] = useState(false)
@@ -3157,10 +3178,31 @@ const GameDeploymentPage: React.FC = () => {
       return response.data
     } catch (error: any) {
       console.error('游戏安装失败:', error)
+      // 服务端 failed-retained 的 500 响应携带 retainedTerminalSessionId：
+      // 保存到 state 并展示可操作的清理入口，关闭后才能重试安装（安装锁在该会话退出前不释放）。
+      const retainedId = typeof error?.retainedTerminalSessionId === 'string'
+        ? error.retainedTerminalSessionId
+        : null
+      if (retainedId) {
+        setRetainedTerminalSessionId(retainedId)
+        saveLastSteamcmdInstallTask({
+          gameKey: request.gameKey,
+          gameInfo,
+          request: {
+            ...request,
+            steamPassword: undefined
+          },
+          retainedTerminalSessionId: retainedId,
+          instanceId: request.existingInstanceId,
+          updatedAt: new Date().toISOString()
+        })
+      }
       addNotification({
         type: 'error',
         title: '安装失败',
-        message: formatInstallErrorMessage(error)
+        message: retainedId
+          ? `${formatInstallErrorMessage(error)}\n已保留残留终端会话（${retainedId}），请先关闭该会话后再重试安装。`
+          : formatInstallErrorMessage(error)
       })
       throw error
     } finally {
@@ -3168,6 +3210,81 @@ const GameDeploymentPage: React.FC = () => {
       setInstalling(false)
     }
   }
+
+  // 关闭上次失败安装保留的残留终端会话（调用现有 close-pty 通道，等待服务端 ACK）
+  const closeRetainedTerminalSession = useCallback(() => {
+    const sessionId = retainedTerminalSessionId
+    if (!sessionId || closingRetainedTerminal) {
+      return
+    }
+    if (!socketClient.isConnected()) {
+      addNotification({
+        type: 'error',
+        title: '关闭残留终端失败',
+        message: 'Socket 未连接，无法关闭残留终端会话，请重试。'
+      })
+      return
+    }
+
+    retainedTerminalCloseCleanupRef.current?.()
+    setClosingRetainedTerminal(true)
+    let settled = false
+
+    const cleanupListeners = () => {
+      socketClient.off('pty-closed', onPtyClosed)
+      socketClient.off('terminal-error', onTerminalError)
+      if (retainedTerminalCloseCleanupRef.current === cleanupListeners) {
+        retainedTerminalCloseCleanupRef.current = null
+      }
+    }
+
+    const settleClose = (): boolean => {
+      if (settled) {
+        return false
+      }
+      settled = true
+      cleanupListeners()
+      setClosingRetainedTerminal(false)
+      return true
+    }
+
+    const onPtyClosed = (data: { sessionId?: string }) => {
+      if (data?.sessionId !== sessionId || !settleClose()) {
+        return
+      }
+      setRetainedTerminalSessionId(null)
+      if (lastSteamcmdInstallTask?.retainedTerminalSessionId === sessionId) {
+        saveLastSteamcmdInstallTask({
+          ...lastSteamcmdInstallTask,
+          retainedTerminalSessionId: undefined,
+          updatedAt: new Date().toISOString()
+        })
+      }
+      addNotification({
+        type: 'success',
+        title: '残留终端已关闭',
+        message: '残留终端会话已关闭，可以重新开始安装。'
+      })
+    }
+
+    const onTerminalError = (data: { sessionId?: string; retained?: boolean; error?: string }) => {
+      if (data?.sessionId !== sessionId || !settleClose()) {
+        return
+      }
+      addNotification({
+        type: 'error',
+        title: data?.retained ? '残留终端仍在运行' : '关闭残留终端失败',
+        message: data?.retained
+          ? '终端进程仍在运行，会话已保留，请稍后重试关闭。'
+          : (data?.error || '关闭残留终端会话失败，请稍后重试。')
+      })
+    }
+
+    socketClient.on('pty-closed', onPtyClosed)
+    socketClient.on('terminal-error', onTerminalError)
+    retainedTerminalCloseCleanupRef.current = cleanupListeners
+    socketClient.closeTerminal(sessionId)
+  }, [retainedTerminalSessionId, closingRetainedTerminal, lastSteamcmdInstallTask, addNotification])
 
   const restoreLastSteamcmdInstallTask = () => {
     if (!lastSteamcmdInstallTask) return
@@ -4305,6 +4422,38 @@ const GameDeploymentPage: React.FC = () => {
         <div className="space-y-6">
           {/* Steam网络状态提示 */}
           <NetworkStatusBanner categoryId="steam" autoCheck={true} />
+
+          {/* 上次安装失败的残留终端会话：提供可操作的 cleanup 入口 */}
+          {retainedTerminalSessionId && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-red-900 dark:text-red-100">
+                    残留终端会话待关闭
+                  </h3>
+                  <p className="mt-1 break-words text-sm text-red-800 dark:text-red-200">
+                    上次安装失败保留了终端会话（{retainedTerminalSessionId}），安装操作锁仍被占用。
+                    请先关闭残留终端会话后再重试安装。
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={closeRetainedTerminalSession}
+                    disabled={closingRetainedTerminal}
+                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm text-white transition-colors hover:bg-red-700 disabled:bg-red-400"
+                  >
+                    {closingRetainedTerminal ? (
+                      <Loader className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4" />
+                    )}
+                    <span>{closingRetainedTerminal ? '正在关闭' : '关闭残留终端会话'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {lastSteamcmdInstallTask && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
