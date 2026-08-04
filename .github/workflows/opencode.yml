@@ -14,7 +14,7 @@ jobs:
       contains(github.event.comment.body, ' /opencode') ||
       startsWith(github.event.comment.body, '/opencode')
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # 兜底超时，防止无限挂起
+    timeout-minutes: 60 # 兜底超时，防止无限挂起
     permissions:
       id-token: write
       contents: read
