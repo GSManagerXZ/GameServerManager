@@ -379,6 +379,8 @@ class PtyControlStageError extends Error {
   }
 }
 
+const WINDOWS_PIPE_CONNECT_RETRY_DELAY_MS = 25
+
 interface PosixSecurityFlags {
   noFollow: number
   directory: number
@@ -524,6 +526,19 @@ function hasErrorCode(error: unknown, code: string): boolean {
     error !== null &&
     'code' in error &&
     (error as NodeJS.ErrnoException).code === code
+}
+
+function isRecoverableWindowsPipeConnectError(error: unknown): boolean {
+  if (error instanceof PtyControlStageError) {
+    return false
+  }
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? (error as NodeJS.ErrnoException).code
+    : undefined
+  return code === 'ENOENT' ||
+    code === 'ECONNREFUSED' ||
+    code === 'EBUSY' ||
+    code === 'EAGAIN'
 }
 
 function normalizeReadinessError(
@@ -1094,47 +1109,77 @@ class WindowsPtyControlTransport implements PtyControlTransport {
     let cleanupListeners = () => {}
 
     try {
-      const socket = net.createConnection(this.endpoint)
-      this.partialSocket = socket
-      socket.on('error', ignoreWriterError)
+      let lastError: unknown
+      while (!this.closed && Date.now() <= deadline) {
+        assertReadinessActive(attempt, deadline, this.closed)
+        cleanupListeners = () => {}
+        const socket = net.createConnection(this.endpoint)
+        this.partialSocket = socket
+        socket.on('error', ignoreWriterError)
 
-      const connected = new Promise<void>((resolve, reject) => {
-        const onConnect = () => {
-          cleanupListeners()
-          resolve()
-        }
-        const onError = (error: Error) => {
-          cleanupListeners()
-          reject(error)
-        }
-        const onClose = () => {
-          cleanupListeners()
-          reject(new PtyControlStageError(
+        const connected = new Promise<void>((resolve, reject) => {
+          const onConnect = () => {
+            cleanupListeners()
+            resolve()
+          }
+          const onError = (error: Error) => {
+            cleanupListeners()
+            reject(error)
+          }
+          const onClose = () => {
+            cleanupListeners()
+            reject(new PtyControlStageError(
+              'connect',
+              'PTY control connection closed stage=connect'
+            ))
+          }
+          cleanupListeners = () => {
+            socket.off('connect', onConnect)
+            socket.off('error', onError)
+            socket.off('close', onClose)
+          }
+          socket.once('connect', onConnect)
+          socket.once('error', onError)
+          socket.once('close', onClose)
+        })
+
+        try {
+          await runReadinessStage(
+            attempt,
+            deadline,
             'connect',
-            'PTY control connection closed stage=connect'
-          ))
+            () => this.closed,
+            () => connected
+          )
+          assertReadinessActive(attempt, deadline, this.closed)
+          this.writer = socket
+          this.partialSocket = null
+          return socket
+        } catch (error) {
+          lastError = error
+          cleanupListeners()
+          if (this.partialSocket === socket) {
+            this.partialSocket = null
+          }
+          socket.destroy()
+          if (!isRecoverableWindowsPipeConnectError(error) || Date.now() >= deadline) {
+            throw error
+          }
+          await runReadinessStage(
+            attempt,
+            deadline,
+            'connect',
+            () => this.closed,
+            async () => {
+              await new Promise(resolve => setTimeout(resolve, WINDOWS_PIPE_CONNECT_RETRY_DELAY_MS))
+            }
+          )
         }
-        cleanupListeners = () => {
-          socket.off('connect', onConnect)
-          socket.off('error', onError)
-          socket.off('close', onClose)
-        }
-        socket.once('connect', onConnect)
-        socket.once('error', onError)
-        socket.once('close', onClose)
-      })
-
-      await runReadinessStage(
-        attempt,
-        deadline,
+      }
+      throw lastError ?? new PtyControlStageError(
         'connect',
-        () => this.closed,
-        () => connected
+        'PTY control readiness timed out stage=connect'
       )
-      assertReadinessActive(attempt, deadline, this.closed)
-      this.writer = socket
-      this.partialSocket = null
-      return socket
     } catch (error) {
       cleanupListeners()
       this.destroyPartialSocket()

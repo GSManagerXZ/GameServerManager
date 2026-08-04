@@ -53,7 +53,7 @@ npm run package:windows      # ensure --asset win32-x64
 最终镜像根据 `TARGETARCH` 只选择当前镜像的原生资产：`amd64` 对应 `linux-x64`，`arm64` 对应 `linux-arm64`。镜像调用：
 
 ```text
-node /root/server/utils/ptyAssetCli.js ensure --asset <asset-key> --target-dir /root/server/data/lib
+node /root/server/utils/ptyAssetCli.js ensure --asset <asset-key> --target-dir /root/server/builtin/data/lib
 ```
 
 不支持的架构或校验、下载、原生 `-fifo` 探测失败都会使镜像构建失败。

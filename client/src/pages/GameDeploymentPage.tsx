@@ -86,6 +86,7 @@ interface LastSteamcmdInstallTask {
   gameInfo: GameInfo
   request: SteamcmdInstallRequest
   terminalSessionId?: string
+  retainedTerminalSessionId?: string
   instanceId?: string
   requiresBetaPassword?: boolean
   updatedAt: string
@@ -233,9 +234,17 @@ const GameDeploymentPage: React.FC = () => {
   const installModalRequestId = useRef(0)
   const installingRef = useRef(false)
   // 安装失败时服务端 500 响应携带的 retained 终端会话 ID 与关闭状态
-  const [retainedTerminalSessionId, setRetainedTerminalSessionId] = useState<string | null>(null)
+  const [retainedTerminalSessionId, setRetainedTerminalSessionId] = useState<string | null>(() =>
+    lastSteamcmdInstallTask?.retainedTerminalSessionId || null
+  )
   const [closingRetainedTerminal, setClosingRetainedTerminal] = useState(false)
   const retainedTerminalCloseCleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    if (lastSteamcmdInstallTask?.retainedTerminalSessionId) {
+      setRetainedTerminalSessionId(lastSteamcmdInstallTask.retainedTerminalSessionId)
+    }
+  }, [lastSteamcmdInstallTask?.retainedTerminalSessionId])
 
   useEffect(() => {
     return () => {
@@ -3176,6 +3185,17 @@ const GameDeploymentPage: React.FC = () => {
         : null
       if (retainedId) {
         setRetainedTerminalSessionId(retainedId)
+        saveLastSteamcmdInstallTask({
+          gameKey: request.gameKey,
+          gameInfo,
+          request: {
+            ...request,
+            steamPassword: undefined
+          },
+          retainedTerminalSessionId: retainedId,
+          instanceId: request.existingInstanceId,
+          updatedAt: new Date().toISOString()
+        })
       }
       addNotification({
         type: 'error',
@@ -3233,6 +3253,13 @@ const GameDeploymentPage: React.FC = () => {
         return
       }
       setRetainedTerminalSessionId(null)
+      if (lastSteamcmdInstallTask?.retainedTerminalSessionId === sessionId) {
+        saveLastSteamcmdInstallTask({
+          ...lastSteamcmdInstallTask,
+          retainedTerminalSessionId: undefined,
+          updatedAt: new Date().toISOString()
+        })
+      }
       addNotification({
         type: 'success',
         title: '残留终端已关闭',
@@ -3257,7 +3284,7 @@ const GameDeploymentPage: React.FC = () => {
     socketClient.on('terminal-error', onTerminalError)
     retainedTerminalCloseCleanupRef.current = cleanupListeners
     socketClient.closeTerminal(sessionId)
-  }, [retainedTerminalSessionId, closingRetainedTerminal, addNotification])
+  }, [retainedTerminalSessionId, closingRetainedTerminal, lastSteamcmdInstallTask, addNotification])
 
   const restoreLastSteamcmdInstallTask = () => {
     if (!lastSteamcmdInstallTask) return

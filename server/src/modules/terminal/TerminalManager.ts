@@ -2052,7 +2052,7 @@ export class TerminalManager {
     })
   }
 
-  private sendChildProcessSignal(
+  private sendSignalToPtyProcessGroup(
     child: ChildProcess,
     processName: string,
     signal: NodeJS.Signals
@@ -2104,19 +2104,19 @@ export class TerminalManager {
 
     const pid = child.pid
     this.logger.info(`开始终止${processName}，PID: ${pid}`)
-    this.sendChildProcessSignal(child, processName, 'SIGINT')
+    this.sendSignalToPtyProcessGroup(child, processName, 'SIGINT')
     if (await this.waitForChildProcessExit(child, 2000)) {
       return complete()
     }
 
     this.logger.warn(`${processName}未响应SIGINT，尝试SIGTERM: ${pid}`)
-    this.sendChildProcessSignal(child, processName, 'SIGTERM')
+    this.sendSignalToPtyProcessGroup(child, processName, 'SIGTERM')
     if (await this.waitForChildProcessExit(child, 2000)) {
       return complete()
     }
 
     this.logger.warn(`${processName}未响应SIGTERM，尝试SIGKILL: ${pid}`)
-    this.sendChildProcessSignal(child, processName, 'SIGKILL')
+    this.sendSignalToPtyProcessGroup(child, processName, 'SIGKILL')
     if (await this.waitForChildProcessExit(child, 1000)) {
       return complete()
     }
@@ -2782,22 +2782,14 @@ export class TerminalManager {
     this.endPtyStdin(target)
 
     if (!target.processExited) {
-      try {
-        ptyProcess.kill('SIGTERM')
-      } catch (error) {
-        this.logger.warn(`向PTY进程发送SIGTERM失败: ${target.id}`, error)
-      }
+      this.sendSignalToPtyProcessGroup(ptyProcess, 'PTY进程', 'SIGTERM')
     }
     if (await this.waitForTargetExit(target, 3000)) {
       return finalize()
     }
 
     this.logger.warn(`PTY进程未响应SIGTERM，发送SIGKILL: ${target.id}`)
-    try {
-      ptyProcess.kill('SIGKILL')
-    } catch (error) {
-      this.logger.warn(`向PTY进程发送SIGKILL失败: ${target.id}`, error)
-    }
+    this.sendSignalToPtyProcessGroup(ptyProcess, 'PTY进程', 'SIGKILL')
     if (await this.waitForTargetExit(target, 1000)) {
       return finalize()
     }
@@ -2932,7 +2924,6 @@ export class TerminalManager {
       return Promise.resolve('not-found')
     }
 
-    target.socket = socket
     const closePromise = this.requestTargetClose(target, {
       intentional: true,
       emitEvents: true,

@@ -123,9 +123,9 @@ if test "$install_type" = "1"; then
 	DOWNLOAD_URL="https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest/download/$ARCHIVE_NAME"
 
 	if command -v curl &>/dev/null;then
-		curl -Lo gsm3.tgz "$DOWNLOAD_URL"
+		curl -fL -o gsm3.tgz "$DOWNLOAD_URL"
 	elif command -v wget &>/dev/null; then
-		wget -O gsm3.tgz "$DOWNLOAD_URL"
+		wget --server-response -O gsm3.tgz "$DOWNLOAD_URL"
 	else
 		echo -e "\x1b[31m错误：既没有安装curl也没有安装wget，无法下载gsm3程序，请安装这俩其中一个工具后再次执行该脚本！"
 		exit 1
@@ -137,6 +137,11 @@ if test "$install_type" = "1"; then
 	fi
 	echo "下载完毕，解压中，请稍等"
 	tar -xzf gsm3.tgz -C "$install_path"
+	if test "$?" != "0"; then
+		echo -e "\x1b[31m解压失败，请检查下载的安装包是否有效...\x1b[0m"
+		rm -rf gsm3.tgz
+		exit 1
+	fi
 	rm -rf gsm3.tgz
 	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" 2>/dev/null || true
 

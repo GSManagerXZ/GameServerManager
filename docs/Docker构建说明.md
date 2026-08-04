@@ -106,7 +106,7 @@ docker run -d \
 
 - `./game_data` → `/home/steam/games` - 游戏数据
 - `./game_file` → `/home/steam/.config` 和 `/home/steam/.local` - 游戏配置
-- `./gsm3_data` → `/home/steam/server/data` - GSM3 应用数据
+- `./gsm3_data` → `/root/server/data` - GSM3 应用数据
 
 ## 运行依赖预置目录说明
 
@@ -115,7 +115,7 @@ docker run -d \
 1. `/root/server/data/lib`
 2. `/root/server/server/data/lib`
 
-为避免容器启动后重复下载运行依赖，Docker 构建阶段将当前镜像架构需要的二进制文件预置到第一候选 `/root/server/data/lib`。这只是明确现有候选路径的解析基准，不改变运行时查找顺序。
+为避免容器启动后重复下载运行依赖，同时避免 `./gsm3_data` 数据卷遮蔽镜像内置文件，Docker 构建阶段将当前镜像架构需要的二进制文件预置到 `/root/server/builtin/data/lib`；`/root/start.sh` 启动时只补齐缺失文件到第一候选 `/root/server/data/lib`，不覆盖用户已有资产。这只是明确现有候选路径的解析基准，不改变运行时查找顺序。
 
 ### PTY 固定资产策略
 
@@ -124,7 +124,7 @@ docker run -d \
 ```text
 node /root/server/utils/ptyAssetCli.js ensure \
   --asset <asset-key> \
-  --target-dir /root/server/data/lib
+  --target-dir /root/server/builtin/data/lib
 ```
 
 `TARGETARCH` 与资产键的映射为：

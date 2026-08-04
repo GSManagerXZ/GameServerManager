@@ -34,13 +34,21 @@ if [ -f "server/index.js" ]; then
         done
     fi
     
+    # Docker 的持久卷会遮蔽镜像内的 server/data，补充卷中缺失的内置运行时资产。
+    BUILTIN_LIB_DIR="server/builtin/data/lib"
+    RUNTIME_LIB_DIR="server/data/lib"
+    if [ -d "$BUILTIN_LIB_DIR" ]; then
+        mkdir -p "$RUNTIME_LIB_DIR"
+        cp -an "$BUILTIN_LIB_DIR"/. "$RUNTIME_LIB_DIR"/ 2>/dev/null || true
+    fi
+
     # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
     # 如果 data/lib/ 中存在 PTY 文件，验证并设置可执行权限
     ARCH=$(uname -m)
     if [ "$ARCH" = "x86_64" ]; then
-        PTY_FILE="data/lib/pty_linux_x64"
+        PTY_FILE="$RUNTIME_LIB_DIR/pty_linux_x64"
     elif [ "$ARCH" = "aarch64" ]; then
-        PTY_FILE="data/lib/pty_linux_arm64"
+        PTY_FILE="$RUNTIME_LIB_DIR/pty_linux_arm64"
     else
         PTY_FILE=""
     fi

@@ -31,7 +31,7 @@ import { setupAuthRoutes } from './routes/auth.js'
 import { setupScheduledTaskRoutes } from './routes/scheduledTasks.js'
 import { setupConfigRoutes } from './routes/config.js'
 import { setupSettingsRoutes } from './routes/settings.js'
-import { setAuthManager, setExternalApiConfigManager } from './middleware/auth.js'
+import { authenticateToken, setAuthManager, setExternalApiConfigManager } from './middleware/auth.js'
 import filesRouter from './routes/files.js'
 import { setupInstanceRoutes } from './routes/instances.js'
 import { setupExternalApiRoutes } from './routes/externalApi.js'
@@ -770,7 +770,7 @@ async function startServer() {
 
     // 设置路由
     app.use('/api/auth', setupAuthRoutes(authManager))
-    app.use('/api/terminal', setupTerminalRoutes(terminalManager))
+    app.use('/api/terminal', authenticateToken, setupTerminalRoutes(terminalManager))
     app.use('/api/games', setupGameRoutes(gameManager))
     app.use('/api/system', setupSystemRoutes(systemManager))
     app.use('/api/files', filesRouter)

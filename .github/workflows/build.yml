@@ -232,7 +232,9 @@ jobs:
       - name: Create platform archives
         run: |
           tar -czf gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz -C linux-x64-build .
+          cp gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz gsm3-management-panel-linux-x64.tar.gz
           tar -czf gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz -C linux-arm64-build .
+          cp gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz gsm3-management-panel-linux-arm64.tar.gz
           cd windows-build
           zip -r ../gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip .
       - name: Create Release
@@ -240,7 +242,9 @@ jobs:
         with:
           files: |
             gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz
+            gsm3-management-panel-linux-x64.tar.gz
             gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz
+            gsm3-management-panel-linux-arm64.tar.gz
             gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip
           generate_release_notes: true
           draft: false
