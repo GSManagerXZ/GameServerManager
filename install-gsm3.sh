@@ -106,43 +106,71 @@ cd "$install_path"
 
 if test "$install_type" = "1"; then
 	RELEASE_API_URL="https://api.github.com/repos/GSManagerXZ/GameServerManager/releases/latest"
-	RELEASE_API_MIRROR_URL="https://ghfast.top/https://api.github.com/repos/GSManagerXZ/GameServerManager/releases/latest"
+	RELEASE_PAGE_URL="https://github.com/GSManagerXZ/GameServerManager/releases/latest"
+	RELEASE_PAGE_MIRROR_URL="https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest"
 	RELEASE_METADATA=""
+	RELEASE_TAG=""
 
-	fetch_release_metadata() {
-		local url
-		for url in "$RELEASE_API_URL" "$RELEASE_API_MIRROR_URL"; do
-			if command -v curl &>/dev/null; then
-				if RELEASE_METADATA=$(curl -fsSL \
-					-H "Accept: application/vnd.github+json" \
-					-H "User-Agent: gsm3-installer" \
-					"$url"); then
-					return 0
-				fi
-			elif command -v wget &>/dev/null; then
-				if RELEASE_METADATA=$(wget -qO- \
-					--header="Accept: application/vnd.github+json" \
-					--header="User-Agent: gsm3-installer" \
-					"$url"); then
-					return 0
-				fi
-			else
-				echo -e "\x1b[31m错误：既没有安装curl也没有安装wget，无法查询GSM3最新版本！\x1b[0m"
-				return 1
+	extract_release_tag_from_metadata() {
+		printf '%s' "$1" \
+			| grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+			| head -n 1 \
+			| sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/'
+	}
+
+	extract_release_tag_from_url() {
+		printf '%s' "$1" \
+			| grep -o 'releases/tag/v[0-9][0-9A-Za-z._-]*' \
+			| tail -n 1 \
+			| sed 's#releases/tag/##'
+	}
+
+	resolve_latest_release_tag() {
+		local url response
+
+		if command -v curl &>/dev/null; then
+			if RELEASE_METADATA=$(curl -fsSL \
+				-H "Accept: application/vnd.github+json" \
+				-H "User-Agent: gsm3-installer" \
+				"$RELEASE_API_URL"); then
+				RELEASE_TAG=$(extract_release_tag_from_metadata "$RELEASE_METADATA")
+				case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
 			fi
-		done
+
+			for url in "$RELEASE_PAGE_URL" "$RELEASE_PAGE_MIRROR_URL"; do
+				if response=$(curl -fsSL --max-time 30 -o /dev/null -w '%{url_effective}' "$url"); then
+					RELEASE_TAG=$(extract_release_tag_from_url "$response")
+					case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+				fi
+			done
+		elif command -v wget &>/dev/null; then
+			if RELEASE_METADATA=$(wget -qO- \
+				--header="Accept: application/vnd.github+json" \
+				--header="User-Agent: gsm3-installer" \
+				"$RELEASE_API_URL"); then
+				RELEASE_TAG=$(extract_release_tag_from_metadata "$RELEASE_METADATA")
+				case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+			fi
+
+			for url in "$RELEASE_PAGE_URL" "$RELEASE_PAGE_MIRROR_URL"; do
+				if response=$(wget --server-response --spider --timeout=30 "$url" 2>&1); then
+					RELEASE_TAG=$(extract_release_tag_from_url "$response")
+					case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+				fi
+			done
+		else
+			echo -e "\x1b[31m错误：既没有安装curl也没有安装wget，无法查询GSM3最新版本！\x1b[0m"
+			return 1
+		fi
+
 		return 1
 	}
 
-	if ! fetch_release_metadata; then
+	if ! resolve_latest_release_tag; then
 		echo -e "\x1b[31m无法查询GSM3最新稳定版本，请检查网络后重试！\x1b[0m"
 		exit 1
 	fi
 
-	RELEASE_TAG=$(printf '%s' "$RELEASE_METADATA" \
-		| grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
-		| head -n 1 \
-		| sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
 	RELEASE_VERSION="${RELEASE_TAG#v}"
 	case "$RELEASE_TAG" in
 		v[0-9]*) ;;

@@ -60,7 +60,7 @@ node /root/server/utils/ptyAssetCli.js ensure --asset <asset-key> --target-dir /
 
 ### 常规安装脚本
 
-`install-gsm3.sh` 先通过 GitHub Releases API 获取最新稳定标签，再读取 `uname -m`：`x86_64/amd64` 选择 `gsm3-management-panel-linux-x64-v<version>.tar.gz` 与 `linux-x64`，`aarch64/arm64` 选择 `gsm3-management-panel-linux-arm64-v<version>.tar.gz` 与 `linux-arm64`；其他架构直接退出。解压并启用包内 Node.js 后调用：
+`install-gsm3.sh` 优先通过 GitHub Releases API 获取最新稳定标签；API 不可用时，会从 GitHub Releases `latest` 页面（含镜像地址）的重定向 URL 解析标签。随后读取 `uname -m`：`x86_64/amd64` 选择 `gsm3-management-panel-linux-x64-v<version>.tar.gz` 与 `linux-x64`，`aarch64/arm64` 选择 `gsm3-management-panel-linux-arm64-v<version>.tar.gz` 与 `linux-arm64`；其他架构直接退出。解压并启用包内 Node.js 后调用：
 
 ```text
 <install-path>/node/bin/node <install-path>/server/utils/ptyAssetCli.js ensure --asset <asset-key> --target-dir <install-path>/data/lib
