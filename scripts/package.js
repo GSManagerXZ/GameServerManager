@@ -37,6 +37,44 @@ const outputFile = buildTarget
   : path.join(distDir, `${packageName}-v${version}.zip`)
 
 const nodeVersion = '22.17.0'
+const bundledLibDir = path.join(__dirname, '..', 'server', 'data', 'lib')
+
+/**
+ * 优先复用构建机已准备好的运行时二进制，避免打包时重复联网下载。
+ * 打包目录每次都会重新创建，因此不覆盖目标文件即可避免引入旧产物。
+ */
+async function copyBundledRuntimeAsset(binaryName, targetDir) {
+  const sourcePath = path.join(bundledLibDir, binaryName)
+  const targetPath = path.join(targetDir, binaryName)
+
+  try {
+    const stat = await fs.stat(sourcePath)
+    if (!stat.isFile() || stat.size === 0) {
+      return false
+    }
+
+    await fs.copy(sourcePath, targetPath, { overwrite: false, errorOnExist: false })
+    console.log(`📦 复用本地运行时资产: ${binaryName}`)
+    return true
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn(`⚠️  无法复用本地运行时资产 ${binaryName}: ${error.message}`)
+    }
+    return false
+  }
+}
+
+async function setExecutableIfNeeded(filePath) {
+  if (path.extname(filePath).toLowerCase() === '.exe') {
+    return
+  }
+
+  try {
+    await fs.chmod(filePath, 0o755)
+  } catch (error) {
+    console.warn(`⚠️  无法设置运行时资产执行权限: ${filePath}: ${error.message}`)
+  }
+}
 
 // Zip-Tools GitHub 下载配置（始终使用最新版本）
 const ZIP_TOOLS_GITHUB_URL = 'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
@@ -64,7 +102,7 @@ function getZipToolsBinaries(target) {
 function get7zBinaries(target) {
   if (target === 'linux-x64') return ['7z_linux_x64']
   if (target === 'linux-arm64') return ['7z_linux_arm64']
-  if (target === 'windows') return ['7z_win32_x64.exe', '7z_win32_arm64.exe']
+  if (target === 'windows') return ['7z_win32_x64.exe']
   // 未指定目标时下载所有版本
   return [
     '7z_linux_x64', '7z_linux_arm64', '7z_linux_386', '7z_linux_arm',
@@ -145,24 +183,24 @@ async function downloadZipTools(platform) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
 
-  console.log('📥 正在从 GitHub 下载 Zip-Tools (latest)...')
+  console.log('📥 正在准备 Zip-Tools 运行时资产...')
   let hasSuccess = false
 
   for (const binaryName of binaries) {
-    const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
     const destPath = path.join(libDir, binaryName)
+
+    if (await copyBundledRuntimeAsset(binaryName, libDir)) {
+      await setExecutableIfNeeded(destPath)
+      hasSuccess = true
+      continue
+    }
+
+    const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
 
     console.log(`   下载: ${binaryName}`)
     try {
       await downloadFile(url, destPath)
-      // 非 Windows 二进制文件设置可执行权限
-      if (!binaryName.endsWith('.exe')) {
-        try {
-          execSync(`chmod +x "${destPath}"`)
-        } catch (e) {
-          // Windows 构建环境无法 chmod，忽略
-        }
-      }
+      await setExecutableIfNeeded(destPath)
       console.log(`   ✅ ${binaryName} 下载完成`)
       hasSuccess = true
     } catch (err) {
@@ -185,24 +223,24 @@ async function download7z(platform) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
 
-  console.log('📥 正在从 GitHub 下载 7z (latest)...')
+  console.log('📥 正在准备 7z 运行时资产...')
   let hasSuccess = false
 
   for (const binaryName of binaries) {
-    const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
     const destPath = path.join(libDir, binaryName)
+
+    if (await copyBundledRuntimeAsset(binaryName, libDir)) {
+      await setExecutableIfNeeded(destPath)
+      hasSuccess = true
+      continue
+    }
+
+    const url = `${ZIP_TOOLS_GITHUB_URL}${binaryName}`
 
     console.log(`   下载: ${binaryName}`)
     try {
       await downloadFile(url, destPath)
-      // 非 Windows 二进制文件设置可执行权限
-      if (!binaryName.endsWith('.exe')) {
-        try {
-          execSync(`chmod +x "${destPath}"`)
-        } catch (e) {
-          // Windows 构建环境无法 chmod，忽略
-        }
-      }
+      await setExecutableIfNeeded(destPath)
       console.log(`   ✅ ${binaryName} 下载完成`)
       hasSuccess = true
     } catch (err) {
@@ -232,6 +270,21 @@ function getPtyAssetKeys(target) {
 async function ensurePtyAssets(target) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
+
+  // PTY 资产的完整性和本机能力由 ptyAssetCli 统一校验。
+  // 此处只预复制已缓存的候选文件，避免重复维护固定资产清单。
+  try {
+    const entries = await fs.readdir(bundledLibDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isFile() && /^pty_(linux_(x64|arm64)|win32_x64\.exe)$/.test(entry.name)) {
+        await copyBundledRuntimeAsset(entry.name, libDir)
+      }
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw new Error(`读取本地 PTY 资产目录失败: ${error.message}`)
+    }
+  }
 
   console.log('📥 正在校验固定 PTY 资产...')
   for (const assetKey of getPtyAssetKeys(target)) {
@@ -423,21 +476,9 @@ async function createPackage() {
       console.log('ℹ️  未指定目标平台，跳过Node.js下载')
     }
     
-    // 下载 Zip-Tools 二进制文件（从 GitHub Releases）
-    try {
-      await downloadZipTools(buildTarget)
-    } catch (error) {
-      console.error('⚠️  Zip-Tools 下载失败，打包产物中将不包含 Zip-Tools:', error.message)
-      console.log('   用户启动时会自动从镜像站下载')
-    }
-    
-    // 下载 7z 二进制文件（从 GitHub Releases）
-    try {
-      await download7z(buildTarget)
-    } catch (error) {
-      console.error('⚠️  7z 下载失败，打包产物中将不包含 7z:', error.message)
-      console.log('   用户启动时会自动从镜像站下载')
-    }
+    // 运行时二进制缺失时必须让打包失败，不能生成会在用户机器联网补依赖的安装包。
+    await downloadZipTools(buildTarget)
+    await download7z(buildTarget)
     
     console.log('📝 创建启动脚本...')
     // 根据目标平台创建启动脚本
