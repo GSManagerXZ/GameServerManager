@@ -105,14 +105,95 @@ mkdir -pv "$install_path"
 cd "$install_path"
 
 if test "$install_type" = "1"; then
+	RELEASE_API_URL="https://api.github.com/repos/GSManagerXZ/GameServerManager/releases/latest"
+	RELEASE_PAGE_URL="https://github.com/GSManagerXZ/GameServerManager/releases/latest"
+	RELEASE_PAGE_MIRROR_URL="https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest"
+	RELEASE_METADATA=""
+	RELEASE_TAG=""
+
+	extract_release_tag_from_metadata() {
+		printf '%s' "$1" \
+			| grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+			| head -n 1 \
+			| sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/'
+	}
+
+	extract_release_tag_from_url() {
+		printf '%s' "$1" \
+			| grep -o 'releases/tag/v[0-9][0-9A-Za-z._-]*' \
+			| tail -n 1 \
+			| sed 's#releases/tag/##'
+	}
+
+	resolve_latest_release_tag() {
+		local url response
+
+		if command -v curl &>/dev/null; then
+			if RELEASE_METADATA=$(curl -fsSL \
+				-H "Accept: application/vnd.github+json" \
+				-H "User-Agent: gsm3-installer" \
+				"$RELEASE_API_URL"); then
+				RELEASE_TAG=$(extract_release_tag_from_metadata "$RELEASE_METADATA")
+				case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+			fi
+
+			for url in "$RELEASE_PAGE_URL" "$RELEASE_PAGE_MIRROR_URL"; do
+				if response=$(curl -fsSL --max-time 30 -o /dev/null -w '%{url_effective}' "$url"); then
+					RELEASE_TAG=$(extract_release_tag_from_url "$response")
+					case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+				fi
+			done
+		elif command -v wget &>/dev/null; then
+			if RELEASE_METADATA=$(wget -qO- \
+				--header="Accept: application/vnd.github+json" \
+				--header="User-Agent: gsm3-installer" \
+				"$RELEASE_API_URL"); then
+				RELEASE_TAG=$(extract_release_tag_from_metadata "$RELEASE_METADATA")
+				case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+			fi
+
+			for url in "$RELEASE_PAGE_URL" "$RELEASE_PAGE_MIRROR_URL"; do
+				if response=$(wget --server-response --spider --timeout=30 "$url" 2>&1); then
+					RELEASE_TAG=$(extract_release_tag_from_url "$response")
+					case "$RELEASE_TAG" in v[0-9]*) return 0;; esac
+				fi
+			done
+		else
+			echo -e "\x1b[31m错误：既没有安装curl也没有安装wget，无法查询GSM3最新版本！\x1b[0m"
+			return 1
+		fi
+
+		return 1
+	}
+
+	if ! resolve_latest_release_tag; then
+		echo -e "\x1b[31m无法查询GSM3最新稳定版本，请检查网络后重试！\x1b[0m"
+		exit 1
+	fi
+
+	RELEASE_VERSION="${RELEASE_TAG#v}"
+	case "$RELEASE_TAG" in
+		v[0-9]*) ;;
+		*)
+			echo -e "\x1b[31m无法识别最新版本标签: $RELEASE_TAG\x1b[0m"
+			exit 1
+			;;
+	esac
+	case "$RELEASE_VERSION" in
+		""|*[!0-9A-Za-z._-]*)
+			echo -e "\x1b[31m最新版本号包含非法字符: $RELEASE_VERSION\x1b[0m"
+			exit 1
+			;;
+	esac
+
 	ARCH=$(uname -m)
 	case "$ARCH" in
 		x86_64|amd64)
-			ARCHIVE_NAME="gsm3-management-panel-linux-x64.tar.gz"
+			PACKAGE_TARGET="linux-x64"
 			PTY_ASSET="linux-x64"
 			;;
 		aarch64|arm64)
-			ARCHIVE_NAME="gsm3-management-panel-linux-arm64.tar.gz"
+			PACKAGE_TARGET="linux-arm64"
 			PTY_ASSET="linux-arm64"
 			;;
 		*)
@@ -120,7 +201,9 @@ if test "$install_type" = "1"; then
 			exit 1
 			;;
 	esac
-	DOWNLOAD_URL="https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/latest/download/$ARCHIVE_NAME"
+	ARCHIVE_NAME="gsm3-management-panel-${PACKAGE_TARGET}-v${RELEASE_VERSION}.tar.gz"
+	DOWNLOAD_URL="https://ghfast.top/https://github.com/GSManagerXZ/GameServerManager/releases/download/${RELEASE_TAG}/${ARCHIVE_NAME}"
+	echo "检测到最新稳定版本: $RELEASE_TAG，正在下载 $ARCHIVE_NAME"
 
 	if command -v curl &>/dev/null;then
 		curl -fL -o gsm3.tgz "$DOWNLOAD_URL"

@@ -46,7 +46,7 @@ npm run package:linux:arm64  # ensure --asset linux-arm64
 npm run package:windows      # ensure --asset win32-x64
 ```
 
-每个 Linux 包只包含对应架构的 Node.js、PTY、Zip-Tools 和 7z：x64 发布归档为 `gsm3-management-panel-linux-x64.tar.gz`，ARM64 发布归档为 `gsm3-management-panel-linux-arm64.tar.gz`。Windows 包包含 `win32-x64` PTY；未指定目标时的通用开发入口仍可包含全部资产。任何 PTY 资产无法校验、下载或进行适用的本机探测时，打包操作失败，不生成声称已包含 PTY 的产物。
+每个 Linux 包只包含对应架构的 Node.js、PTY、Zip-Tools 和 7z：x64 发布归档为 `gsm3-management-panel-linux-x64-v<version>.tar.gz`，ARM64 发布归档为 `gsm3-management-panel-linux-arm64-v<version>.tar.gz`。Windows 发布归档为 `gsm3-management-panel-windows-v<version>.zip` 并包含 `win32-x64` PTY。Release 对每个系统和架构只上传带版本号的归档；未指定目标时的通用开发入口仍可包含全部资产。任何 PTY 资产无法校验、下载或进行适用的本机探测时，打包操作失败，不生成声称已包含 PTY 的产物。
 
 ### Docker 镜像
 
@@ -60,7 +60,7 @@ node /root/server/utils/ptyAssetCli.js ensure --asset <asset-key> --target-dir /
 
 ### 常规安装脚本
 
-`install-gsm3.sh` 在下载前读取 `uname -m`：`x86_64/amd64` 选择 `gsm3-management-panel-linux-x64.tar.gz` 与 `linux-x64`，`aarch64/arm64` 选择 `gsm3-management-panel-linux-arm64.tar.gz` 与 `linux-arm64`；其他架构直接退出。解压并启用包内 Node.js 后调用：
+`install-gsm3.sh` 优先通过 GitHub Releases API 获取最新稳定标签；API 不可用时，会从 GitHub Releases `latest` 页面（含镜像地址）的重定向 URL 解析标签。随后读取 `uname -m`：`x86_64/amd64` 选择 `gsm3-management-panel-linux-x64-v<version>.tar.gz` 与 `linux-x64`，`aarch64/arm64` 选择 `gsm3-management-panel-linux-arm64-v<version>.tar.gz` 与 `linux-arm64`；其他架构直接退出。解压并启用包内 Node.js 后调用：
 
 ```text
 <install-path>/node/bin/node <install-path>/server/utils/ptyAssetCli.js ensure --asset <asset-key> --target-dir <install-path>/data/lib
