@@ -127,12 +127,10 @@ class ZipToolsManager {
    */
   private getLibDirCandidates(): string[] {
     const baseDir = process.cwd()
-    return Array.from(new Set([
-      path.join(baseDir, 'data', 'lib'),             // 打包后或 Docker 运行时目录
-      path.join(baseDir, 'server', 'data', 'lib'),   // 开发环境目录
-      path.join(baseDir, 'builtin', 'data', 'lib'),  // 当前 Docker 镜像内置资产目录
-      path.join(baseDir, '..', 'data', 'lib'),       // 兼容旧版 Docker/启动脚本布局
-    ]))
+    return [
+      path.join(baseDir, 'data', 'lib'),           // 打包后环境
+      path.join(baseDir, 'server', 'data', 'lib'), // 开发环境
+    ]
   }
 
   /**
@@ -232,11 +230,7 @@ class ZipToolsManager {
       logger.info(`Zip-Tools 下载完成: ${targetPath}`)
     } catch (error: any) {
       // 清理可能的残留文件
-      try {
-        await fs.unlink(targetPath)
-      } catch (cleanupError) {
-        logger.debug(`清理 Zip-Tools 残留文件失败: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`)
-      }
+      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
       const message = `Zip-Tools 下载失败（GitHub）: ${error.message || error}`
       logger.error(message)
       throw new Error(message)
@@ -348,11 +342,7 @@ class ZipToolsManager {
       logger.info(`7z 下载完成: ${targetPath}`)
     } catch (error: any) {
       // 清理可能的残留文件
-      try {
-        await fs.unlink(targetPath)
-      } catch (cleanupError) {
-        logger.debug(`清理 7z 残留文件失败: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`)
-      }
+      try { await fs.unlink(targetPath) } catch { /* 忽略 */ }
       const message = `7z 下载失败（GitHub）: ${error.message || error}`
       logger.error(message)
       throw new Error(message)
