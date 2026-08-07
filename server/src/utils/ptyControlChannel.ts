@@ -16,6 +16,7 @@ import {
   unlink
 } from 'node:fs/promises'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 
 export interface CreatePtyControlChannelOptions {
@@ -1229,16 +1230,28 @@ class WindowsPtyControlTransport implements PtyControlTransport {
   }
 }
 
+function getDefaultControlDirectoryCandidates(): string[] {
+  const baseDir = process.cwd()
+  const effectiveUserId = typeof process.geteuid === 'function'
+    ? String(process.geteuid())
+    : 'unknown'
+  const candidates = [
+    path.join(baseDir, 'data', 'terminal-control'),
+    path.join(baseDir, 'server', 'data', 'terminal-control'),
+    path.join(baseDir, '..', 'server', 'data', 'terminal-control'),
+    path.join(os.homedir(), '.gsm3', 'terminal-control'),
+    path.join(os.tmpdir(), `gsm3-terminal-control-${effectiveUserId}`)
+  ]
+
+  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))]
+}
+
 async function selectPosixControlDirectory(
   options: CreatePtyControlChannelOptions,
   platform: NodeJS.Platform,
   securityFlags: PosixSecurityFlags
 ): Promise<PosixControlDirectory> {
-  const candidates = [
-    path.join(process.cwd(), 'data', 'terminal-control'),
-    path.join(process.cwd(), 'server', 'data', 'terminal-control')
-  ]
-  const directoryCandidates = options.directoryCandidates ?? candidates
+  const directoryCandidates = options.directoryCandidates ?? getDefaultControlDirectoryCandidates()
 
   for (const rawCandidate of directoryCandidates) {
     let descriptor: number | null = null
@@ -1304,7 +1317,9 @@ async function selectPosixControlDirectory(
 
   throw new PtyControlStageError(
     'directory',
-    `PTY control directory unavailable platform=${platform} sessionId=${options.sessionId} stage=directory`
+    `PTY control directory unavailable platform=${platform} sessionId=${options.sessionId} stage=directory; ` +
+    'checked paths under data/, ~/.gsm3/, and $TMPDIR. ' +
+    'If data/terminal-control was created by another user (e.g. root), remove it or chown it to the panel runtime user.'
   )
 }
 

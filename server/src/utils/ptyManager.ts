@@ -21,19 +21,29 @@ class PtyManager {
 
   /**
    * 获取 lib 目录的候选路径列表。
-   * 顺序兼容打包后环境和开发环境，不得改变。
+   * 顺序兼容打包、开发、Docker 内置资产和旧版 Docker 布局。
    */
   private getLibDirCandidates(): string[] {
-    const candidates = [
-      path.join(process.cwd(), 'data', 'lib'),
-      path.join(process.cwd(), 'server', 'data', 'lib')
+    const baseDir = process.cwd()
+    return Array.from(new Set([
+      ...this.getWritableLibDirCandidates(),
+      path.join(baseDir, 'builtin', 'data', 'lib'), // 当前 Docker 镜像内置资产目录
+      path.join(baseDir, '..', 'data', 'lib')       // 兼容旧版 Docker/启动脚本布局
+    ]))
+  }
+
+  /** 获取允许服务端下载或替换资产的运行时目录。 */
+  private getWritableLibDirCandidates(): string[] {
+    const baseDir = process.cwd()
+    return [
+      path.join(baseDir, 'data', 'lib'),
+      path.join(baseDir, 'server', 'data', 'lib')
     ]
-    return candidates
   }
 
   /** 优先使用第一个已存在目录；均不存在时创建第一个可写目录。 */
   private async getTargetDir(): Promise<string> {
-    const candidates = this.getLibDirCandidates()
+    const candidates = this.getWritableLibDirCandidates()
 
     for (const candidate of candidates) {
       try {
@@ -69,6 +79,21 @@ class PtyManager {
    */
   async getPtyPath(): Promise<string> {
     const asset = getPtyAsset()
+
+    for (const candidate of this.getLibDirCandidates()) {
+      const targetPath = path.join(candidate, asset.name)
+      if (!await verifyPtyAsset(targetPath, asset)) {
+        continue
+      }
+
+      try {
+        await probePtyAsset(targetPath, asset)
+        return targetPath
+      } catch {
+        logger.warn(`PTY 资产能力探测失败，将尝试其他路径: ${targetPath}`)
+      }
+    }
+
     const targetDir = await this.getTargetDir()
     return ensurePtyAsset({ asset, targetDir, logger })
   }
@@ -92,13 +117,13 @@ class PtyManager {
 
       const targetPath = path.join(candidate, asset.name)
       if (!await verifyPtyAsset(targetPath, asset)) {
-        return false
+        continue
       }
       try {
         await probePtyAsset(targetPath, asset)
         return true
       } catch {
-        return false
+        continue
       }
     }
 
