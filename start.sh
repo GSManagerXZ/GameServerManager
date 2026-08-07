@@ -7,25 +7,6 @@ echo "    GSM3 游戏服务端管理面板"
 echo "======================================"
 echo
 
-# 将打包内置的 lib 资产同步到运行时目录（Docker 数据卷会覆盖 server/data/lib）
-seed_runtime_lib_assets() {
-    local runtime_lib="$1"
-    local builtin_lib="$2"
-
-    mkdir -p "$runtime_lib"
-    if [ ! -d "$builtin_lib" ]; then
-        return
-    fi
-
-    for asset in "$builtin_lib"/*; do
-        [ -f "$asset" ] || continue
-        local dest="$runtime_lib/$(basename "$asset")"
-        if [ ! -e "$dest" ]; then
-            cp -a "$asset" "$dest"
-        fi
-    done
-}
-
 # 检查是否存在GSM3应用文件
 if [ -f "server/index.js" ]; then
     echo "🚀 启动GSM3管理面板..."
@@ -56,18 +37,42 @@ if [ -f "server/index.js" ]; then
     # Docker 的持久卷会遮蔽镜像内的 server/data，补充卷中缺失的内置运行时资产。
     BUILTIN_LIB_DIR="server/builtin/data/lib"
     RUNTIME_LIB_DIR="server/data/lib"
-    seed_runtime_lib_assets "$RUNTIME_LIB_DIR" "$BUILTIN_LIB_DIR"
+    if [ -d "$BUILTIN_LIB_DIR" ]; then
+        mkdir -p "$RUNTIME_LIB_DIR"
+        cp -an "$BUILTIN_LIB_DIR"/. "$RUNTIME_LIB_DIR"/ 2>/dev/null || true
+    fi
 
-    # PTY 由服务端固定资产管理器校验和探测，避免依赖镜像中未安装的 file 命令。
-    # 内置资产缺失或损坏时，服务端会自动选择可写目录并恢复固定版本。
+    # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
+    # 如果 data/lib/ 中存在 PTY 文件，验证并设置可执行权限
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        PTY_FILE="$RUNTIME_LIB_DIR/pty_linux_x64"
+    elif [ "$ARCH" = "aarch64" ]; then
+        PTY_FILE="$RUNTIME_LIB_DIR/pty_linux_arm64"
+    else
+        PTY_FILE=""
+    fi
 
+    if [ -n "$PTY_FILE" ] && [ -f "$PTY_FILE" ]; then
+        # 验证是否为有效的ELF二进制文件
+        if file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
+            chmod +x "$PTY_FILE"
+            echo "✅ PTY权限设置完成 ($ARCH)"
+        else
+            echo "⚠️  PTY文件无效（非ELF二进制），已删除，服务启动时将自动重新下载"
+            rm -f "$PTY_FILE"
+        fi
+    else
+        echo "ℹ️  PTY文件将在服务启动时自动下载"
+    fi
+    
     # 启动应用
     cd server
     node index.js
 else
     echo "❌ 未找到GSM3应用文件，正在启动传统Steam服务器管理..."
     echo
-
+    
     # 传统的Steam服务器管理菜单
     ARCH=$(uname -m)
     while true; do
