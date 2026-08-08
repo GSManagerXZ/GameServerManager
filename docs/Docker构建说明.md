@@ -117,6 +117,8 @@ docker run -d \
 
 为避免容器启动后重复下载运行依赖，同时避免 `./gsm3_data` 数据卷遮蔽镜像内置文件，Docker 构建阶段将当前镜像架构需要的二进制文件预置到 `/root/server/builtin/data/lib`；`/root/start.sh` 启动时只补齐缺失文件到第一候选 `/root/server/data/lib`，不覆盖用户已有资产。这只是明确现有候选路径的解析基准，不改变运行时查找顺序。
 
+`/root/start.sh` 对 PTY 只做启动前权限处理和可选 ELF 预检：当镜像内存在 `file` 命令时，非 ELF 文件会被删除并交给服务端重新安装；当 `file` 命令不存在时，不会因为预检工具缺失而删除 PTY，只设置执行权限，然后继续交给服务端固定清单、SHA-256 和 `-fifo` 探测完成可信校验。
+
 ### PTY 固定资产策略
 
 `Zip-Tools` 和 `7z` 保持现有 GitHub Releases 下载逻辑；PTY 不使用可变发布下载地址。应用打包完成后，最终镜像调用已经随服务端产物打包的 CLI：

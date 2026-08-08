@@ -54,13 +54,19 @@ if [ -f "server/index.js" ]; then
     fi
 
     if [ -n "$PTY_FILE" ] && [ -f "$PTY_FILE" ]; then
-        # 验证是否为有效的ELF二进制文件
-        if file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
+        # file 命令只是启动前的轻量预检；真正的可信校验由服务端固定清单完成。
+        if command -v file >/dev/null 2>&1; then
+            if file "$PTY_FILE" 2>/dev/null | grep -q "ELF"; then
+                chmod +x "$PTY_FILE"
+                echo "✅ PTY权限设置完成 ($ARCH)"
+            else
+                echo "⚠️  PTY文件无效（非ELF二进制），已删除，服务启动时将自动重新下载"
+                rm -f "$PTY_FILE"
+            fi
+        else
             chmod +x "$PTY_FILE"
             echo "✅ PTY权限设置完成 ($ARCH)"
-        else
-            echo "⚠️  PTY文件无效（非ELF二进制），已删除，服务启动时将自动重新下载"
-            rm -f "$PTY_FILE"
+            echo "ℹ️  未安装 file 命令，已跳过PTY启动预检，服务端将继续执行固定清单校验"
         fi
     else
         echo "ℹ️  PTY文件将在服务启动时自动下载"
