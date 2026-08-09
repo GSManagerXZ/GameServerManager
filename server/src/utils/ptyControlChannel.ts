@@ -16,6 +16,7 @@ import {
   unlink
 } from 'node:fs/promises'
 import net from 'node:net'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 export interface CreatePtyControlChannelOptions {
@@ -557,15 +558,32 @@ function normalizeReadinessError(
 function logPtyControlFailure(
   options: CreatePtyControlChannelOptions,
   platform: NodeJS.Platform,
-  stage: PtyControlFailureStage
+  stage: PtyControlFailureStage,
+  reason?: unknown
 ): void {
   try {
+    const reasonMessage = reason instanceof Error && reason.message
+      ? ` reason=${reason.message}`
+      : ''
     options.logger.warn(
-      `PTY control failure platform=${platform} sessionId=${options.sessionId} stage=${stage}`
+      `PTY control failure platform=${platform} sessionId=${options.sessionId} stage=${stage}${reasonMessage}`
     )
   } catch {
     // 日志失败不能改变控制通道的安全清理与错误语义。
   }
+}
+
+function getDefaultPosixControlDirectoryCandidates(): string[] {
+  const uidSuffix = typeof process.geteuid === 'function'
+    ? String(process.geteuid())
+    : 'unknown'
+  const candidates = [
+    path.join(process.cwd(), 'data', 'terminal-control'),
+    path.join(process.cwd(), 'server', 'data', 'terminal-control'),
+    path.join(tmpdir(), `gsm3-terminal-control-${uidSuffix}`)
+  ]
+
+  return [...new Set(candidates.map(candidate => path.resolve(candidate)))]
 }
 
 function closeDescriptorQuietly(descriptor: number): void {
@@ -1234,11 +1252,8 @@ async function selectPosixControlDirectory(
   platform: NodeJS.Platform,
   securityFlags: PosixSecurityFlags
 ): Promise<PosixControlDirectory> {
-  const candidates = [
-    path.join(process.cwd(), 'data', 'terminal-control'),
-    path.join(process.cwd(), 'server', 'data', 'terminal-control')
-  ]
-  const directoryCandidates = options.directoryCandidates ?? candidates
+  const directoryCandidates = options.directoryCandidates ??
+    getDefaultPosixControlDirectoryCandidates()
 
   for (const rawCandidate of directoryCandidates) {
     let descriptor: number | null = null
@@ -1293,8 +1308,8 @@ async function selectPosixControlDirectory(
         ino: securedStats.ino,
         uid: securedStats.uid
       }
-    } catch {
-      logPtyControlFailure(options, platform, 'directory')
+    } catch (error) {
+      logPtyControlFailure(options, platform, 'directory', error)
     } finally {
       if (descriptor !== null) {
         closeDescriptorQuietly(descriptor)
