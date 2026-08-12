@@ -353,6 +353,21 @@ router.post('/validate/:gameName', authenticateToken, async (req: Request, res: 
 router.get('/instances/:instanceId/:gameName/raw', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { instanceId, gameName } = req.params
+
+    if (!instanceManager) {
+      return res.status(500).json({
+        success: false,
+        message: 'InstanceManager 未初始化'
+      })
+    }
+
+    const instance = instanceManager.getInstance(instanceId)
+    if (!instance) {
+      return res.status(404).json({
+        success: false,
+        message: '未找到指定的实例'
+      })
+    }
     
     // 获取配置模板
     const template = await gameConfigManager.getGameConfigSchema(gameName)
@@ -363,8 +378,8 @@ router.get('/instances/:instanceId/:gameName/raw', authenticateToken, async (req
       })
     }
 
-    // 构建配置文件路径
-    const instancePath = path.join(process.cwd(), 'data', 'games', instanceId)
+    // 使用实例的真实工作目录，避免非默认实例目录读取 raw 配置失败。
+    const instancePath = instance.workingDirectory
     const configFilePath = path.join(instancePath, template.meta.config_file)
     
     try {

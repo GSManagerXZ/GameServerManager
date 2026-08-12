@@ -196,10 +196,10 @@ sections:
             type: "number"
             description: "UNKO相关掉落物品的最大数量"
           - name: "BaseCampMaxNum"
-            display: "据点最大数量【0到9999】"
+            display: "世界据点最大数量【0到9999】"
             default: 128
             type: "number"
-            description: "每个公会可建造的据点最大数量"
+            description: "世界内允许存在的据点总数；不是每个公会可建造的据点数量"
           - name: "BaseCampWorkerMaxNum"
             display: "据点工作帕鲁最大数量【0到20】"
             default: 15
