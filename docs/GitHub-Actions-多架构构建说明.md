@@ -16,7 +16,12 @@
 
 #### 自动触发：
 - 推送标签 (`v*`) 时自动构建所有版本
-- 发布Release时自动构建所有版本
+- 发布 Release 时（无论在网页上"新建标签并发布"还是"基于已有标签发布"）本质都会产生标签推送事件，因此同样会触发一次构建
+
+> ⚠️ 注意：构建只由**标签推送（push tag）事件**触发，不再额外订阅 release 事件。
+> 若同时订阅两者，在网页上发布 Release 时会同时产生 push 与 release 两个事件，
+> 导致同一版本启动两次构建、并发推送同一 Docker 标签互相冲突。
+> 详见 [Release重复触发CI修复说明.md](./Release重复触发CI修复说明.md)。
 
 ### 2. 专用多架构工作流 (docker-multiarch.yml)
 
@@ -140,3 +145,4 @@ docker run --platform linux/amd64 --rm xiaozhu674/gameservermanager:latest uname
 - **v1.0**: 添加ARM64专用构建选项
 - **v1.1**: 支持多架构并行构建
 - **v1.2**: 添加构建验证和测试步骤
+- **v1.3**: 移除 release 事件触发器，修复发布 Release 时重复启动两次构建的问题

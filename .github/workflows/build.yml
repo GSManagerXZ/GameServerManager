@@ -29,11 +29,14 @@ on:
         required: false
         type: boolean
         default: false
+  # 仅订阅标签推送事件：在 GitHub 网页上“创建并直接发布 Release”时，
+  # 会同时产生 push(tag) 和 release(published) 两个事件；若两个触发器并存，
+  # 同一版本会启动两次构建，并发推送同一 Docker 标签/缓存时互相冲突导致失败。
+  # 发布 Release（无论是推送标签后由本工作流自动创建，还是网页上新建标签发布）
+  # 都会产生标签推送事件，因此只保留 push.tags 即可覆盖全部发布场景。
   push:
     tags:
       - 'v*'
-  release:
-    types: [published]
 
 jobs:
   resolve_version:
@@ -50,14 +53,13 @@ jobs:
           node-version: '22.16.0'
       - name: Resolve build version
         id: version
+        # 不再接收 release 事件参数（已移除 release 触发器），
+        # 脚本会按标签名（GITHUB_REF）自动解析版本号
         run: node scripts/resolve-build-version.js
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
 
   build_linux:
     needs: resolve_version
-    if: github.event.inputs.build_linux == 'true' || github.event_name == 'push' || github.event_name == 'release'
+    if: github.event.inputs.build_linux == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -97,7 +99,7 @@ jobs:
 
   build_windows:
     needs: resolve_version
-    if: github.event.inputs.build_windows == 'true' || github.event_name == 'push' || github.event_name == 'release'
+    if: github.event.inputs.build_windows == 'true' || github.event_name == 'push'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,7 +133,7 @@ jobs:
 
   build_docker:
     needs: resolve_version
-    if: github.event.inputs.build_docker == 'true' || github.event_name == 'push' || github.event_name == 'release'
+    if: github.event.inputs.build_docker == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       # 第一步：检出代码
