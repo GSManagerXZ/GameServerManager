@@ -89,9 +89,11 @@ function App() {
     const initAuth = async () => {
       setLoading(true)
       try {
-        await verifyToken()
-        // 验证成功后预加载系统信息
-        fetchSystemInfo()
+        const isAuthenticated = await verifyToken()
+        // 仅在认证成功后预加载系统信息，避免登录页发出未认证请求。
+        if (isAuthenticated) {
+          await fetchSystemInfo()
+        }
       } catch (error) {
         console.error('Token验证失败:', error)
       } finally {
