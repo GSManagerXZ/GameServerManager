@@ -18,7 +18,7 @@ export function setSystemManager(manager: SystemManager) {
 }
 
 // 获取系统基本信息
-router.get('/info', async (req: Request, res: Response) => {
+router.get('/info', authenticateToken, async (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -39,7 +39,7 @@ router.get('/info', async (req: Request, res: Response) => {
 })
 
 // 获取系统统计历史
-router.get('/stats', (req: Request, res: Response) => {
+router.get('/stats', authenticateToken, (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -66,7 +66,7 @@ router.get('/stats', (req: Request, res: Response) => {
 })
 
 // 获取活跃告警
-router.get('/alerts', (req: Request, res: Response) => {
+router.get('/alerts', authenticateToken, (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -132,7 +132,7 @@ router.post('/alerts/thresholds', authenticateToken, (req: Request, res: Respons
 })
 
 // 获取网络接口信息
-router.get('/network', (req: Request, res: Response) => {
+router.get('/network', authenticateToken, (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -153,7 +153,7 @@ router.get('/network', (req: Request, res: Response) => {
 })
 
 // 获取磁盘信息
-router.get('/disks', async (req: Request, res: Response) => {
+router.get('/disks', authenticateToken, async (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -174,7 +174,7 @@ router.get('/disks', async (req: Request, res: Response) => {
 })
 
 // 获取进程列表
-router.get('/processes', async (req: Request, res: Response) => {
+router.get('/processes', authenticateToken, async (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })
@@ -239,7 +239,7 @@ router.post('/processes/:pid/kill', authenticateToken, async (req: Request, res:
 })
 
 // 获取CPU信息
-router.get('/cpu', (req: Request, res: Response) => {
+router.get('/cpu', authenticateToken, (req: Request, res: Response) => {
   try {
     const cpus = os.cpus()
     const cpuInfo = {
@@ -269,7 +269,7 @@ router.get('/cpu', (req: Request, res: Response) => {
 })
 
 // 获取内存信息
-router.get('/memory', (req: Request, res: Response) => {
+router.get('/memory', authenticateToken, (req: Request, res: Response) => {
   try {
     const total = os.totalmem()
     const free = os.freemem()
@@ -302,7 +302,7 @@ router.get('/memory', (req: Request, res: Response) => {
 })
 
 // 获取系统负载
-router.get('/load', (req: Request, res: Response) => {
+router.get('/load', authenticateToken, (req: Request, res: Response) => {
   try {
     const loadavg = os.loadavg()
     const uptime = os.uptime()
@@ -359,7 +359,7 @@ router.get('/env', authenticateToken, (req: Request, res: Response) => {
 })
 
 // 获取日志文件列表
-router.get('/logs', async (req: Request, res: Response) => {
+router.get('/logs', authenticateToken, async (req: Request, res: Response) => {
   try {
     const logDir = path.resolve(process.cwd(), 'logs')
 
@@ -403,7 +403,7 @@ router.get('/logs', async (req: Request, res: Response) => {
 })
 
 // 获取日志文件内容
-router.get('/logs/:filename', async (req: Request, res: Response) => {
+router.get('/logs/:filename', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { filename } = req.params
     const lines = parseInt(req.query.lines as string) || 100
@@ -502,7 +502,7 @@ router.post('/restart', authenticateToken, (req: Request, res: Response) => {
 })
 
 // 获取系统时间
-router.get('/time', (req: Request, res: Response) => {
+router.get('/time', authenticateToken, (req: Request, res: Response) => {
   try {
     const now = new Date()
 
@@ -733,7 +733,7 @@ router.get('/disk/selected', authenticateToken, async (req: Request, res: Respon
 })
 
 // 获取可用的网络接口列表
-router.get('/network/interfaces', async (req: Request, res: Response) => {
+router.get('/network/interfaces', authenticateToken, async (req: Request, res: Response) => {
   try {
     if (!systemManager) {
       return res.status(500).json({ error: '系统管理器未初始化' })

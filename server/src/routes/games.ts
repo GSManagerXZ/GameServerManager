@@ -4,10 +4,14 @@ import logger from '../utils/logger.js'
 import Joi from 'joi'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { authenticateToken, requireAdmin } from '../middleware/auth.js'
 
 const execAsync = promisify(exec)
 
 const router = Router()
+
+// 游戏管理接口涉及进程生命周期和启动配置，必须先完成身份认证。
+router.use(authenticateToken)
 
 // 注意：这里需要在实际使用时注入GameManager实例
 let gameManager: GameManager
@@ -78,7 +82,7 @@ router.get('/', (req: Request, res: Response) => {
 })
 
 // 创建新游戏
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     if (!gameManager) {
       return res.status(500).json({ error: '游戏管理器未初始化' })
@@ -148,7 +152,7 @@ router.get('/:gameId', (req: Request, res: Response) => {
 })
 
 // 启动游戏
-router.post('/:gameId/start', async (req: Request, res: Response) => {
+router.post('/:gameId/start', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     if (!gameManager) {
       return res.status(500).json({ error: '游戏管理器未初始化' })
@@ -178,7 +182,7 @@ router.post('/:gameId/start', async (req: Request, res: Response) => {
 })
 
 // 停止游戏
-router.post('/:gameId/stop', async (req: Request, res: Response) => {
+router.post('/:gameId/stop', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     if (!gameManager) {
       return res.status(500).json({ error: '游戏管理器未初始化' })
@@ -208,7 +212,7 @@ router.post('/:gameId/stop', async (req: Request, res: Response) => {
 })
 
 // 重启游戏
-router.post('/:gameId/restart', async (req: Request, res: Response) => {
+router.post('/:gameId/restart', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     if (!gameManager) {
       return res.status(500).json({ error: '游戏管理器未初始化' })
@@ -238,7 +242,7 @@ router.post('/:gameId/restart', async (req: Request, res: Response) => {
 })
 
 // 发送游戏命令
-router.post('/:gameId/command', (req: Request, res: Response) => {
+router.post('/:gameId/command', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     if (!gameManager) {
       return res.status(500).json({ error: '游戏管理器未初始化' })
@@ -276,7 +280,7 @@ router.post('/:gameId/command', (req: Request, res: Response) => {
 })
 
 // 删除游戏
-router.delete('/:gameId', async (req: Request, res: Response) => {
+router.delete('/:gameId', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     if (!gameManager) {
       return res.status(500).json({ error: '游戏管理器未初始化' })
