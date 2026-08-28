@@ -30,6 +30,7 @@ const buildManagedChildEnvironment = (overrides: NodeJS.ProcessEnv = {}): NodeJS
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const PTY_FALLBACK_GRACE_PERIOD_MS = 250
 
 interface PtySession {
   id: string
@@ -789,17 +790,17 @@ export class TerminalManager {
     attempt: CreateAttempt,
     launch: PtyProcessLaunch
   ): Promise<void> {
+    // 控制通道就绪即可交付会话。进程退出仍通过 outcome 竞争处理，
+    // 避免为每次启动固定等待 1 秒才让前端进入终端。
     const readiness = this.observeControlReadiness(launch.control)
-    const stability = await Promise.race([
-      launch.outcome.then(outcome => ({ stable: false as const, outcome })),
-      new Promise<{ stable: true }>(resolve => {
-        setTimeout(() => resolve({ stable: true }), 1000)
-      })
+    const firstResult = await Promise.race([
+      readiness.then(value => ({ kind: 'readiness' as const, value })),
+      launch.outcome.then(value => ({ kind: 'outcome' as const, value }))
     ])
     if (!this.isActiveAttempt(attempt)) return
 
-    if ('outcome' in stability) {
-      const outcome = stability.outcome
+    if (firstResult.kind === 'outcome') {
+      const outcome = firstResult.value
       if (this.shouldFallback(attempt, outcome)) {
         await this.retireExitedLaunch(attempt, launch)
         if (!this.isActiveAttempt(attempt)) return
@@ -823,14 +824,50 @@ export class TerminalManager {
       return
     }
 
-    const readinessResult = await readiness
-    if (!this.isActiveAttempt(attempt)) return
-    if (!readinessResult.ready) {
+    if (!firstResult.value.ready) {
       await this.failCreateAttempt(
         attempt,
-        this.describeReadinessError(readinessResult.error)
+        this.describeReadinessError(firstResult.value.error)
       )
       return
+    }
+
+    // 仅为配置了默认用户的会话保留很短的回退观察窗口，避免 sudo/su
+    // 启动后立即退出时错过回退；普通会话不再承担固定等待。
+    if (
+      attempt.runtimeOptions.command === undefined &&
+      attempt.fallbackEligibleFromConfiguredDefault
+    ) {
+      const graceResult = await Promise.race([
+        launch.outcome.then(value => ({ kind: 'outcome' as const, value })),
+        new Promise<{ kind: 'timeout' }>(resolve => {
+          setTimeout(() => resolve({ kind: 'timeout' }), PTY_FALLBACK_GRACE_PERIOD_MS)
+        })
+      ])
+      if (!this.isActiveAttempt(attempt)) return
+      if (graceResult.kind === 'outcome') {
+        const outcome = graceResult.value
+        if (this.shouldFallback(attempt, outcome)) {
+          await this.retireExitedLaunch(attempt, launch)
+          if (!this.isActiveAttempt(attempt)) return
+
+          attempt.phase = 'fallback'
+          this.logger.info(`尝试使用当前用户重新启动终端: ${attempt.id}`)
+          const fallback = await this.launchAttemptProcess(
+            attempt,
+            ['/bin/bash', '--login'],
+            'PTY回退进程'
+          )
+          if (!this.isActiveAttempt(attempt) || !fallback) return
+          await this.establishFallbackAttempt(attempt, fallback)
+          return
+        }
+        await this.failCreateAttempt(
+          attempt,
+          this.describeStartupOutcome(outcome)
+        )
+        return
+      }
     }
     if (
       attempt.processError ||

@@ -196,6 +196,23 @@ function validateLaunchArguments(launchArgs: unknown): string {
     .join(' ')
 }
 
+function buildInteractiveSteamCMDCommand(
+  executablePath: string,
+  argumentsList: string[]
+): string {
+  const platform = getCurrentPlatform()
+  const executable = quoteLaunchArgument(executablePath)
+  const command = [
+    platform === Platform.Windows ? `& ${executable}` : executable,
+    ...argumentsList.map(argument => quoteLaunchArgument(argument))
+  ].join(' ')
+
+  // 安装完成后退出外层 shell，使现有 onExit 回调能够提交实例配置并清理脚本。
+  return platform === Platform.Windows
+    ? `${command}; exit $LASTEXITCODE`
+    : `${command}; exit $?`
+}
+
 // 获取当前平台
 function getCurrentPlatform(): Platform {
   const platform = os.platform()
@@ -1787,8 +1804,8 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
         '-logdir', activeRunScript.logDirectory,
         '+runscript', activeRunScript.filePath
       ]
-      // 安装与更新均使用面板服务进程用户，避免同一安装目录出现混合所有权。
-      const steamCommand = [steamcmdPath, ...steamArguments]
+      // 使用普通终端后通过输入执行，保持与早期安装流程一致；脚本参数不包含账户密码。
+      const steamCommand = buildInteractiveSteamCMDCommand(steamcmdPath, steamArguments)
 
       const createResult = await terminalManager.createPty(virtualSocket, {
         sessionId: terminalSessionId,
@@ -1796,7 +1813,6 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
         rows: 24,
         workingDirectory: steamcmdDir
       }, {
-        command: steamCommand,
         redactValues: [requestedSteamPassword, selectedBetaPassword].filter(Boolean),
         onExit: (code, signal) => {
           logger.info('SteamCMD安装会话已结束', {
@@ -1857,6 +1873,10 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
         throw createError
       }
       installProcessStarted = true
+      terminalManager.handleInput(virtualSocket, {
+        sessionId: terminalSessionId,
+        data: `${steamCommand}\r`
+      })
       
       logger.info(`游戏安装已开始: ${gameName || gameKey}`, {
         terminalSessionId,

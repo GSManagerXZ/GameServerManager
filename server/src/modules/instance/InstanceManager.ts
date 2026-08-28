@@ -416,9 +416,9 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  // 防抖请求共享同一个 promise，直到真实写盘完成后才 settle。
+  // 防抖请求共享同一个 promise，直到真实写盘完成后才 settle；生命周期关键点可要求立即 flush。
   // 关闭期间（shuttingDown）跳过防抖：立即串行 flush，保证 shutdown 期每个 mutation 都真实落盘。
-  private saveInstances(): Promise<void> {
+  private saveInstances(immediate = false): Promise<void> {
     if (this.shuttingDown) {
       return this.flushSaveNow()
     }
@@ -440,7 +440,7 @@ export class InstanceManager extends EventEmitter {
       }, 1000)
     }
 
-    return this.pendingSave.promise
+    return immediate ? this.flushPendingSave() : this.pendingSave.promise
   }
 
   /** 关闭期间跳过 1000ms 防抖，立即 flush 当前（或新建的）pending 并等待真实写盘 settle。 */
@@ -1005,7 +1005,7 @@ export class InstanceManager extends EventEmitter {
 
       // 启动命令必须与持久化成功绑定：先完成可观察的持久化并成功，才安排启动命令；
       // 保存失败则保留 live owner、不安排命令、API 返回失败（既有 owner guard 继续生效）。
-      await this.saveInstances()
+      await this.saveInstances(true)
 
       // awaited save 窗口内 terminal 可能已退出（callback 清 owner、改 stopped）：
       // 返回前重查，已退出则返回失败（可重试），不得返回 success。
@@ -1338,18 +1338,22 @@ export class InstanceManager extends EventEmitter {
     operationToken?: string
   ): Promise<InstanceTerminalLifecycleResult> {
     const captured = await this.enqueueMutation(async () => this.stopInitiateSerial(id, operationToken))
-    try {
-      return await this.stopReleaseAwaitAndFinalize(id, captured)
-    } catch (error) {
+    // 停止命令已发送后立即返回，优雅退出和超时强制关闭在后台完成，
+    // 避免 HTTP 请求被最长 10 秒的停止等待阻塞。
+    void this.stopReleaseAwaitAndFinalize(id, captured).catch(error => {
       this.logger.error(`停止实例 ${captured.instance.name} 失败:`, error)
       if (
         this.instances.get(id) === captured.instance &&
         captured.instance.terminalSessionId === captured.terminalSessionId
       ) {
         captured.instance.status = 'error'
+        this.emit('instance-status-changed', { id, status: 'error' })
+        void this.saveInstances().catch(saveError => {
+          this.logger.error(`保存实例 ${captured.instance.name} 的停止错误状态失败:`, saveError)
+        })
       }
-      throw error
-    }
+    })
+    return { status: 'close-initiated', terminalSessionId: captured.terminalSessionId }
   }
 
   private async markInstanceTerminalClosed(
@@ -1374,7 +1378,7 @@ export class InstanceManager extends EventEmitter {
     instance.terminalSessionId = undefined
     instance.lastStopped = stoppedAt
     try {
-      await this.saveInstances()
+      await this.saveInstances(true)
     } catch (saveError) {
       if (
         instance.status === 'stopped' &&

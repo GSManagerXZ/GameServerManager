@@ -1186,12 +1186,13 @@ const InstanceManagerPage: React.FC = () => {
       if (response.success) {
         addNotification({
           type: 'success',
-          title: '停止成功',
-          message: `实例 "${instance.name}" 正在停止`
+          title: '停止命令已发送',
+          message: `实例 "${instance.name}" 正在停止，终端退出后会自动完成状态更新`
         })
 
         // 刷新实例列表以获取最新状态
         fetchInstances()
+        void pollStoppingInstance(instance.id)
       }
     } catch (error: any) {
       console.error('停止实例失败:', error)
@@ -1209,6 +1210,24 @@ const InstanceManagerPage: React.FC = () => {
         title: '停止失败',
         message: errorMessage
       })
+    }
+  }
+
+  // 停止接口立即返回，短轮询用于把后台优雅退出后的最终状态同步到列表。
+  const pollStoppingInstance = async (instanceId: string, attempt = 0): Promise<void> => {
+    if (attempt >= 20) return
+    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      const response = await apiClient.getInstances()
+      if (!response.success) return
+      const instancesData = response.data || []
+      setInstances(instancesData)
+      const current = instancesData.find(item => item.id === instanceId)
+      if (current?.status === 'stopping') {
+        await pollStoppingInstance(instanceId, attempt + 1)
+      }
+    } catch (error) {
+      console.error('同步实例停止状态失败:', error)
     }
   }
 

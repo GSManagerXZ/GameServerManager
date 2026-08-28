@@ -495,19 +495,11 @@ router.post('/:id/stop', authenticateToken, async (req: Request, res: Response) 
     
     const { id } = req.params
     const result = await instanceManager.stopInstance(id)
-    if (result.status === 'still-running') {
-      return res.status(409).json({
-        success: false,
-        error: '实例仍在停止中',
-        message: '终端进程未在关闭期限内退出，请稍后重试。',
-        data: result
-      })
-    }
 
     logger.info(`用户停止实例: ${id}`)
     res.json({
       success: true,
-      message: '实例停止成功',
+      message: result.status === 'close-initiated' ? '实例停止命令已发送' : '实例停止成功',
       data: result
     })
   } catch (error: any) {
