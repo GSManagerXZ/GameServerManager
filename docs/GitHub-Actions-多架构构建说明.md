@@ -2,11 +2,28 @@
 
 ## 概述
 
-项目现已支持通过GitHub Actions自动构建多架构Docker镜像，包括AMD64和ARM64平台。
+项目通过 GitHub Actions 分离常规 CI 与发布构建：
+
+- `ci.yml`：PR / `main` 分支常规检查，运行服务端测试与构建、前端测试与构建、根级脚本语法检查。
+- `build.yml`：发布构建，支持 Linux / Windows 应用包和 Docker 镜像。
 
 ## 可用的构建选项
 
-### 1. 主构建工作流 (build.yml)
+### 1. 常规 CI 工作流 (ci.yml)
+
+#### 自动触发：
+- PR 打开、重新打开、推送新提交或从 Draft 标记为可审阅
+- 推送到 `main` 分支
+
+#### 手动触发：
+- 支持 `workflow_dispatch`
+
+#### 检查内容：
+- 服务端：`npm ci`、`npm test`、`npm run build`
+- 前端：`npm ci`、`npm test`、`npm run build`
+- 根级脚本：`npm ci`、`node --check scripts/package.js`、`node --check scripts/resolve-build-version.js`
+
+### 2. 发布构建工作流 (build.yml)
 
 #### 手动触发选项：
 - ✅ **构建Linux版本** - 构建Linux应用包
@@ -23,22 +40,15 @@
 > 导致同一版本启动两次构建、并发推送同一 Docker 标签互相冲突。
 > 详见 [Release重复触发CI修复说明.md](./Release重复触发CI修复说明.md)。
 
-### 2. 专用多架构工作流 (docker-multiarch.yml)
-
-提供更详细的多架构构建控制：
-- 可选择构建平台组合
-- 支持自定义镜像标签
-- 包含架构验证测试
-
 ## 使用方法
 
 ### 方法一：GitHub网页操作
 
 1. 进入GitHub仓库页面
 2. 点击 **Actions** 标签
-3. 选择 **Build Package** 工作流
+3. 选择 **Build Package** 工作流进行发布构建，或选择 **CI** 手动运行常规检查
 4. 点击 **Run workflow**
-5. 选择需要的构建选项：
+5. 如果运行 **Build Package**，选择需要的构建选项：
    - ☑️ 构建ARM64 Docker镜像
    - ☑️ 构建Docker镜像（多架构）
 6. 点击 **Run workflow** 开始构建
@@ -64,8 +74,8 @@ gh workflow run build.yml -f build_docker=true
 # 触发所有构建
 gh workflow run build.yml -f build_linux=true -f build_windows=true -f build_docker=true -f build_docker_arm=true
 
-# 使用专用多架构工作流
-gh workflow run docker-multiarch.yml -f tag=latest -f platforms="linux/amd64,linux/arm64" -f push_to_registry=true
+# 手动触发常规 CI
+gh workflow run ci.yml
 ```
 
 ## 构建产物
@@ -138,7 +148,7 @@ docker run --platform linux/amd64 --rm xiaozhu674/gameservermanager:latest uname
 1. **开发阶段**：使用ARM64专用构建进行快速测试
 2. **发布阶段**：使用多架构构建确保兼容性
 3. **标签管理**：为不同版本使用语义化版本标签
-4. **缓存优化**：GitHub Actions会自动缓存构建层以加速后续构建
+4. **缓存优化**：GitHub Actions 会缓存 npm 下载缓存和 Docker 构建层以加速后续构建
 
 ## 更新日志
 
@@ -146,3 +156,4 @@ docker run --platform linux/amd64 --rm xiaozhu674/gameservermanager:latest uname
 - **v1.1**: 支持多架构并行构建
 - **v1.2**: 添加构建验证和测试步骤
 - **v1.3**: 移除 release 事件触发器，修复发布 Release 时重复启动两次构建的问题
+- **v1.4**: 新增 PR/main 常规 CI，并将发布构建依赖安装改为 `npm ci`

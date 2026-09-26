@@ -80,12 +80,16 @@ jobs:
         with:
           node-version: '22.16.0'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            server/package-lock.json
 
       - name: Install dependencies
         run: |
-          npm install
-          cd client && npm install
-          cd ../server && npm install
+          npm ci
+          npm ci --prefix client
+          npm ci --prefix server
       - name: Build Linux ${{ matrix.arch }} package
         run: ${{ matrix.package_command }}
         env:
@@ -111,15 +115,15 @@ jobs:
         with:
           node-version: '22.16.0'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            server/package-lock.json
       - name: Install dependencies
         run: |
-          npm install
-          cd client
-          npm install
-          cd ..
-          cd server
-          npm install
-          cd ..
+          npm ci
+          npm ci --prefix client
+          npm ci --prefix server
       - name: Build package
         run: npm run package:windows
         env:

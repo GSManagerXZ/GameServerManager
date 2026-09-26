@@ -6,7 +6,7 @@
 export interface ChunkUploadOptions {
   file: File
   targetPath: string
-  chunkSize?: number // 默认50MB
+  chunkSize?: number // 默认20MB
   maxRetries?: number // 单个分片最大重试次数
   onProgress?: (progress: number) => void
   onChunkProgress?: (chunkIndex: number, totalChunks: number, chunkProgress: number) => void
