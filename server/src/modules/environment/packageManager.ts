@@ -137,11 +137,25 @@ export class LinuxPackageManager {
     'fonts-wqy-zenhei': { description: '文泉驿正黑字体', category: 'ARK游戏' },
     'fonts-wqy-microhei': { description: '文泉驿微米黑字体', category: 'ARK游戏' },
     'libc6': { description: 'GNU C库', category: 'ARK游戏' },
-    'libc6:i386': { description: '32位GNU C库', category: 'ARK游戏' }
+    'libc6:i386': { description: '32位GNU C库', category: 'ARK游戏' },
+    'default-jre-headless': { description: '发行版默认OpenJDK运行环境（无图形界面）', category: 'Java运行时' },
+    'openjdk-8-jre-headless': { description: 'OpenJDK 8运行环境（无图形界面）', category: 'Java运行时' },
+    'openjdk-11-jre-headless': { description: 'OpenJDK 11运行环境（无图形界面）', category: 'Java运行时' },
+    'openjdk-17-jre-headless': { description: 'OpenJDK 17运行环境（无图形界面）', category: 'Java运行时' },
+    'openjdk-21-jre-headless': { description: 'OpenJDK 21运行环境（无图形界面）', category: 'Java运行时' }
   }
 
   constructor() {
     this.initializePackageManagers()
+  }
+
+  private supportsI386Packages(): boolean {
+    const arch = os.arch()
+    return arch === 'x64' || arch === 'ia32'
+  }
+
+  private shouldSkipPackageForCurrentArchitecture(packageName: string): boolean {
+    return packageName.includes(':i386') && !this.supportsI386Packages()
   }
 
   /**
@@ -191,7 +205,7 @@ export class LinuxPackageManager {
     const packages: PackageInfo[] = []
 
     // 首先检查是否需要启用32位架构
-    const has32BitPackages = Object.keys(this.aptPackages).some(name => name.includes(':i386'))
+    const has32BitPackages = this.supportsI386Packages() && Object.keys(this.aptPackages).some(name => name.includes(':i386'))
     if (has32BitPackages) {
       try {
         await this.enable32BitArchitecture()
@@ -201,6 +215,11 @@ export class LinuxPackageManager {
     }
 
     for (const [packageName, info] of Object.entries(this.aptPackages)) {
+      if (this.shouldSkipPackageForCurrentArchitecture(packageName)) {
+        logger.debug(`包 ${packageName} 不适用于当前架构 ${os.arch()}，跳过`)
+        continue
+      }
+
       const installed = await this.checkPackageInstalled('apt', packageName)
       const available = await this.checkPackageAvailable('apt', packageName)
 
@@ -285,6 +304,11 @@ export class LinuxPackageManager {
     const pm = this.packageManagers.find(p => p.name === packageManagerName)
     if (!pm || !pm.available) {
       throw new Error(`包管理器 ${packageManagerName} 不可用`)
+    }
+
+    const unsupportedPackages = packageNames.filter(name => this.shouldSkipPackageForCurrentArchitecture(name))
+    if (unsupportedPackages.length > 0) {
+      throw new Error(`当前架构 ${os.arch()} 不支持安装以下 i386 包: ${unsupportedPackages.join(', ')}`)
     }
 
     // 检查是否有32位包需要安装
