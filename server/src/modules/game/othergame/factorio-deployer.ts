@@ -10,6 +10,7 @@ import * as zlib from 'zlib';
 import { pipeline } from 'stream';
 import { zipToolsManager } from '../../../utils/zipToolsManager.js';
 import { createTarSecurityFilter } from '../../../utils/tarSecurityFilter.js';
+import { assertFactorioHeadlessSupported } from '../../../utils/architectureSupport.js';
 
 // ==================== 接口定义 ====================
 
@@ -193,6 +194,8 @@ export class FactorioDeployer {
     let actualTempFilePath = initialTempFilePath;
 
     try {
+      assertFactorioHeadlessSupported();
+
       // 检查是否已取消
       if (this.cancelled) {
         throw new Error('操作已取消');

@@ -5,6 +5,7 @@ import apiClient from '@/utils/api'
 import socketClient from '@/utils/socket'
 import { useOnboardingStore } from './onboardingStore'
 import { useArmWarningStore } from '@/stores/armWarningStore'
+import { isLimitedGameServerArchitecture } from '@/utils/architectureSupport'
 
 interface AuthStore extends AuthState {
   // 控制是否在登录过期时自动跳转到登录页面
@@ -62,7 +63,7 @@ export const useAuthStore = create<AuthStore>()(
               }, 1000)
             }
 
-            // 检测ARM架构并显示警告（仅限一次）
+            // 检测特殊架构并显示警告（仅限一次）
             setTimeout(() => {
               get().checkArmArchitecture()
             }, 1500)
@@ -258,7 +259,7 @@ export const useAuthStore = create<AuthStore>()(
 
       checkArmArchitecture: async () => {
         try {
-          // 检查是否已经显示过ARM架构警告
+          // 检查是否已经显示过特殊架构警告
           const hasShownArmWarning = localStorage.getItem('gsm3_arm_warning_shown')
           if (hasShownArmWarning === 'true') {
             return
@@ -269,9 +270,7 @@ export const useAuthStore = create<AuthStore>()(
           if (response.success && response.data) {
             const { arch } = response.data
 
-            // 检测ARM架构 (arm64, aarch64, arm)
-            if (arch && (arch.includes('arm') || arch.includes('aarch64'))) {
-              // 显示ARM架构警告
+            if (isLimitedGameServerArchitecture({ arch })) {
               const armWarningStore = useArmWarningStore.getState()
               armWarningStore.showWarning()
 
@@ -280,7 +279,7 @@ export const useAuthStore = create<AuthStore>()(
             }
           }
         } catch (error) {
-          console.error('检测ARM架构失败:', error)
+          console.error('检测特殊架构失败:', error)
         }
       },
     }),

@@ -185,7 +185,7 @@ function App() {
               <OnboardingWizard />
             </ProtectedRoute>
 
-            {/* ARM架构警告弹窗 - 只在已登录时显示 */}
+            {/* 特殊架构警告弹窗 - 只在已登录时显示 */}
             <ProtectedRoute>
               <ArmWarningModal />
             </ProtectedRoute>

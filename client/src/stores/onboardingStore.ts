@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { SystemInfo } from '@/types'
+import { isLimitedGameServerArchitecture } from '@/utils/architectureSupport'
 
 export interface OnboardingStep {
   id: string
@@ -150,13 +151,10 @@ export const useOnboardingStore = create<OnboardingStore>()(
       },
 
       updateStepsForSystem: (systemInfo: SystemInfo | null) => {
-        // 检查是否为ARM架构
-        const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
-
         let filteredSteps = [...defaultSteps]
 
-        // 如果是ARM架构，过滤掉SteamCMD步骤
-        if (isArmArchitecture) {
+        // 非 x86_64 架构过滤掉SteamCMD步骤
+        if (isLimitedGameServerArchitecture(systemInfo)) {
           filteredSteps = defaultSteps.filter(step => step.id !== 'steamcmd')
         }
 

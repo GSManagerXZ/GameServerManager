@@ -21,6 +21,7 @@ import {
   type SteamCMDRunScript
 } from '../utils/steamcmdRunScript.js'
 import { fetchInstanceMarketList, STEAM_GAME_LIST_URL } from '../utils/remoteSources.js'
+import { assertSteamCMDSupported, UnsupportedArchitectureError } from '../utils/architectureSupport.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -84,6 +85,14 @@ function getSteamUpdateCommand(appId: string, branch?: string, betaPassword?: st
   }
 
   return command
+}
+
+function getUnsupportedArchitectureResponse(error: unknown) {
+  return {
+    success: false,
+    error: error instanceof UnsupportedArchitectureError ? '当前架构不支持' : '架构检测失败',
+    message: error instanceof Error ? error.message : '当前平台暂不支持该操作'
+  }
 }
 
 function appendLaunchArguments(command: string, launchArgs: string): string {
@@ -902,6 +911,12 @@ router.get('/steam/branches/:appId', authenticateToken, async (req: Request, res
   }
 
   const refreshValue = String(req.query.refresh || '').toLowerCase()
+  try {
+    assertSteamCMDSupported()
+  } catch (error) {
+    return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json(getUnsupportedArchitectureResponse(error))
+  }
+
   await respondWithSteamBranches(res, appId, {
     forceRefresh: refreshValue === '1' || refreshValue === 'true'
   })
@@ -930,6 +945,12 @@ router.post('/steam/branches/:appId', authenticateToken, async (req: Request, re
       success: false,
       error: 'Steam账户信息格式无效'
     })
+  }
+
+  try {
+    assertSteamCMDSupported()
+  } catch (error) {
+    return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json(getUnsupportedArchitectureResponse(error))
   }
 
   await respondWithSteamBranches(res, appId, {
@@ -1026,6 +1047,12 @@ router.post('/steam/update', authenticateToken, async (req: AuthenticatedRequest
         success: false,
         error: '请先停止实例再更新服务端'
       })
+    }
+
+    try {
+      assertSteamCMDSupported()
+    } catch (error) {
+      return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json(getUnsupportedArchitectureResponse(error))
     }
 
     const steamcmdPath = await steamcmdManager.getSteamCMDExecutablePath()
@@ -1328,6 +1355,12 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       userLaunchArguments = validateLaunchArguments(launchArgs)
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message })
+    }
+
+    try {
+      assertSteamCMDSupported()
+    } catch (error) {
+      return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json(getUnsupportedArchitectureResponse(error))
     }
 
     const requestedExistingInstance = existingInstanceId

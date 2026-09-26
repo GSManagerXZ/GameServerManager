@@ -48,10 +48,10 @@ const ArmWarningModal: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  ARM架构警告
+                  特殊架构警告
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  检测到您当前使用的是ARM架构，此架构目前仍在测试阶段
+                  检测到您当前使用的是非 x86_64 架构，此架构目前仍在测试阶段
                 </p>
               </div>
             </div>
@@ -82,7 +82,7 @@ const ArmWarningModal: React.FC = () => {
                       <span className="text-sm font-medium text-gray-900 dark:text-white">游戏服务端兼容性问题</span>
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      ARM架构由于特殊性，Steam等众多单机游戏服务端均无法部署和运行，面板已自动隐藏不受支持的部分
+                      ARM、RISC-V 等架构由于特殊性，Steam等众多单机游戏服务端均无法部署和运行，面板已自动隐藏不受支持的部分
                     </p>
                   </div>
                 </div>
@@ -112,7 +112,7 @@ const ArmWarningModal: React.FC = () => {
                       <span className="text-sm font-medium text-gray-900 dark:text-white">测试阶段风险</span>
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      目前ARM架构面板仍在测试阶段，可能会存在无法预料的问题
+                      目前非 x86_64 架构面板仍在测试阶段，可能会存在无法预料的问题
                     </p>
                   </div>
                 </div>

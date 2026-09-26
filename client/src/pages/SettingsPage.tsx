@@ -9,6 +9,7 @@ import { useWallpaperStore } from '@/stores/wallpaperStore'
 import { useConsoleLogStore } from '@/stores/consoleLogStore'
 import AutoRedirectControl from '@/components/AutoRedirectControl'
 import apiClient from '@/utils/api'
+import { isLimitedGameServerArchitecture } from '@/utils/architectureSupport'
 import {
   Settings,
   Monitor,
@@ -641,7 +642,7 @@ const SettingsPage: React.FC = () => {
   // 页面加载时获取SteamCMD状态和本地设置
   React.useEffect(() => {
     fetchSteamCMDStatus()
-    fetchSystemInfo() // 获取系统信息以检测ARM架构
+    fetchSystemInfo() // 获取系统信息以检测特殊架构
 
     // 从localStorage加载网页设置
     try {
@@ -1997,8 +1998,8 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* SteamCMD设置 - 检测到ARM架构时隐藏 */}
-        {!(systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64') && (
+        {/* SteamCMD设置 - 非 x86_64 架构时隐藏 */}
+        {!isLimitedGameServerArchitecture(systemInfo) && (
           <div className="card-game p-6">
             <div className="flex items-center space-x-3 mb-6">
               <Download className="w-5 h-5 text-green-500" />

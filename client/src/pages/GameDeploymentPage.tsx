@@ -35,6 +35,7 @@ import ConfirmInstanceUpdateDialog from '@/components/ConfirmInstanceUpdateDialo
 import FileDeploymentConflictDialog from '@/components/FileDeploymentConflictDialog'
 import NetworkStatusBanner from '@/components/NetworkStatusBanner'
 import SteamBranchSelector from '@/components/SteamBranchSelector'
+import { isLimitedGameServerArchitecture } from '@/utils/architectureSupport'
 
 interface GameInfo {
   game_nameCN: string
@@ -2543,9 +2544,9 @@ const GameDeploymentPage: React.FC = () => {
     }
   }, [activeTab, sponsorKeyValid, defaultGamePath, fetchSystemInfo])
 
-  // 当检测到ARM架构时，如果当前标签页是不支持的标签页，则切换到minecraft标签页
+  // 当检测到非 x86_64 架构时，如果当前标签页是不支持的标签页，则切换到 minecraft 标签页
   useEffect(() => {
-    if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64')) {
+    if (isLimitedGameServerArchitecture(systemInfo)) {
       const unsupportedTabs = ['steamcmd', 'more-games', 'online-deploy']
       if (unsupportedTabs.includes(activeTab)) {
         setActiveTab('minecraft')
@@ -3693,8 +3694,8 @@ const GameDeploymentPage: React.FC = () => {
   // 检查是否有任何游戏包含type信息
   const hasGameTypes = availableOnlineGameTypes.length > 0
 
-  // 检查是否为ARM架构，如果是则隐藏SteamCMD、更多游戏部署和在线部署标签页
-  const isArmArchitecture = systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64'
+  // 非 x86_64 架构隐藏 SteamCMD、更多游戏部署和在线部署标签页
+  const hasLimitedGameServerSupport = isLimitedGameServerArchitecture(systemInfo)
 
   const renderFileDeploySection = () => (
     <div className="space-y-6">
@@ -4362,13 +4363,13 @@ const GameDeploymentPage: React.FC = () => {
   )
 
   const tabs = [
-    // 只有在非ARM架构时才显示SteamCMD标签页
-    ...(isArmArchitecture ? [] : [{ id: 'steamcmd', name: 'SteamCMD', icon: Download }]),
+    // 只有在 x86_64 架构时才显示SteamCMD标签页
+    ...(hasLimitedGameServerSupport ? [] : [{ id: 'steamcmd', name: 'SteamCMD', icon: Download }]),
     { id: 'minecraft', name: 'Minecraft部署', icon: Pickaxe },
     { id: 'mrpack', name: 'Minecraft整合包部署', icon: Package },
     { id: 'file-deploy', name: '文件部署', icon: Archive },
-    // 只有在非ARM架构时才显示更多游戏部署和在线部署标签页
-    ...(isArmArchitecture ? [] : [
+    // 只有在 x86_64 架构时才显示更多游戏部署和在线部署标签页
+    ...(hasLimitedGameServerSupport ? [] : [
       { id: 'more-games', name: '更多游戏部署', icon: Server },
       { id: 'online-deploy', name: '在线部署', icon: ExternalLink }
     ])
