@@ -196,6 +196,10 @@ if test "$install_type" = "1"; then
 			PACKAGE_TARGET="linux-arm64"
 			PTY_ASSET="linux-arm64"
 			;;
+		riscv64)
+			PACKAGE_TARGET="linux-riscv64"
+			PTY_ASSET=""
+			;;
 		*)
 			echo -e "\x1b[31m不支持的系统架构: $ARCH\x1b[0m"
 			exit 1
@@ -226,18 +230,41 @@ if test "$install_type" = "1"; then
 		exit 1
 	fi
 	rm -rf gsm3.tgz
-	chmod 755 "$install_path/node/bin/node" "$install_path/start.sh" 2>/dev/null || true
+	chmod 755 "$install_path/start.sh" 2>/dev/null || true
+	if [ -x "$install_path/node/bin/node" ]; then
+		NODE_BIN="$install_path/node/bin/node"
+		chmod 755 "$NODE_BIN" 2>/dev/null || true
+	else
+		NODE_BIN="$(command -v node || true)"
+		if [ -z "$NODE_BIN" ]; then
+			echo -e "\x1b[31m当前安装包需要系统预装 Node.js >= 18，请先安装 nodejs 后重试。\x1b[0m"
+			echo -e "\x1b[33mDebian/Ubuntu 可参考: apt-get update && apt-get install -y nodejs npm\x1b[0m"
+			exit 1
+		fi
+		NODE_MAJOR="$("$NODE_BIN" -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
+		case "$NODE_MAJOR" in
+			""|*[!0-9]*) NODE_MAJOR=0 ;;
+		esac
+		if [ "$NODE_MAJOR" -lt 18 ]; then
+			echo -e "\x1b[31mNode.js 版本过低，当前版本为 $("$NODE_BIN" -v 2>/dev/null || echo unknown)，需要 >= 18。\x1b[0m"
+			exit 1
+		fi
+	fi
 
 	# 通过打包产物中的固定资产 CLI 校验或修复 PTY
 	mkdir -p "$install_path/data/lib"
-	echo -e "\x1b[33m正在校验固定 PTY 资产...\x1b[0m"
-	if "$install_path/node/bin/node" \
-		"$install_path/server/utils/ptyAssetCli.js" ensure \
-		--asset "$PTY_ASSET" \
-		--target-dir "$install_path/data/lib"; then
-		echo -e "\x1b[32mPTY 资产校验完成\x1b[0m"
+	if [ -n "$PTY_ASSET" ]; then
+		echo -e "\x1b[33m正在校验固定 PTY 资产...\x1b[0m"
+		if "$NODE_BIN" \
+			"$install_path/server/utils/ptyAssetCli.js" ensure \
+			--asset "$PTY_ASSET" \
+			--target-dir "$install_path/data/lib"; then
+			echo -e "\x1b[32mPTY 资产校验完成\x1b[0m"
+		else
+			echo -e "\x1b[33mPTY 资产校验或下载失败；在运行时校验成功前，终端创建功能将保持不可用\x1b[0m"
+		fi
 	else
-		echo -e "\x1b[33mPTY 资产校验或下载失败；在运行时校验成功前，终端创建功能将保持不可用\x1b[0m"
+		echo -e "\x1b[33m当前架构暂无固定 PTY 资产；终端创建功能将保持降级，其它 Web 管理功能可继续使用\x1b[0m"
 	fi
 
 	# 设置其他lib文件权限
@@ -256,7 +283,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$install_path
-ExecStart=$install_path/node/bin/node server/index.js
+ExecStart=$NODE_BIN server/index.js
 Restart=on-failure
 
 [Install]

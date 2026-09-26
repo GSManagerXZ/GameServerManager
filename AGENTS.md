@@ -32,3 +32,5 @@ const possiblePaths = [
 18. `npm run lint` 只有在仓库存在可用 ESLint 配置时才作为交付检查；如果脚本存在但配置缺失，需要在交付说明中明确说明。
 19. 临时诊断脚本、一次性测试文件和调试产物在验证完成后删除；正式测试代码可以保留，但应与现有测试组织方式一致。
 20. 开源贡献前确认目标上游和分支基准。当前上游仓库为 `https://github.com/GSManagerXZ/GameServerManager` ，不要仅用个人 fork 的 `origin/main` 判断 PR 是否同步。
+21. 新增架构支持时必须区分完整支持与降级支持。没有官方 Node.js、PTY、Zip-Tools、7z、SteamCMD 或游戏服务端原生资产时，不要伪装成开箱即用；应在打包脚本、安装脚本、CI 和文档中写明系统前置条件、可用功能和不可用功能。
+22. riscv64 目前按系统 Node.js 运行，不内置 Node.js、固定 PTY、Zip-Tools 或 7z 资产。ZIP/7z 功能优先使用系统 `unzip`、`zip`、`7z`/`7zz` 降级；终端 PTY 功能在缺少上游 riscv64 资产时不可用。

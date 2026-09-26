@@ -85,6 +85,17 @@ sudo apt-get install libc6-dev-arm64-cross
 ```
 
 详细的 ARM64 部署说明请参考 [scripts/arm/README.md](scripts/arm/README.md)
+
+### RISC-V64 架构部署
+
+RISC-V64 目前提供 `linux-riscv64` 便携安装包，适合作为 Web 管理面板和架构适配测试节点。该包不内置 Node.js、PTY、Zip-Tools 或 7z 原生资产，目标系统需要预装 Node.js >= 18；ZIP/7z 功能会按需使用系统 `unzip`、`zip`、`7z`/`7zz`。
+
+```bash
+npm run package:linux:riscv64
+```
+
+完整支持边界见 [docs/多架构支持说明.md](docs/多架构支持说明.md)。
+
 ## 🏗️ 技术架构
 
 ### 前端技术栈

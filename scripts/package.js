@@ -18,14 +18,21 @@ const packageDir = path.join(distDir, 'package')
 const args = process.argv.slice(2)
 const requestedBuildTarget = args.find(arg => arg.startsWith('--target='))?.split('=')[1]
 const skipZip = args.includes('--no-zip') || args.includes('--skip-zip')
+const supportedBuildTargets = new Set(['windows', 'linux-x64', 'linux-arm64', 'linux-riscv64'])
+const linuxBuildTargets = new Set(['linux-x64', 'linux-arm64', 'linux-riscv64'])
+
+function targetBundlesNode(target) {
+  return target === 'windows' || target === 'linux-x64' || target === 'linux-arm64'
+}
 
 function resolveBuildTarget(target) {
-  if (!target || target === 'windows' || target === 'linux-x64' || target === 'linux-arm64') {
+  if (!target || supportedBuildTargets.has(target)) {
     return target
   }
   if (target === 'linux') {
     if (process.arch === 'x64') return 'linux-x64'
     if (process.arch === 'arm64') return 'linux-arm64'
+    if (process.arch === 'riscv64') return 'linux-riscv64'
     throw new Error(`不支持当前架构的 Linux 打包: ${process.arch}`)
   }
   throw new Error(`不支持的打包目标: ${target}`)
@@ -85,6 +92,7 @@ const ZIP_TOOLS_GITHUB_URL = 'https://github.com/MCSManager/Zip-Tools/releases/l
 function getZipToolsBinaries(target) {
   if (target === 'linux-x64') return ['file_zip_linux_x64']
   if (target === 'linux-arm64') return ['file_zip_linux_arm64']
+  if (target === 'linux-riscv64') return []
   if (target === 'windows') return ['file_zip_win32_x64.exe']
   // 未指定目标时下载所有版本
   return [
@@ -102,6 +110,7 @@ function getZipToolsBinaries(target) {
 function get7zBinaries(target) {
   if (target === 'linux-x64') return ['7z_linux_x64']
   if (target === 'linux-arm64') return ['7z_linux_arm64']
+  if (target === 'linux-riscv64') return []
   if (target === 'windows') return ['7z_win32_x64.exe']
   // 未指定目标时下载所有版本
   return [
@@ -183,6 +192,11 @@ async function downloadZipTools(platform) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
 
+  if (binaries.length === 0) {
+    console.log('ℹ️  当前目标没有可内置的 Zip-Tools 资产，运行时将尝试使用系统 unzip/zip')
+    return
+  }
+
   console.log('📥 正在准备 Zip-Tools 运行时资产...')
   let hasSuccess = false
 
@@ -223,6 +237,11 @@ async function download7z(platform) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
 
+  if (binaries.length === 0) {
+    console.log('ℹ️  当前目标没有可内置的 7z 资产，运行时将尝试使用系统 7z/7zz')
+    return
+  }
+
   console.log('📥 正在准备 7z 运行时资产...')
   let hasSuccess = false
 
@@ -260,6 +279,7 @@ async function download7z(platform) {
 function getPtyAssetKeys(target) {
   if (target === 'linux-x64') return ['linux-x64']
   if (target === 'linux-arm64') return ['linux-arm64']
+  if (target === 'linux-riscv64') return []
   if (target === 'windows') return ['win32-x64']
   return ['linux-x64', 'linux-arm64', 'win32-x64']
 }
@@ -270,6 +290,12 @@ function getPtyAssetKeys(target) {
 async function ensurePtyAssets(target) {
   const libDir = path.join(packageDir, 'data', 'lib')
   await fs.ensureDir(libDir)
+  const assetKeys = getPtyAssetKeys(target)
+
+  if (assetKeys.length === 0) {
+    console.log('ℹ️  当前目标没有固定 PTY 资产，跳过 PTY 预置；终端功能将在运行时降级')
+    return
+  }
 
   // PTY 资产的完整性和本机能力由 ptyAssetCli 统一校验。
   // 此处只预复制已缓存的候选文件，避免重复维护固定资产清单。
@@ -287,7 +313,7 @@ async function ensurePtyAssets(target) {
   }
 
   console.log('📥 正在校验固定 PTY 资产...')
-  for (const assetKey of getPtyAssetKeys(target)) {
+  for (const assetKey of assetKeys) {
     execFileSync(process.execPath, [
       path.join(packageDir, 'server', 'utils', 'ptyAssetCli.js'),
       'ensure',
@@ -369,6 +395,58 @@ async function deployNodejs(target, downloadedFile) {
 
   // 清理下载的文件
   await fs.remove(downloadedFile)
+}
+
+function createLinuxStartScript(target) {
+  if (targetBundlesNode(target)) {
+    return `#!/bin/bash
+set -e
+echo "正在启动GSM3管理面板..."
+if [ ! -x "node/bin/node" ]; then
+  echo "错误：未找到内置 Node.js，请确认安装包完整解压"
+  exit 1
+fi
+# PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测
+node/bin/node server/index.js`
+  }
+
+  return `#!/bin/bash
+set -e
+echo "正在启动GSM3管理面板..."
+if ! command -v node >/dev/null 2>&1; then
+  echo "错误：当前安装包需要系统预装 Node.js >= 18"
+  exit 1
+fi
+NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)
+case "$NODE_MAJOR" in
+  ''|*[!0-9]*) NODE_MAJOR=0 ;;
+esac
+if [ "$NODE_MAJOR" -lt 18 ]; then
+  echo "错误：Node.js 版本过低，当前版本为 $(node -v 2>/dev/null || echo unknown)，需要 >= 18"
+  exit 1
+fi
+# PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测；无固定资产的架构会降级
+node server/index.js`
+}
+
+function getNodeInstallLine(target) {
+  if (targetBundlesNode(target)) {
+    return `本包已内置 Node.js ${nodeVersion}，无需单独安装`
+  }
+  if (target === 'linux-riscv64') {
+    return '本包为 linux-riscv64 便携包，需要系统预装 Node.js (版本 >= 18)'
+  }
+  return '确保已安装 Node.js (版本 >= 18)'
+}
+
+function getRuntimeNoteLine(target) {
+  if (targetBundlesNode(target)) {
+    return `本包已内置 Node.js ${nodeVersion} 和目标平台运行时资产`
+  }
+  if (target === 'linux-riscv64') {
+    return 'linux-riscv64 包已预装 Node.js 生产依赖，但需要系统 Node.js >= 18；PTY 暂无固定资产，ZIP/7z 功能会优先使用系统 unzip/zip/7z'
+  }
+  return 'Node.js依赖已预装'
 }
 
 async function createPackage() {
@@ -469,14 +547,16 @@ async function createPackage() {
     )
     
     // 根据目标平台下载和部署Node.js
-    if (buildTarget) {
+    if (buildTarget && targetBundlesNode(buildTarget)) {
       const downloadedNodeFile = await downloadNodejs(buildTarget)
       await deployNodejs(buildTarget, downloadedNodeFile)
+    } else if (buildTarget === 'linux-riscv64') {
+      console.log('ℹ️  linux-riscv64 暂无官方 Node.js 预编译包，本安装包将使用目标系统的 Node.js')
     } else {
       console.log('ℹ️  未指定目标平台，跳过Node.js下载')
     }
     
-    // 运行时二进制缺失时必须让打包失败，不能生成会在用户机器联网补依赖的安装包。
+    // 完整支持的目标平台必须内置运行时资产；暂无上游资产的目标平台在运行时使用系统工具降级。
     await downloadZipTools(buildTarget)
     await download7z(buildTarget)
     
@@ -488,11 +568,8 @@ async function createPackage() {
         path.join(__dirname, 'start.bat'),
         path.join(packageDir, 'start.bat')
       )
-    } else if (buildTarget === 'linux-x64' || buildTarget === 'linux-arm64') {
-      const startShScript = `#!/bin/bash
-echo "正在启动GSM3管理面板..."
-# PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测
-node/bin/node server/index.js`
+    } else if (buildTarget && linuxBuildTargets.has(buildTarget)) {
+      const startShScript = createLinuxStartScript(buildTarget)
       
       await fs.writeFile(
         path.join(packageDir, 'start.sh'),
@@ -542,7 +619,7 @@ node server/index.js`
 
 ## 安装说明
 
-1. ${buildTarget ? `本包已内置 Node.js ${nodeVersion}，无需单独安装` : '确保已安装 Node.js (版本 >= 18)'}
+1. ${getNodeInstallLine(buildTarget)}
 2. 解压缩包到目标目录
 3. (可选) 配置端口和其他参数:
    - 复制 .env.example 为 .env 并修改 SERVER_PORT 等配置
@@ -563,7 +640,7 @@ http://localhost:3001
 
 ## 注意事项
 
-- ${buildTarget ? `本包已内置 Node.js ${nodeVersion} 和所有依赖` : 'Node.js依赖已预装'}
+- ${getRuntimeNoteLine(buildTarget)}
 - 首次运行会自动创建默认管理员账户 (admin/admin123)
 - 请立即登录并修改默认密码
 - 确保防火墙允许相关端口访问

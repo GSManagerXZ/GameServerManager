@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs/promises'
-import { createWriteStream } from 'fs'
+import { constants as fsConstants, createWriteStream } from 'fs'
 import { pipeline } from 'stream/promises'
 import logger from './logger.js'
 import { directoryContainsCorruptedNames } from './filenameEncoding.js'
@@ -91,6 +91,56 @@ class ZipToolsManager {
   /** GitHub Releases 下载 URL（始终使用最新版本） */
   private readonly DOWNLOAD_URL =
     'https://github.com/MCSManager/Zip-Tools/releases/latest/download/'
+
+  private isBundledBinarySupported(): boolean {
+    return SUPPORTED_PLATFORMS.has(process.platform) && SUPPORTED_ARCHS.has(process.arch)
+  }
+
+  private getSystemCommandCandidates(command: string): string[] {
+    if (process.platform !== 'win32' || path.extname(command)) {
+      return [command]
+    }
+
+    const pathExt = (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
+      .split(';')
+      .filter(Boolean)
+    return pathExt.map(ext => `${command}${ext.toLowerCase()}`)
+  }
+
+  private async findSystemCommand(commands: string[]): Promise<string | null> {
+    const pathEnv = process.env.PATH
+    if (!pathEnv) {
+      return null
+    }
+
+    for (const dir of pathEnv.split(path.delimiter).filter(Boolean)) {
+      for (const command of commands) {
+        for (const candidateName of this.getSystemCommandCandidates(command)) {
+          const candidatePath = path.join(dir, candidateName)
+          try {
+            await fs.access(candidatePath, fsConstants.F_OK)
+            return candidatePath
+          } catch {
+            // 尝试下一个 PATH 候选
+          }
+        }
+      }
+    }
+
+    return null
+  }
+
+  private async getSystem7zPath(): Promise<string | null> {
+    return this.findSystemCommand(['7z', '7zz'])
+  }
+
+  private async getSystemUnzipPath(): Promise<string | null> {
+    return this.findSystemCommand(['unzip'])
+  }
+
+  private async getSystemZipPath(): Promise<string | null> {
+    return this.findSystemCommand(['zip'])
+  }
 
   /**
    * 获取当前平台对应的二进制文件名
@@ -246,6 +296,16 @@ class ZipToolsManager {
       logger.info('Zip-Tools 已存在，跳过下载')
       return
     }
+    if (!this.isBundledBinarySupported()) {
+      const unzipPath = await this.getSystemUnzipPath()
+      const zipPath = await this.getSystemZipPath()
+      if (unzipPath || zipPath) {
+        logger.info(`当前平台未提供内置 Zip-Tools，使用系统 ZIP 工具降级: unzip=${unzipPath || '未找到'}, zip=${zipPath || '未找到'}`)
+      } else {
+        logger.warn(`当前平台未提供内置 Zip-Tools，且未找到系统 unzip/zip；ZIP 压缩解压功能将不可用: ${process.platform}/${process.arch}`)
+      }
+      return
+    }
     await this.download()
   }
 
@@ -358,6 +418,15 @@ class ZipToolsManager {
       logger.info('7z 已存在，跳过下载')
       return
     }
+    if (!this.isBundledBinarySupported()) {
+      const system7zPath = await this.getSystem7zPath()
+      if (system7zPath) {
+        logger.info(`当前平台未提供内置 7z，使用系统 7z 降级: ${system7zPath}`)
+      } else {
+        logger.warn(`当前平台未提供内置 7z，且未找到系统 7z/7zz；7z 功能将不可用: ${process.platform}/${process.arch}`)
+      }
+      return
+    }
     await this.download7z()
   }
 
@@ -418,6 +487,98 @@ class ZipToolsManager {
     })
   }
 
+  private async get7zExecutablePath(): Promise<string> {
+    try {
+      return await this.get7zPath()
+    } catch (error: any) {
+      const system7zPath = await this.getSystem7zPath()
+      if (system7zPath) {
+        logger.info(`使用系统 7z: ${system7zPath}`)
+        return system7zPath
+      }
+
+      if (this.isBundledBinarySupported()) {
+        throw error
+      }
+
+      throw new Error(
+        `当前平台没有可内置的 7z 二进制文件，且 PATH 中未找到 7z/7zz。请安装 p7zip-full 或 7zip 后重试。平台: ${process.platform}/${process.arch}`
+      )
+    }
+  }
+
+  private executeSystemTool(toolName: string, toolPath: string, args: string[], cwd?: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(toolPath, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+
+      let stderr = ''
+
+      child.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString()
+      })
+
+      child.on('error', (error: NodeJS.ErrnoException) => {
+        reject(this.buildProcessStartError(toolName, toolPath, error))
+      })
+
+      child.on('close', (code: number | null) => {
+        if (code === 0) {
+          resolve()
+        } else {
+          reject(
+            new Error(
+              `${toolName} 执行失败 (退出码: ${code}): ${stderr.trim() || '未知错误'}`
+            )
+          )
+        }
+      })
+    })
+  }
+
+  private async extractZipWithSystemUnzip(
+    zipPath: string,
+    targetDir: string,
+    originalError?: Error
+  ): Promise<void> {
+    const unzipPath = await this.getSystemUnzipPath()
+    if (!unzipPath) {
+      const suffix = originalError ? ` 原始错误: ${originalError.message}` : ''
+      throw new Error(
+        `当前平台没有可用的内置 Zip-Tools，且 PATH 中未找到 unzip。请安装 unzip 后重试。平台: ${process.platform}/${process.arch}.${suffix}`
+      )
+    }
+
+    logger.warn(`使用系统 unzip 处理 ZIP 文件，非 UTF-8 文件名不会执行 GBK 回退: ${zipPath}`)
+    await fs.mkdir(targetDir, { recursive: true })
+    const tempTargetDir = await createZipExtractTempDir(targetDir)
+
+    try {
+      await this.executeSystemTool('unzip', unzipPath, ['-oq', zipPath, '-d', path.resolve(tempTargetDir)])
+      await moveDirectoryContents(tempTargetDir, targetDir)
+    } finally {
+      await fs.rm(tempTargetDir, { recursive: true, force: true })
+    }
+  }
+
+  private async compressZipWithSystemZip(
+    zipPath: string,
+    files: string[],
+    cwd: string,
+    originalError?: Error
+  ): Promise<void> {
+    const systemZipPath = await this.getSystemZipPath()
+    if (!systemZipPath) {
+      const suffix = originalError ? ` 原始错误: ${originalError.message}` : ''
+      throw new Error(
+        `当前平台没有可用的内置 Zip-Tools，且 PATH 中未找到 zip。请安装 zip 后重试。平台: ${process.platform}/${process.arch}.${suffix}`
+      )
+    }
+
+    logger.warn(`使用系统 zip 处理 ZIP 压缩，编码处理能力可能弱于内置 Zip-Tools: ${zipPath}`)
+    const zipFileName = path.basename(zipPath)
+    await this.executeSystemTool('zip', systemZipPath, ['-r', zipFileName, ...files], cwd)
+  }
+
   /**
    * 执行 7z 解压操作
    * 命令: 7z x {archivePath} -o{targetDir}
@@ -426,7 +587,7 @@ class ZipToolsManager {
    */
   async extract7z(archivePath: string, targetDir: string): Promise<void> {
     await this.ensure7zInstalled()
-    const toolPath = await this.get7zPath()
+    const toolPath = await this.get7zExecutablePath()
 
     // 确保目标目录存在
     await fs.mkdir(targetDir, { recursive: true })
@@ -445,7 +606,7 @@ class ZipToolsManager {
    */
   async compress7z(archivePath: string, files: string[], cwd: string): Promise<void> {
     await this.ensure7zInstalled()
-    const toolPath = await this.get7zPath()
+    const toolPath = await this.get7zExecutablePath()
 
     const args = ['a', archivePath, ...files]
 
@@ -463,7 +624,18 @@ class ZipToolsManager {
    * 优先尝试 UTF-8，若检测到损坏文件名或首次解压失败则回退到 GBK
    */
   async extractZip(zipPath: string, targetDir: string): Promise<void> {
-    const toolPath = await this.getZipToolsPath()
+    let toolPath: string
+    try {
+      toolPath = await this.getZipToolsPath()
+    } catch (error: any) {
+      await this.extractZipWithSystemUnzip(
+        zipPath,
+        targetDir,
+        error instanceof Error ? error : new Error(String(error))
+      )
+      return
+    }
+
     const zipDir = path.dirname(zipPath)
     const zipFileName = path.basename(zipPath)
 
@@ -527,7 +699,19 @@ class ZipToolsManager {
    * cwd 设置为待压缩文件所在目录
    */
   async compressZip(zipPath: string, files: string[], cwd: string): Promise<void> {
-    const toolPath = await this.getZipToolsPath()
+    let toolPath: string
+    try {
+      toolPath = await this.getZipToolsPath()
+    } catch (error: any) {
+      await this.compressZipWithSystemZip(
+        zipPath,
+        files,
+        cwd,
+        error instanceof Error ? error : new Error(String(error))
+      )
+      return
+    }
+
     const zipFileName = path.basename(zipPath)
 
     const args = [
