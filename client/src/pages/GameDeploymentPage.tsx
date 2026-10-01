@@ -22,6 +22,7 @@ import {
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useSystemStore } from '@/stores/systemStore'
 import apiClient from '@/utils/api'
+import { isSponsorActive } from '@/utils/sponsor'
 import socketClient from '@/utils/socket'
 import { MinecraftServerCategory, MinecraftDownloadOptions, MinecraftDownloadProgress, MoreGameInfo, Platform, InstanceType, SteamBranchInfo } from '@/types'
 import { io, Socket } from 'socket.io-client'
@@ -554,26 +555,16 @@ const GameDeploymentPage: React.FC = () => {
     }
   }
 
-  // 检查赞助者密钥
+  // 检查赞助者状态（赞助者密钥目前仅本地记录，判定统一由 isSponsorActive 收口）
   const checkSponsorKey = async () => {
     try {
       setSponsorKeyChecking(true)
       const response = await apiClient.getSponsorKeyInfo()
+      const keyInfo = response.success ? response.data : null
 
-      if (response.success && response.data) {
-        setSponsorKeyValid(response.data.isValid)
-        if (!response.data.isValid) {
-          addNotification({
-            type: 'warning',
-            title: '密钥已过期',
-            message: '您的赞助者密钥已过期，请前往设置页面更新密钥'
-          })
-        }
-      } else {
-        setSponsorKeyValid(false)
-      }
+      setSponsorKeyValid(isSponsorActive(keyInfo))
     } catch (error: any) {
-      console.error('检查赞助者密钥失败:', error)
+      console.error('检查赞助者状态失败:', error)
       setSponsorKeyValid(false)
     } finally {
       setSponsorKeyChecking(false)
@@ -4774,14 +4765,14 @@ const GameDeploymentPage: React.FC = () => {
               )}
               <div>
                 <h3 className="font-medium text-gray-900 dark:text-white">
-                  赞助者密钥状态
+                  赞助者功能状态
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   {sponsorKeyChecking
                     ? '检查中...'
                     : sponsorKeyValid
-                    ? '密钥有效，可以使用在线部署功能'
-                    : '密钥无效或未设置，请前往设置页面配置赞助者密钥'}
+                    ? '已解锁赞助者功能，可以使用在线部署'
+                    : '在线部署功能暂未开放，赞助者功能正在接入中'}
                 </p>
               </div>
               <button
@@ -4953,10 +4944,10 @@ const GameDeploymentPage: React.FC = () => {
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6 text-center">
               <AlertCircle className="w-12 h-12 mx-auto mb-4 text-yellow-600 dark:text-yellow-400" />
               <h3 className="text-lg font-medium text-yellow-800 dark:text-yellow-200 mb-2">
-                需要赞助者密钥
+                在线部署功能暂未开放
               </h3>
               <p className="text-yellow-700 dark:text-yellow-300 mb-4">
-                在线部署功能需要有效的赞助者密钥才能使用。请前往设置页面配置您的密钥。
+                在线部署功能需要赞助者密钥。赞助者密钥现已改为本地记录，相关功能正在接入中，暂时无法使用；可先前往设置页面保存密钥。
               </p>
               <p className="text-yellow-700 dark:text-yellow-300 mb-4">
                 在线部署是采用GSManager官方中国大陆服务器由开发团队亲自手动配置的服务端具有一键安装和百分百的成功率保障

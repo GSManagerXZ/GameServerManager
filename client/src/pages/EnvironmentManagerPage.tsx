@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useNotificationStore } from '@/stores/notificationStore'
 import apiClient from '@/utils/api'
+import { isSponsorActive } from '@/utils/sponsor'
 import socketClient from '@/utils/socket'
 import { copyToClipboard } from '@/utils/clipboard'
 
@@ -118,12 +119,14 @@ const EnvironmentManagerPage: React.FC = () => {
 
   const { addNotification } = useNotificationStore()
 
-  // 赞助者状态
+  // 赞助者状态（赞助者密钥目前仅本地记录）
   const [sponsorStatus, setSponsorStatus] = useState<{
     isValid: boolean
+    hasKey: boolean
     loading: boolean
   }>({
     isValid: false,
+    hasKey: false,
     loading: true
   })
 
@@ -191,27 +194,23 @@ const EnvironmentManagerPage: React.FC = () => {
     }
   }
 
-  // 获取赞助者状态
+  // 获取赞助者状态（判定统一由 isSponsorActive 收口）
   const fetchSponsorStatus = async () => {
     try {
       setSponsorStatus(prev => ({ ...prev, loading: true }))
       const response = await apiClient.getSponsorKeyInfo()
+      const keyInfo = response.success ? response.data : null
 
-      if (response.success && response.data) {
-        setSponsorStatus({
-          isValid: response.data.isValid && !response.data.isExpired,
-          loading: false
-        })
-      } else {
-        setSponsorStatus({
-          isValid: false,
-          loading: false
-        })
-      }
+      setSponsorStatus({
+        isValid: isSponsorActive(keyInfo),
+        hasKey: !!keyInfo?.key,
+        loading: false
+      })
     } catch (error) {
       console.error('获取赞助者状态失败:', error)
       setSponsorStatus({
         isValid: false,
+        hasKey: false,
         loading: false
       })
     }
@@ -1275,6 +1274,8 @@ const EnvironmentManagerPage: React.FC = () => {
               }`}>
                 {sponsorStatus.isValid ? (
                   '您现已是赞助者，专享国内高速服务器下载Java环境'
+                ) : sponsorStatus.hasKey ? (
+                  '已记录赞助者密钥，赞助者专享下载功能正在接入中，当前按普通通道下载Java环境'
                 ) : (
                   <>
                     Java环境安装现已支持赞助者专享国内高速服务器下载，您当前还不是赞助者，欢迎前往

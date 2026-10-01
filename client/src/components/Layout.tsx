@@ -5,6 +5,7 @@ import { useThemeStore } from '@/stores/themeStore'
 import { useWallpaperStore } from '@/stores/wallpaperStore'
 import socketClient from '@/utils/socket'
 import apiClient from '@/utils/api'
+import { isSponsorActive } from '@/utils/sponsor'
 import LogoutTransition from './LogoutTransition'
 import WallpaperBackground from './WallpaperBackground'
 import {
@@ -297,14 +298,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   }, [])
 
-  // 获取赞助者状态
+  // 获取赞助者状态（赞助者密钥目前仅本地记录，判定统一由 isSponsorActive 收口）
   useEffect(() => {
     const fetchSponsorStatus = async () => {
       try {
         const response = await apiClient.getSponsorKeyInfo()
-        if (response.success && response.data) {
-          setIsSponsor(response.data.isValid && !response.data.isExpired)
-        }
+        setIsSponsor(isSponsorActive(response.success ? response.data : null))
       } catch (error) {
         console.error('获取赞助者状态失败:', error)
         setIsSponsor(false)

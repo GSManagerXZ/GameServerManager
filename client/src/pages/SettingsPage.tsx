@@ -118,14 +118,11 @@ const SettingsPage: React.FC = () => {
   const [pathCheckLoading, setPathCheckLoading] = useState(false)
   const [pathExists, setPathExists] = useState<boolean | null>(null)
 
-  // 赞助者密钥状态
+  // 赞助者密钥状态（仅本地记录，不做在线校验）
   const [sponsorKey, setSponsorKey] = useState('')
   const [sponsorKeyLoading, setSponsorKeyLoading] = useState(false)
-  const [sponsorKeyStatus, setSponsorKeyStatus] = useState<{
-    isValid: boolean | null
-    message: string
-    expiryTime?: number
-  }>({ isValid: null, message: '' })
+  const [sponsorKeySaved, setSponsorKeySaved] = useState(false)
+  const [sponsorKeySavedAt, setSponsorKeySavedAt] = useState('')
 
   // 终端设置状态
   const [terminalSettings, setTerminalSettings] = useState({
@@ -323,17 +320,14 @@ const SettingsPage: React.FC = () => {
     })
   }
 
-  // 处理赞助者密钥校验
+  // 清除本地记录的赞助者密钥
   const handleClearSponsorKey = async () => {
     try {
       const result = await apiClient.clearSponsorKey()
       if (result.success) {
         setSponsorKey('')
-        setSponsorKeyStatus({
-          isValid: false,
-          message: '',
-          expiryTime: null
-        })
+        setSponsorKeySaved(false)
+        setSponsorKeySavedAt('')
         addNotification({
           type: 'success',
           title: '操作成功',
@@ -356,8 +350,11 @@ const SettingsPage: React.FC = () => {
     }
   }
 
-  const handleSponsorKeyValidation = async () => {
-    if (!sponsorKey.trim()) {
+  // 保存赞助者密钥（仅本地记录，不做在线校验）
+  const handleSponsorKeySave = async () => {
+    const trimmedKey = sponsorKey.trim()
+
+    if (!trimmedKey) {
       addNotification({
         type: 'error',
         title: '输入错误',
@@ -367,71 +364,34 @@ const SettingsPage: React.FC = () => {
     }
 
     setSponsorKeyLoading(true)
-    setSponsorKeyStatus({ isValid: null, message: '' })
 
     try {
-      const result = await apiClient.validateSponsorKey(sponsorKey)
+      const result = await apiClient.saveSponsorKey(trimmedKey)
 
       if (result.success) {
-        const { data } = result
-        const isExpired = data.is_expired
-        const expiryTime = data.timeData
-
-        setSponsorKeyStatus({
-          isValid: !isExpired,
-          message: isExpired ? '密钥已过期' : '密钥有效',
-          expiryTime: expiryTime
-        })
+        setSponsorKey(result.data?.key || trimmedKey)
+        setSponsorKeySaved(true)
+        setSponsorKeySavedAt(result.data?.savedAt || new Date().toISOString())
 
         addNotification({
-          type: isExpired ? 'warning' : 'success',
-          title: '密钥校验完成',
-          message: isExpired ? '密钥已过期，请联系管理员更新' : '密钥验证成功'
-        })
-
-        // 密钥已保存到服务器，显示预览格式
-        if (!isExpired) {
-          setSponsorKey(sponsorKey.substring(0, 8) + '...')
-        }
-      } else {
-        setSponsorKeyStatus({
-          isValid: false,
-          message: result.message || '密钥校验失败'
-        })
-
-        addNotification({
-          type: 'error',
-          title: '密钥校验失败',
-          message: result.message || '无效的赞助者密钥'
-        })
-      }
-    } catch (error: any) {
-      // 检查是否是API响应错误（包含具体错误信息）
-      if (error.success === false && error.message) {
-        // 这是从API返回的错误响应
-        setSponsorKeyStatus({
-          isValid: false,
-          message: error.message
-        })
-
-        addNotification({
-          type: 'error',
-          title: '密钥校验失败',
-          message: '请检查密钥是否正确且在有效期内，如有问题请联系项目开发者'
+          type: 'success',
+          title: '保存成功',
+          message: '赞助者密钥已记录到本地'
         })
       } else {
-        // 真正的网络错误
-        setSponsorKeyStatus({
-          isValid: false,
-          message: '网络错误，请稍后重试'
-        })
-
         addNotification({
           type: 'error',
-          title: '网络错误',
-          message: '请稍后重试'
+          title: '保存失败',
+          message: result.message || '保存赞助者密钥失败'
         })
       }
+    } catch (error) {
+      console.error('保存赞助者密钥失败:', error)
+      addNotification({
+        type: 'error',
+        title: '网络错误',
+        message: '请稍后重试'
+      })
     } finally {
       setSponsorKeyLoading(false)
     }
@@ -694,22 +654,18 @@ const SettingsPage: React.FC = () => {
       console.error('加载本地设置失败:', error)
     }
 
-    // 从服务器获取已保存的赞助者密钥信息
+    // 从服务器获取本地记录的赞助者密钥
     const loadSponsorKeyInfo = async () => {
       try {
         const result = await apiClient.getSponsorKeyInfo()
         if (result.success && result.data) {
-          // 设置密钥状态信息
-          setSponsorKeyStatus({
-            isValid: result.data.isValid,
-            message: result.data.isValid ? '密钥有效' : '密钥已过期',
-            expiryTime: result.data.expiryTime
-          })
-          // 显示密钥预览
-          setSponsorKey(result.data.keyPreview)
+          // 回显完整密钥，方便核对与再次编辑保存
+          setSponsorKey(result.data.key || '')
+          setSponsorKeySaved(true)
+          setSponsorKeySavedAt(result.data.savedAt || '')
         }
       } catch (error) {
-        console.error('获取赞助者密钥信息失败:', error)
+        console.error('获取赞助者密钥记录失败:', error)
       }
     }
 
@@ -2266,7 +2222,7 @@ const SettingsPage: React.FC = () => {
                 />
                 <div className="flex gap-2">
                   <button
-                    onClick={handleSponsorKeyValidation}
+                    onClick={handleSponsorKeySave}
                     disabled={sponsorKeyLoading || !sponsorKey.trim()}
                     className="flex-1 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                   >
@@ -2275,9 +2231,9 @@ const SettingsPage: React.FC = () => {
                     ) : (
                       <Check className="w-4 h-4" />
                     )}
-                    <span>{sponsorKeyLoading ? '校验中...' : '校验密钥'}</span>
+                    <span>{sponsorKeyLoading ? '保存中...' : '保存密钥'}</span>
                   </button>
-                  {sponsorKeyStatus.isValid && (
+                  {sponsorKeySaved && (
                     <button
                       onClick={handleClearSponsorKey}
                       disabled={sponsorKeyLoading}
@@ -2290,43 +2246,27 @@ const SettingsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 密钥状态显示 */}
-            {sponsorKeyStatus.message && (
-              <div className={`p-3 rounded-lg ${sponsorKeyStatus.isValid === true
-                ? 'bg-green-500/20 border border-green-500/30'
-                : sponsorKeyStatus.isValid === false
-                  ? 'bg-red-500/20 border border-red-500/30'
-                  : 'bg-yellow-500/20 border border-yellow-500/30'
-                }`}>
+            {/* 保存状态显示 */}
+            {sponsorKeySaved && (
+              <div className="p-3 rounded-lg bg-green-500/20 border border-green-500/30">
                 <div className="flex items-center space-x-2">
-                  {sponsorKeyStatus.isValid === true ? (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  ) : sponsorKeyStatus.isValid === false ? (
-                    <XCircle className="w-4 h-4 text-red-500" />
-                  ) : (
-                    <Loader2 className="w-4 h-4 text-yellow-500" />
-                  )}
-                  <span className={`text-sm font-medium ${sponsorKeyStatus.isValid === true
-                    ? 'text-green-500'
-                    : sponsorKeyStatus.isValid === false
-                      ? 'text-red-500'
-                      : 'text-yellow-500'
-                    }`}>
-                    {sponsorKeyStatus.message}
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <span className="text-sm font-medium text-green-500">
+                    赞助者密钥已记录到本地
                   </span>
                 </div>
 
-                {sponsorKeyStatus.expiryTime && (
+                {sponsorKeySavedAt && (
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                    到期时间: {new Date(sponsorKeyStatus.expiryTime).toLocaleString()}
+                    保存时间: {new Date(sponsorKeySavedAt).toLocaleString()}
                   </p>
                 )}
               </div>
             )}
 
             <div className="text-xs text-gray-600 dark:text-gray-400">
-              <p>• 赞助者密钥用于验证您的赞助者身份</p>
-              <p>• 密钥验证成功后将自动保存到本地</p>
+              <p>• 赞助者密钥仅保存在本地面板，不做在线校验，统一由对应功能服务进行校验，配置错误后相关赞助者功能将会报错</p>
+              <p>• 点击保存即可，其他功能区可直接调用该密钥</p>
               <p>• 如需获取密钥，请联系管理员</p>
             </div>
           </div>

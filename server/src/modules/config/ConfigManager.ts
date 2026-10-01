@@ -3,6 +3,12 @@ import path from 'path'
 import crypto from 'crypto'
 import winston from 'winston'
 
+// 赞助者密钥记录结构
+export interface SponsorConfig {
+  key: string
+  savedAt: string
+}
+
 export interface AppConfig {
   jwt: {
     secret: string
@@ -35,12 +41,8 @@ export interface AppConfig {
   game: {
     defaultInstallPath: string // 游戏默认安装路径
   }
-  sponsor?: {
-    key: string
-    isValid: boolean
-    expiryTime?: string
-    validatedAt: string
-  }
+  // 赞助者密钥：仅做本地记录，不再做在线校验
+  sponsor?: SponsorConfig
   developer?: {
     passwordHash: string
     salt: string
@@ -177,9 +179,7 @@ export class ConfigManager {
         ...defaultConfig.game,
         ...savedConfig.game
       },
-      sponsor: savedConfig.sponsor ? {
-        ...savedConfig.sponsor
-      } : undefined,
+      sponsor: this.normalizeSponsorConfig(savedConfig.sponsor ?? defaultConfig.sponsor),
       developer: savedConfig.developer ? {
         ...savedConfig.developer
       } : undefined,
@@ -277,17 +277,29 @@ export class ConfigManager {
     return this.config.sponsor
   }
 
-  async updateSponsorConfig(sponsorData: {
-    key: string
-    isValid: boolean
-    expiryTime?: string
-  }): Promise<void> {
+  // 规范化赞助者密钥记录，兼容旧版本遗留的校验字段
+  private normalizeSponsorConfig(
+    sponsor?: Partial<SponsorConfig> & { validatedAt?: string }
+  ): SponsorConfig | undefined {
+    if (!sponsor?.key) {
+      return undefined
+    }
+
+    return {
+      key: sponsor.key,
+      // 旧配置没有 savedAt，退回到原来的校验时间
+      savedAt: sponsor.savedAt || sponsor.validatedAt || new Date().toISOString()
+    }
+  }
+
+  // 保存赞助者密钥（仅本地记录，不做在线校验）
+  async saveSponsorConfig(key: string): Promise<void> {
     this.config.sponsor = {
-      ...sponsorData,
-      validatedAt: new Date().toISOString()
+      key,
+      savedAt: new Date().toISOString()
     }
     await this.saveConfig()
-    this.logger.info('赞助者密钥配置已更新')
+    this.logger.info('赞助者密钥已保存到本地配置')
   }
 
   async clearSponsorConfig(): Promise<void> {

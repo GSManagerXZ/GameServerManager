@@ -86,7 +86,7 @@ const initialCategories: NetworkCheckCategory[] = [
         name: 'GSManager功能服务',
         url: 'http://langlangy2.server.xiaozhuhouses.asia:44409',
         status: 'pending',
-        errorMessage: 'GSManager功能服务 连接失败，您将无法使用在线部署和赞助者密钥功能'
+        errorMessage: 'GSManager功能服务 连接失败，您将无法使用在线部署功能'
       },
       {
         id: 'gsm-mirror',

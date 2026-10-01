@@ -10,6 +10,7 @@ import path from 'path'
 import { createWriteStream, createReadStream } from 'fs'
 import { pipeline } from 'stream/promises'
 import { zipToolsManager } from '../utils/zipToolsManager.js'
+import { isSponsorUnlocked } from '../utils/sponsorStatus.js'
 
 const router = Router()
 let io: SocketIOServer
@@ -82,22 +83,8 @@ function isGameSupportedOnCurrentPlatform(game: OnlineGameInfo): boolean {
 
 // 验证赞助者密钥
 async function validateSponsorKey(): Promise<boolean> {
-  try {
-    const sponsorConfig = await configManager.getSponsorConfig()
-    if (!sponsorConfig || !sponsorConfig.key || !sponsorConfig.isValid) {
-      return false
-    }
-    
-    // 检查密钥是否过期
-    if (sponsorConfig.expiryTime && new Date() > new Date(sponsorConfig.expiryTime)) {
-      return false
-    }
-    
-    return true
-  } catch (error) {
-    logger.error('验证赞助者密钥失败:', error)
-    return false
-  }
+  // 赞助者密钥已改为仅本地记录，判定逻辑统一收口在 isSponsorUnlocked
+  return isSponsorUnlocked(configManager)
 }
 
 // 获取在线游戏列表
@@ -108,7 +95,7 @@ router.get('/games', authenticateToken, async (req: Request, res: Response) => {
     if (!isValidSponsor) {
       return res.status(403).json({
         success: false,
-        message: '需要有效的赞助者密钥才能访问在线部署功能'
+        message: '在线部署功能暂未开放，赞助者功能正在接入中'
       })
     }
 
@@ -191,7 +178,7 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
     if (!isValidSponsor) {
       return res.status(403).json({
         success: false,
-        message: '需要有效的赞助者密钥才能使用在线部署功能'
+        message: '在线部署功能暂未开放，赞助者功能正在接入中'
       })
     }
 

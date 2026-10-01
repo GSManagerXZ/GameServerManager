@@ -5,6 +5,7 @@ import { JavaManager, VcRedistManager, DirectXManager } from '../modules/environ
 import { LinuxPackageManager } from '../modules/environment/packageManager.js'
 import { authenticateToken } from '../middleware/auth.js'
 import { ConfigManager } from '../modules/config/ConfigManager.js'
+import { isSponsorUnlocked } from '../utils/sponsorStatus.js'
 
 // 存储Socket.IO实例的变量
 let io: any = null
@@ -68,31 +69,6 @@ router.get('/java', authenticateToken, async (req, res) => {
     })
   }
 })
-
-// 验证赞助者密钥
-function validateSponsorKey(): boolean {
-  try {
-    if (!configManager) {
-      logger.warn('ConfigManager未初始化')
-      return false
-    }
-
-    const sponsorConfig = configManager.getSponsorConfig()
-    if (!sponsorConfig || !sponsorConfig.key || !sponsorConfig.isValid) {
-      return false
-    }
-
-    // 检查密钥是否过期
-    if (sponsorConfig.expiryTime && new Date() > new Date(sponsorConfig.expiryTime)) {
-      return false
-    }
-
-    return true
-  } catch (error) {
-    logger.error('验证赞助者密钥失败:', error)
-    return false
-  }
-}
 
 // 获取赞助者专用下载链接
 function getSponsorDownloadUrl(version: string, platform: string, arch?: string): string {
@@ -203,7 +179,7 @@ router.post('/java/install', authenticateToken, async (req, res) => {
     // 检查是否为赞助者，如果是则使用赞助者专用下载链接
     let finalDownloadUrl = downloadUrl
     const archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch())
-    const isSponsor = validateSponsorKey()
+    const isSponsor = isSponsorUnlocked(configManager)
 
     if (isSponsor) {
       try {

@@ -261,12 +261,12 @@ class ApiClient {
     }
   }
 
-  // 校验赞助者密钥
-  async validateSponsorKey(key: string): Promise<ApiResponse<any>> {
-    return this.post('/sponsor/validate-key', { key })
+  // 保存赞助者密钥（仅本地记录，不做在线校验）
+  async saveSponsorKey(key: string): Promise<ApiResponse<any>> {
+    return this.post('/sponsor/save-key', { key })
   }
 
-  // 获取已保存的赞助者密钥信息
+  // 获取已保存的赞助者密钥记录
   async getSponsorKeyInfo(): Promise<ApiResponse<any>> {
     return this.get('/sponsor/key-info')
   }
