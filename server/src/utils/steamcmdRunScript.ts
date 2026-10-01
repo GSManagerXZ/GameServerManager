@@ -5,8 +5,34 @@ import { randomUUID } from 'crypto'
 
 const STEAMCMD_SCRIPT_MAX_LIFETIME_MS = 35 * 60 * 1000
 
-function getSteamCMDTaskDirectory(): string {
-  return path.join(os.tmpdir(), 'gsm3-steamcmd', 'tasks')
+function getSteamCMDTaskDirectoryCandidates(): string[] {
+  return [
+    path.join(os.tmpdir(), 'gsm3-steamcmd', 'tasks'),
+    path.join(process.cwd(), 'data', 'tmp', 'gsm3-steamcmd', 'tasks')
+  ]
+}
+
+async function prepareSteamCMDTaskDirectory(clean = false): Promise<string> {
+  let lastError: unknown
+
+  for (const taskDirectory of getSteamCMDTaskDirectoryCandidates()) {
+    try {
+      if (clean) {
+        await fs.rm(taskDirectory, { recursive: true, force: true })
+      }
+
+      await fs.mkdir(taskDirectory, { recursive: true, mode: 0o700 })
+      await fs.chmod(taskDirectory, 0o700)
+      return taskDirectory
+    } catch (error: any) {
+      lastError = error
+      if (error?.code !== 'EACCES' && error?.code !== 'EPERM') {
+        throw error
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('无法创建SteamCMD临时脚本目录')
 }
 
 export interface SteamCMDRunScript {
@@ -20,10 +46,7 @@ export function quoteSteamCMDConsoleArgument(value: string): string {
 }
 
 export async function cleanupSteamCMDRunScripts(): Promise<void> {
-  const taskDirectory = getSteamCMDTaskDirectory()
-  await fs.rm(taskDirectory, { recursive: true, force: true })
-  await fs.mkdir(taskDirectory, { recursive: true, mode: 0o700 })
-  await fs.chmod(taskDirectory, 0o700)
+  await prepareSteamCMDTaskDirectory(true)
 }
 
 export async function prepareSteamCMDLaunch(executablePath: string): Promise<void> {
@@ -59,12 +82,10 @@ export async function createSteamCMDRunScript(
     throw new Error('SteamCMD脚本命令格式无效')
   }
 
-  const taskDirectory = getSteamCMDTaskDirectory()
-  await fs.mkdir(taskDirectory, { recursive: true, mode: 0o700 })
+  const taskDirectory = await prepareSteamCMDTaskDirectory()
   const taskPath = path.join(taskDirectory, randomUUID())
   const logDirectory = path.join(taskPath, 'logs')
   const filePath = path.join(taskPath, 'commands.txt')
-  await fs.chmod(taskDirectory, 0o700)
   await fs.mkdir(taskPath, { mode: 0o700 })
   await fs.mkdir(logDirectory, { recursive: true, mode: 0o700 })
   const content = [
