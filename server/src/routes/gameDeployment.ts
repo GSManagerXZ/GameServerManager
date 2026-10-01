@@ -4,7 +4,6 @@ import fsSync from 'fs'
 import path from 'path'
 import os from 'os'
 import axios from 'axios'
-import http from 'http'
 import { fileURLToPath } from 'url'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -21,6 +20,7 @@ import {
   quoteSteamCMDConsoleArgument,
   type SteamCMDRunScript
 } from '../utils/steamcmdRunScript.js'
+import { fetchInstanceMarketList, STEAM_GAME_LIST_URL } from '../utils/remoteSources.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -720,8 +720,8 @@ router.get('/games', authenticateToken, async (req: Request, res: Response) => {
       logger.info('未找到 installgame.json 文件，开始自动更新游戏清单')
       
       try {
-        // 自动执行更新游戏清单
-        const remoteUrl = 'http://api.gsm.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
+        // 自动执行更新游戏清单，地址由 utils/remoteSources.ts 统一维护
+        const remoteUrl = STEAM_GAME_LIST_URL
         const targetPath = possiblePaths[0] // 使用第一个路径作为目标路径
         
         // 确保目录存在
@@ -1546,72 +1546,24 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
               systemType = 'Windows'
             }
             
-            // 请求实例市场数据
-            const marketUrl = `http://api.gsm.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
-            
-            const marketData = await new Promise<any>((resolve, reject) => {
-              const url = new URL(marketUrl)
-              const options = {
-                hostname: url.hostname,
-                port: url.port,
-                path: url.pathname + url.search,
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'User-Agent': 'GSM3-Server/1.0'
-                }
-              }
-              
-              const req = http.request(options, (response: any) => {
-                let data = ''
-                
-                response.on('data', (chunk: any) => {
-                  data += chunk
-                })
-                
-                response.on('end', () => {
-                  try {
-                    if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
-                      const jsonData = JSON.parse(data)
-                      resolve(jsonData)
-                    } else {
-                      reject(new Error(`HTTP error! status: ${response.statusCode}`))
-                    }
-                  } catch (parseError) {
-                    reject(new Error(`JSON parse error: ${parseError}`))
-                  }
-                })
-              })
-              
-              req.on('error', (error: any) => {
-                reject(error)
-              })
-              
-              req.setTimeout(5000, () => {
-                req.destroy()
-                reject(new Error('Request timeout'))
-              })
-              
-              req.end()
-            })
+            // 请求实例市场数据（地址由 utils/remoteSources.ts 统一维护）
+            const marketInstances = await fetchInstanceMarketList(systemType, { timeoutMs: 5000 })
             
             // 在实例市场中查找匹配的游戏
-            if (marketData && marketData.instances && Array.isArray(marketData.instances)) {
-              const gameNameToMatch = gameName || gameKey
-              const matchedInstance = marketData.instances.find((instance: any) => {
-                // 尝试多种匹配方式
-                return instance.name && (
-                  instance.name.toLowerCase().includes(gameNameToMatch.toLowerCase()) ||
-                  gameNameToMatch.toLowerCase().includes(instance.name.toLowerCase())
-                )
-              })
-              
-              if (matchedInstance && matchedInstance.command) {
-                startCommand = matchedInstance.command
-                logger.info(`从实例市场找到匹配的启动命令: ${gameNameToMatch} -> ${startCommand}`)
-              } else {
-                logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，尝试使用本地清单启动命令`)
-              }
+            const gameNameToMatch = gameName || gameKey
+            const matchedInstance = marketInstances.find((instance) => {
+              // 尝试多种匹配方式
+              return instance.name && (
+                instance.name.toLowerCase().includes(gameNameToMatch.toLowerCase()) ||
+                gameNameToMatch.toLowerCase().includes(instance.name.toLowerCase())
+              )
+            })
+            
+            if (matchedInstance && matchedInstance.command) {
+              startCommand = matchedInstance.command
+              logger.info(`从实例市场找到匹配的启动命令: ${gameNameToMatch} -> ${startCommand}`)
+            } else {
+              logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，尝试使用本地清单启动命令`)
             }
           } catch (error: any) {
             logger.warn('查询实例市场失败，尝试使用本地清单启动命令:', error.message)
@@ -1669,72 +1621,24 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
             systemType = 'Windows'
           }
           
-          // 请求实例市场数据
-          const marketUrl = `http://api.gsm.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
-          
-          const marketData = await new Promise<any>((resolve, reject) => {
-            const url = new URL(marketUrl)
-            const options = {
-              hostname: url.hostname,
-              port: url.port,
-              path: url.pathname + url.search,
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'GSM3-Server/1.0'
-              }
-            }
-            
-            const req = http.request(options, (response: any) => {
-              let data = ''
-              
-              response.on('data', (chunk: any) => {
-                data += chunk
-              })
-              
-              response.on('end', () => {
-                try {
-                  if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
-                    const jsonData = JSON.parse(data)
-                    resolve(jsonData)
-                  } else {
-                    reject(new Error(`HTTP error! status: ${response.statusCode}`))
-                  }
-                } catch (parseError) {
-                  reject(new Error(`JSON parse error: ${parseError}`))
-                }
-              })
-            })
-            
-            req.on('error', (error: any) => {
-              reject(error)
-            })
-            
-            req.setTimeout(5000, () => {
-              req.destroy()
-              reject(new Error('Request timeout'))
-            })
-            
-            req.end()
-          })
+          // 请求实例市场数据（地址由 utils/remoteSources.ts 统一维护）
+          const marketInstances = await fetchInstanceMarketList(systemType, { timeoutMs: 5000 })
           
           // 在实例市场中查找匹配的游戏
-          if (marketData && marketData.instances && Array.isArray(marketData.instances)) {
-            const gameNameToMatch = gameName || gameKey
-            const matchedInstance = marketData.instances.find((instance: any) => {
-              // 尝试多种匹配方式
-              return instance.name && (
-                instance.name.toLowerCase().includes(gameNameToMatch.toLowerCase()) ||
-                gameNameToMatch.toLowerCase().includes(instance.name.toLowerCase())
-              )
-            })
-            
-            if (matchedInstance && matchedInstance.command) {
-              startCommand = matchedInstance.command
-              logger.info(`从实例市场找到匹配的启动命令: ${gameNameToMatch} -> ${startCommand}`)
-            } else {
-              logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，尝试使用本地清单启动命令`)
-            }
+          const gameNameToMatch = gameName || gameKey
+          const matchedInstance = marketInstances.find((instance) => {
+            // 尝试多种匹配方式
+            return instance.name && (
+              instance.name.toLowerCase().includes(gameNameToMatch.toLowerCase()) ||
+              gameNameToMatch.toLowerCase().includes(instance.name.toLowerCase())
+            )
+          })
+          
+          if (matchedInstance && matchedInstance.command) {
+            startCommand = matchedInstance.command
+            logger.info(`从实例市场找到匹配的启动命令: ${gameNameToMatch} -> ${startCommand}`)
+          } else {
+            logger.info(`实例市场中未找到匹配的游戏: ${gameNameToMatch}，尝试使用本地清单启动命令`)
           }
         } catch (error: any) {
           logger.warn('查询实例市场失败，尝试使用本地清单启动命令:', error.message)
@@ -1937,7 +1841,8 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
 // 更新Steam游戏部署清单
 router.post('/update-game-list', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const remoteUrl = 'http://api.gsm.xiaozhuhouses.asia:8082/disk1/GSM3/installgame.json'
+    // 清单地址由 utils/remoteSources.ts 统一维护，与定时任务、游戏部署页面保持一致
+    const remoteUrl = STEAM_GAME_LIST_URL
     const gamesFilePath = path.join(__dirname, '../data/games/installgame.json')
     
     logger.info('开始更新Steam游戏部署清单', { remoteUrl, localPath: gamesFilePath })

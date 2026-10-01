@@ -10,6 +10,7 @@ import cronParser from 'cron-parser'
 import { GameManager } from '../game/GameManager.js'
 import { InstanceManager } from '../instance/InstanceManager.js'
 import { TerminalManager } from '../terminal/TerminalManager.js'
+import { STEAM_GAME_LIST_URL } from '../../utils/remoteSources.js'
 
 // ES模块中获取__dirname的替代方案
 const __filename = fileURLToPath(import.meta.url)
@@ -396,7 +397,8 @@ export class SchedulerManager extends EventEmitter {
   private async updateSteamGameList(): Promise<void> {
     try {
       const axios = (await import('axios')).default
-      const remoteUrl = 'https://download.xiaozhuhouses.asia/download/v1/links/3HH_QlD__d5NxJ2kkGJMm7at6udImkz8wvycHQMc1ks'
+      // 清单地址由 utils/remoteSources.ts 统一维护，与设置页更新按钮保持一致
+      const remoteUrl = STEAM_GAME_LIST_URL
       
       // 使用多个路径尝试
       const baseDir = process.cwd()

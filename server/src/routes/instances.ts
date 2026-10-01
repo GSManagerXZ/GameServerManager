@@ -3,9 +3,8 @@ import type { InstanceManager } from '../modules/instance/InstanceManager.js'
 import { authenticateToken } from '../middleware/auth.js'
 import logger from '../utils/logger.js'
 import PythonManager from '../utils/pythonManager.js'
+import { fetchInstanceMarketList } from '../utils/remoteSources.js'
 import os from 'os'
-import https from 'https'
-import http from 'http'
 
 const router = Router()
 
@@ -45,70 +44,14 @@ router.get('/', authenticateToken, (req: Request, res: Response) => {
 // 获取实例市场列表
 router.get('/market', authenticateToken, async (req: Request, res: Response) => {
   try {
-    // 确定系统类型
-    const platform = os.platform()
-    let systemType = 'Linux'
-    if (platform === 'win32') {
-      systemType = 'Windows'
-    }
-    
-    // 请求第二个服务获取实例市场数据
-    const marketUrl = `http://api.gsm.xiaozhuhouses.asia:10002/api/instances?system_type=${systemType}`
-    
-    logger.info(`请求实例市场数据: ${marketUrl}`)
-    
-    // 使用Promise包装http请求
-    const marketData = await new Promise((resolve, reject) => {
-      const url = new URL(marketUrl)
-      const options = {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname + url.search,
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'GSM3-Server/1.0'
-        }
-      }
-      
-      const req = http.request(options, (response) => {
-        let data = ''
-        
-        response.on('data', (chunk) => {
-          data += chunk
-        })
-        
-        response.on('end', () => {
-           try {
-             if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
-               const jsonData = JSON.parse(data)
-               resolve(jsonData)
-             } else {
-               logger.error(`API请求失败 - 状态码: ${response.statusCode}, 响应内容: ${data}`)
-               reject(new Error(`HTTP error! status: ${response.statusCode}, response: ${data}`))
-             }
-           } catch (parseError) {
-             logger.error(`JSON解析失败: ${parseError}, 原始数据: ${data}`)
-             reject(new Error(`JSON parse error: ${parseError}`))
-           }
-         })
-      })
-      
-      req.on('error', (error) => {
-        reject(error)
-      })
-      
-      req.setTimeout(10000, () => {
-        req.destroy()
-        reject(new Error('Request timeout'))
-      })
-      
-      req.end()
-    })
-    
+    // 实例市场清单地址由面板统一维护（见 utils/remoteSources.ts）
+    const instances = await fetchInstanceMarketList()
+
     res.json({
       success: true,
-      data: marketData
+      data: {
+        instances
+      }
     })
   } catch (error: any) {
     logger.error('获取实例市场列表失败:', error)
