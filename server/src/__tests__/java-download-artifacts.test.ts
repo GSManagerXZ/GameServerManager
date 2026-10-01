@@ -1,7 +1,9 @@
 import {
+  getJavaDownloadCatalog,
   getJavaArchiveFileName,
   getJavaDownloadPlatformKey,
   getSponsorDownloadUrl,
+  resolveJavaDownloadOption,
   UnsupportedJavaDownloadError
 } from '../utils/javaDownloadArtifacts.js'
 
@@ -16,8 +18,8 @@ describe('java download artifacts', () => {
     expect(getJavaArchiveFileName('java17', 'linux', 'arm64')).toBe('openjdk-17.0.2_linux-aarch64_bin.tar.gz')
   })
 
-  it('does not map riscv64 to Linux x64 Java artifacts', () => {
-    expect(() => getJavaDownloadPlatformKey('linux', 'riscv64')).toThrow(UnsupportedJavaDownloadError)
+  it('keeps riscv64 separate from Linux x64 Java artifacts', () => {
+    expect(getJavaDownloadPlatformKey('linux', 'riscv64')).toBe('riscv64')
     expect(() => getJavaArchiveFileName('java17', 'linux', 'riscv64')).toThrow(/系统包管理器安装 OpenJDK/)
     expect(() => getSponsorDownloadUrl('java17', 'linux', 'riscv64')).toThrow(/系统包管理器安装 OpenJDK/)
   })
@@ -29,5 +31,59 @@ describe('java download artifacts', () => {
 
   it('rejects unsupported operating systems instead of treating them as Linux', () => {
     expect(() => getJavaArchiveFileName('java17', 'darwin', 'x64')).toThrow(UnsupportedJavaDownloadError)
+  })
+
+  it('builds Eclipse Temurin download options from the Adoptium API pattern', () => {
+    const resolution = resolveJavaDownloadOption('java17', 'adoptium', 'linux', 'x64')
+
+    expect(resolution.downloadUrl).toBe(
+      'https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse'
+    )
+    expect(resolution.archiveFileName).toBe('temurin-17-linux-x64.jdk.tar.gz')
+  })
+
+  it('supports Temurin riscv64 downloads only for versions with current GA builds', () => {
+    const resolution = resolveJavaDownloadOption('java21', 'adoptium', 'linux', 'riscv64')
+
+    expect(resolution.downloadUrl).toBe(
+      'https://api.adoptium.net/v3/binary/latest/21/ga/linux/riscv64/jdk/hotspot/normal/eclipse'
+    )
+    expect(resolution.archiveFileName).toBe('temurin-21-linux-riscv64.jdk.tar.gz')
+    expect(() => resolveJavaDownloadOption('java11', 'adoptium', 'linux', 'riscv64')).toThrow(/Temurin 暂不提供/)
+  })
+
+  it('keeps sponsor downloads behind sponsor availability', () => {
+    expect(() => resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64')).toThrow(/赞助高速源/)
+
+    const resolution = resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64', {
+      sponsorAvailable: true
+    })
+
+    expect(resolution.downloadUrl).toBe(getSponsorDownloadUrl('java17', 'linux', 'x64'))
+    expect(resolution.archiveFileName).toBe(getJavaArchiveFileName('java17', 'linux', 'x64'))
+  })
+
+  it('keeps sponsor unavailable on riscv64 while offering Temurin and system packages where valid', () => {
+    const catalog = getJavaDownloadCatalog('linux', 'riscv64')
+    const java17Options = catalog.options.filter(option => option.version === 'java17')
+    const java11Options = catalog.options.filter(option => option.version === 'java11')
+
+    expect(catalog.platformKey).toBe('riscv64')
+    expect(java17Options.find(option => option.provider === 'sponsor')).toEqual(expect.objectContaining({
+      available: false
+    }))
+    expect(java17Options.find(option => option.provider === 'adoptium')).toEqual(expect.objectContaining({
+      available: true,
+      downloadUrl: 'https://api.adoptium.net/v3/binary/latest/17/ga/linux/riscv64/jdk/hotspot/normal/eclipse'
+    }))
+    expect(java11Options.find(option => option.provider === 'adoptium')).toEqual(expect.objectContaining({
+      available: false
+    }))
+    expect(java17Options.find(option => option.provider === 'system')).toEqual(expect.objectContaining({
+      available: true,
+      recommended: true,
+      packageManager: 'apt',
+      packageName: 'openjdk-17-jre-headless'
+    }))
   })
 })

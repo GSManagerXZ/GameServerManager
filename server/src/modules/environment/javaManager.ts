@@ -6,6 +6,7 @@ import * as tar from 'tar'
 import logger from '../../utils/logger.js'
 import { createTarSecurityFilter } from '../../utils/tarSecurityFilter.js'
 import { zipToolsManager } from '../../utils/zipToolsManager.js'
+import { getSupportedJavaVersions } from '../../utils/javaDownloadArtifacts.js'
 
 export interface JavaEnvironment {
   version: string
@@ -94,7 +95,7 @@ export class JavaManager {
     await this.ensureInstallDir()
 
     const platform = os.platform()
-    const javaVersions = ['java8', 'java11', 'java17', 'java21', 'java25', 'java27']
+    const javaVersions = getSupportedJavaVersions().map(version => version.id)
     const environments: JavaEnvironment[] = []
 
     for (const version of javaVersions) {

@@ -924,10 +924,15 @@ class ApiClient {
     return this.get('/environment/java')
   }
 
+  async getJavaDownloadCatalog() {
+    return this.get('/environment/java/catalog')
+  }
+
   async installJavaEnvironment(data: {
     version: string
-    downloadUrl: string
-    platform: string
+    provider?: string
+    downloadUrl?: string
+    platform?: string
     socketId?: string
   }) {
     return this.post('/environment/java/install', data)
