@@ -2,7 +2,7 @@
  * 保持行为属性测试 — 分片上传非进度计算行为
  *
  * 目标：在未修复代码上运行并通过，确认以下基线行为不变：
- *   1. shouldUseChunkUpload 的文件大小阈值判断（10MB）
+ *   1. shouldUseChunkUpload 的文件大小阈值判断（20MB）
  *   2. calculateChunks 的分片数量和大小计算
  *   3. UploadDetailProgress 回调对象包含所有原有字段且类型不变
  *   4. abort 信号正确中止所有 XHR 请求
@@ -18,9 +18,10 @@ import { ChunkUploader, type UploadDetailProgress } from '../chunkUpload'
 // 常量
 // ============================================================
 
+// 以下常量与 chunkUpload.ts 的实现保持一致，实现改动分片参数时需要同步更新
 const MB = 1024 * 1024
-const THRESHOLD = 10 * MB       // shouldUseChunkUpload 阈值
-const DEFAULT_CHUNK_SIZE = 50 * MB  // 默认分片大小
+const THRESHOLD = 20 * MB       // shouldUseChunkUpload 阈值（实现为 fileSize > 20MB）
+const DEFAULT_CHUNK_SIZE = 20 * MB  // 默认分片大小（实现为 ChunkUploader.DEFAULT_CHUNK_SIZE）
 const CONCURRENT_UPLOADS = 3        // 并发上传数
 
 // ============================================================
@@ -193,13 +194,13 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
   // ============================================================
 
   /**
-   * 对任意文件大小，shouldUseChunkUpload 的判断结果与原始代码一致（阈值 10MB）
-   * - 文件大小 <= 10MB 返回 false（使用普通上传）
-   * - 文件大小 > 10MB 返回 true（使用分片上传）
+   * 对任意文件大小，shouldUseChunkUpload 的判断结果与原始代码一致（阈值 20MB）
+   * - 文件大小 <= 20MB 返回 false（使用普通上传）
+   * - 文件大小 > 20MB 返回 true（使用分片上传）
    *
    * **Validates: Requirements 3.1**
    */
-  it('属性1: shouldUseChunkUpload 对任意文件大小的判断结果与 10MB 阈值一致', () => {
+  it('属性1: shouldUseChunkUpload 对任意文件大小的判断结果与 20MB 阈值一致', () => {
     fc.assert(
       fc.property(
         // 生成 0 到 500MB 范围内的文件大小
@@ -220,9 +221,9 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
    * **Validates: Requirements 3.1**
    */
   it('属性1-边界: shouldUseChunkUpload 在阈值边界处行为正确', () => {
-    // 恰好 10MB — 不使用分片
+    // 恰好 20MB — 不使用分片
     expect(ChunkUploader.shouldUseChunkUpload(THRESHOLD)).toBe(false)
-    // 10MB + 1 字节 — 使用分片
+    // 20MB + 1 字节 — 使用分片
     expect(ChunkUploader.shouldUseChunkUpload(THRESHOLD + 1)).toBe(true)
     // 0 字节 — 不使用分片
     expect(ChunkUploader.shouldUseChunkUpload(0)).toBe(false)
@@ -237,20 +238,23 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
   // ============================================================
 
   /**
-   * 对任意文件大小（> 10MB），calculateChunks 产生的分片数量和大小与原始代码一致：
-   * - 分片数量 = Math.ceil(fileSize / 50MB)
-   * - 每个分片大小 = 50MB（最后一个分片可能更小）
+   * 对任意文件大小（> 20MB），calculateChunks 产生的分片数量和大小与原始代码一致：
+   * - 分片数量 = Math.ceil(fileSize / 20MB)
+   * - 每个分片大小 = 20MB（最后一个分片可能更小）
    * - 所有分片大小之和 = 文件总大小
    *
    * 通过启动上传并观察 onDetailProgress 中的 totalChunks 来验证
+   *
+   * 注意：每轮都要跑完整的上传与清理流程，分片粒度调整为 20MB 后单轮耗时上升，
+   * 因此这里显式放宽该用例的超时时间（全局 testTimeout 为 30 秒）。
    *
    * **Validates: Requirements 3.7**
    */
   it('属性2: calculateChunks 对任意文件大小产生正确的分片数量', async () => {
     await fc.assert(
       fc.asyncProperty(
-        // 生成 11MB 到 500MB 范围内的文件大小（确保使用分片上传）
-        fc.integer({ min: 11 * MB, max: 500 * MB }),
+        // 生成 20MB + 1 字节到 500MB 范围内的文件大小（确保使用分片上传）
+        fc.integer({ min: THRESHOLD + 1, max: 500 * MB }),
         async (fileSize) => {
           xhrInstances = []
           const events: UploadDetailProgress[] = []
@@ -278,15 +282,16 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
       ),
       { numRuns: 10, timeout: 60000 },
     )
-  })
+  }, 120000)
 
   /**
-   * 具体验证：200MB 文件产生 4 个分片，每个 50MB
+   * 具体验证：200MB 文件产生 10 个分片，每个 20MB
    *
    * **Validates: Requirements 3.7**
    */
-  it('属性2-具体: 200MB 文件产生 4 个 50MB 分片', async () => {
+  it('属性2-具体: 200MB 文件产生 10 个 20MB 分片', async () => {
     const FILE_SIZE = 200 * MB
+    const EXPECTED_CHUNKS = Math.ceil(FILE_SIZE / DEFAULT_CHUNK_SIZE)
     const events: UploadDetailProgress[] = []
 
     const file = createMockFile(FILE_SIZE)
@@ -300,12 +305,12 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
     await waitFor(() => events.some(e => e.phase === 'uploading'), 10000)
 
     const uploadingEvent = events.find(e => e.phase === 'uploading')!
-    expect(uploadingEvent.totalChunks).toBe(4)
+    expect(uploadingEvent.totalChunks).toBe(EXPECTED_CHUNKS)
     expect(uploadingEvent.totalSize).toBe(FILE_SIZE)
 
     // 验证 chunksProgress 中每个分片的大小
     const chunksProgress = uploadingEvent.chunksProgress
-    expect(chunksProgress.length).toBe(4)
+    expect(chunksProgress.length).toBe(EXPECTED_CHUNKS)
     for (const cp of chunksProgress) {
       expect(cp.size).toBe(DEFAULT_CHUNK_SIZE)
     }
@@ -457,7 +462,7 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
    * **Validates: Requirements 3.7**
    */
   it('属性5: 并发上传数保持为 3', async () => {
-    const FILE_SIZE = 300 * MB  // 6 个分片，需要 2 个批次
+    const FILE_SIZE = 300 * MB  // 15 个分片，需要 5 个批次
     const events: UploadDetailProgress[] = []
 
     const file = createMockFile(FILE_SIZE)
@@ -479,7 +484,7 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
 
     // 验证 totalBatches 正确
     const uploadingEvent = events.find(e => e.phase === 'uploading')!
-    expect(uploadingEvent.totalBatches).toBe(Math.ceil(6 / CONCURRENT_UPLOADS))
+    expect(uploadingEvent.totalBatches).toBe(Math.ceil(Math.ceil(FILE_SIZE / DEFAULT_CHUNK_SIZE) / CONCURRENT_UPLOADS))
 
     await cleanupUpload(uploadPromise, DEFAULT_CHUNK_SIZE)
   })

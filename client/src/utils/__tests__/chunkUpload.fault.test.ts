@@ -199,6 +199,8 @@ describe('Bug 条件探索性测试 — 分片上传进度计算缺陷', () => {
           })
 
           const uploadPromise = uploader.upload()
+          // 提前挂载处理函数，避免上传失败时在 cleanupUpload 接管前产生 unhandled rejection
+          uploadPromise.catch(() => { /* 失败统一由 cleanupUpload 忽略 */ })
           // 等待并发 3 个 XHR 创建
           await waitFor(() => xhrInstances.length >= 3)
 
@@ -252,6 +254,8 @@ describe('Bug 条件探索性测试 — 分片上传进度计算缺陷', () => {
     })
 
     const uploadPromise = uploader.upload()
+    // 提前挂载处理函数，避免上传失败时在 cleanupUpload 接管前产生 unhandled rejection
+    uploadPromise.catch(() => { /* 失败统一由 cleanupUpload 忽略 */ })
     await waitFor(() => xhrInstances.length >= 3)
 
     // 3 个分片各上传 80%（共 120MB / 200MB = 60%）
@@ -298,6 +302,8 @@ describe('Bug 条件探索性测试 — 分片上传进度计算缺陷', () => {
     })
 
     const uploadPromise = uploader.upload()
+    // 提前挂载处理函数，避免上传失败时在 cleanupUpload 接管前产生 unhandled rejection
+    uploadPromise.catch(() => { /* 失败统一由 cleanupUpload 忽略 */ })
     await waitFor(() => xhrInstances.length >= 3)
 
     // 分片 0 逐步上传
