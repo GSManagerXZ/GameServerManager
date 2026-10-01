@@ -105,13 +105,14 @@ describe('Modrinth network checks', () => {
 
   it('uses the same checks in check-all while retaining the other configured services', async () => {
     const result = await check('/check-all')
-    expect(result.data.results).toHaveLength(9)
+    expect(result.data.results).toHaveLength(7)
     expect(result.data.results.every(item => item.status === 'success')).toBe(true)
     expect(result.data.results.filter(item => item.id.startsWith('modrinth-'))).toEqual([
       expect.objectContaining({ id: 'modrinth-api', url: 'https://api.modrinth.com/v2/tag/category', status: 'success' }),
       expect.objectContaining({ id: 'modrinth-cdn', url: 'https://cdn.modrinth.com/data/P7dR8mSH/icon.png', status: 'success' })
     ])
-    expect(mockTcpConnections).toEqual([{ host: 'langlangy2.server.xiaozhuhouses.asia', port: 44409 }])
+    // GSManager 组已移除，其余检测项不再使用 TCP 检测
+    expect(mockTcpConnections).toEqual([])
   })
 
   it('leaves redirect behavior unchanged for custom checks without an opt-in', async () => {

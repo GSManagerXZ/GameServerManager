@@ -76,26 +76,6 @@ const initialCategories: NetworkCheckCategory[] = [
         errorMessage: 'MSL API连接失败，您可能无法部署MC核心'
       }
     ]
-  },
-  {
-    id: 'gsmanager',
-    name: 'GSManager',
-    items: [
-      {
-        id: 'gsm-deploy',
-        name: 'GSManager功能服务',
-        url: 'http://langlangy2.server.xiaozhuhouses.asia:44409',
-        status: 'pending',
-        errorMessage: 'GSManager功能服务 连接失败，您将无法使用在线部署功能'
-      },
-      {
-        id: 'gsm-mirror',
-        name: '文件边缘下载服务',
-        url: 'https://download.xiaozhuhouses.asia',
-        status: 'pending',
-        errorMessage: '文件边缘下载服务 连接失败，您将无法使用环境管理中的边缘下载功能'
-      }
-    ]
   }
 ]
 

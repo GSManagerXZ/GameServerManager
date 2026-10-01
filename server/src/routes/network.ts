@@ -36,10 +36,7 @@ const networkCheckItems: NetworkCheckItem[] = [
   { id: 'modrinth-cdn', name: 'Modrinth CDN', url: 'https://cdn.modrinth.com/data/P7dR8mSH/icon.png', status: 'pending', checkType: 'http', followRedirects: true },
   // Minecraft
   { id: 'mojang-session', name: 'Mojang 会话服务器', url: 'sessionserver.mojang.com', status: 'pending' },
-  { id: 'msl-api', name: 'MSL API', url: 'https://api.mslmc.cn/v3', status: 'pending' },
-  // GSManager
-  { id: 'gsm-deploy', name: 'GSManager功能服务', url: 'http://langlangy2.server.xiaozhuhouses.asia', status: 'pending', checkType: 'tcp', port: 44409 },
-  { id: 'gsm-mirror', name: '文件边缘下载服务', url: 'download.xiaozhuhouses.asia', status: 'pending', expectedStatusCode: 200 }
+  { id: 'msl-api', name: 'MSL API', url: 'https://api.mslmc.cn/v3', status: 'pending' }
 ]
 
 // TCP Ping 函数

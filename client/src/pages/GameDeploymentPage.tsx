@@ -3708,6 +3708,27 @@ const GameDeploymentPage: React.FC = () => {
         </div>
       </div>
 
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-md dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex items-start gap-3">
+          <ExternalLink className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">雨云-服务端合集</h3>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              由雨云提供整理的服务端压缩包合集，可直接复制下载地址后使用“URL 离线下载”，或下载压缩包后使用“上传压缩包”部署。
+            </p>
+            <a
+              href="https://mirrors.rainyun.com/%E6%9C%8D%E5%8A%A1%E7%AB%AF%E5%90%88%E9%9B%86"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-sm text-blue-600 transition-colors hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span>访问雨云-服务端合集</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-lg bg-white p-6 shadow-md dark:bg-gray-800">
           <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">部署来源</h3>
@@ -4750,9 +4771,6 @@ const GameDeploymentPage: React.FC = () => {
       {/* 在线部署标签页内容 */}
       {activeTab === 'online-deploy' && (
         <div className="space-y-6">
-          {/* GSManager功能服务网络状态提示 */}
-          <NetworkStatusBanner categoryId="gsmanager" itemId="gsm-deploy" autoCheck={true} />
-          
           {/* 赞助者密钥状态 */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
             <div className="flex items-center space-x-3">

@@ -3,7 +3,7 @@ import { useNetworkCheckStore } from '@/stores/networkCheckStore'
 import { CheckCircle2, AlertCircle, XCircle, Loader2, RefreshCw } from 'lucide-react'
 
 interface NetworkStatusBannerProps {
-  /** 分类ID：steam, minecraft, modrinth, gsmanager */
+  /** 分类ID：internet, steam, minecraft, modrinth */
   categoryId?: string
   /** 项目ID：如果只检查分类中的某一项 */
   itemId?: string
