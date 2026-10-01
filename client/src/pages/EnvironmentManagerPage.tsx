@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useNotificationStore } from '@/stores/notificationStore'
 import apiClient from '@/utils/api'
-import { isSponsorActive } from '@/utils/sponsor'
+import { hasSponsorKey } from '@/utils/sponsor'
 import socketClient from '@/utils/socket'
 import { copyToClipboard } from '@/utils/clipboard'
 
@@ -84,6 +84,16 @@ interface DirectXEnvironment {
   installStage?: 'download' | 'install'
 }
 
+// Java版本下载配置：部分版本未提供对应平台（如 ARM64）的安装包
+interface JavaVersionConfig {
+  version: string
+  key: string
+  description: string
+  windows?: string
+  linux?: string
+  arm?: string
+}
+
 const EnvironmentManagerPage: React.FC = () => {
   const [systemInfo, setSystemInfo] = useState<LocalSystemInfo | null>(null)
   const [javaEnvironments, setJavaEnvironments] = useState<JavaEnvironment[]>([])
@@ -119,57 +129,61 @@ const EnvironmentManagerPage: React.FC = () => {
 
   const { addNotification } = useNotificationStore()
 
-  // 赞助者状态（赞助者密钥目前仅本地记录）
+  // 赞助者状态（赞助者密钥目前仅本地记录，Java 环境下载会按密钥走赞助者通道）
   const [sponsorStatus, setSponsorStatus] = useState<{
-    isValid: boolean
     hasKey: boolean
     loading: boolean
   }>({
-    isValid: false,
     hasKey: false,
     loading: true
   })
 
-  // Java版本配置
-  const javaVersions = [
+  // Java版本下载配置：部分版本未提供 ARM64 安装包
+  const javaVersions: JavaVersionConfig[] = [
     {
       version: 'Java 8',
       key: 'java8',
       description: 'Java 8 (OpenJDK 8u44)',
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/4GMNQ54kGwuviwcEOfgzVCRSWT6XzNPXp-ByPPVifYk',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/WBaVRrXptRSqi0JjLkyYKDB2bnH3T67IQzJT-iPz6bA'
+      windows: 'https://download.xiaozhuhouses.asia/d/e2fb4833ba415b8c500aed2d9b88d401/openjdk-8u44-windows-i586.zip',
+      linux: 'https://download.xiaozhuhouses.asia/d/eba19d9b0eb2f5ee0af4aa1410e7e8ea/openjdk-8u44-linux-x64.tar.gz'
     },
     {
       version: 'Java 11',
       key: 'java11',
       description: 'Java 11 (OpenJDK 11.0.0.2)',
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/enN1iE0CIwgJWmzDSq8bJJeWDnC1DuCx6IE_24aWQ2s',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/_KQdgTNVpgZJZwrLozviN3gE6ZEcEpZZf58NUL9WYOA',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/_ya4jKkyMFfDROU87g-oo2E9UnbRaxlgp_govHyDUYU'
+      windows: 'https://download.xiaozhuhouses.asia/d/09844c5699181cace0c50838a01b3afa/openjdk-11.0.0.2_windows-x64.zip',
+      linux: 'https://download.xiaozhuhouses.asia/d/1ad2d19275d387bf474186213159971b/openjdk-11.0.0.2_linux-x64.tar.gz'
     },
     {
       version: 'Java 17',
       key: 'java17',
       description: 'Java 17 (OpenJDK 17.0.0.1)',
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/4_q8RzaqTgDGmFHQiVz1lMaBl3hTwjAp8YmFx0GtCjs',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/oNn4sshvtLJ3V8dJApXecT5axaRLjTBUL5lqBkz0LPs',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/9uS3rF5DO_-c_tcaM7BykYdI6ZrtPlnj4IVyVpK4F3Y'
+      windows: 'https://download.xiaozhuhouses.asia/d/7dc046a7855530363fac794781bdf767/openjdk-17.0.0.1+2_windows-x64_bin.zip',
+      linux: 'https://download.xiaozhuhouses.asia/d/25b171ae761d3222bd0f91ddca373d32/openjdk-17.0.0.1+2_linux-x64_bin.tar.gz',
+      arm: 'https://download.xiaozhuhouses.asia/d/8868121de8e1a36192abfe4034ec3a7b/openjdk-17.0.2_linux-aarch64_bin.tar.gz'
     },
     {
       version: 'Java 21',
       key: 'java21',
       description: 'Java 21 (OpenJDK 21)',
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/c0Heh97uhMO3_LCfYMr9tQyYCagRpX9Wi5gbm08dtuc',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/rFPuJ-HY7XVmg-KnBsXwvtvewxI-2orfe95G949zFa0',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/qWLHA8eDvA55KpG9pW35Aj1Ds-CNvuWT4JbO_8zIY9U'
+      windows: 'https://download.xiaozhuhouses.asia/d/a436ba580cf68550b0a14408105eb8d5/openjdk-21+35_windows-x64_bin.zip',
+      linux: 'https://download.xiaozhuhouses.asia/d/521a8c9551a8cd0923825789e3be5054/openjdk-21+35_linux-x64_bin.tar.gz',
+      arm: 'https://download.xiaozhuhouses.asia/d/4c5d060a6186d630f4c0cb64cac7c075/openjdk-21_linux-aarch64_bin.tar.gz'
     },
     {
       version: 'Java 25',
       key: 'java25',
       description: 'Java 25 (OpenJDK 25+36)',
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/QBmtaNmE_wEATTjQoO0AAEncTPUVjwnCofWUxPY4EH4',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/bvANX6e9XuW_nvdO6TmE89tyepAELCyub3wsXhcZMvU',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/k-EfIFXJeFtP2DZv-8Fn9SwLCaQWL7HhfIbTkx1xeFk'
+      windows: 'https://download.xiaozhuhouses.asia/d/1e1b2424fef706eb9f13851ad9081aff/openjdk-25+36_windows-x64_bin.zip',
+      linux: 'https://download.xiaozhuhouses.asia/d/59e59a84f693481bb7a29802a2ef5253/openjdk-25+36_linux-x64_bin.tar.gz',
+      arm: 'https://download.xiaozhuhouses.asia/d/a6f7a6c56d31bcb9c47927fb55386343/openjdk-25.0.2_linux-aarch64_bin.tar.gz'
+    },
+    {
+      version: 'Java 27',
+      key: 'java27',
+      description: 'Java 27 (OpenJDK 27+35)',
+      windows: 'https://download.xiaozhuhouses.asia/d/b1b2ce98fd714e8202a6d0cd8893237e/openjdk-27+35_windows-x64_bin.zip',
+      linux: 'https://download.xiaozhuhouses.asia/d/57849c8d615de1b355d88ba2fa2d6bf2/openjdk-27+35_linux-x64_bin.tar.gz'
     }
   ]
 
@@ -194,7 +208,7 @@ const EnvironmentManagerPage: React.FC = () => {
     }
   }
 
-  // 获取赞助者状态（判定统一由 isSponsorActive 收口）
+  // 获取赞助者状态（是否有本地记录的密钥，判定统一由 hasSponsorKey 收口）
   const fetchSponsorStatus = async () => {
     try {
       setSponsorStatus(prev => ({ ...prev, loading: true }))
@@ -202,18 +216,33 @@ const EnvironmentManagerPage: React.FC = () => {
       const keyInfo = response.success ? response.data : null
 
       setSponsorStatus({
-        isValid: isSponsorActive(keyInfo),
-        hasKey: !!keyInfo?.key,
+        hasKey: hasSponsorKey(keyInfo),
         loading: false
       })
     } catch (error) {
       console.error('获取赞助者状态失败:', error)
       setSponsorStatus({
-        isValid: false,
         hasKey: false,
         loading: false
       })
     }
+  }
+
+  // 按当前系统平台与架构解析Java下载地址，未提供对应安装包时返回 null
+  const resolveJavaDownloadUrl = (javaConfig: JavaVersionConfig): string | null => {
+    if (!systemInfo) {
+      return null
+    }
+
+    if (systemInfo.platform === 'win32') {
+      return javaConfig.windows || null
+    }
+
+    if (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') {
+      return javaConfig.arm || null
+    }
+
+    return javaConfig.linux || null
   }
 
   // 获取Java环境列表
@@ -680,15 +709,14 @@ const EnvironmentManagerPage: React.FC = () => {
     }
 
     // 根据平台和架构选择下载URL
-    let downloadUrl: string
-    if (systemInfo.platform === 'win32') {
-      downloadUrl = javaConfig.windows
-    } else if (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') {
-      // ARM架构
-      downloadUrl = (javaConfig as any).arm || javaConfig.linux
-    } else {
-      // x64架构
-      downloadUrl = javaConfig.linux
+    const downloadUrl = resolveJavaDownloadUrl(javaConfig)
+    if (!downloadUrl) {
+      addNotification({
+        type: 'warning',
+        title: '暂不支持',
+        message: `${javaConfig.version} 暂未提供当前架构（${systemInfo.arch}）的安装包，请选择其它版本`
+      })
+      return
     }
 
     try {
@@ -1250,17 +1278,17 @@ const EnvironmentManagerPage: React.FC = () => {
       {/* 赞助者状态提示 */}
       {!sponsorStatus.loading && (
         <div className={`rounded-lg p-4 border ${
-          sponsorStatus.isValid
+          sponsorStatus.hasKey
             ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
             : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
         }`}>
           <div className="flex items-start space-x-3">
             <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
-              sponsorStatus.isValid
+              sponsorStatus.hasKey
                 ? 'bg-green-500'
                 : 'bg-yellow-500'
             }`}>
-              {sponsorStatus.isValid ? (
+              {sponsorStatus.hasKey ? (
                 <CheckCircle className="w-3 h-3 text-white" />
               ) : (
                 <AlertCircle className="w-3 h-3 text-white" />
@@ -1268,14 +1296,12 @@ const EnvironmentManagerPage: React.FC = () => {
             </div>
             <div className="flex-1">
               <p className={`text-sm font-medium ${
-                sponsorStatus.isValid
+                sponsorStatus.hasKey
                   ? 'text-green-800 dark:text-green-200'
                   : 'text-yellow-800 dark:text-yellow-200'
               }`}>
-                {sponsorStatus.isValid ? (
-                  '您现已是赞助者，专享国内高速服务器下载Java环境'
-                ) : sponsorStatus.hasKey ? (
-                  '已记录赞助者密钥，赞助者专享下载功能正在接入中，当前按普通通道下载Java环境'
+                {sponsorStatus.hasKey ? (
+                  '已记录赞助者密钥，Java环境将通过赞助者专用通道下载（密钥无效时自动回退普通通道）'
                 ) : (
                   <>
                     Java环境安装现已支持赞助者专享国内高速服务器下载，您当前还不是赞助者，欢迎前往
@@ -1404,6 +1430,8 @@ const EnvironmentManagerPage: React.FC = () => {
                 const env = javaEnvironments.find(e => e.version === javaConfig.key)
                 const isInstalled = env?.installed || false
                 const isInstalling = env?.installing || false
+                // 当前系统架构下是否提供了安装包（系统信息未加载完成时不限制）
+                const archSupported = !systemInfo || !!resolveJavaDownloadUrl(javaConfig)
                 
                 return (
                   <div
@@ -1441,6 +1469,13 @@ const EnvironmentManagerPage: React.FC = () => {
                     <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
                       {javaConfig.description}
                     </p>
+
+                    {/* 当前架构无安装包提示 */}
+                    {!isInstalled && !archSupported && (
+                      <p className="text-yellow-600 dark:text-yellow-400 text-xs mb-4">
+                        该版本暂未提供当前架构（{systemInfo?.arch || '未知'}）的安装包
+                      </p>
+                    )}
 
                     {/* 安装进度 */}
                     {isInstalling && (
@@ -1487,7 +1522,8 @@ const EnvironmentManagerPage: React.FC = () => {
                       {!isInstalled ? (
                         <button
                           onClick={() => handleInstallJava(javaConfig.key)}
-                          disabled={isInstalling}
+                          disabled={isInstalling || !archSupported}
+                          title={!archSupported ? '该版本暂未提供当前架构的安装包' : undefined}
                           className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
                         >
                           {isInstalling ? (

@@ -16,6 +16,11 @@ export interface JavaEnvironment {
   javaExecutable?: string
 }
 
+export interface JavaDownloadOptions {
+  /** 赞助者下载会话 Cookie，仅在赞助者专用通道下传入 */
+  cookie?: string
+}
+
 export class JavaManager {
   private readonly installDir: string
 
@@ -89,7 +94,7 @@ export class JavaManager {
     await this.ensureInstallDir()
 
     const platform = os.platform()
-    const javaVersions = ['java8', 'java11', 'java17', 'java21', 'java25']
+    const javaVersions = ['java8', 'java11', 'java17', 'java21', 'java25', 'java27']
     const environments: JavaEnvironment[] = []
 
     for (const version of javaVersions) {
@@ -131,18 +136,26 @@ export class JavaManager {
   private async downloadFile(
     url: string,
     filePath: string,
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    options?: JavaDownloadOptions
   ): Promise<void> {
-    logger.info(`正在下载文件: ${url}`)
+    logger.info(`正在下载文件: ${url}${options?.cookie ? '（赞助者专用通道）' : ''}`)
+
+    const headers: Record<string, string> = {
+      'User-Agent': 'GSManager3/1.0.0'
+    }
+
+    // 赞助者会话 Cookie，用于让下载服务调度到赞助者专用节点
+    if (options?.cookie) {
+      headers.Cookie = options.cookie
+    }
 
     const response = await axios({
       method: 'GET',
       url,
       responseType: 'stream',
       timeout: 300000, // 5分钟超时
-      headers: {
-        'User-Agent': 'GSManager3/1.0.0'
-      }
+      headers
     })
 
     const totalLength = parseInt(String(response.headers['content-length'] || '0'), 10)
@@ -261,7 +274,8 @@ export class JavaManager {
     version: string,
     downloadUrl: string,
     onProgress?: (stage: 'download' | 'extract', progress: number) => void,
-    archiveFileName?: string
+    archiveFileName?: string,
+    downloadOptions?: JavaDownloadOptions
   ): Promise<void> {
     await this.ensureInstallDir()
 
@@ -284,7 +298,7 @@ export class JavaManager {
 
       await this.downloadFile(downloadUrl, downloadPath, (progress) => {
         onProgress?.('download', progress)
-      })
+      }, downloadOptions)
 
       // 解压文件
       onProgress?.('extract', 0)

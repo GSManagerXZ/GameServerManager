@@ -2,10 +2,12 @@ import express from 'express'
 import os from 'os'
 import logger from '../utils/logger.js'
 import { JavaManager, VcRedistManager, DirectXManager } from '../modules/environment/index.js'
+import type { JavaDownloadOptions } from '../modules/environment/index.js'
 import { LinuxPackageManager } from '../modules/environment/packageManager.js'
 import { authenticateToken } from '../middleware/auth.js'
 import { ConfigManager } from '../modules/config/ConfigManager.js'
-import { isSponsorUnlocked } from '../utils/sponsorStatus.js'
+import { getSponsorKey } from '../utils/sponsorStatus.js'
+import { createSponsorDownloadSession, isSponsorDownloadUrl } from '../utils/sponsorDownload.js'
 
 // 存储Socket.IO实例的变量
 let io: any = null
@@ -70,55 +72,7 @@ router.get('/java', authenticateToken, async (req, res) => {
   }
 })
 
-// 获取赞助者专用下载链接
-function getSponsorDownloadUrl(version: string, platform: string, arch?: string): string {
-  const downloadUrls = {
-    java8: {
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/4GMNQ54kGwuviwcEOfgzVCRSWT6XzNPXp-ByPPVifYk',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/WBaVRrXptRSqi0JjLkyYKDB2bnH3T67IQzJT-iPz6bA'
-    },
-    java11: {
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/enN1iE0CIwgJWmzDSq8bJJeWDnC1DuCx6IE_24aWQ2s',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/_KQdgTNVpgZJZwrLozviN3gE6ZEcEpZZf58NUL9WYOA',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/_ya4jKkyMFfDROU87g-oo2E9UnbRaxlgp_govHyDUYU'
-    },
-    java17: {
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/4_q8RzaqTgDGmFHQiVz1lMaBl3hTwjAp8YmFx0GtCjs',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/oNn4sshvtLJ3V8dJApXecT5axaRLjTBUL5lqBkz0LPs',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/9uS3rF5DO_-c_tcaM7BykYdI6ZrtPlnj4IVyVpK4F3Y'
-    },
-    java21: {
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/c0Heh97uhMO3_LCfYMr9tQyYCagRpX9Wi5gbm08dtuc',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/rFPuJ-HY7XVmg-KnBsXwvtvewxI-2orfe95G949zFa0',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/qWLHA8eDvA55KpG9pW35Aj1Ds-CNvuWT4JbO_8zIY9U'
-    },
-    java25: {
-      windows: 'https://download.xiaozhuhouses.asia/download/v1/links/QBmtaNmE_wEATTjQoO0AAEncTPUVjwnCofWUxPY4EH4',
-      linux: 'https://download.xiaozhuhouses.asia/download/v1/links/bvANX6e9XuW_nvdO6TmE89tyepAELCyub3wsXhcZMvU',
-      arm: 'https://download.xiaozhuhouses.asia/download/v1/links/k-EfIFXJeFtP2DZv-8Fn9SwLCaQWL7HhfIbTkx1xeFk'
-    }
-  }
-
-  // 判断平台类型
-  let platformKey: 'windows' | 'linux' | 'arm'
-  if (platform === 'win32') {
-    platformKey = 'windows'
-  } else if (arch === 'arm64' || arch === 'aarch64') {
-    platformKey = 'arm'
-  } else {
-    platformKey = 'linux'
-  }
-
-  const downloadUrl = downloadUrls[version]?.[platformKey]
-
-  if (!downloadUrl) {
-    throw new Error(`不支持的版本或平台: ${version}, ${platform}, ${arch}`)
-  }
-
-  return downloadUrl
-}
-
-// 获取Java压缩包文件名，短链下载地址无法通过URL末段推断文件格式
+// 获取Java压缩包文件名，下载地址末段可能不便直接作为文件名使用
 function getJavaArchiveFileName(version: string, platform: string, arch?: string): string {
   const fileNames = {
     java8: {
@@ -127,8 +81,7 @@ function getJavaArchiveFileName(version: string, platform: string, arch?: string
     },
     java11: {
       windows: 'openjdk-11.0.0.2_windows-x64.zip',
-      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz',
-      arm: 'microsoft-jdk-11.0.29-linux-aarch64.tar.gz'
+      linux: 'openjdk-11.0.0.2_linux-x64.tar.gz'
     },
     java17: {
       windows: 'openjdk-17.0.0.1+2_windows-x64_bin.zip',
@@ -144,6 +97,10 @@ function getJavaArchiveFileName(version: string, platform: string, arch?: string
       windows: 'openjdk-25+36_windows-x64_bin.zip',
       linux: 'openjdk-25+36_linux-x64_bin.tar.gz',
       arm: 'openjdk-25.0.2_linux-aarch64_bin.tar.gz'
+    },
+    java27: {
+      windows: 'openjdk-27+35_windows-x64_bin.zip',
+      linux: 'openjdk-27+35_linux-x64_bin.tar.gz'
     }
   }
 
@@ -158,7 +115,9 @@ function getJavaArchiveFileName(version: string, platform: string, arch?: string
 
   const fileName = fileNames[version]?.[platformKey]
   if (!fileName) {
-    throw new Error(`不支持的Java压缩包: ${version}, ${platform}, ${arch}`)
+    // 该版本没有提供对应平台的安装包（例如 ARM64 下的 Java 8/11/27），交给下载地址末段推断
+    logger.warn(`未配置Java压缩包文件名，将按下载地址推断: ${version}, ${platform}, ${arch}`)
+    return ''
   }
 
   return fileName
@@ -176,31 +135,32 @@ router.post('/java/install', authenticateToken, async (req, res) => {
   }
 
   try {
-    // 检查是否为赞助者，如果是则使用赞助者专用下载链接
-    let finalDownloadUrl = downloadUrl
-    const archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch())
-    const isSponsor = isSponsorUnlocked(configManager)
+    // 已记录赞助者密钥时尝试走赞助者专用通道：先建立下载会话，再用会话 Cookie 下载同一个地址
+    let downloadOptions: JavaDownloadOptions | undefined
+    let useSponsorChannel = false
+    const archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch()) || undefined
+    const sponsorKey = getSponsorKey(configManager)
 
-    if (isSponsor) {
+    if (sponsorKey && isSponsorDownloadUrl(downloadUrl)) {
       try {
-        const platform = process.platform
-        const arch = os.arch()
-        finalDownloadUrl = getSponsorDownloadUrl(version, platform, arch)
-        logger.info(`检测到有效赞助者，使用赞助者专用下载链接: ${finalDownloadUrl}`)
+        const session = await createSponsorDownloadSession(sponsorKey)
+        downloadOptions = { cookie: session.cookie }
+        useSponsorChannel = true
+        logger.info(`检测到本地记录的赞助者密钥，本次下载使用赞助者专用通道: ${downloadUrl}`)
       } catch (error) {
-        logger.warn(`获取赞助者下载链接失败，使用默认链接: ${error instanceof Error ? error.message : '未知错误'}`)
-        // 如果获取赞助者链接失败，继续使用原始链接
+        // 密钥无效或服务不可用时不影响安装，自动回退普通下载通道
+        logger.warn(`赞助者专用通道不可用，回退普通下载通道: ${error instanceof Error ? error.message : '未知错误'}`)
       }
     }
 
     // 立即返回响应，安装过程在后台进行
     res.json({
       success: true,
-      message: `${version} 开始安装${isSponsor ? '（赞助者专用链接）' : ''}`
+      message: `${version} 开始安装${useSponsorChannel ? '（赞助者专用通道）' : ''}`
     })
 
     // 后台执行安装，通过WebSocket发送进度更新
-    await javaManager.installJava(version, finalDownloadUrl, (stage, progress) => {
+    await javaManager.installJava(version, downloadUrl, (stage, progress) => {
       if (io && socketId) {
         io.to(socketId).emit('java-install-progress', {
           version,
@@ -208,7 +168,7 @@ router.post('/java/install', authenticateToken, async (req, res) => {
           progress
         })
       }
-    }, archiveFileName)
+    }, archiveFileName, downloadOptions)
 
     // 发送最终进度更新，确保进度条到达100%
     if (io && socketId) {
@@ -224,7 +184,7 @@ router.post('/java/install', authenticateToken, async (req, res) => {
       io.to(socketId).emit('java-install-complete', {
         version,
         success: true,
-        message: `${version} 安装成功${isSponsor ? '（赞助者专用链接）' : ''}`
+        message: `${version} 安装成功${useSponsorChannel ? '（赞助者专用通道）' : ''}`
       })
     }
   } catch (error) {
