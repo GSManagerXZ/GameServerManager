@@ -231,21 +231,71 @@ jobs:
         with:
           name: gsm3-management-panel-windows-build
           path: windows-build/
+      # 发布产物文件名固定、不再追加版本号：对外下载地址可以长期不变，
+      # 新版本发布时同名资产就地覆盖（同一 tag 重跑也会覆盖，天然幂等）。
+      # 版本信息仍由 tag 与产物内部元数据体现，不写进文件名。
       - name: Create platform archives
         run: |
-          tar -czf gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz -C linux-x64-build .
-          tar -czf gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz -C linux-arm64-build .
+          tar -czf gsm3-management-panel-linux.tar.gz -C linux-x64-build .
+          tar -czf gsm3-management-panel-linux-arm64.tar.gz -C linux-arm64-build .
           cd windows-build
-          zip -r ../gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip .
+          zip -r ../gsm3-management-panel-windows.zip .
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            gsm3-management-panel-linux-x64-v${{ needs.resolve_version.outputs.version }}.tar.gz
-            gsm3-management-panel-linux-arm64-v${{ needs.resolve_version.outputs.version }}.tar.gz
-            gsm3-management-panel-windows-v${{ needs.resolve_version.outputs.version }}.zip
+            gsm3-management-panel-linux.tar.gz
+            gsm3-management-panel-linux-arm64.tar.gz
+            gsm3-management-panel-windows.zip
           generate_release_notes: true
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 上传中继的每个 job 只能传一个文件，这里把 x86_64 的两个产物交接给下面的中继 job。
+      # 交接的是已经打好包的文件本体，保证 Release 资产与中继分发的字节完全一致。
+      - name: Upload x86_64 archives for relay
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm3-management-panel-relay-x64
+          path: |
+            gsm3-management-panel-linux.tar.gz
+            gsm3-management-panel-windows.zip
+          retention-days: 7
+
+  # 上传中继：Release 发布成功后，把 x86_64 的 Windows / Linux 包再分发到中继，供下载站对外提供固定地址。
+  # 只上传 x86_64；ARM64 等其它架构只保留在 Release，不进中继。
+  # 统一路径固定、不带版本号：同一路径重复上传即为就地覆盖，这是「固定下载地址」用法的前提。
+  # 凭证模型（中继 CICD 是 public 仓库，不保存任何中继密钥，密钥一律由调用方持有）：
+  #   1. 中继地址：这里不传 relay-base，由中继 workflow 读取调用方的变量 RELAY_BASE；
+  #   2. 中继密钥：中继侧 RELAY_ADMIN_KEY / RELAY_UPLOAD_KEY 为必填，必须由调用方传入，
+  #      建议在 GSManagerXZ 组织级配置 Organization secrets，一处维护、全组织复用；
+  #   3. 刻意不使用 secrets: inherit：GitHub 只允许「同一组织 / 同一企业」内使用 inherit，
+  #      中继仓库在个人账号 yxsj245 名下，属于跨容器调用，只能用显式映射；
+  #      将来中继仓库若迁入同一组织或企业，可改用 secrets: inherit。
+  # 前置条件：中继仓库 scripts/relay-upload.sh 顶部的调用方白名单需包含本仓库（当前已包含）。
+  relay_upload_linux:
+    name: 上传中继-Linux x64
+    needs: create_release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    uses: yxsj245/Download_Station_CICD/.github/workflows/relay-upload.yml@v1
+    with:
+      artifact-name: gsm3-management-panel-relay-x64
+      file: gsm3-management-panel-linux.tar.gz
+      logical-path: '开源项目/GSManager/gsm3-management-panel-linux.tar.gz'
+    secrets:
+      RELAY_ADMIN_KEY: ${{ secrets.RELAY_ADMIN_KEY }}
+      RELAY_UPLOAD_KEY: ${{ secrets.RELAY_UPLOAD_KEY }}
+
+  relay_upload_windows:
+    name: 上传中继-Windows x64
+    needs: create_release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    uses: yxsj245/Download_Station_CICD/.github/workflows/relay-upload.yml@v1
+    with:
+      artifact-name: gsm3-management-panel-relay-x64
+      file: gsm3-management-panel-windows.zip
+      logical-path: '开源项目/GSManager/gsm3-management-panel-windows.zip'
+    secrets:
+      RELAY_ADMIN_KEY: ${{ secrets.RELAY_ADMIN_KEY }}
+      RELAY_UPLOAD_KEY: ${{ secrets.RELAY_UPLOAD_KEY }}
