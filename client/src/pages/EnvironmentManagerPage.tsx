@@ -31,9 +31,12 @@ interface JavaEnvironment {
 
 interface JavaCatalogVersion {
   id: string
+  major: number
   label: string
   description: string
   presets: string[]
+  channels: JavaReleaseChannel[]
+  defaultChannel: JavaReleaseChannel
 }
 
 interface JavaCatalogPreset {
@@ -47,10 +50,13 @@ interface JavaCatalogOption {
   id: string
   version: string
   versionLabel: string
-  provider: 'sponsor' | 'adoptium' | 'system'
+  major: number
+  provider: JavaCatalogProviderId
   providerLabel: string
   providerDescription: string
   source: 'download' | 'package-manager'
+  releaseChannel: JavaReleaseChannel
+  releaseChannelLabel: string
   available: boolean
   recommended: boolean
   sponsorOnly?: boolean
@@ -63,10 +69,33 @@ interface JavaCatalogOption {
 interface JavaDownloadCatalog {
   platform: string
   arch: string
+  platformKey?: string
   sponsorAvailable: boolean
+  providers: JavaCatalogProvider[]
   presets: JavaCatalogPreset[]
   versions: JavaCatalogVersion[]
   options: JavaCatalogOption[]
+  custom: {
+    defaultMajor: number
+    minMajor: number
+    maxMajor: number
+    providers: JavaDownloadProviderId[]
+    channels: JavaReleaseChannel[]
+  }
+}
+
+type JavaReleaseChannel = 'ga' | 'ea'
+type JavaDownloadProviderId = 'sponsor' | 'adoptium' | 'azul'
+type JavaCatalogProviderId = JavaDownloadProviderId | 'system'
+
+interface JavaCatalogProvider {
+  id: JavaCatalogProviderId
+  label: string
+  description: string
+  source: 'download' | 'package-manager'
+  sponsorOnly?: boolean
+  supportsCustomVersion?: boolean
+  supportedChannels?: JavaReleaseChannel[]
 }
 
 interface LocalSystemInfo {
@@ -138,6 +167,9 @@ const EnvironmentManagerPage: React.FC = () => {
   const [packagesLoading, setPackagesLoading] = useState(false)
   const [javaCatalog, setJavaCatalog] = useState<JavaDownloadCatalog | null>(null)
   const [selectedJavaOptions, setSelectedJavaOptions] = useState<Record<string, string>>({})
+  const [customJavaMajor, setCustomJavaMajor] = useState('28')
+  const [customJavaProvider, setCustomJavaProvider] = useState<JavaDownloadProviderId>('adoptium')
+  const [customJavaChannel, setCustomJavaChannel] = useState<JavaReleaseChannel>('ea')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState('java')
@@ -162,10 +194,10 @@ const EnvironmentManagerPage: React.FC = () => {
 
   // 赞助者状态
   const [sponsorStatus, setSponsorStatus] = useState<{
-    isValid: boolean
+    hasKey: boolean
     loading: boolean
   }>({
-    isValid: false,
+    hasKey: false,
     loading: true
   })
 
@@ -197,6 +229,85 @@ const EnvironmentManagerPage: React.FC = () => {
       .filter((label): label is string => Boolean(label))
   )
 
+  const getProviderLabel = (providerId: string): string => (
+    javaCatalog?.providers.find(provider => provider.id === providerId)?.label || providerId
+  )
+
+  const getChannelLabel = (channel: JavaReleaseChannel): string => (
+    channel === 'ea' ? 'EA / 预览版' : 'GA / 稳定版'
+  )
+
+  const getCustomJavaMajorNumber = (): number | null => {
+    const major = Number(customJavaMajor)
+    const minMajor = javaCatalog?.custom.minMajor ?? 8
+    const maxMajor = javaCatalog?.custom.maxMajor ?? 99
+    if (!Number.isInteger(major) || major < minMajor || major > maxMajor) {
+      return null
+    }
+
+    return major
+  }
+
+  const getCustomJavaVersionId = (): string | null => {
+    const major = getCustomJavaMajorNumber()
+    if (major === null) return null
+    return customJavaChannel === 'ea' ? `java${major}-ea` : `java${major}`
+  }
+
+  const getCustomJavaLabel = (): string => {
+    const major = getCustomJavaMajorNumber()
+    return major === null ? '自定义 Java' : `Java ${major}${customJavaChannel === 'ea' ? ' EA' : ''}`
+  }
+
+  const getCustomJavaUnsupportedMessage = (): string | null => {
+    const major = getCustomJavaMajorNumber()
+    if (major === null) {
+      const minMajor = javaCatalog?.custom.minMajor ?? 8
+      const maxMajor = javaCatalog?.custom.maxMajor ?? 99
+      return `请输入 ${minMajor}-${maxMajor} 之间的 Java 主版本号`
+    }
+
+    if (!javaCatalog?.custom.providers.includes(customJavaProvider)) {
+      return '当前下载源不支持自定义 Java 版本'
+    }
+
+    if (!javaCatalog?.custom.channels.includes(customJavaChannel)) {
+      return '当前通道不支持自定义 Java 版本'
+    }
+
+    if (customJavaProvider === 'azul' && javaCatalog?.platformKey === 'riscv64') {
+      return 'Azul Zulu 暂不支持当前 riscv64 架构，请改用 Eclipse Temurin 或系统包管理器'
+    }
+
+    return null
+  }
+
+  const updateJavaInstallState = (
+    version: string,
+    patch: Partial<JavaEnvironment>
+  ) => {
+    setJavaEnvironments(prev => {
+      let matched = false
+      const next = prev.map(env => {
+        if (env.version !== version) return env
+        matched = true
+        return { ...env, ...patch }
+      })
+
+      if (!matched) {
+        next.push({
+          version,
+          platform: systemInfo?.platform || '',
+          downloadUrl: '',
+          installed: false,
+          ...patch
+        })
+      }
+
+      return next
+    })
+  }
+
   // 获取系统信息
   const fetchSystemInfo = async () => {
     try {
@@ -226,19 +337,19 @@ const EnvironmentManagerPage: React.FC = () => {
 
       if (response.success && response.data) {
         setSponsorStatus({
-          isValid: response.data.isValid && !response.data.isExpired,
+          hasKey: Boolean(response.data.key),
           loading: false
         })
       } else {
         setSponsorStatus({
-          isValid: false,
+          hasKey: false,
           loading: false
         })
       }
     } catch (error) {
       console.error('获取赞助者状态失败:', error)
       setSponsorStatus({
-        isValid: false,
+        hasKey: false,
         loading: false
       })
     }
@@ -250,17 +361,22 @@ const EnvironmentManagerPage: React.FC = () => {
 
     setTabLoadingStates(prev => ({ ...prev, java: true }))
     try {
-      const [response, catalogResponse] = await Promise.all([
+      const [environmentResult, catalogResult] = await Promise.allSettled([
         apiClient.getJavaEnvironments(),
         apiClient.getJavaDownloadCatalog()
       ])
-      if (response.success && response.data) {
-        setJavaEnvironments(response.data)
+      let environmentsLoaded = false
+      let catalogLoaded = false
+
+      if (environmentResult.status === 'fulfilled' && environmentResult.value.success && environmentResult.value.data) {
+        setJavaEnvironments(environmentResult.value.data)
+        environmentsLoaded = true
       }
 
-      if (catalogResponse.success && catalogResponse.data) {
-        const catalog = catalogResponse.data as JavaDownloadCatalog
+      if (catalogResult.status === 'fulfilled' && catalogResult.value.success && catalogResult.value.data) {
+        const catalog = catalogResult.value.data as JavaDownloadCatalog
         setJavaCatalog(catalog)
+        setCustomJavaMajor(prev => prev || String(catalog.custom.defaultMajor))
         setSelectedJavaOptions(prev => {
           const next = { ...prev }
 
@@ -282,9 +398,10 @@ const EnvironmentManagerPage: React.FC = () => {
 
           return next
         })
+        catalogLoaded = true
       }
 
-      if (response.success && response.data && catalogResponse.success && catalogResponse.data) {
+      if (environmentsLoaded || catalogLoaded) {
         setTabDataLoaded(prev => ({ ...prev, java: true }))
       }
     } catch (error) {
@@ -719,11 +836,20 @@ const EnvironmentManagerPage: React.FC = () => {
   }
 
   // 安装Java环境
-  const handleInstallJava = async (version: string) => {
+  const handleInstallJava = async (
+    version: string,
+    override?: {
+      label: string
+      provider: JavaDownloadProviderId
+      releaseChannel: JavaReleaseChannel
+      unsupportedMessage?: string | null
+    }
+  ) => {
     const javaVersion = javaCatalog?.versions.find(item => item.id === version)
-    const selectedOption = getSelectedJavaOption(version)
+    const selectedOption = override ? null : getSelectedJavaOption(version)
+    const displayLabel = override?.label || javaVersion?.label || version
 
-    if (!javaVersion || !selectedOption) {
+    if (!override && (!javaVersion || !selectedOption)) {
       addNotification({
         type: 'error',
         title: '错误',
@@ -732,7 +858,16 @@ const EnvironmentManagerPage: React.FC = () => {
       return
     }
 
-    if (!selectedOption.available) {
+    if (override?.unsupportedMessage) {
+      addNotification({
+        type: 'error',
+        title: '错误',
+        message: override.unsupportedMessage
+      })
+      return
+    }
+
+    if (selectedOption && !selectedOption.available) {
       addNotification({
         type: 'error',
         title: '错误',
@@ -741,7 +876,7 @@ const EnvironmentManagerPage: React.FC = () => {
       return
     }
 
-    if (selectedOption.source === 'package-manager') {
+    if (selectedOption?.source === 'package-manager') {
       if (selectedOption.packageManager && selectedOption.packageName) {
         setActiveTab('packages')
         setSelectedPackageManager(selectedOption.packageManager)
@@ -766,15 +901,12 @@ const EnvironmentManagerPage: React.FC = () => {
 
     try {
       // 更新安装状态
-      setJavaEnvironments(prev => prev.map(env =>
-        env.version === version
-          ? { ...env, installing: true, installProgress: 0 }
-          : env
-      ))
+      updateJavaInstallState(version, { installing: true, installProgress: 0 })
 
       const response = await apiClient.installJavaEnvironment({
         version,
-        provider: selectedOption.provider,
+        provider: override?.provider || selectedOption?.provider,
+        releaseChannel: override?.releaseChannel || selectedOption?.releaseChannel,
         socketId: socketClient.getId()
       })
 
@@ -782,28 +914,20 @@ const EnvironmentManagerPage: React.FC = () => {
         addNotification({
           type: 'error',
           title: '错误',
-          message: `${javaVersion.label} 启动安装失败: ${response.message}`
+          message: `${displayLabel} 启动安装失败: ${response.message}`
         })
         // 重置安装状态
-        setJavaEnvironments(prev => prev.map(env =>
-          env.version === version
-            ? { ...env, installing: false, installProgress: 0 }
-            : env
-        ))
+        updateJavaInstallState(version, { installing: false, installProgress: 0 })
       }
     } catch (error) {
       console.error('安装Java环境失败:', error)
       addNotification({
         type: 'error',
         title: '错误',
-        message: `${javaVersion.label} 安装失败`
+        message: `${displayLabel} 安装失败`
       })
       // 重置安装状态
-      setJavaEnvironments(prev => prev.map(env =>
-        env.version === version
-          ? { ...env, installing: false, installProgress: 0 }
-          : env
-      ))
+      updateJavaInstallState(version, { installing: false, installProgress: 0 })
     }
   }
 
@@ -1322,17 +1446,17 @@ const EnvironmentManagerPage: React.FC = () => {
       {/* 赞助者状态提示 */}
       {!sponsorStatus.loading && (
         <div className={`rounded-lg p-4 border ${
-          sponsorStatus.isValid
+          sponsorStatus.hasKey
             ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
             : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
         }`}>
           <div className="flex items-start space-x-3">
             <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
-              sponsorStatus.isValid
+              sponsorStatus.hasKey
                 ? 'bg-green-500'
                 : 'bg-yellow-500'
             }`}>
-              {sponsorStatus.isValid ? (
+              {sponsorStatus.hasKey ? (
                 <CheckCircle className="w-3 h-3 text-white" />
               ) : (
                 <AlertCircle className="w-3 h-3 text-white" />
@@ -1340,12 +1464,12 @@ const EnvironmentManagerPage: React.FC = () => {
             </div>
             <div className="flex-1">
               <p className={`text-sm font-medium ${
-                sponsorStatus.isValid
+                sponsorStatus.hasKey
                   ? 'text-green-800 dark:text-green-200'
                   : 'text-yellow-800 dark:text-yellow-200'
               }`}>
-                {sponsorStatus.isValid ? (
-                  '您现已是赞助者，专享国内高速服务器下载Java环境'
+                {sponsorStatus.hasKey ? (
+                  '已记录本地赞助者密钥，赞助高速源会在下载时尝试启用专用通道'
                 ) : (
                   <>
                     Java环境安装现已支持赞助者专享国内高速服务器下载，您当前还不是赞助者，欢迎前往
@@ -1470,7 +1594,186 @@ const EnvironmentManagerPage: React.FC = () => {
                 </div>
               ) : (
                 javaCatalog ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="space-y-6">
+                    {(() => {
+                      const customVersionId = getCustomJavaVersionId()
+                      const customEnv = customVersionId
+                        ? javaEnvironments.find(env => env.version === customVersionId)
+                        : undefined
+                      const customUnsupportedMessage = getCustomJavaUnsupportedMessage()
+                      const customProviderOptions = javaCatalog.providers.filter(provider => (
+                        provider.source === 'download' &&
+                        provider.supportsCustomVersion &&
+                        javaCatalog.custom.providers.includes(provider.id as JavaDownloadProviderId)
+                      ))
+                      const isInstalled = customEnv?.installed || false
+                      const isInstalling = customEnv?.installing || false
+
+                      return (
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-gray-600 dark:bg-gray-700">
+                          <div className="mb-4 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <Coffee className="h-5 w-5 text-orange-500" />
+                              <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                                自定义 Java 版本
+                              </h3>
+                            </div>
+                            <div className={`flex items-center space-x-1 rounded-full px-2 py-1 text-xs font-medium ${
+                              isInstalled
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300'
+                            }`}>
+                              {isInstalled ? (
+                                <>
+                                  <CheckCircle className="h-3 w-3" />
+                                  <span>已安装</span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertCircle className="h-3 w-3" />
+                                  <span>未安装</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                            <div>
+                              <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
+                                主版本
+                              </label>
+                              <input
+                                type="number"
+                                min={javaCatalog.custom.minMajor}
+                                max={javaCatalog.custom.maxMajor}
+                                value={customJavaMajor}
+                                onChange={(event) => setCustomJavaMajor(event.target.value)}
+                                disabled={isInstalling}
+                                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
+                                通道
+                              </label>
+                              <select
+                                value={customJavaChannel}
+                                onChange={(event) => setCustomJavaChannel(event.target.value as JavaReleaseChannel)}
+                                disabled={isInstalling}
+                                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                              >
+                                {javaCatalog.custom.channels.map(channel => (
+                                  <option key={channel} value={channel}>
+                                    {getChannelLabel(channel)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
+                                提供商
+                              </label>
+                              <select
+                                value={customJavaProvider}
+                                onChange={(event) => setCustomJavaProvider(event.target.value as JavaDownloadProviderId)}
+                                disabled={isInstalling}
+                                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                              >
+                                {customProviderOptions.map(provider => (
+                                  <option key={provider.id} value={provider.id}>
+                                    {provider.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="flex items-end">
+                              {!isInstalled ? (
+                                <button
+                                  onClick={() => {
+                                    if (!customVersionId) return
+                                    void handleInstallJava(customVersionId, {
+                                      label: getCustomJavaLabel(),
+                                      provider: customJavaProvider,
+                                      releaseChannel: customJavaChannel,
+                                      unsupportedMessage: customUnsupportedMessage
+                                    })
+                                  }}
+                                  disabled={isInstalling || Boolean(customUnsupportedMessage)}
+                                  className="flex w-full items-center justify-center space-x-2 rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                                >
+                                  {isInstalling ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      <span>安装中...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download className="h-4 w-4" />
+                                      <span>安装</span>
+                                    </>
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => customVersionId && handleUninstallJava(customVersionId)}
+                                  className="flex w-full items-center justify-center space-x-2 rounded-lg bg-red-600 px-4 py-2 text-white transition-colors hover:bg-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span>卸载</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                            {getProviderLabel(customJavaProvider)} · {getChannelLabel(customJavaChannel)} · {getCustomJavaLabel()}
+                          </div>
+
+                          {customUnsupportedMessage && (
+                            <div className="mt-4 flex items-start space-x-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                              <span>{customUnsupportedMessage}</span>
+                            </div>
+                          )}
+
+                          {isInstalling && (
+                            <div className="mt-4">
+                              <div className="mb-2 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+                                <span>
+                                  {customEnv?.installStage === 'download' ? '正在下载...' :
+                                   customEnv?.installStage === 'extract' ? '正在解压...' : '正在安装...'}
+                                </span>
+                                <span>{Math.round(customEnv?.installProgress || 0)}%</span>
+                              </div>
+                              <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-600">
+                                <div
+                                  className="h-2 rounded-full bg-blue-600 transition-all duration-300"
+                                  style={{ width: `${customEnv?.installProgress || 0}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )}
+
+                          {isInstalled && customEnv?.javaExecutable && (
+                            <div className="mt-4">
+                              <p className="mb-2 text-sm font-medium text-gray-900 dark:text-white">启动命令:</p>
+                              <div className="break-all rounded border bg-gray-100 p-2 font-mono text-xs dark:bg-gray-800">
+                                {customEnv.javaExecutable}
+                              </div>
+                              <button
+                                onClick={() => handleCopyJavaPath(customEnv.javaExecutable!)}
+                                className="mt-2 flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                              >
+                                <Copy className="h-3 w-3" />
+                                <span>复制路径</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {javaCatalog.versions.map((javaVersion) => {
                       const env = javaEnvironments.find(e => e.version === javaVersion.id)
                       const isInstalled = env?.installed || false
@@ -1548,7 +1851,7 @@ const EnvironmentManagerPage: React.FC = () => {
                               >
                                 {options.map(option => (
                                   <option key={option.id} value={option.id}>
-                                    {option.providerLabel}{option.recommended ? '（推荐）' : ''}{!option.available ? '（不可用）' : ''}
+                                    {option.providerLabel} · {option.releaseChannelLabel}{option.recommended ? '（推荐）' : ''}{!option.available ? '（不可用）' : ''}
                                   </option>
                                 ))}
                               </select>
@@ -1556,7 +1859,7 @@ const EnvironmentManagerPage: React.FC = () => {
                                 <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                                   {selectedOption.source === 'package-manager' && selectedOption.packageName
                                     ? `${selectedOption.providerDescription}：${selectedOption.packageName}`
-                                    : selectedOption.providerDescription}
+                                    : `${selectedOption.providerDescription} · ${selectedOption.releaseChannelLabel}`}
                                 </p>
                               )}
                             </div>
@@ -1652,6 +1955,7 @@ const EnvironmentManagerPage: React.FC = () => {
                         </div>
                       )
                     })}
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-12">

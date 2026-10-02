@@ -931,6 +931,7 @@ class ApiClient {
   async installJavaEnvironment(data: {
     version: string
     provider?: string
+    releaseChannel?: 'ga' | 'ea'
     downloadUrl?: string
     platform?: string
     socketId?: string

@@ -33,29 +33,41 @@ describe('java download artifacts', () => {
     expect(() => getJavaArchiveFileName('java17', 'darwin', 'x64')).toThrow(UnsupportedJavaDownloadError)
   })
 
-  it('builds Eclipse Temurin download options from the Adoptium API pattern', () => {
-    const resolution = resolveJavaDownloadOption('java17', 'adoptium', 'linux', 'x64')
+  it('builds Eclipse Temurin download options from the Adoptium API pattern', async () => {
+    const resolution = await resolveJavaDownloadOption('java17', 'adoptium', 'linux', 'x64')
 
     expect(resolution.downloadUrl).toBe(
       'https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse'
     )
-    expect(resolution.archiveFileName).toBe('temurin-17-linux-x64.jdk.tar.gz')
+    expect(resolution.archiveFileName).toBe('temurin-17-ga-linux-x64.jdk.tar.gz')
   })
 
-  it('supports Temurin riscv64 downloads only for versions with current GA builds', () => {
-    const resolution = resolveJavaDownloadOption('java21', 'adoptium', 'linux', 'riscv64')
+  it('supports Temurin riscv64 downloads only for versions with current GA builds', async () => {
+    const resolution = await resolveJavaDownloadOption('java21', 'adoptium', 'linux', 'riscv64')
 
     expect(resolution.downloadUrl).toBe(
       'https://api.adoptium.net/v3/binary/latest/21/ga/linux/riscv64/jdk/hotspot/normal/eclipse'
     )
-    expect(resolution.archiveFileName).toBe('temurin-21-linux-riscv64.jdk.tar.gz')
-    expect(() => resolveJavaDownloadOption('java11', 'adoptium', 'linux', 'riscv64')).toThrow(/Temurin 暂不提供/)
+    expect(resolution.archiveFileName).toBe('temurin-21-ga-linux-riscv64.jdk.tar.gz')
+    await expect(resolveJavaDownloadOption('java11', 'adoptium', 'linux', 'riscv64')).rejects.toThrow(/Temurin 暂不提供/)
   })
 
-  it('keeps sponsor downloads behind sponsor availability', () => {
-    expect(() => resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64')).toThrow(/赞助高速源/)
+  it('supports custom Early Access versions through provider parameters', async () => {
+    const resolution = await resolveJavaDownloadOption('java28-ea', 'adoptium', 'linux', 'x64', {
+      releaseChannel: 'ea'
+    })
 
-    const resolution = resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64', {
+    expect(resolution.version).toBe('java28-ea')
+    expect(resolution.releaseChannel).toBe('ea')
+    expect(resolution.downloadUrl).toBe(
+      'https://api.adoptium.net/v3/binary/latest/28/ea/linux/x64/jdk/hotspot/normal/eclipse'
+    )
+  })
+
+  it('keeps sponsor downloads behind sponsor availability', async () => {
+    await expect(resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64')).rejects.toThrow(/赞助高速源/)
+
+    const resolution = await resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64', {
       sponsorAvailable: true
     })
 
@@ -69,6 +81,15 @@ describe('java download artifacts', () => {
     const java11Options = catalog.options.filter(option => option.version === 'java11')
 
     expect(catalog.platformKey).toBe('riscv64')
+    expect(catalog.versions.find(version => version.id === 'java27')).toEqual(expect.objectContaining({
+      major: 27
+    }))
+    expect(catalog.versions.find(version => version.id === 'java28-ea')).toEqual(expect.objectContaining({
+      defaultChannel: 'ea'
+    }))
+    expect(catalog.providers.find(provider => provider.id === 'azul')).toEqual(expect.objectContaining({
+      supportsCustomVersion: true
+    }))
     expect(java17Options.find(option => option.provider === 'sponsor')).toEqual(expect.objectContaining({
       available: false
     }))

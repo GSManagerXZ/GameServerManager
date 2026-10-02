@@ -2,16 +2,18 @@ import express from 'express'
 import os from 'os'
 import logger from '../utils/logger.js'
 import { JavaManager, VcRedistManager, DirectXManager } from '../modules/environment/index.js'
+import type { JavaDownloadOptions } from '../modules/environment/index.js'
 import { LinuxPackageManager } from '../modules/environment/packageManager.js'
 import { authenticateToken } from '../middleware/auth.js'
 import { ConfigManager } from '../modules/config/ConfigManager.js'
 import {
   getJavaArchiveFileName,
   getJavaDownloadCatalog,
-  getSponsorDownloadUrl,
   resolveJavaDownloadOption,
   UnsupportedJavaDownloadError
 } from '../utils/javaDownloadArtifacts.js'
+import { getSponsorKey, hasSponsorKey } from '../utils/sponsorStatus.js'
+import { createSponsorDownloadSession, isSponsorDownloadUrl } from '../utils/sponsorDownload.js'
 
 // 存储Socket.IO实例的变量
 let io: any = null
@@ -80,7 +82,7 @@ router.get('/java', authenticateToken, async (req, res) => {
 router.get('/java/catalog', authenticateToken, async (req, res) => {
   try {
     const catalog = getJavaDownloadCatalog(process.platform, os.arch(), {
-      sponsorAvailable: validateSponsorKey()
+      sponsorAvailable: hasSponsorKey(configManager)
     })
 
     res.json({
@@ -96,34 +98,10 @@ router.get('/java/catalog', authenticateToken, async (req, res) => {
   }
 })
 
-// 验证赞助者密钥
-function validateSponsorKey(): boolean {
-  try {
-    if (!configManager) {
-      logger.warn('ConfigManager未初始化')
-      return false
-    }
-
-    const sponsorConfig = configManager.getSponsorConfig()
-    if (!sponsorConfig || !sponsorConfig.key || !sponsorConfig.isValid) {
-      return false
-    }
-
-    // 检查密钥是否过期
-    if (sponsorConfig.expiryTime && new Date() > new Date(sponsorConfig.expiryTime)) {
-      return false
-    }
-
-    return true
-  } catch (error) {
-    logger.error('验证赞助者密钥失败:', error)
-    return false
-  }
-}
-
 // 安装Java环境
 router.post('/java/install', authenticateToken, async (req, res) => {
-  const { version, provider, downloadUrl, socketId } = req.body
+  const { version, provider, releaseChannel, downloadUrl, socketId } = req.body
+  let installVersion = typeof version === 'string' ? version : ''
 
   if (!version || (!provider && !downloadUrl)) {
     return res.status(400).json({
@@ -133,59 +111,59 @@ router.post('/java/install', authenticateToken, async (req, res) => {
   }
 
   try {
-    const isSponsor = validateSponsorKey()
+    const sponsorKey = getSponsorKey(configManager)
     let finalDownloadUrl = downloadUrl
     let archiveFileName: string | undefined
+    let downloadOptions: JavaDownloadOptions | undefined
     let providerLabel = ''
     let isSponsorDownload = false
 
     if (provider) {
-      const resolution = resolveJavaDownloadOption(version, provider, process.platform, os.arch(), {
-        sponsorAvailable: isSponsor
+      const resolution = await resolveJavaDownloadOption(version, provider, process.platform, os.arch(), {
+        sponsorAvailable: sponsorKey !== null,
+        releaseChannel
       })
 
+      installVersion = resolution.version
       finalDownloadUrl = resolution.downloadUrl
       archiveFileName = resolution.archiveFileName
       providerLabel = resolution.providerLabel
       isSponsorDownload = resolution.provider === 'sponsor'
-    } else {
-      archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch())
 
-      if (isSponsor) {
+      if (isSponsorDownload && sponsorKey && isSponsorDownloadUrl(finalDownloadUrl)) {
         try {
-          const platform = process.platform
-          const arch = os.arch()
-          finalDownloadUrl = getSponsorDownloadUrl(version, platform, arch)
-          isSponsorDownload = true
-          logger.info(`检测到有效赞助者，使用赞助者专用下载链接: ${finalDownloadUrl}`)
+          const session = await createSponsorDownloadSession(sponsorKey)
+          downloadOptions = { cookie: session.cookie }
+          logger.info(`检测到本地记录的赞助者密钥，本次下载使用赞助者专用通道: ${finalDownloadUrl}`)
         } catch (error) {
-          logger.warn(`获取赞助者下载链接失败，使用默认链接: ${error instanceof Error ? error.message : '未知错误'}`)
-          // 如果获取赞助者链接失败，继续使用原始链接
+          logger.warn(`赞助者专用通道不可用，回退普通下载通道: ${error instanceof Error ? error.message : '未知错误'}`)
         }
       }
+    } else {
+      archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch())
     }
 
     // 立即返回响应，安装过程在后台进行
     res.json({
       success: true,
-      message: `${version} 开始安装${providerLabel ? `（${providerLabel}）` : isSponsorDownload ? '（赞助者专用链接）' : ''}`
+      message: `${installVersion} 开始安装${providerLabel ? `（${providerLabel}${isSponsorDownload && downloadOptions?.cookie ? '，赞助者专用通道' : ''}）` : ''}`
     })
 
     // 后台执行安装，通过WebSocket发送进度更新
-    await javaManager.installJava(version, finalDownloadUrl, (stage, progress) => {
+    await javaManager.installJava(installVersion, finalDownloadUrl, (stage, progress) => {
       if (io && socketId) {
         io.to(socketId).emit('java-install-progress', {
-          version,
+          version: installVersion,
           stage,
           progress
         })
       }
-    }, archiveFileName)
+    }, archiveFileName, downloadOptions)
 
     // 发送最终进度更新，确保进度条到达100%
     if (io && socketId) {
       io.to(socketId).emit('java-install-progress', {
-        version,
+        version: installVersion,
         stage: 'extract',
         progress: 100
       })
@@ -194,9 +172,9 @@ router.post('/java/install', authenticateToken, async (req, res) => {
     // 安装完成通知
     if (io && socketId) {
       io.to(socketId).emit('java-install-complete', {
-        version,
+        version: installVersion,
         success: true,
-        message: `${version} 安装成功${providerLabel ? `（${providerLabel}）` : isSponsorDownload ? '（赞助者专用链接）' : ''}`
+        message: `${installVersion} 安装成功${providerLabel ? `（${providerLabel}${isSponsorDownload && downloadOptions?.cookie ? '，赞助者专用通道' : ''}）` : ''}`
       })
     }
   } catch (error) {
@@ -207,16 +185,16 @@ router.post('/java/install', authenticateToken, async (req, res) => {
     // 安装失败通知
     if (io && socketId) {
       io.to(socketId).emit('java-install-complete', {
-        version,
+        version: installVersion,
         success: false,
-        message: `${version} 安装失败: ${errorMessage}`
+        message: `${installVersion} 安装失败: ${errorMessage}`
       })
     }
 
     if (!res.headersSent) {
       return res.status(error instanceof UnsupportedJavaDownloadError ? 400 : 500).json({
         success: false,
-        message: `${version} 安装失败: ${errorMessage}`
+        message: `${installVersion} 安装失败: ${errorMessage}`
       })
     }
   }

@@ -95,10 +95,16 @@ export class JavaManager {
     await this.ensureInstallDir()
 
     const platform = os.platform()
-    const javaVersions = getSupportedJavaVersions().map(version => version.id)
+    const javaVersions = new Set(getSupportedJavaVersions().map(version => version.id))
+    const installedEntries = await fs.readdir(this.installDir, { withFileTypes: true })
+    for (const entry of installedEntries) {
+      if (entry.isDirectory() && /^java\d+(?:-ea)?$/i.test(entry.name)) {
+        javaVersions.add(entry.name)
+      }
+    }
     const environments: JavaEnvironment[] = []
 
-    for (const version of javaVersions) {
+    for (const version of Array.from(javaVersions)) {
       const versionDir = this.getVersionDir(version)
       const installed = await fs.pathExists(versionDir)
 
