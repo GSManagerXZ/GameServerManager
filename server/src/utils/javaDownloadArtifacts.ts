@@ -234,9 +234,8 @@ const JAVA_PROVIDERS: JavaCatalogProvider[] = [
   {
     id: 'sponsor',
     label: '赞助高速源',
-    description: '项目提供的国内高速下载源，需要本地记录赞助者密钥',
+    description: '项目提供的国内高速下载源；本地赞助者密钥可启用专用下载会话',
     source: 'download',
-    sponsorOnly: true,
     supportedChannels: ['ga']
   },
   {
@@ -605,24 +604,11 @@ function buildDownloadOption(
   provider: JavaCatalogProvider,
   platform: string,
   arch: string | undefined,
-  sponsorAvailable: boolean,
   channel: JavaReleaseChannel,
   recommended: boolean
 ): JavaCatalogOption {
   if (!provider.supportedChannels?.includes(channel)) {
     return buildUnavailableDownloadOption(version, provider, platform, arch, channel, recommended, `${provider.label} 不支持 ${getReleaseChannelLabel(channel)} 通道`)
-  }
-
-  if (provider.id === 'sponsor' && !sponsorAvailable) {
-    return buildUnavailableDownloadOption(
-      version,
-      provider,
-      platform,
-      arch,
-      channel,
-      recommended,
-      '赞助高速源需要先配置本地赞助者密钥'
-    )
   }
 
   if (provider.id === 'azul') {
@@ -719,6 +705,30 @@ function buildSystemPackageOption(
   }
 }
 
+function getOptionPriority(option: JavaCatalogOption): number {
+  if (option.available && option.source === 'download' && option.recommended) return 0
+  if (option.available && option.source === 'download') return 1
+  if (option.available && option.source === 'package-manager' && option.recommended) return 2
+  if (option.available) return 3
+  return 4
+}
+
+const PROVIDER_SORT_ORDER: Record<JavaCatalogProviderId, number> = {
+  sponsor: 0,
+  adoptium: 1,
+  azul: 2,
+  system: 3
+}
+
+function sortJavaOptions(options: JavaCatalogOption[]): JavaCatalogOption[] {
+  return options.sort((left, right) => {
+    const priorityDiff = getOptionPriority(left) - getOptionPriority(right)
+    if (priorityDiff !== 0) return priorityDiff
+
+    return PROVIDER_SORT_ORDER[left.provider] - PROVIDER_SORT_ORDER[right.provider]
+  })
+}
+
 export function getJavaDownloadCatalog(
   platform: string,
   arch?: string,
@@ -740,15 +750,18 @@ export function getJavaDownloadCatalog(
     for (const provider of JAVA_PROVIDERS.filter(item => item.source === 'download')) {
       for (const channel of version.channels) {
         const recommended = (
-          (provider.id === 'sponsor' && sponsorAvailable && channel === version.defaultChannel) ||
-          (provider.id === 'adoptium' && !sponsorAvailable && channel === version.defaultChannel)
+          provider.id === 'sponsor' && channel === version.defaultChannel
         )
-        catalogOptions.push(buildDownloadOption(version, provider, platform, arch, sponsorAvailable, channel, recommended))
+        catalogOptions.push(buildDownloadOption(version, provider, platform, arch, channel, recommended))
       }
     }
 
     catalogOptions.push(buildSystemPackageOption(version, platform, arch, isRiscv64))
   }
+
+  const sortedOptions = JAVA_VERSIONS.flatMap(version => (
+    sortJavaOptions(catalogOptions.filter(option => option.version === version.id))
+  ))
 
   return {
     platform,
@@ -758,7 +771,7 @@ export function getJavaDownloadCatalog(
     providers: JAVA_PROVIDERS,
     presets: JAVA_PRESETS,
     versions: JAVA_VERSIONS,
-    options: catalogOptions,
+    options: sortedOptions,
     custom: {
       defaultMajor: 25,
       defaultChannel: 'ga',
@@ -789,17 +802,12 @@ export async function resolveJavaDownloadOption(
       throw new UnsupportedJavaDownloadError('赞助高速源仅支持项目维护的预设版本')
     }
 
-    if (!options.sponsorAvailable) {
-      throw new UnsupportedJavaDownloadError('赞助高速源需要先配置本地赞助者密钥')
-    }
-
     return {
       version: versionRequest.id,
       major: versionRequest.major,
       releaseChannel: versionRequest.defaultChannel,
       provider,
       providerLabel: providerDefinition.label,
-      sponsorOnly: true,
       downloadUrl: getSponsorDownloadUrl(versionRequest.id, platform, arch),
       archiveFileName: getJavaArchiveFileName(versionRequest.id, platform, arch)
     }
