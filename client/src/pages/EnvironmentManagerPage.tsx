@@ -1473,7 +1473,7 @@ const EnvironmentManagerPage: React.FC = () => {
                   '已记录本地赞助者密钥，赞助高速源会在下载时尝试启用专用通道'
                 ) : (
                   <>
-                    Java环境安装现已支持赞助者专享国内高速服务器下载，您当前还不是赞助者，欢迎前往
+                    赞助高速源可直接使用；配置本地赞助者密钥后会在下载时尝试启用专用通道，也可前往
                     <a
                       href="https://ifdian.net/a/xiaozhuhouses"
                       target="_blank"
@@ -1482,7 +1482,7 @@ const EnvironmentManagerPage: React.FC = () => {
                     >
                       爱发电
                     </a>
-                    赞助
+                    支持项目
                   </>
                 )}
               </p>

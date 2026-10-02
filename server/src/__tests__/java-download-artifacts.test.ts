@@ -64,15 +64,39 @@ describe('java download artifacts', () => {
     )
   })
 
-  it('keeps sponsor downloads behind sponsor availability', async () => {
-    await expect(resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64')).rejects.toThrow(/赞助高速源/)
-
-    const resolution = await resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64', {
-      sponsorAvailable: true
-    })
+  it('resolves sponsor downloads without requiring sponsor credentials', async () => {
+    const resolution = await resolveJavaDownloadOption('java17', 'sponsor', 'linux', 'x64')
 
     expect(resolution.downloadUrl).toBe(getSponsorDownloadUrl('java17', 'linux', 'x64'))
     expect(resolution.archiveFileName).toBe(getJavaArchiveFileName('java17', 'linux', 'x64'))
+  })
+
+  it('keeps the first catalog option installable on supported platforms without sponsor credentials', () => {
+    const catalog = getJavaDownloadCatalog('linux', 'x64')
+    const java17Options = catalog.options.filter(option => option.version === 'java17')
+    const sponsorOption = java17Options.find(option => option.provider === 'sponsor')
+
+    expect(java17Options[0]).toEqual(expect.objectContaining({
+      provider: 'sponsor',
+      available: true,
+      recommended: true
+    }))
+    expect(sponsorOption).toEqual(expect.objectContaining({
+      available: true
+    }))
+  })
+
+  it('keeps sponsor first when sponsor credentials are available', () => {
+    const catalog = getJavaDownloadCatalog('linux', 'x64', {
+      sponsorAvailable: true
+    })
+    const java17Options = catalog.options.filter(option => option.version === 'java17')
+
+    expect(java17Options[0]).toEqual(expect.objectContaining({
+      provider: 'sponsor',
+      available: true,
+      recommended: true
+    }))
   })
 
   it('keeps sponsor unavailable on riscv64 while offering Temurin and system packages where valid', () => {
@@ -96,6 +120,10 @@ describe('java download artifacts', () => {
     }))
     expect(java17Options.find(option => option.provider === 'sponsor')).toEqual(expect.objectContaining({
       available: false
+    }))
+    expect(java17Options[0]).toEqual(expect.objectContaining({
+      provider: 'adoptium',
+      available: true
     }))
     expect(java17Options.find(option => option.provider === 'adoptium')).toEqual(expect.objectContaining({
       available: true,
