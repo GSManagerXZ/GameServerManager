@@ -1,8 +1,7 @@
 import { EventEmitter } from 'events'
 import { promises as fs } from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import type { ScheduledTask as CronScheduledTask } from 'node-cron'
 import winston from 'winston'
 import cron from 'node-cron'
@@ -11,10 +10,6 @@ import { GameManager } from '../game/GameManager.js'
 import { InstanceManager } from '../instance/InstanceManager.js'
 import { TerminalManager } from '../terminal/TerminalManager.js'
 import { STEAM_GAME_LIST_URL } from '../../utils/remoteSources.js'
-
-// ES模块中获取__dirname的替代方案
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
 
 export interface ScheduledTask {
   id: string
@@ -46,6 +41,10 @@ interface ScheduledTaskWithJob extends ScheduledTask {
 }
 
 export class SchedulerManager extends EventEmitter {
+  /** 调度时区：cron job 触发时间与界面展示的 nextRun 统一使用同一时区，
+   *  避免系统时区不同（如 Docker 容器默认 UTC）导致任务实际触发时间偏离展示时间。 */
+  private static readonly SCHEDULER_TIMEZONE = 'Asia/Shanghai'
+
   private tasks: Map<string, ScheduledTaskWithJob> = new Map()
   private configPath: string
   private logger: winston.Logger
@@ -186,11 +185,11 @@ export class SchedulerManager extends EventEmitter {
         task.job.stop()
       }
 
-      // 创建新的定时任务
+      // 创建新的定时任务（时区与 getNextRunTime 展示口径一致）
       task.job = cron.createTask(task.schedule, async () => {
         this.logger.info(`[Scheduler] Cron callback triggered for task: ${task.name} (${taskId})`);
         await this.executeTask(taskId)
-      })
+      }, { timezone: SchedulerManager.SCHEDULER_TIMEZONE })
 
       // 设置下次执行时间
       task.nextRun = this.getNextRunTime(task.schedule)
@@ -404,8 +403,7 @@ export class SchedulerManager extends EventEmitter {
       const baseDir = process.cwd()
       const possiblePaths = [
         path.join(baseDir, 'data', 'games', 'installgame.json'),           // 打包后的路径
-        path.join(baseDir, 'server', 'data', 'games', 'installgame.json'), // 开发环境路径
-        path.join(__dirname, '../data/games/installgame.json')             // 相对路径
+        path.join(baseDir, 'server', 'data', 'games', 'installgame.json')  // 开发环境路径
       ]
       
       let gamesFilePath = null
@@ -480,7 +478,7 @@ export class SchedulerManager extends EventEmitter {
     try {
       // 使用cron-parser库精确计算下次执行时间
       const interval = cronParser.parseExpression(schedule, {
-        tz: 'Asia/Shanghai'
+        tz: SchedulerManager.SCHEDULER_TIMEZONE
       })
       const nextRun = interval.next().toDate()
       return nextRun.toISOString()
@@ -494,7 +492,7 @@ export class SchedulerManager extends EventEmitter {
   async createTask(taskData: Omit<ScheduledTask, 'id' | 'createdAt' | 'updatedAt'>): Promise<ScheduledTask> {
     const task: ScheduledTask = {
       ...taskData,
-      id: uuidv4(),
+      id: randomUUID(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       nextRun: this.getNextRunTime(taskData.schedule)
