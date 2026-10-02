@@ -16,11 +16,7 @@
       "Linux"
     ],
     "memory": 4,
-    "cloud": {
-      "京东云": {
-        "https://images.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png": "https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"
-      }
-    }
+    "cloud": {}
   },
   "SCUM": {
     "game_nameCN": "人渣",
@@ -33,11 +29,7 @@
     ],
     "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E4%BA%BA%E6%B8%A3%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
     "memory": 6,
-    "cloud": {
-      "京东云": {
-        "https://images.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png": "https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"
-      }
-    }
+    "cloud": {}
   },
   "Rust": {
     "game_nameCN": "腐蚀",
@@ -61,11 +53,7 @@
     ],
     "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E8%85%90%E8%9A%80%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
     "memory": 12,
-    "cloud": {
-      "京东云": {
-        "https://images.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png": "https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"
-      }
-    }
+    "cloud": {}
   },
   "Satisfactory": {
     "game_nameCN": "幸福工厂",
@@ -142,11 +130,7 @@
       "Linux"
     ],
     "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E6%9C%AA%E8%BD%AC%E5%8F%98%E8%80%85%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
-    "cloud": {
-      "京东云": {
-        "https://images.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png": "https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"
-      }
-    },
+    "cloud": {},
     "ports": [
       {
         "port": 28015,
@@ -200,11 +184,7 @@
       "Windows",
       "Linux"
     ],
-    "cloud": {
-      "京东云": {
-        "https://images.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png": "https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"
-      }
-    },
+    "cloud": {},
     "ports": [
       {
         "port": 16261,
@@ -233,11 +213,7 @@
       "Windows",
       "Linux"
     ],
-    "cloud": {
-      "京东云": {
-        "https://images.xiaozhuhouses.asia:3000/i/2025/09/26/dqv8ii.png": "https://www.jdcloud.com/cn/pages/gamecenter?utm_source=cpscf&type=1&channelReferrer=3578775033284104&channelCode=JD_YTKQDFX"
-      }
-    },
+    "cloud": {},
     "docs": "https://docs.gsm.xiaozhuhouses.asia/%E6%B8%B8%E6%88%8F%E7%99%BE%E7%A7%91/Steam/%E5%86%9B%E5%9B%A2%E8%A6%81%E5%A1%9E2%E9%A3%9F%E7%94%A8%E8%AF%B4%E6%98%8E.html",
     "system_info": [
       "Linux"
@@ -859,5 +835,113 @@
     "system": [
       "Windows"
     ]
+  },
+  "RuneScape": {
+    "game_nameCN": "符文世界：龙之荒野",
+    "appid": "4019830",
+    "tip": "需要以非root用户运行",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1374490/284a46dc9ea5b8424102881a4b8f8599595aa142/header_alt_assets_4_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1374490/RuneScape_Dragonwilds/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [],
+    "ports": [
+      {
+        "port": 7777,
+        "protocol": "udp"
+      }
+    ]
+  },
+  "StarRupture": {
+    "game_nameCN": "星际裂变",
+    "appid": "1631270",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1631270/8b770eb4015a18cbfbb4e551fe4bbd619da75b52/header_alt_assets_4_schinese.jpg",
+    "url": "https://store.steampowered.com/app/1631270/_StarRupture/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [],
+    "ports": []
+  },
+  "Nightingale": {
+    "game_nameCN": "夜莺传说",
+    "appid": "3796810",
+    "tip": "需要以非root用户运行",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/1928980/header.jpg?t=1769102593",
+    "url": "https://store.steampowered.com/app/1928980/_/",
+    "system": [
+      "Linux",
+      "Windows"
+    ],
+    "system_info": [],
+    "ports": [
+      {
+        "port": 7777,
+        "protocol": "udp"
+      }
+    ],
+    "memory": 4
+  },
+  "Quake_Live": {
+    "game_nameCN": "雷神之锤",
+    "appid": "349090",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/282440/header.jpg?t=1742481724",
+    "url": "https://store.steampowered.com/app/282440/Quake_Live/",
+    "system": [
+      "Windows",
+      "Linux"
+    ],
+    "system_info": [],
+    "memory": 0,
+    "ports": [
+      {
+        "port": 27960,
+        "protocol": "udp"
+      },
+      {
+        "port": 40265,
+        "protocol": "tcp"
+      }
+    ]
+  },
+  "Voyagers_of_Nera": {
+    "game_nameCN": "尼拉航海者",
+    "appid": "3937860",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/2686630/0c4806ac39e2008ed4ff0249bfb43d02f7e87e24/header.jpg?t=1787841447",
+    "url": "https://store.steampowered.com/app/2686630/Voyagers_of_Nera/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [],
+    "ports": []
+  },
+  "PixARK": {
+    "game_nameCN": "方块方舟",
+    "appid": "824360",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/593600/header.jpg?t=1787790345",
+    "url": "https://store.steampowered.com/app/593600/PixARK/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [],
+    "ports": []
+  },
+  "CryoFall": {
+    "game_nameCN": "末日觉醒",
+    "appid": "1061710",
+    "tip": "",
+    "image": "https://shared.cdn.queniuqe.com/store_item_assets/steam/apps/829590/header_schinese.jpg?t=1789476949",
+    "url": "https://store.steampowered.com/app/829590/_CryoFall/",
+    "system": [
+      "Windows"
+    ],
+    "system_info": [],
+    "ports": []
   }
 }

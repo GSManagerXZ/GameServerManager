@@ -36,6 +36,9 @@ RUN apt-get update \
         libc6 \
         acl \
         sudo \
+        # C++ 运行时（UE5 打包的游戏服务端会链接 libc++/libc++abi）
+        libc++1 \
+        libc++abi1 \
     && apt-get autoremove -y \
     && apt-get autoclean \
     && rm -rf /var/lib/apt/lists/*
