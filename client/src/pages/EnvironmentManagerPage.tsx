@@ -1470,10 +1470,10 @@ const EnvironmentManagerPage: React.FC = () => {
                   : 'text-yellow-800 dark:text-yellow-200'
               }`}>
                 {sponsorStatus.hasKey ? (
-                  '已记录本地赞助者密钥，赞助高速源会在下载时尝试启用专用通道'
+                  '已记录本地赞助者密钥，星辰全球下载源会在下载时尝试启用专用通道'
                 ) : (
                   <>
-                    赞助高速源可直接使用；配置本地赞助者密钥后会在下载时尝试启用专用通道，也可前往
+                    星辰全球下载源可直接使用；配置本地赞助者密钥后会在下载时尝试启用专用通道，也可前往
                     <a
                       href="https://ifdian.net/a/xiaozhuhouses"
                       target="_blank"

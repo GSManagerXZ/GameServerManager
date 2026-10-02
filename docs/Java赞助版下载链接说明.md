@@ -8,12 +8,12 @@
 
 | 提供商 | 说明 |
 | --- | --- |
-| 赞助高速源 | 项目维护的 `download.xiaozhuhouses.asia` 直链。未配置密钥时也可走普通通道下载；本地记录赞助者密钥后，会在安装时尝试建立专用下载会话。 |
+| 星辰全球下载源 | 项目维护的 `download.xiaozhuhouses.asia` 直链。未配置密钥时也可走普通通道下载；本地记录赞助者密钥后，会在安装时尝试建立专用下载会话。 |
 | Eclipse Temurin | 通过 Adoptium latest JDK API 解析 GA / EA 包。 |
 | Azul Zulu | 通过 Azul Metadata API 在安装时解析最新匹配的 Zulu JDK 包。 |
 | 系统包管理器 | Linux 上的 OpenJDK headless 包预设，适合 riscv64 等特殊架构。 |
 
-赞助高速源、Temurin 和 Azul 都由服务端按当前系统平台与架构判断是否可用。没有明确产物的组合不会回退到其它架构的包。
+星辰全球下载源、Temurin 和 Azul 都由服务端按当前系统平台与架构判断是否可用。没有明确产物的组合不会回退到其它架构的包。
 
 ## 版本与通道
 
@@ -55,7 +55,7 @@ sudo apt-get install -y default-jre-headless
 
 ## 验证重点
 
-- 无赞助者密钥时，赞助高速源在支持的平台上仍应可安装。
+- 无赞助者密钥时，星辰全球下载源在支持的平台上仍应可安装。
 - 有赞助者密钥时，同一直链会尝试携带会话 Cookie；失败时应自动回退普通通道。
 - riscv64 不应误用 Linux x64 包；没有赞助源产物时，应落到 Temurin 或系统包管理器等可用选项。
 - EA 预览版不应作为新手默认路径，只能通过高级自定义入口主动选择。

@@ -233,8 +233,8 @@ const JAVA_PRESETS: JavaCatalogPreset[] = [
 const JAVA_PROVIDERS: JavaCatalogProvider[] = [
   {
     id: 'sponsor',
-    label: '赞助高速源',
-    description: '项目提供的国内高速下载源；本地赞助者密钥可启用专用下载会话',
+    label: '星辰全球下载源',
+    description: '星辰全球下载源提供中国大陆地区的高速下载；赞助者享受最高速独享下载通道',
     source: 'download',
     supportedChannels: ['ga']
   },
@@ -799,7 +799,7 @@ export async function resolveJavaDownloadOption(
 
   if (provider === 'sponsor') {
     if (versionRequest.dynamic) {
-      throw new UnsupportedJavaDownloadError('赞助高速源仅支持项目维护的预设版本')
+      throw new UnsupportedJavaDownloadError('星辰全球下载源仅支持项目维护的预设版本')
     }
 
     return {
