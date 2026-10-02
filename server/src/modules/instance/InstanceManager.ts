@@ -7,6 +7,13 @@ import os from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { JavaManager } from '../environment/javaManager.js'
+import {
+  JavaRuntimeEnvironment,
+  buildJavaEnvironmentOverrides,
+  buildJavaEnvironmentSetupCommand,
+  resolveJavaRuntimeEnvironment
+} from '../../utils/javaRuntimeEnvironment.js'
+import { normalizeInstanceStartCommand } from '../../utils/startCommandNormalization.js'
 
 const execAsync = promisify(exec)
 
@@ -253,11 +260,50 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  // 获取Java路径
-  private async getJavaPath(javaVersion?: string): Promise<string> {
+  // 启动命令补全当前目录前缀
+  // 终端不会把工作目录当作命令搜索路径：Windows PowerShell 需要 `.\start.bat`，
+  // Linux/Mac bash 需要 `./start.sh`，裸写脚本名都会启动失败。
+  // 仅当首个词是不带路径的本地脚本/程序名且确实存在于工作目录时补前缀。
+  private async applyStartCommandPrefix(
+    startCommand: string,
+    workingDirectory: string,
+    platform: NodeJS.Platform,
+    id: string,
+    instance: Instance
+  ): Promise<string> {
+    try {
+      const entries = await fs.readdir(workingDirectory)
+      this.assertInstanceIdentity(id, instance)
+
+      // Windows 文件系统大小写不敏感，Linux/Mac 敏感
+      const caseInsensitive = platform === 'win32'
+      const localFileNames = new Set(entries.map(name => caseInsensitive ? name.toLowerCase() : name))
+      const normalizedCommand = normalizeInstanceStartCommand(
+        startCommand,
+        platform,
+        fileName => localFileNames.has(caseInsensitive ? fileName.toLowerCase() : fileName)
+      )
+
+      if (normalizedCommand !== startCommand) {
+        this.logger.info(`启动命令已补全当前目录前缀: ${startCommand} -> ${normalizedCommand}`)
+      }
+      return normalizedCommand
+    } catch (error: any) {
+      // 工作目录不可读等异常不阻断启动：保持原命令，交由终端报错
+      if (this.instances.get(id) !== instance) {
+        throw error
+      }
+      this.logger.warn(`补全启动命令前缀失败（保持原命令）: ${error?.message || error}`)
+      return startCommand
+    }
+  }
+
+  // 解析实例配置的Java运行环境
+  // 返回 null 表示未指定Java版本或环境不可用，此时使用系统PATH中的java
+  private async resolveJavaRuntime(javaVersion?: string): Promise<JavaRuntimeEnvironment | null> {
     // 如果未指定Java版本，使用系统PATH中的java
     if (!javaVersion) {
-      return 'java'
+      return null
     }
 
     try {
@@ -268,18 +314,22 @@ export class InstanceManager extends EventEmitter {
       const javaEnv = javaEnvironments.find(env => env.version === javaVersion)
 
       if (javaEnv && javaEnv.installed && javaEnv.javaExecutable) {
-        this.logger.info(`找到Java ${javaVersion} 路径: ${javaEnv.javaExecutable}`)
-        // 返回带引号的路径（处理包含空格的情况）
-        return `"${javaEnv.javaExecutable}"`
+        const runtime = resolveJavaRuntimeEnvironment(javaVersion, javaEnv.javaExecutable)
+        if (runtime) {
+          this.logger.info(
+            `找到Java ${javaVersion}：JAVA_HOME=${runtime.javaHome}，bin目录=${runtime.javaBinDirectory}`
+          )
+          return runtime
+        }
       }
 
       // 如果没有找到指定版本的Java，回退到系统PATH中的java
       this.logger.warn(`未找到已安装的Java版本 ${javaVersion}，使用系统PATH中的java`)
-      return 'java'
+      return null
     } catch (error) {
-      this.logger.error(`获取Java路径失败:`, error)
+      this.logger.error(`解析Java环境失败:`, error)
       this.logger.warn(`回退到系统PATH中的java`)
-      return 'java'
+      return null
     }
   }
 
@@ -812,6 +862,17 @@ export class InstanceManager extends EventEmitter {
       const platform = os.platform()
       let startCommand = instance.startCommand.trim()
 
+      // Java环境：所选Java版本不写入启动命令，而是注入到终端会话的环境变量中，
+      // 这样启动脚本（run.sh / run.bat 等）内部的 java 也能命中所选版本
+      const javaRuntime = await this.resolveJavaRuntime(instance.javaVersion)
+      this.assertInstanceIdentity(id, instance)
+      const javaEnvironmentSetup = javaRuntime
+        ? buildJavaEnvironmentSetupCommand(javaRuntime, platform)
+        : ''
+      const environmentOverrides = javaRuntime
+        ? buildJavaEnvironmentOverrides(javaRuntime)
+        : {}
+
       // 我的世界Java版 - 自动检测启动脚本或jar文件
       if (instance.instanceType === 'minecraft-java') {
         // 优先检测启动脚本
@@ -821,7 +882,8 @@ export class InstanceManager extends EventEmitter {
         if (startScript) {
           // 检测到启动脚本，直接使用脚本启动
           if (platform === 'win32') {
-            startCommand = startScript
+            // PowerShell 不从当前目录解析命令，必须带 .\ 前缀
+            startCommand = `.\\${startScript}`
           } else {
             // Linux/Mac 平台，使用 ./ 前缀
             startCommand = `./${startScript}`
@@ -840,17 +902,8 @@ export class InstanceManager extends EventEmitter {
             throw new Error(errorMsg)
           }
 
-          // 获取Java路径
-          const javaPath = await this.getJavaPath(instance.javaVersion)
-          this.assertInstanceIdentity(id, instance)
-
-          // 构建启动命令
-          // 在Windows PowerShell中，如果路径包含引号，需要使用 & 调用运算符
-          if (platform === 'win32' && javaPath.startsWith('"')) {
-            startCommand = `& ${javaPath} -jar ${jarFile} nogui`
-          } else {
-            startCommand = `${javaPath} -jar ${jarFile} nogui`
-          }
+          // 构建启动命令：java 由终端环境变量（JAVA_HOME/PATH）决定
+          startCommand = `java -jar "${jarFile}" nogui`
           this.logger.info(`我的世界Java版自动生成启动命令: ${startCommand}`)
         }
       }
@@ -872,6 +925,19 @@ export class InstanceManager extends EventEmitter {
           this.logger.error(errorMsg)
           throw new Error(errorMsg)
         }
+      }
+
+      // 终端不会从当前目录解析命令：用户把启动命令写成 start.bat、run.sh、server.exe 时
+      // 会启动失败。若该文件确实存在于工作目录，启动时补上 .\ 或 ./ 前缀
+      // （仅影响本次执行的命令，不改写实例配置）。
+      if (!instance.enableStreamForward) {
+        startCommand = await this.applyStartCommandPrefix(
+          startCommand,
+          instance.workingDirectory,
+          platform,
+          id,
+          instance
+        )
       }
 
       // 检查是否是 ./ 开头的命令
@@ -972,7 +1038,8 @@ export class InstanceManager extends EventEmitter {
         autoCloseOnForwardExit: instance.enableStreamForward || false,
         terminalUser: instance.terminalUser
       }, {
-        onExit: handleTerminalFinalized
+        onExit: handleTerminalFinalized,
+        environmentOverrides
       })
       // N3-I1(b)：先记录已创建的 session ID，再做 identity 校验——若 identity 在
       // createPty 返回后的窗口丢失（防御性路径），catch 仍能以 createdSessionId 对
@@ -999,7 +1066,18 @@ export class InstanceManager extends EventEmitter {
       instance.status = 'running'
       instance.lastStarted = new Date().toISOString()
 
-      this.logger.info(`启动实例: ${instance.name} (终端会话: ${terminalSessionId}), 启动命令: ${startCommand}`)
+      this.logger.info(
+        `启动实例: ${instance.name} (终端会话: ${terminalSessionId}), 启动命令: ${startCommand}, ` +
+        `Java环境: ${javaRuntime ? javaRuntime.version : '系统PATH'}`
+      )
+
+      // 配置了Java版本但环境不可用时给出可见提示，便于排查启动脚本实际使用了哪个java
+      if (instance.javaVersion && !javaRuntime) {
+        virtualSocket.emit('terminal-output', {
+          sessionId: terminalSessionId,
+          data: `\r\n[提示] 未找到可用的 Java 环境 ${instance.javaVersion}，本次启动将使用系统 PATH 中的 java\r\n`
+        })
+      }
 
       this.emit('instance-status-changed', { id, status: 'running' })
 
@@ -1030,9 +1108,14 @@ export class InstanceManager extends EventEmitter {
           if (instance.terminalSessionId !== terminalSessionId) {
             return
           }
+          // 先注入Java环境变量（终端级），再执行启动命令：
+          // 这样 run.sh / start.bat 等启动脚本内部的 java 也能命中所选版本
+          const inputData = javaEnvironmentSetup
+            ? `${javaEnvironmentSetup}\r${startCommand}\r`
+            : startCommand + '\r'
           this.terminalManager.handleInput(virtualSocket, {
             sessionId: terminalSessionId,
-            data: startCommand + '\r'  // 使用动态生成的启动命令
+            data: inputData
           })
         }, 1000)
       }

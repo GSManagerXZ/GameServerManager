@@ -54,6 +54,7 @@ interface PtySession {
   programPath?: string // 程序启动参数的绝对路径
   autoCloseOnForwardExit?: boolean // 转发进程退出时是否自动关闭终端会话
   fallbackRetried?: boolean // 是否已尝试过回退重试
+  environment?: NodeJS.ProcessEnv // 终端会话级环境变量（含调用方注入的覆盖项）
   stdoutRedactor: StreamingRedactor
   stderrRedactor: StreamingRedactor
   onOutput?: (output: string) => void
@@ -1127,6 +1128,7 @@ export class TerminalManager {
         programPath: attempt.programPath,
         autoCloseOnForwardExit: attempt.autoCloseOnForwardExit,
         fallbackRetried: attempt.phase === 'fallback',
+        environment: attempt.terminalEnv,
         stdoutRedactor: attempt.stdoutRedactor,
         stderrRedactor: attempt.stderrRedactor,
         onOutput: attempt.onOutput,
@@ -2256,6 +2258,12 @@ export class TerminalManager {
       // 启动目标程序进程
       // 在Windows上使用PTY包装，避免stdout块缓冲导致输出不实时
       let forwardProcess: ChildProcess
+      // 转发进程沿用会话级环境变量，保证调用方注入的 JAVA_HOME/PATH 等对程序同样生效
+      const forwardEnvironment = session.environment ?? {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor'
+      }
       if (os.platform() === 'win32' && this.ptyPath) {
         const ptyArgs = [
           '-dir', session.workingDirectory,
@@ -2267,21 +2275,13 @@ export class TerminalManager {
         forwardProcess = spawn(this.ptyPath, ptyArgs, {
           stdio: ['pipe', 'pipe', 'pipe'],
           cwd: session.workingDirectory,
-          env: {
-            ...process.env,
-            TERM: 'xterm-256color',
-            COLORTERM: 'truecolor'
-          }
+          env: forwardEnvironment
         })
       } else {
         forwardProcess = spawn(executablePath, args, {
           stdio: ['pipe', 'pipe', 'pipe'],
           cwd: session.workingDirectory,
-          env: {
-            ...process.env,
-            TERM: 'xterm-256color',
-            COLORTERM: 'truecolor'
-          },
+          env: forwardEnvironment,
           detached: os.platform() !== 'win32' // 在非Windows平台创建独立进程组
         })
       }

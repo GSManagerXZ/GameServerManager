@@ -1746,11 +1746,11 @@ const GameDeploymentPage: React.FC = () => {
 
         // 自动生成启动命令
         if (data.data?.serverType) {
-          setMrpackInstanceStartCommand(generateStartCommand(data.data.serverType, selectedMrpackJava))
+          setMrpackInstanceStartCommand(generateStartCommand(data.data.serverType))
         } else {
-          // 默认启动命令
+          // 默认启动命令（java 由实例启动时的终端环境变量决定）
           const defaultCommand = data.data?.serverJarPath ? `java -jar "${data.data.serverJarPath}"` : 'java -jar server.jar'
-          setMrpackInstanceStartCommand(selectedMrpackJava !== 'default' ? replaceJavaInCommand(defaultCommand, selectedMrpackJava) : defaultCommand)
+          setMrpackInstanceStartCommand(defaultCommand)
         }
 
         addNotification({
@@ -2255,48 +2255,19 @@ const GameDeploymentPage: React.FC = () => {
     setHoveredMrpack(null)
   }
 
-  // 获取选中的Java可执行文件路径
-  const getSelectedJavaExecutable = (selectedJava: string) => {
-    if (selectedJava === 'default') {
-      return 'java'
-    }
-
-    const javaEnv = javaEnvironments.find(env => env.version === selectedJava)
-    if (javaEnv && javaEnv.javaExecutable) {
-      // 如果路径包含空格，需要用引号包围
-      return javaEnv.javaExecutable.includes(' ') ? `"${javaEnv.javaExecutable}"` : javaEnv.javaExecutable
-    }
-
-    return 'java' // 回退到默认
-  }
-
   // 根据服务器类型生成启动命令
-  const generateStartCommand = (serverType: string, selectedJava: string = 'default', isWindows: boolean = isWindowsPlatform(systemInfo)) => {
+  // Java 版本不写入启动命令：实例启动时由服务端注入终端环境变量（JAVA_HOME/PATH）
+  const generateStartCommand = (serverType: string, isWindows: boolean = isWindowsPlatform(systemInfo)) => {
     const lowerServerType = serverType.toLowerCase()
-    const javaExecutable = getSelectedJavaExecutable(selectedJava)
 
     if (lowerServerType.includes('forge') || lowerServerType.includes('neoforge')) {
       // Forge/NeoForge 使用启动脚本
       // 使用辅助函数判断平台（优先使用 rawPlatform，回退到 platform）
       return isWindows ? '.\\run.bat' : 'bash run.sh'
-    } else if (lowerServerType.includes('fabric') || lowerServerType.includes('quilt')) {
-      // Fabric/Quilt 重命名为 server.jar
-      return `${javaExecutable} -jar server.jar`
-    } else {
-      // 默认情况
-      return `${javaExecutable} -jar server.jar`
-    }
-  }
-
-  // 替换启动命令中的Java路径
-  const replaceJavaInCommand = (command: string, selectedJava: string) => {
-    if (selectedJava === 'default') {
-      return command
     }
 
-    const javaExecutable = getSelectedJavaExecutable(selectedJava)
-    // 替换命令开头的java为指定的Java可执行文件路径
-    return command.replace(/^java\b/, javaExecutable)
+    // Fabric/Quilt 重命名为 server.jar，默认情况同样使用 server.jar
+    return 'java -jar server.jar'
   }
 
   // 创建Minecraft实例
@@ -2345,19 +2316,12 @@ const GameDeploymentPage: React.FC = () => {
           const useRecommended = !startCommandEdited || !instanceStartCommand.trim()
           if (useRecommended) {
             console.log('[Minecraft实例创建] 启动命令未被手动修改，使用智能检测结果')
-            
-            // 根据扫描结果的启动方式决定如何生成命令
-            if (scanResult.data.startMethod === 'jar_file' && selectedMinecraftJava !== 'default') {
-              const javaExecutable = getSelectedJavaExecutable(selectedMinecraftJava)
-              finalStartCommand = recommendedCommand.replace(/^java\b/, javaExecutable)
-              console.log('[Minecraft实例创建] 替换Java路径:', javaExecutable)
-            } else {
-              finalStartCommand = recommendedCommand
-              console.log('[Minecraft实例创建] 直接使用推荐命令')
-            }
-            
+
+            // 启动命令保持原样（java 由实例启动时的终端环境变量决定）
+            finalStartCommand = recommendedCommand
+
             console.log('[Minecraft实例创建] 最终启动命令:', finalStartCommand)
-            
+
             // 同步到输入框，便于用户确认
             setInstanceStartCommand(finalStartCommand)
 
@@ -2366,9 +2330,7 @@ const GameDeploymentPage: React.FC = () => {
                                    'JAR文件'
           } else {
             console.log('[Minecraft实例创建] 检测到用户已修改启动命令，保留用户输入')
-            finalStartCommand = selectedMinecraftJava !== 'default' 
-              ? replaceJavaInCommand(instanceStartCommand, selectedMinecraftJava) 
-              : instanceStartCommand
+            finalStartCommand = instanceStartCommand
           }
         } else {
             console.log('[Minecraft实例创建] 未检测到推荐的启动命令')
@@ -2385,15 +2347,10 @@ const GameDeploymentPage: React.FC = () => {
       // 如果扫描失败或没有检测到启动文件，使用默认生成的启动命令
       if (!scanSuccess || !finalStartCommand) {
         console.log('[Minecraft实例创建] 使用默认启动命令生成逻辑')
-        finalStartCommand = instanceStartCommand || generateStartCommand(selectedServer, selectedMinecraftJava)
-        
-        // 如果用户手动输入了启动命令且选择了特定Java版本，替换其中的java
-        if (instanceStartCommand && selectedMinecraftJava !== 'default') {
-          finalStartCommand = replaceJavaInCommand(instanceStartCommand, selectedMinecraftJava)
-        }
-        
+        finalStartCommand = instanceStartCommand || generateStartCommand(selectedServer)
+
         console.log('[Minecraft实例创建] 默认启动命令:', finalStartCommand)
-        
+
         addNotification({
           type: 'info',
           title: '使用默认启动命令',
@@ -2410,7 +2367,9 @@ const GameDeploymentPage: React.FC = () => {
         workingDirectory: downloadResult.targetDirectory,
         startCommand: finalStartCommand,
         autoStart: false,
-        stopCommand: 'stop' as const
+        stopCommand: 'stop' as const,
+        // Java 版本保存到实例配置，启动时由服务端注入终端环境变量
+        javaVersion: selectedMinecraftJava === 'default' ? undefined : selectedMinecraftJava
       })
 
       if (response.success) {
@@ -2546,7 +2505,7 @@ const GameDeploymentPage: React.FC = () => {
     // 更新Minecraft实例启动命令
     // 只在用户手动选择时更新，不覆盖下载后扫描得到的启动命令
     if (selectedServer && selectedVersion && selectedMinecraftJava && !downloadResult) {
-      setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
+      setInstanceStartCommand(generateStartCommand(selectedServer))
       setStartCommandEdited(false)
     }
   }, [selectedMinecraftJava, selectedServer, downloadResult])
@@ -2555,10 +2514,10 @@ const GameDeploymentPage: React.FC = () => {
     // 更新整合包实例启动命令
     if (mrpackDeployResult && selectedMrpackJava) {
       if (mrpackDeployResult.serverType) {
-        setMrpackInstanceStartCommand(generateStartCommand(mrpackDeployResult.serverType, selectedMrpackJava))
+        setMrpackInstanceStartCommand(generateStartCommand(mrpackDeployResult.serverType))
       } else {
         const defaultCommand = mrpackDeployResult.serverJarPath ? `java -jar "${mrpackDeployResult.serverJarPath}"` : 'java -jar server.jar'
-        setMrpackInstanceStartCommand(selectedMrpackJava !== 'default' ? replaceJavaInCommand(defaultCommand, selectedMrpackJava) : defaultCommand)
+        setMrpackInstanceStartCommand(defaultCommand)
       }
     }
   }, [selectedMrpackJava, mrpackDeployResult])
@@ -2997,16 +2956,9 @@ const GameDeploymentPage: React.FC = () => {
     try {
       setCreatingMrpackInstance(true)
 
-      // 生成启动命令，考虑选中的Java版本
-      let finalStartCommand = mrpackInstanceStartCommand
-      if (!finalStartCommand) {
-        // 如果没有自定义启动命令，生成默认命令
-        const defaultCommand = mrpackDeployResult.serverJarPath ? `java -jar "${mrpackDeployResult.serverJarPath}"` : 'java -jar server.jar'
-        finalStartCommand = selectedMrpackJava !== 'default' ? replaceJavaInCommand(defaultCommand, selectedMrpackJava) : defaultCommand
-      } else if (selectedMrpackJava !== 'default') {
-        // 如果有自定义启动命令且选择了特定Java版本，替换其中的java
-        finalStartCommand = replaceJavaInCommand(mrpackInstanceStartCommand, selectedMrpackJava)
-      }
+      // 生成启动命令（java 由实例启动时的终端环境变量决定，不写入命令）
+      const finalStartCommand = mrpackInstanceStartCommand
+        || (mrpackDeployResult.serverJarPath ? `java -jar "${mrpackDeployResult.serverJarPath}"` : 'java -jar server.jar')
 
       const response = await apiClient.createInstance({
         name: mrpackInstanceName.trim(),
@@ -3014,7 +2966,9 @@ const GameDeploymentPage: React.FC = () => {
         workingDirectory: mrpackDeployResult.installPath,
         startCommand: finalStartCommand,
         autoStart: false,
-        stopCommand: 'stop' as const
+        stopCommand: 'stop' as const,
+        // Java 版本保存到实例配置，启动时由服务端注入终端环境变量
+        javaVersion: selectedMrpackJava === 'default' ? undefined : selectedMrpackJava
       })
 
       if (response.success) {
@@ -3810,7 +3764,7 @@ const GameDeploymentPage: React.FC = () => {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
                 <option value="generic">Steam/通用控制台程序</option>
-                <option value="minecraft-java">我的世界 Java 版</option>
+                <option value="minecraft-java">Java服务端/我的世界Java版</option>
                 <option value="minecraft-bedrock">我的世界基岩版</option>
               </select>
             </div>
@@ -3829,6 +3783,9 @@ const GameDeploymentPage: React.FC = () => {
                     <option key={env.version} value={env.version}>{env.displayName || env.version}</option>
                   ))}
                 </select>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  启动时会以终端环境变量（JAVA_HOME/PATH）注入所选 Java，启动脚本 run.sh、start.bat 等同样生效
+                </p>
               </div>
             )}
 
@@ -5110,7 +5067,7 @@ const GameDeploymentPage: React.FC = () => {
                 </div>
                 {selectedMinecraftJava !== 'default' && (
                   <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    已选择特定Java版本，创建实例时将使用此版本的Java运行时
+                    已选择特定Java版本，实例启动时会以终端环境变量（JAVA_HOME/PATH）注入，启动脚本同样生效
                   </p>
                 )}
               </div>
@@ -5191,7 +5148,7 @@ const GameDeploymentPage: React.FC = () => {
                           setSelectedVersion(version)
                           // 自动生成启动命令
                           if (version && selectedServer) {
-                            setInstanceStartCommand(generateStartCommand(selectedServer, selectedMinecraftJava))
+                            setInstanceStartCommand(generateStartCommand(selectedServer))
                             setStartCommandEdited(false)
                             // 自动更新安装路径
                             setMinecraftInstallPath(generateMinecraftPath(selectedServer, version))
@@ -5372,24 +5329,19 @@ const GameDeploymentPage: React.FC = () => {
                             const scanResult = await apiClient.scanMinecraftDirectory(downloadResult.targetDirectory)
                             console.log('[Minecraft实例创建] 扫描结果:', scanResult)
                             if (scanResult.success && scanResult.data?.recommendedStartCommand) {
-                              let cmd = scanResult.data.recommendedStartCommand as string
+                              const cmd = scanResult.data.recommendedStartCommand as string
                               console.log('[Minecraft实例创建] 后端推荐命令:', cmd)
-                              if (scanResult.data.startMethod === 'jar_file' && selectedMinecraftJava !== 'default') {
-                                const javaExecutable = getSelectedJavaExecutable(selectedMinecraftJava)
-                                cmd = cmd.replace(/^java\b/, javaExecutable)
-                              }
-                              console.log('[Minecraft实例创建] 最终使用命令:', cmd)
                               setInstanceStartCommand(cmd)
                               setStartCommandEdited(false)
                             } else {
-                              const fallback = generateStartCommand(selectedServer, selectedMinecraftJava)
+                              const fallback = generateStartCommand(selectedServer)
                               console.log('[Minecraft实例创建] 使用回退命令:', fallback)
                               setInstanceStartCommand(fallback)
                               setStartCommandEdited(false)
                             }
                           } catch (e) {
                             console.error('[Minecraft实例创建] 扫描异常:', e)
-                            const fallback = generateStartCommand(selectedServer, selectedMinecraftJava)
+                            const fallback = generateStartCommand(selectedServer)
                             console.log('[Minecraft实例创建] 异常回退命令:', fallback)
                             setInstanceStartCommand(fallback)
                             setStartCommandEdited(false)
@@ -5840,7 +5792,7 @@ const GameDeploymentPage: React.FC = () => {
                 </div>
                 {selectedMrpackJava !== 'default' && (
                   <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    已选择特定Java版本，创建实例时将使用此版本的Java运行时
+                    已选择特定Java版本，实例启动时会以终端环境变量（JAVA_HOME/PATH）注入，启动脚本同样生效
                   </p>
                 )}
               </div>

@@ -2459,7 +2459,7 @@ const InstanceManagerPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="generic">Steam/通用控制台程序</option>
-                  <option value="minecraft-java">我的世界Java版</option>
+                  <option value="minecraft-java">Java服务端/我的世界Java版</option>
                   <option value="minecraft-bedrock">我的世界基岩版</option>
                 </select>
               </div>
@@ -2503,8 +2503,8 @@ const InstanceManagerPage: React.FC = () => {
                 />
               </div>
 
-              {/* 我的世界Java版 - Java环境选择 */}
-              {formData.instanceType === 'minecraft-java' && (
+              {/* Java服务端/我的世界Java版 - Java环境选择（带Java环境的一键开服实例同样可编辑） */}
+              {(formData.instanceType === 'minecraft-java' || Boolean(formData.javaVersion)) && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Java环境 *
@@ -2530,6 +2530,11 @@ const InstanceManagerPage: React.FC = () => {
                   {!loadingJava && javaEnvironments.length === 0 && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       未检测到已安装的Java环境，将使用系统PATH环境变量中的Java
+                    </p>
+                  )}
+                  {!loadingJava && javaEnvironments.length > 0 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      启动时会以终端环境变量（JAVA_HOME/PATH）注入所选Java，启动脚本 run.sh、start.bat 等同样生效
                     </p>
                   )}
                 </div>
