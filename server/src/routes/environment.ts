@@ -143,14 +143,28 @@ router.post('/java/install', authenticateToken, async (req, res) => {
       archiveFileName = getJavaArchiveFileName(version, process.platform, os.arch())
     }
 
-    // 立即返回响应，安装过程在后台进行
-    res.json({
-      success: true,
-      message: `${installVersion} 开始安装${providerLabel ? `（${providerLabel}${isSponsorDownload && downloadOptions?.cookie ? '，赞助者专用通道' : ''}）` : ''}`
-    })
+    if (javaManager.isJavaInstallRunning(installVersion)) {
+      return res.status(409).json({
+        success: false,
+        message: `${installVersion} 正在安装，请等待当前任务完成`
+      })
+    }
 
-    // 后台执行安装，通过WebSocket发送进度更新
-    await javaManager.installJava(installVersion, finalDownloadUrl, (stage, progress) => {
+    if (await javaManager.isJavaInstalled(installVersion)) {
+      return res.status(409).json({
+        success: false,
+        message: `${installVersion} 已经安装`
+      })
+    }
+
+    if (javaManager.isJavaInstallRunning(installVersion)) {
+      return res.status(409).json({
+        success: false,
+        message: `${installVersion} 正在安装，请等待当前任务完成`
+      })
+    }
+
+    const installPromise = javaManager.installJava(installVersion, finalDownloadUrl, (stage, progress) => {
       if (io && socketId) {
         io.to(socketId).emit('java-install-progress', {
           version: installVersion,
@@ -159,6 +173,15 @@ router.post('/java/install', authenticateToken, async (req, res) => {
         })
       }
     }, archiveFileName, downloadOptions)
+
+    // 立即返回响应，安装过程在后台进行
+    res.json({
+      success: true,
+      message: `${installVersion} 开始安装${providerLabel ? `（${providerLabel}${isSponsorDownload && downloadOptions?.cookie ? '，赞助者专用通道' : ''}）` : ''}`
+    })
+
+    // 后台执行安装，通过WebSocket发送进度更新
+    await installPromise
 
     // 发送最终进度更新，确保进度条到达100%
     if (io && socketId) {
@@ -192,7 +215,13 @@ router.post('/java/install', authenticateToken, async (req, res) => {
     }
 
     if (!res.headersSent) {
-      return res.status(error instanceof UnsupportedJavaDownloadError ? 400 : 500).json({
+      const statusCode = error instanceof UnsupportedJavaDownloadError
+        ? 400
+        : errorMessage.includes('正在安装') || errorMessage.includes('已经安装')
+          ? 409
+          : 500
+
+      return res.status(statusCode).json({
         success: false,
         message: `${installVersion} 安装失败: ${errorMessage}`
       })

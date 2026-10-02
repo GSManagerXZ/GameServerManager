@@ -15,6 +15,9 @@ export interface JavaEnvironment {
   installed: boolean
   installPath?: string
   javaExecutable?: string
+  installing?: boolean
+  installProgress?: number
+  installStage?: 'download' | 'extract'
 }
 
 export interface JavaDownloadOptions {
@@ -22,11 +25,20 @@ export interface JavaDownloadOptions {
   cookie?: string
 }
 
+interface JavaInstallTaskState {
+  version: string
+  installStage: 'download' | 'extract'
+  installProgress: number
+  startedAt: string
+  updatedAt: string
+}
+
 export class JavaManager {
   private readonly installDir: string
+  private readonly installTasks = new Map<string, JavaInstallTaskState>()
 
-  constructor() {
-    this.installDir = path.join(process.cwd(), 'data', 'environment', 'Java')
+  constructor(installDir = path.join(process.cwd(), 'data', 'environment', 'Java')) {
+    this.installDir = installDir
   }
 
   /**
@@ -102,14 +114,18 @@ export class JavaManager {
         javaVersions.add(entry.name)
       }
     }
+    for (const version of this.installTasks.keys()) {
+      javaVersions.add(version)
+    }
     const environments: JavaEnvironment[] = []
 
     for (const version of Array.from(javaVersions)) {
       const versionDir = this.getVersionDir(version)
-      const installed = await fs.pathExists(versionDir)
+      const versionDirExists = await fs.pathExists(versionDir)
+      const installTask = this.installTasks.get(version)
 
       let javaExecutable: string | undefined
-      if (installed) {
+      if (versionDirExists) {
         const executablePath = await this.findJavaExecutable(versionDir)
         if (executablePath) {
           javaExecutable = executablePath
@@ -120,9 +136,12 @@ export class JavaManager {
         version,
         platform,
         downloadUrl: '', // 前端会根据平台选择
-        installed,
-        installPath: installed ? versionDir : undefined,
-        javaExecutable
+        installed: Boolean(javaExecutable) && !installTask,
+        installPath: versionDirExists ? versionDir : undefined,
+        javaExecutable,
+        installing: Boolean(installTask),
+        installProgress: installTask?.installProgress,
+        installStage: installTask?.installStage
       })
     }
 
@@ -134,7 +153,27 @@ export class JavaManager {
    */
   async isJavaInstalled(version: string): Promise<boolean> {
     const versionDir = this.getVersionDir(version)
-    return await fs.pathExists(versionDir)
+    if (!(await fs.pathExists(versionDir))) {
+      return false
+    }
+
+    return Boolean(await this.findJavaExecutable(versionDir))
+  }
+
+  isJavaInstallRunning(version: string): boolean {
+    return this.installTasks.has(version)
+  }
+
+  private setInstallTaskProgress(version: string, stage: 'download' | 'extract', progress: number): void {
+    const task = this.installTasks.get(version)
+    if (!task) return
+
+    const boundedProgress = Math.max(0, Math.min(100, progress))
+    task.installStage = stage
+    task.installProgress = stage === 'download'
+      ? Math.round(boundedProgress * 0.7)
+      : Math.round(70 + (boundedProgress * 0.3))
+    task.updatedAt = new Date().toISOString()
   }
 
   /**
@@ -277,68 +316,96 @@ export class JavaManager {
   /**
    * 安装Java环境
    */
-  async installJava(
+  installJava(
     version: string,
     downloadUrl: string,
     onProgress?: (stage: 'download' | 'extract', progress: number) => void,
     archiveFileName?: string,
     downloadOptions?: JavaDownloadOptions
   ): Promise<void> {
-    await this.ensureInstallDir()
+    if (this.installTasks.has(version)) {
+      throw new Error(`${version} 正在安装`)
+    }
+
+    const now = new Date().toISOString()
+    this.installTasks.set(version, {
+      version,
+      installStage: 'download',
+      installProgress: 0,
+      startedAt: now,
+      updatedAt: now
+    })
 
     const versionDir = this.getVersionDir(version)
-
-    // 检查是否已安装
-    if (await fs.pathExists(versionDir)) {
-      throw new Error(`${version} 已经安装`)
-    }
+    let shouldCleanupVersionDir = false
 
     logger.info(`开始安装 ${version}，下载地址: ${downloadUrl}`)
 
-    try {
-      // 创建版本目录
-      await fs.ensureDir(versionDir)
-
-      // 下载文件
-      const fileName = archiveFileName || path.basename(downloadUrl)
-      const downloadPath = path.join(versionDir, fileName)
-
-      await this.downloadFile(downloadUrl, downloadPath, (progress) => {
-        onProgress?.('download', progress)
-      }, downloadOptions)
-
-      // 解压文件
-      onProgress?.('extract', 0)
-      await this.extractFile(downloadPath, versionDir)
-      onProgress?.('extract', 100)
-
-      // 删除下载的压缩文件
-      await fs.remove(downloadPath)
-
-      // Linux系统下设置可执行权限
-      await this.setExecutablePermissions(versionDir)
-
-      // 验证安装
-      const javaExecutable = await this.findJavaExecutable(versionDir)
-      if (!javaExecutable) {
-        throw new Error(`安装完成但未找到Java可执行文件`)
-      }
-
-      logger.info(`${version} 安装完成，Java路径: ${javaExecutable}`)
-    } catch (error) {
-      logger.error(`安装 ${version} 失败:`, error)
-
-      // 清理失败的安装
+    return (async () => {
       try {
+        await this.ensureInstallDir()
+
         if (await fs.pathExists(versionDir)) {
+          const existingExecutable = await this.findJavaExecutable(versionDir)
+          if (existingExecutable) {
+            throw new Error(`${version} 已经安装`)
+          }
+
+          logger.warn(`${version} 存在未完成的安装目录，重新安装前将清理该目录: ${versionDir}`)
           await fs.remove(versionDir)
         }
-      } catch (cleanupError) {
-        logger.error('清理失败的安装目录失败:', cleanupError)
-      }
 
-      throw error
-    }
+        // 创建版本目录
+        await fs.ensureDir(versionDir)
+        shouldCleanupVersionDir = true
+
+        // 下载文件
+        const fileName = archiveFileName || path.basename(downloadUrl)
+        const downloadPath = path.join(versionDir, fileName)
+
+        await this.downloadFile(downloadUrl, downloadPath, (progress) => {
+          this.setInstallTaskProgress(version, 'download', progress)
+          onProgress?.('download', progress)
+        }, downloadOptions)
+
+        // 解压文件
+        this.setInstallTaskProgress(version, 'extract', 0)
+        onProgress?.('extract', 0)
+        await this.extractFile(downloadPath, versionDir)
+        this.setInstallTaskProgress(version, 'extract', 100)
+        onProgress?.('extract', 100)
+
+        // 删除下载的压缩文件
+        await fs.remove(downloadPath)
+
+        // Linux系统下设置可执行权限
+        await this.setExecutablePermissions(versionDir)
+
+        // 验证安装
+        const javaExecutable = await this.findJavaExecutable(versionDir)
+        if (!javaExecutable) {
+          throw new Error(`安装完成但未找到Java可执行文件`)
+        }
+
+        logger.info(`${version} 安装完成，Java路径: ${javaExecutable}`)
+        shouldCleanupVersionDir = false
+      } catch (error) {
+        logger.error(`安装 ${version} 失败:`, error)
+
+        // 清理失败的安装
+        try {
+          if (shouldCleanupVersionDir && await fs.pathExists(versionDir)) {
+            await fs.remove(versionDir)
+          }
+        } catch (cleanupError) {
+          logger.error('清理失败的安装目录失败:', cleanupError)
+        }
+
+        throw error
+      } finally {
+        this.installTasks.delete(version)
+      }
+    })()
   }
 
   /**
