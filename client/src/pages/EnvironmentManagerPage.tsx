@@ -238,6 +238,16 @@ const EnvironmentManagerPage: React.FC = () => {
     channel === 'ea' ? 'EA / 预览版' : 'GA / 稳定版'
   )
 
+  const parseJavaVersionId = (version: string): { major: number; channel: JavaReleaseChannel } | null => {
+    const match = /^java(\d+)(?:-(ea))?$/i.exec(version)
+    if (!match) return null
+
+    return {
+      major: Number(match[1]),
+      channel: match[2] === 'ea' ? 'ea' : 'ga'
+    }
+  }
+
   const getCustomJavaMajorNumber = (): number | null => {
     const major = Number(customJavaMajor)
     const minMajor = javaCatalog?.custom.minMajor ?? 8
@@ -357,10 +367,12 @@ const EnvironmentManagerPage: React.FC = () => {
   }
 
   // 获取Java环境列表
-  const fetchJavaEnvironments = async (force = false) => {
+  const fetchJavaEnvironments = async (force = false, silent = false) => {
     if (tabDataLoaded.java && !force) return
 
-    setTabLoadingStates(prev => ({ ...prev, java: true }))
+    if (!silent) {
+      setTabLoadingStates(prev => ({ ...prev, java: true }))
+    }
     try {
       const [environmentResult, catalogResult] = await Promise.allSettled([
         apiClient.getJavaEnvironments(),
@@ -368,14 +380,18 @@ const EnvironmentManagerPage: React.FC = () => {
       ])
       let environmentsLoaded = false
       let catalogLoaded = false
+      let loadedJavaEnvironments: JavaEnvironment[] | null = null
+      let loadedJavaCatalog: JavaDownloadCatalog | null = null
 
       if (environmentResult.status === 'fulfilled' && environmentResult.value.success && environmentResult.value.data) {
-        setJavaEnvironments(environmentResult.value.data)
+        loadedJavaEnvironments = environmentResult.value.data
+        setJavaEnvironments(loadedJavaEnvironments)
         environmentsLoaded = true
       }
 
       if (catalogResult.status === 'fulfilled' && catalogResult.value.success && catalogResult.value.data) {
         const catalog = catalogResult.value.data as JavaDownloadCatalog
+        loadedJavaCatalog = catalog
         setJavaCatalog(catalog)
         setCustomJavaMajor(prev => prev || String(catalog.custom.defaultMajor))
         setSelectedJavaOptions(prev => {
@@ -402,18 +418,33 @@ const EnvironmentManagerPage: React.FC = () => {
         catalogLoaded = true
       }
 
+      if (loadedJavaEnvironments && loadedJavaCatalog) {
+        const catalogVersionIds = new Set(loadedJavaCatalog.versions.map(version => version.id))
+        const activeCustomEnvironment = loadedJavaEnvironments.find(env => env.installing && !catalogVersionIds.has(env.version))
+        const activeCustomVersion = activeCustomEnvironment ? parseJavaVersionId(activeCustomEnvironment.version) : null
+
+        if (activeCustomVersion) {
+          setCustomJavaMajor(String(activeCustomVersion.major))
+          setCustomJavaChannel(activeCustomVersion.channel)
+        }
+      }
+
       if (environmentsLoaded || catalogLoaded) {
         setTabDataLoaded(prev => ({ ...prev, java: true }))
       }
     } catch (error) {
       console.error('获取Java环境列表失败:', error)
-      addNotification({
-        type: 'error',
-        title: '错误',
-        message: '获取Java环境列表失败'
-      })
+      if (!silent) {
+        addNotification({
+          type: 'error',
+          title: '错误',
+          message: '获取Java环境列表失败'
+        })
+      }
     } finally {
-      setTabLoadingStates(prev => ({ ...prev, java: false }))
+      if (!silent) {
+        setTabLoadingStates(prev => ({ ...prev, java: false }))
+      }
     }
   }
 
@@ -557,6 +588,20 @@ const EnvironmentManagerPage: React.FC = () => {
         break
     }
   }
+
+  const hasActiveJavaInstall = javaEnvironments.some(env => env.installing)
+
+  useEffect(() => {
+    if (activeTab !== 'java' || !hasActiveJavaInstall) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchJavaEnvironments(true, true)
+    }, 3000)
+
+    return () => window.clearInterval(timer)
+  }, [activeTab, hasActiveJavaInstall])
 
   // 监听Java安装进度
   useEffect(() => {
