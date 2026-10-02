@@ -16,6 +16,7 @@ import {
   prepareSteamCMDLaunch,
   quoteSteamCMDConsoleArgument
 } from '../../utils/steamcmdRunScript.js'
+import { assertSteamCMDSupported } from '../../utils/architectureSupport.js'
 
 const STEAM_BRANCH_QUERY_TIMEOUT_MS = 2 * 60 * 1000
 
@@ -164,6 +165,7 @@ export class SteamCMDManager {
     const { installPath, onProgress, onStatusChange } = options
 
     try {
+      assertSteamCMDSupported()
       onStatusChange?.('正在准备安装目录...')
 
       // 确保安装目录存在

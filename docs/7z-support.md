@@ -49,6 +49,7 @@
 
 - **已存在**：跳过下载，记录日志 `7z 已就绪`
 - **不存在**：自动从 GitHub Releases 下载对应平台的二进制文件
+- **暂无内置资产的平台**：尝试使用系统 `7z` 或 `7zz` 降级
 - **下载失败**：记录警告日志但不阻塞服务启动，7z 相关功能降级为不可用
 
 ### 下载地址
@@ -80,6 +81,7 @@
 | Windows | ARM64 | `7z_win32_arm64.exe` |
 | Linux | x64 | `7z_linux_x64` |
 | Linux | ARM64 | `7z_linux_arm64` |
+| Linux | RISC-V64 | 暂无内置资产，使用系统 `7z`/`7zz` 降级 |
 | Linux | ia32 | `7z_linux_386` |
 | Linux | ARM | `7z_linux_arm` |
 | macOS | x64 | `7z_darwin_x64` |
@@ -92,6 +94,8 @@
 ### 打包脚本
 
 打包脚本（`scripts/package.js`）在构建时会自动从 GitHub Releases 下载目标平台的 7z 二进制文件并内置到产物中，与 `file_zip` 的下载流程并列执行，确保用户部署后无需额外下载。
+
+`linux-riscv64` 暂无内置 7z 资产，打包时会跳过该二进制。目标系统需要安装 `7z` 或 `7zz` 后才能使用 7z 压缩/解压功能。
 
 ### Docker 镜像
 

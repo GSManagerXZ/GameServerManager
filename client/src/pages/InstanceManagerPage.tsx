@@ -35,6 +35,7 @@ import RconConsole from '@/components/RconConsole'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import SteamBranchSelector from '@/components/SteamBranchSelector'
 import { formatFileSize } from '@/utils/format'
+import { isLimitedGameServerArchitecture } from '@/utils/architectureSupport'
 import { io, Socket } from 'socket.io-client'
 import config from '@/config'
 
@@ -594,7 +595,7 @@ const InstanceManagerPage: React.FC = () => {
     fetchInstances()
     fetchAvailableConfigs()
     fetchSystemUsers()
-    fetchSystemInfo() // 获取系统信息以检测ARM架构
+    fetchSystemInfo() // 获取系统信息以检测特殊架构
 
     // 检查是否有待创建的实例（从游戏部署页面跳转过来）
     const pendingInstanceStr = localStorage.getItem('pendingInstance')
@@ -713,9 +714,9 @@ const InstanceManagerPage: React.FC = () => {
     }
   }
 
-  // 当检测到ARM架构时，如果当前标签页是实例市场，则切换到我的实例标签页
+  // 当检测到非 x86_64 架构时，如果当前标签页是实例市场，则切换到我的实例标签页
   useEffect(() => {
-    if (systemInfo && (systemInfo.arch === 'arm64' || systemInfo.arch === 'aarch64') && activeTab === 'market') {
+    if (isLimitedGameServerArchitecture(systemInfo) && activeTab === 'market') {
       setActiveTab('instances')
     }
   }, [systemInfo, activeTab])
@@ -1589,8 +1590,8 @@ const InstanceManagerPage: React.FC = () => {
               <span>我的实例</span>
             </div>
           </button>
-          {/* 实例市场标签页 - 检测到ARM架构时隐藏 */}
-          {!(systemInfo?.arch === 'arm64' || systemInfo?.arch === 'aarch64') && (
+          {/* 实例市场标签页 - 非 x86_64 架构时隐藏 */}
+          {!isLimitedGameServerArchitecture(systemInfo) && (
             <button
               onClick={() => setActiveTab('market')}
               className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'market'

@@ -16,6 +16,7 @@ import { FileManager } from './minecraft-server-api.js';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
 import { createTarSecurityFilter } from '../../../utils/tarSecurityFilter.js';
+import { assertFactorioHeadlessSupported } from '../../../utils/architectureSupport.js';
 
 // 创建promisify版本的mkdtemp
 const mkdtempAsync = promisify(mkdtemp);
@@ -1070,6 +1071,7 @@ export async function deployFactorioServer(options: FactorioDeployOptions): Prom
   const deployment = globalDeploymentManager.createDeployment('factorio', targetDirectory, onProgress, deploymentId);
 
   try {
+    assertFactorioHeadlessSupported();
     (deployment.cancellationToken as CancellationTokenImpl).throwIfCancelled();
 
     const downloadUrl = 'https://factorio.com/get-download/stable/headless/linux64';

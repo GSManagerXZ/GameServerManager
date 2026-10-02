@@ -45,12 +45,14 @@ if [ -f "server/index.js" ]; then
     # PTY 文件已迁移到 data/lib/ 目录，启动时由服务端自动检测和下载
     # 如果 data/lib/ 中存在 PTY 文件，验证并设置可执行权限
     ARCH=$(uname -m)
+    PTY_SUPPORTED="yes"
     if [ "$ARCH" = "x86_64" ]; then
         PTY_FILE="$RUNTIME_LIB_DIR/pty_linux_x64"
     elif [ "$ARCH" = "aarch64" ]; then
         PTY_FILE="$RUNTIME_LIB_DIR/pty_linux_arm64"
     else
         PTY_FILE=""
+        PTY_SUPPORTED="no"
     fi
 
     if [ -n "$PTY_FILE" ] && [ -f "$PTY_FILE" ]; then
@@ -68,6 +70,8 @@ if [ -f "server/index.js" ]; then
             echo "✅ PTY权限设置完成 ($ARCH)"
             echo "ℹ️  未安装 file 命令，已跳过PTY启动预检，服务端将继续执行固定清单校验"
         fi
+    elif [ "$PTY_SUPPORTED" = "no" ]; then
+        echo "ℹ️  当前架构 ($ARCH) 暂无固定PTY资产，终端功能可能不可用"
     else
         echo "ℹ️  PTY文件将在服务启动时自动下载"
     fi
@@ -86,7 +90,7 @@ else
         if [ "$ARCH" = "x86_64" ]; then
             echo "1. 启动SteamCMD"
         else
-            echo "1. SteamCMD (不支持ARM64架构)"
+            echo "1. SteamCMD (不支持当前架构: $ARCH)"
         fi
         echo "2. 查看游戏目录"
         echo "3. 退出"
@@ -100,8 +104,8 @@ else
                     cd ${STEAMCMD_DIR}
                     ./steamcmd.sh
                 else
-                    echo "❌ SteamCMD不支持ARM64架构"
-                    echo "💡 ARM64版本仅支持GSM3管理面板功能"
+                    echo "❌ SteamCMD不支持当前架构: $ARCH"
+                    echo "💡 非 x86_64 架构仅支持GSM3管理面板功能"
                 fi
                 ;;
             2)

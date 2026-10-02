@@ -3,6 +3,7 @@ import { SteamCMDManager } from '../modules/steamcmd/SteamCMDManager.js'
 import { ConfigManager } from '../modules/config/ConfigManager.js'
 import winston from 'winston'
 import { authenticateToken } from '../middleware/auth.js'
+import { assertSteamCMDSupported, UnsupportedArchitectureError } from '../utils/architectureSupport.js'
 
 const router = Router()
 let steamcmdManager: SteamCMDManager
@@ -40,6 +41,15 @@ router.post('/install', authenticateToken, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: '请提供有效的安装路径'
+      })
+    }
+
+    try {
+      assertSteamCMDSupported()
+    } catch (error) {
+      return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json({
+        success: false,
+        message: error instanceof Error ? error.message : '当前平台暂不支持 SteamCMD 在线安装'
       })
     }
     

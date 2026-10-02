@@ -6,6 +6,7 @@ import { deployTModLoaderServer, deployFactorioServer, cancelDeployment, getActi
 import { authenticateToken } from '../middleware/auth.js'
 import logger from '../utils/logger.js'
 import { Server as SocketIOServer } from 'socket.io'
+import { assertFactorioHeadlessSupported, UnsupportedArchitectureError } from '../utils/architectureSupport.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -76,7 +77,23 @@ function getCurrentPlatform(): Platform {
 // 检查游戏是否支持当前平台
 function isGameSupportedOnCurrentPlatform(game: GameInfo): boolean {
   const currentPlatform = getCurrentPlatform()
+  if (game.id === GameType.FACTORIO) {
+    try {
+      assertFactorioHeadlessSupported()
+    } catch {
+      return false
+    }
+  }
+
   return game.supportedPlatforms.includes(currentPlatform)
+}
+
+function getUnsupportedArchitectureResponse(error: unknown) {
+  return {
+    success: false,
+    error: error instanceof UnsupportedArchitectureError ? '当前架构不支持' : '架构检测失败',
+    message: error instanceof Error ? error.message : '当前平台暂不支持该操作'
+  }
 }
 
 // 支持的游戏列表
@@ -368,6 +385,12 @@ router.post('/deploy/factorio', authenticateToken, async (req: Request, res: Res
         message: '安装路径为必填项'
       })
     }
+
+    try {
+      assertFactorioHeadlessSupported()
+    } catch (error) {
+      return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json(getUnsupportedArchitectureResponse(error))
+    }
     
     const deploymentId = `factorio-deploy-${Date.now()}`
     
@@ -547,6 +570,12 @@ router.get('/version/:gameId', authenticateToken, async (req: Request, res: Resp
         break
       }
       case 'factorio': {
+        try {
+          assertFactorioHeadlessSupported()
+        } catch (error) {
+          return res.status(error instanceof UnsupportedArchitectureError ? 400 : 500).json(getUnsupportedArchitectureResponse(error))
+        }
+
         // Factorio版本信息需要从其他来源获取
         versionInfo = {
           version: 'latest',

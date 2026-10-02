@@ -10,6 +10,7 @@
 
 - **已存在**：跳过下载，记录日志 `Zip-Tools 已存在，跳过下载`
 - **不存在**：自动从 GitHub Releases 下载对应平台的二进制文件
+- **暂无内置资产的平台**：尝试使用系统 `unzip`/`zip` 降级
 - **下载失败**：记录警告日志但不阻塞服务启动，ZIP 相关功能可能不可用
 
 ### 下载地址
@@ -22,6 +23,8 @@
 
 打包脚本（`scripts/package.js`）和 Docker 构建（`Dockerfile`）在构建时直接从 GitHub Releases 下载 Zip-Tools 并内置到产物中，确保用户部署后无需额外下载。
 
+`linux-riscv64` 暂无内置 Zip-Tools 资产，打包时会跳过该二进制。运行时 ZIP 解压会尝试系统 `unzip`，ZIP 压缩会尝试系统 `zip`；系统工具缺失时，对应任务会失败并提示安装。
+
 ## 支持的平台和架构
 
 | 操作系统 | CPU 架构 | 二进制文件名 |
@@ -30,6 +33,7 @@
 | Windows | ARM64 | `file_zip_win32_arm64.exe` |
 | Linux | x64 | `file_zip_linux_x64` |
 | Linux | ARM64 | `file_zip_linux_arm64` |
+| Linux | RISC-V64 | 暂无内置资产，使用系统 `unzip`/`zip` 降级 |
 | macOS | x64 | `file_zip_darwin_amd64` |
 | macOS | ARM64 | `file_zip_darwin_arm64` |
 
