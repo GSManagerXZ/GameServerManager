@@ -88,6 +88,18 @@ async function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void
 /** 完成所有 XHR 并结束上传流程 */
 async function cleanupUpload(uploadPromise: Promise<void>, chunkSize: number): Promise<void> {
   try {
+    ;(globalThis.fetch as any).mockImplementation(async (url: string, options?: any) => {
+      if (options?.body) {
+        try {
+          const body = JSON.parse(options.body)
+          if (body.uploadId !== undefined && body.totalChunks !== undefined && !body.chunkIndex && body.targetPath) {
+            return { ok: true, json: async () => ({ success: true }) }
+          }
+        } catch { /* 非 JSON body */ }
+      }
+      return { ok: true, json: async () => ({ uploadedChunks: [] }) }
+    })
+
     // 多轮完成，处理批次间的延迟和新 XHR 创建
     for (let round = 0; round < 5; round++) {
       for (const xhr of xhrInstances) {
@@ -98,11 +110,6 @@ async function cleanupUpload(uploadPromise: Promise<void>, chunkSize: number): P
       }
       await new Promise(r => setTimeout(r, 300))
     }
-    // Mock merge
-    ;(globalThis.fetch as any).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true }),
-    })
     await Promise.race([
       uploadPromise,
       new Promise((_, rej) => setTimeout(() => rej(new Error('清理超时')), 8000)),

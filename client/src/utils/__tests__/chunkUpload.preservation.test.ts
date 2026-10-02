@@ -419,11 +419,14 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
   it('属性4: abort 信号正确中止所有 XHR 请求', async () => {
     const FILE_SIZE = 200 * MB
     const controller = new AbortController()
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const file = createMockFile(FILE_SIZE)
     const uploader = new ChunkUploader({
       file,
       targetPath: '/test',
+      maxRetries: 1,
       signal: controller.signal,
     })
 
@@ -450,6 +453,10 @@ describe('保持行为属性测试 — 非进度计算行为不变', () => {
     // 验证 XHR 实例的 abort 被调用
     const abortedCount = xhrBeforeAbort.filter(xhr => xhr._aborted).length
     expect(abortedCount).toBe(CONCURRENT_UPLOADS)
+
+    await uploadPromise
+    consoleWarnSpy.mockRestore()
+    consoleErrorSpy.mockRestore()
   })
 
   // ============================================================
