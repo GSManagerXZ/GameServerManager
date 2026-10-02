@@ -1,0 +1,60 @@
+{
+  "_readme": [
+    "一键开服云端清单。上传地址固定为：https://web.files.xiaozhuhouses.asia/files/开源项目/GameServerManager/oneClickDeploy.json",
+    "面板会实时拉取该地址：内存缓存 60 秒，点击「刷新列表」会强制重新拉取；云端不可达时回退到上一次成功拉取的本地缓存。",
+    "games 为空数组是合法状态，表示云端暂未配置游戏，面板会显示「云端暂无游戏」而不是报错；下面的两条示例可直接删掉。",
+    "单条记录有问题（缺 id、缺 name、缺下载地址、格式不支持、id 重复）只会跳过该条并在面板与服务端日志提示原因，不影响其它游戏。",
+    "id 是唯一标识，必须与前端发起的 gameId 一致，建议只用小写英文、数字与连字符。",
+    "download.url 是统一下载地址：赞助者与非赞助者使用同一个 URL，不需要写两份链接。",
+    "下载环节的差异只在请求本身：本地记录了赞助者密钥、且地址属于 download.xiaozhuhouses.asia 时，面板会先换取会话 Cookie 再请求同一地址，由下载服务调度到赞助者专用节点；没有密钥、或换取会话失败时直接用同一地址普通下载。",
+    "因此把自己托管的直链写进 url 也是允许的，只是不会走赞助者专用节点。",
+    "download.platforms 可分别覆盖 windows / linux / macos 的下载配置，未提供的平台回退到顶层配置；macOS 缺少独立配置时回退 linux。",
+    "format 支持 zip / 7z / tar / tar.gz / tgz / tar.xz / txz；缺省时按 fileName 或下载地址后缀推断。",
+    "supportedPlatforms 缺省表示 Windows、Linux、macOS 全平台可用。",
+    "本文件中的下载地址均为占位符，正式上传前请替换为真实链接。"
+  ],
+  "schemaVersion": 1,
+  "updatedAt": "2026-02-14T10:00:00+08:00",
+  "notice": "当前为示例清单，请替换真实下载地址后再上传",
+  "games": [
+    {
+      "id": "example-multi-platform",
+      "name": "示例游戏（分平台）",
+      "description": "演示按平台提供不同压缩包，赞助者与非赞助者共用同一下载地址",
+      "image": "https://web.files.xiaozhuhouses.asia/files/开源项目/GameServerManager/OneClickDeploy/images/example.png",
+      "type": ["示例类型", "生存"],
+      "version": "v1.0.0",
+      "supportedPlatforms": ["windows", "linux"],
+      "download": {
+        "fileName": "example-server.zip",
+        "format": "zip",
+        "size": 0,
+        "url": "https://download.xiaozhuhouses.asia/d/PLACEHOLDER_FILE_ID/example-server.zip",
+        "platforms": {
+          "windows": {
+            "fileName": "example-server-windows.zip",
+            "format": "zip",
+            "url": "https://download.xiaozhuhouses.asia/d/PLACEHOLDER_FILE_ID/example-server-windows.zip"
+          },
+          "linux": {
+            "fileName": "example-server-linux.tar.gz",
+            "format": "tar.gz",
+            "url": "https://download.xiaozhuhouses.asia/d/PLACEHOLDER_FILE_ID/example-server-linux.tar.gz"
+          }
+        }
+      }
+    },
+    {
+      "id": "example-simple",
+      "name": "示例游戏（单地址）",
+      "description": "最简写法：所有平台共用同一个压缩包与同一个下载地址",
+      "image": "",
+      "type": ["示例类型"],
+      "version": "v1.0.0",
+      "download": {
+        "url": "https://download.xiaozhuhouses.asia/d/PLACEHOLDER_FILE_ID/example-simple-server.7z",
+        "format": "7z"
+      }
+    }
+  ]
+}

@@ -795,9 +795,9 @@ class ApiClient {
     return this.get('/instances/python/check')
   }
 
-  // 在线部署API
-  async getOnlineGames() {
-    return this.get('/online-deploy/games')
+  // 一键开服API（原在线部署，接口路径保持不变以兼容已有构建）
+  async getOnlineGames(refresh = false) {
+    return this.get('/online-deploy/games' + (refresh ? '?refresh=1' : ''))
   }
 
   async deployOnlineGame(data: {
@@ -809,7 +809,12 @@ class ApiClient {
   }
 
   async cancelOnlineGameDeployment(deploymentId: string) {
-    return this.post('/online-deploy/cancel', { deploymentId })
+    return this.post(`/online-deploy/cancel/${encodeURIComponent(deploymentId)}`)
+  }
+
+  // 强制刷新云端一键开服清单
+  async refreshOnlineGames() {
+    return this.post('/online-deploy/refresh')
   }
 
   // 文件部署API

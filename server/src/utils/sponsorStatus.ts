@@ -28,7 +28,8 @@ export function hasSponsorKey(configManager?: ConfigManager): boolean {
  * 赞助者身份是否已确认。
  *
  * 说明：赞助者密钥现已改为「仅在本地记录」，不再调用第三方接口校验，
- * 因此这里暂时统一返回未确认，依赖校验结果的在线部署等功能降级为「未配置」状态。
+ * 因此这里暂时统一返回未确认，依赖校验结果的功能保持「未配置」状态。
+ * 一键开服（原在线部署）已改为在下载环节按本地密钥区分下载通道，不再依赖该校验结果。
  * 后续需要恢复时，只需在本文件实现判定逻辑，调用方无需改动。
  */
 export function isSponsorUnlocked(_configManager?: ConfigManager): boolean {

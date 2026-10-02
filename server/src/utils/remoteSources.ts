@@ -16,6 +16,9 @@ export const INSTANCE_MARKET_URLS = {
   Windows: `${FILES_BASE_URL}/${PROJECT_DIRECTORY}/Instance/Instance_Windows.json`
 }
 
+// 一键开服（原「在线部署」）云端清单地址，替代旧的第三方在线游戏接口
+export const ONE_CLICK_DEPLOY_LIST_URL = `${FILES_BASE_URL}/${PROJECT_DIRECTORY}/oneClickDeploy.json`
+
 export type InstanceMarketSystemType = keyof typeof INSTANCE_MARKET_URLS
 
 export interface RemoteMarketInstance {

@@ -18,7 +18,8 @@ export function hasSponsorKey(keyInfo?: SponsorKeyInfo | null): boolean {
  * 赞助者身份是否已确认。
  *
  * 说明：赞助者密钥现已改为「仅在本地记录」，不再做在线校验，
- * 因此这里暂时统一返回未确认，依赖校验结果的功能（顶栏标识、在线部署）保持「未配置」状态。
+ * 因此这里暂时统一返回未确认，依赖校验结果的功能（顶栏标识）保持「未配置」状态。
+ * 一键开服只在下载环节按本地密钥区分下载通道，不依赖该校验结果。
  * 后续需要恢复时，只需在本文件实现判定逻辑，调用方无需改动。
  */
 export function isSponsorActive(_keyInfo?: SponsorKeyInfo | null): boolean {

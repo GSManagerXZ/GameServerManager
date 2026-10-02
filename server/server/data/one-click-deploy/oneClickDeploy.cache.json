@@ -1,0 +1,30 @@
+{
+  "manifest": {
+    "schemaVersion": 1,
+    "updatedAt": "",
+    "notice": "",
+    "games": [],
+    "invalidGames": [
+      {
+        "index": 1,
+        "id": "",
+        "reason": "第 1 条记录缺少 id"
+      }
+    ]
+  },
+  "meta": {
+    "url": "https://web.files.xiaozhuhouses.asia/files/开源项目/GameServerManager/oneClickDeploy.json",
+    "schemaVersion": 1,
+    "updatedAt": "",
+    "notice": "",
+    "fetchedAt": "2026-10-02T12:20:44.575Z",
+    "origin": "remote",
+    "invalidGames": [
+      {
+        "index": 1,
+        "id": "",
+        "reason": "第 1 条记录缺少 id"
+      }
+    ]
+  }
+}

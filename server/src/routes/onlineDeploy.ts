@@ -7,11 +7,31 @@ import { v4 as uuidv4 } from 'uuid'
 import axios from 'axios'
 import fs from 'fs/promises'
 import path from 'path'
-import { createWriteStream, createReadStream } from 'fs'
+import * as tar from 'tar'
+import { createWriteStream } from 'fs'
 import { pipeline } from 'stream/promises'
 import { zipToolsManager } from '../utils/zipToolsManager.js'
-import { isSponsorUnlocked } from '../utils/sponsorStatus.js'
+import { createTarSecurityFilter } from '../utils/tarSecurityFilter.js'
+import { getSponsorKey } from '../utils/sponsorStatus.js'
+import { createSponsorDownloadSession, isSponsorDownloadUrl } from '../utils/sponsorDownload.js'
+import {
+  fetchOneClickDeployManifest,
+  findOneClickDeployGame,
+  getArchiveSuffix,
+  getOneClickDeployPlatform,
+  isOneClickDeployGameSupported,
+  resolveOneClickDeployDownload,
+  toPublicGames,
+  type OneClickDeployChannel
+} from '../utils/oneClickDeploySource.js'
 
+/**
+ * 一键开服（原「在线部署」）。
+ *
+ * 功能对所有人开放，游戏清单来自云端静态 JSON（见 utils/oneClickDeploySource.ts），
+ * 仅在下载环节区分通道：本地记录赞助者密钥时优先走赞助者专用通道，失败自动回退普通通道。
+ * 接口路径保留 /api/online-deploy，避免已有前端构建与插件失效。
+ */
 const router = Router()
 let io: SocketIOServer
 let configManager: ConfigManager
@@ -22,169 +42,367 @@ export function setOnlineDeployDependencies(socketIO: SocketIOServer, config: Co
   configManager = config
 }
 
-// 平台类型枚举
-export enum Platform {
-  WINDOWS = 'windows',
-  LINUX = 'linux',
-  MACOS = 'macos'
-}
-
-// 在线游戏信息接口
-export interface OnlineGameInfo {
+interface OneClickDeploymentTask {
   id: string
-  name: string
-  description?: string
-  image?: string
-  downloadUrl?: string
-  type?: string[] // 添加type字段
-  category?: string
-  supportedPlatforms: Platform[]
-  deploymentScript?: string
-  version?: string
-}
-
-// 部署选项接口
-export interface OnlineDeploymentOptions {
   gameId: string
   installPath: string
-  options?: any
-}
-
-// 部署结果接口
-export interface OnlineDeploymentResult {
-  success: boolean
-  message: string
-  data?: any
+  status: 'running' | 'cancelled' | 'completed' | 'failed'
+  startTime: Date
+  archivePath?: string
+  abortController: AbortController
 }
 
 // 活动部署映射
-const activeDeployments = new Map<string, any>()
+const activeDeployments = new Map<string, OneClickDeploymentTask>()
 
-// 获取当前平台
-function getCurrentPlatform(): Platform {
-  const platform = process.platform
-  switch (platform) {
-    case 'win32':
-      return Platform.WINDOWS
-    case 'linux':
-      return Platform.LINUX
-    case 'darwin':
-      return Platform.MACOS
-    default:
-      return Platform.LINUX
+// 下载进度区间：下载占总进度的 20% - 70%
+const DOWNLOAD_PROGRESS_START = 20
+const DOWNLOAD_PROGRESS_SPAN = 50
+
+// 判断是否为强制刷新
+function isForceRefresh(value: unknown): boolean {
+  return ['1', 'true', 'yes'].includes(String(value ?? '').toLowerCase())
+}
+
+// 发送部署日志
+function emitLog(socketId: string | undefined, deploymentId: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+  if (!io || !socketId) return
+
+  io.to(socketId).emit('online-deploy-log', {
+    deploymentId,
+    message,
+    type,
+    timestamp: new Date().toISOString()
+  })
+}
+
+// 发送部署进度
+function emitProgress(socketId: string | undefined, deploymentId: string, percentage: number, currentStep: string) {
+  if (!io || !socketId) return
+
+  io.to(socketId).emit('online-deploy-progress', {
+    deploymentId,
+    percentage,
+    currentStep
+  })
+}
+
+// 发送部署完成事件
+function emitComplete(socketId: string | undefined, deploymentId: string, payload: Record<string, unknown>) {
+  if (!io || !socketId) return
+
+  io.to(socketId).emit('online-deploy-complete', {
+    deploymentId,
+    ...payload
+  })
+}
+
+// 按压缩包后缀解压，格式与「文件部署」保持一致
+async function extractArchive(archivePath: string, targetPath: string): Promise<void> {
+  const suffix = getArchiveSuffix(archivePath)
+  if (!suffix) {
+    throw new Error(`不支持的压缩包格式: ${path.basename(archivePath)}`)
+  }
+
+  if (suffix === '.zip') {
+    await zipToolsManager.extractZip(archivePath, targetPath)
+    return
+  }
+
+  if (suffix === '.7z') {
+    await zipToolsManager.extract7z(archivePath, targetPath)
+    return
+  }
+
+  if (suffix === '.tar' || suffix === '.tar.gz' || suffix === '.tgz') {
+    await tar.extract({
+      file: archivePath,
+      cwd: targetPath,
+      gzip: suffix !== '.tar',
+      filter: createTarSecurityFilter({ cwd: targetPath })
+    } as any)
+    return
+  }
+
+  // tar.xz / txz：先用 7z 解出内层 tar，再按 tar 安全过滤解压
+  const xzTempPath = `${archivePath}-xz`
+  await fs.mkdir(xzTempPath, { recursive: true })
+  try {
+    await zipToolsManager.extract7z(archivePath, xzTempPath)
+    const tarFiles = (await fs.readdir(xzTempPath)).filter(file => file.toLowerCase().endsWith('.tar'))
+    if (tarFiles.length !== 1) {
+      throw new Error('TAR.XZ 解压后未找到唯一的 TAR 归档')
+    }
+
+    await tar.extract({
+      file: path.join(xzTempPath, tarFiles[0]),
+      cwd: targetPath,
+      filter: createTarSecurityFilter({ cwd: targetPath })
+    } as any)
+  } finally {
+    await fs.rm(xzTempPath, { recursive: true, force: true }).catch(() => {})
   }
 }
 
-// 检查游戏是否支持当前平台
-function isGameSupportedOnCurrentPlatform(game: OnlineGameInfo): boolean {
-  const currentPlatform = getCurrentPlatform()
-  return game.supportedPlatforms.includes(currentPlatform)
-}
+// 下载压缩包，返回实际落盘路径
+async function downloadArchive(options: {
+  url: string
+  fileName: string
+  installPath: string
+  headers?: Record<string, string>
+  task: OneClickDeploymentTask
+  socketId?: string
+  gameName: string
+}): Promise<string> {
+  const { url, fileName, installPath, headers, task, socketId, gameName } = options
 
-// 验证赞助者密钥
-async function validateSponsorKey(): Promise<boolean> {
-  // 赞助者密钥已改为仅本地记录，判定逻辑统一收口在 isSponsorUnlocked
-  return isSponsorUnlocked(configManager)
-}
+  emitLog(socketId, task.id, `正在下载 ${gameName}...`)
 
-// 获取在线游戏列表
-router.get('/games', authenticateToken, async (req: Request, res: Response) => {
+  const downloadPath = path.join(installPath, fileName)
+  let writer: ReturnType<typeof createWriteStream> | undefined
+
   try {
-    // 验证赞助者密钥
-    const isValidSponsor = await validateSponsorKey()
-    if (!isValidSponsor) {
-      return res.status(403).json({
-        success: false,
-        message: '在线部署功能暂未开放，赞助者功能正在接入中'
-      })
+    const response = await axios({
+      method: 'GET',
+      url,
+      responseType: 'stream',
+      timeout: 0,
+      maxRedirects: 10,
+      headers,
+      signal: task.abortController.signal
+    })
+
+    const totalSize = Number.parseInt(String(response.headers['content-length'] || '0'), 10) || 0
+    let downloadedSize = 0
+
+    writer = createWriteStream(downloadPath)
+
+    response.data.on('data', (chunk: Buffer) => {
+      downloadedSize += chunk.length
+      const percentage = totalSize > 0
+        ? DOWNLOAD_PROGRESS_START + Math.round((downloadedSize / totalSize) * DOWNLOAD_PROGRESS_SPAN)
+        : DOWNLOAD_PROGRESS_START + 10
+
+      emitProgress(
+        socketId,
+        task.id,
+        percentage,
+        `下载中... ${Math.round(downloadedSize / 1024 / 1024)}MB${totalSize > 0 ? `/${Math.round(totalSize / 1024 / 1024)}MB` : ''}`
+      )
+    })
+
+    await pipeline(response.data, writer)
+  } catch (error) {
+    // 下载失败时清掉半成品文件，避免回退通道或重试时残留脏数据
+    writer?.destroy()
+    await fs.rm(downloadPath, { force: true }).catch(() => {})
+    throw error
+  }
+
+  task.archivePath = downloadPath
+
+  return downloadPath
+}
+
+// 执行一次一键开服部署（在后台异步进行，通过 WebSocket 推送进度）
+async function runOneClickDeployment(task: OneClickDeploymentTask, socketId?: string) {
+  const { id: deploymentId, gameId, installPath, abortController } = task
+  let gameName = gameId
+  let archivePath: string | undefined
+
+  try {
+    const isCancelled = () => task.status === 'cancelled' || abortController.signal.aborted
+
+    emitLog(socketId, deploymentId, '正在获取游戏下载信息...')
+    emitProgress(socketId, deploymentId, 5, '获取下载信息')
+
+    const { manifest } = await fetchOneClickDeployManifest()
+    const platform = getOneClickDeployPlatform()
+    const game = findOneClickDeployGame(manifest, gameId)
+
+    if (!game) {
+      throw new Error('云端清单中未找到该游戏，请刷新列表后重试')
     }
 
-    const currentPlatform = getCurrentPlatform()
-    
-    // 获取赞助者密钥
-    const sponsorConfig = await configManager.getSponsorConfig()
-    if (!sponsorConfig || !sponsorConfig.key) {
-      return res.status(403).json({
-        success: false,
-        message: '未找到赞助者密钥'
-      })
+    gameName = game.name
+
+    if (!isOneClickDeployGameSupported(game, platform)) {
+      throw new Error(`${game.name} 暂不支持当前系统平台`)
     }
 
-    // 映射平台名称
-    const systemName = currentPlatform === Platform.WINDOWS ? 'Windows' : 
-                      currentPlatform === Platform.LINUX ? 'Linux' : 'Linux'
+    if (isCancelled()) return
+
+    // 赞助者与非赞助者共用同一个下载地址，区别只在是否携带赞助者会话 Cookie
+    const sponsorKey = getSponsorKey(configManager)
+    const resolution = resolveOneClickDeployDownload(game, platform)
+    let downloadHeaders: Record<string, string> | undefined
+    let usedChannel: OneClickDeployChannel = 'normal'
+
+    if (sponsorKey && isSponsorDownloadUrl(resolution.url)) {
+      try {
+        const session = await createSponsorDownloadSession(sponsorKey)
+        downloadHeaders = { Cookie: session.cookie }
+        usedChannel = 'sponsor'
+        logger.info(`一键开服检测到本地赞助者密钥，本次下载使用赞助者专用节点: ${resolution.url}`)
+      } catch (error) {
+        logger.warn(`一键开服赞助者专用通道不可用，改用普通下载: ${error instanceof Error ? error.message : '未知错误'}`)
+      }
+    } else if (sponsorKey) {
+      logger.info('一键开服下载地址不在赞助者下载服务域名下，本次使用普通下载')
+    }
+
+    emitLog(
+      socketId,
+      deploymentId,
+      usedChannel === 'sponsor' ? '下载通道: 赞助者专用通道' : '下载通道: 普通下载通道'
+    )
+    emitProgress(socketId, deploymentId, 15, '验证安装路径')
+
+    // 确保安装目录存在
+    await fs.mkdir(installPath, { recursive: true })
+
+    if (isCancelled()) return
 
     try {
-      // 向第三方API请求在线游戏列表
-      const response = await axios.post('http://api.gsm.xiaozhuhouses.asia:10002/api/online-games', {
-        system: systemName,
-        key: sponsorConfig.key
-      }, {
-        timeout: 30000, // 30秒超时
-        headers: {
-          'Content-Type': 'application/json'
-        }
+      archivePath = await downloadArchive({
+        url: resolution.url,
+        fileName: resolution.fileName,
+        installPath,
+        headers: downloadHeaders,
+        task,
+        socketId,
+        gameName
       })
-
-      if (response.data.status !== 'success') {
-        throw new Error(response.data.message || '获取在线游戏列表失败')
+    } catch (error) {
+      // 赞助者会话失效等原因导致下载失败时，去掉 Cookie 再试一次
+      if (isCancelled() || !downloadHeaders) {
+        throw error
       }
 
-      // 转换API返回的数据格式
-      const gameData = response.data.data || {}
-      const supportedGames = Object.entries(gameData).map(([gameName, gameInfo]: [string, any]) => ({
-        id: gameName.toLowerCase().replace(/\s+/g, '-'),
-        name: gameName,
-        description: gameInfo.txt || '',
-        image: gameInfo.image || '',
-        downloadUrl: gameInfo.download || '',
-        type: gameInfo.type || [], // 添加type字段
-        supportedPlatforms: [currentPlatform], // 基于请求的系统类型
-        supported: true,
-        currentPlatform
-      }))
+      logger.warn(`一键开服赞助者通道下载失败，改用普通下载重试: ${error instanceof Error ? error.message : '未知错误'}`)
+      emitLog(socketId, deploymentId, '赞助者通道下载失败，正在改用普通下载重试...', 'warning')
 
-      logger.info(`成功获取到 ${supportedGames.length} 个在线游戏`)
-      
-      res.json({
-        success: true,
-        data: supportedGames
+      archivePath = await downloadArchive({
+        url: resolution.url,
+        fileName: resolution.fileName,
+        installPath,
+        task,
+        socketId,
+        gameName
       })
-      
-    } catch (apiError: any) {
-      logger.error('请求第三方API失败:', apiError.message)
-      
-      // 如果API请求失败，返回空列表而不是错误
-      res.json({
-        success: true,
-        data: [],
-        message: '暂时无法获取在线游戏列表，请稍后重试'
-      })
+
+      usedChannel = 'normal'
     }
+
+    if (isCancelled()) {
+      await fs.rm(archivePath, { force: true }).catch(() => {})
+      return
+    }
+
+    emitLog(socketId, deploymentId, `正在解压 ${resolution.fileName}...`)
+    emitProgress(socketId, deploymentId, 75, '解压文件')
+
+    await extractArchive(archivePath, installPath)
+    await fs.rm(archivePath, { force: true }).catch(() => {})
+    task.archivePath = undefined
+
+    if (isCancelled()) return
+
+    emitLog(socketId, deploymentId, '开服文件准备完成！', 'success')
+    emitProgress(socketId, deploymentId, 100, '开服完成')
+
+    task.status = 'completed'
+    emitComplete(socketId, deploymentId, {
+      success: true,
+      result: {
+        installPath,
+        gameId,
+        gameName,
+        channel: usedChannel,
+        message: `${gameName} 一键开服完成！`
+      }
+    })
   } catch (error) {
-    logger.error('获取在线游戏列表失败:', error)
-    res.status(500).json({
+    const message = error instanceof Error ? error.message : '未知错误'
+
+    if (task.status === 'cancelled' || abortController.signal.aborted) {
+      emitLog(socketId, deploymentId, '开服任务已取消', 'warning')
+      const pendingArchive = archivePath || task.archivePath
+      if (pendingArchive) {
+        await fs.rm(pendingArchive, { force: true }).catch(() => {})
+      }
+      return
+    }
+
+    logger.error('一键开服失败:', error)
+    task.status = 'failed'
+    emitLog(socketId, deploymentId, `开服失败: ${message}`, 'error')
+    emitComplete(socketId, deploymentId, { success: false, error: message })
+  } finally {
+    // 清理任务记录
+    setTimeout(() => {
+      activeDeployments.delete(deploymentId)
+    }, 300000) // 5 分钟后清理
+  }
+}
+
+// 获取一键开服游戏列表
+router.get('/games', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { manifest, meta } = await fetchOneClickDeployManifest({
+      forceRefresh: isForceRefresh(req.query.refresh)
+    })
+
+    const platform = getOneClickDeployPlatform()
+    const publicGames = toPublicGames(manifest, platform)
+    const supportedGames = publicGames.filter(game => game.supportedPlatforms.includes(platform))
+    const sponsorKey = getSponsorKey(configManager)
+
+    logger.info(`一键开服清单就绪，共 ${supportedGames.length} 个可用游戏（来源: ${meta.origin}）`)
+
+    res.json({
+      success: true,
+      data: supportedGames.map(game => ({
+        ...game,
+        supported: true,
+        currentPlatform: platform
+      })),
+      meta: {
+        url: meta.url,
+        schemaVersion: meta.schemaVersion,
+        updatedAt: meta.updatedAt,
+        notice: meta.notice,
+        fetchedAt: meta.fetchedAt,
+        origin: meta.origin,
+        platform,
+        // 清单已成功拉到但没有任何游戏，前端展示「云端暂无游戏」而不是报错
+        empty: supportedGames.length === 0,
+        // 清单总数（未按平台过滤），便于区分「云端没配置」和「当前平台不支持」
+        totalGames: manifest.games.length,
+        // 格式无效被忽略的记录，用于提示清单作者
+        invalidGames: meta.invalidGames,
+        // 本地是否记录赞助者密钥，用于前端展示下载通道状态
+        sponsorChannelAvailable: sponsorKey !== null,
+        sponsorChannelGames: supportedGames.filter(game => game.hasSponsorChannel).length
+      }
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '未知错误'
+    logger.error('获取一键开服列表失败:', error)
+    res.status(502).json({
       success: false,
-      message: '获取在线游戏列表失败'
+      message: `获取一键开服列表失败：${message}`
     })
   }
 })
 
-// 部署在线游戏
+// 开始一键开服
 router.post('/deploy', authenticateToken, async (req: Request, res: Response) => {
   try {
-    // 验证赞助者密钥
-    const isValidSponsor = await validateSponsorKey()
-    if (!isValidSponsor) {
-      return res.status(403).json({
-        success: false,
-        message: '在线部署功能暂未开放，赞助者功能正在接入中'
-      })
-    }
-
     const { gameId, installPath, socketId } = req.body
+    const normalizedInstallPath = typeof installPath === 'string' ? installPath.trim() : ''
 
-    if (!gameId || !installPath) {
+    if (!gameId || !normalizedInstallPath) {
       return res.status(400).json({
         success: false,
         message: '缺少必要参数'
@@ -192,314 +410,130 @@ router.post('/deploy', authenticateToken, async (req: Request, res: Response) =>
     }
 
     const deploymentId = uuidv4()
-    
-    // 模拟部署过程
-    const deploymentProcess = {
+    const task: OneClickDeploymentTask = {
       id: deploymentId,
-      gameId,
-      installPath,
+      gameId: String(gameId),
+      installPath: normalizedInstallPath,
       status: 'running',
-      startTime: new Date()
+      startTime: new Date(),
+      abortController: new AbortController()
     }
 
-    activeDeployments.set(deploymentId, deploymentProcess)
-
-    // 异步执行部署
-    setImmediate(async () => {
-      try {
-        // 检查部署是否被取消
-        if (deploymentProcess.status === 'cancelled') {
-          return
-        }
-
-        // 发送开始部署消息
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-log', {
-            deploymentId,
-            message: `开始部署 ${gameId}...`,
-            type: 'info',
-            timestamp: new Date().toISOString()
-          })
-        }
-
-        // 步骤1: 验证安装路径
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-log', {
-            deploymentId,
-            message: '正在验证安装路径...',
-            type: 'info',
-            timestamp: new Date().toISOString()
-          })
-          io.to(socketId).emit('online-deploy-progress', {
-            deploymentId,
-            percentage: 10,
-            currentStep: '验证安装路径'
-          })
-        }
-
-        // 确保安装目录存在
-        await fs.mkdir(installPath, { recursive: true })
-        
-        // 步骤2: 获取游戏信息和下载链接
-        if (deploymentProcess.status === 'cancelled') return
-        
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-log', {
-            deploymentId,
-            message: '正在获取游戏下载信息...',
-            type: 'info',
-            timestamp: new Date().toISOString()
-          })
-          io.to(socketId).emit('online-deploy-progress', {
-            deploymentId,
-            percentage: 20,
-            currentStep: '获取下载信息'
-          })
-        }
-
-        // 重新获取游戏列表以获取下载链接
-        const sponsorConfig = await configManager.getSponsorConfig()
-        const currentPlatform = getCurrentPlatform()
-        const systemName = currentPlatform === Platform.WINDOWS ? 'Windows' : 'Linux'
-        
-        const gameListResponse = await axios.post('http://api.gsm.xiaozhuhouses.asia:10002/api/online-games', {
-          system: systemName,
-          key: sponsorConfig.key
-        })
-
-        if (gameListResponse.data.status !== 'success') {
-          throw new Error('无法获取游戏下载信息')
-        }
-
-        // 查找对应的游戏
-        const gameData = gameListResponse.data.data || {}
-        const gameEntry = Object.entries(gameData).find(([name]) => 
-          name.toLowerCase().replace(/\s+/g, '-') === gameId
-        ) as [string, { download?: string; [key: string]: any }] | undefined
-
-        if (!gameEntry || !gameEntry[1].download) {
-          throw new Error('未找到游戏下载链接')
-        }
-
-        const downloadUrl = gameEntry[1].download
-        const gameName = gameEntry[0]
-        
-        // 步骤3: 下载游戏文件
-        if (deploymentProcess.status === 'cancelled') return
-        
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-log', {
-            deploymentId,
-            message: `正在下载 ${gameName}...`,
-            type: 'info',
-            timestamp: new Date().toISOString()
-          })
-        }
-
-        const fileName = path.basename(downloadUrl) || `${gameId}.zip`
-        const downloadPath = path.join(installPath, fileName)
-        
-        // 下载文件
-        const response = await axios({
-          method: 'GET',
-          url: downloadUrl,
-          responseType: 'stream',
-          timeout: 300000 // 5分钟超时
-        })
-
-        const totalSize = parseInt(String(response.headers['content-length'] || '0'), 10)
-        let downloadedSize = 0
-
-        const writer = createWriteStream(downloadPath)
-        
-        response.data.on('data', (chunk: Buffer) => {
-          if (deploymentProcess.status === 'cancelled') {
-            response.data.destroy()
-            writer.destroy()
-            return
-          }
-          
-          downloadedSize += chunk.length
-          const percentage = totalSize > 0 ? Math.round((downloadedSize / totalSize) * 50) + 20 : 30
-          
-          if (io && socketId) {
-            io.to(socketId).emit('online-deploy-progress', {
-              deploymentId,
-              percentage,
-              currentStep: `下载中... ${Math.round(downloadedSize / 1024 / 1024)}MB${totalSize > 0 ? `/${Math.round(totalSize / 1024 / 1024)}MB` : ''}`
-            })
-          }
-        })
-
-        await pipeline(response.data, writer)
-        
-        if (deploymentProcess.status === 'cancelled') {
-          // 清理下载的文件
-          try {
-            await fs.unlink(downloadPath)
-          } catch {}
-          return
-        }
-
-        // 步骤4: 解压文件
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-log', {
-            deploymentId,
-            message: '正在解压游戏文件...',
-            type: 'info',
-            timestamp: new Date().toISOString()
-          })
-          io.to(socketId).emit('online-deploy-progress', {
-            deploymentId,
-            percentage: 80,
-            currentStep: '解压文件'
-          })
-        }
-
-        // 根据文件扩展名自动选择解压方法
-        const ext = path.extname(downloadPath).toLowerCase()
-        if (ext === '.7z') {
-          await zipToolsManager.extract7z(downloadPath, installPath)
-        } else {
-          await zipToolsManager.extractZip(downloadPath, installPath)
-        }
-        
-        // 删除下载的压缩文件
-        await fs.unlink(downloadPath)
-        
-        if (deploymentProcess.status === 'cancelled') return
-
-        // 步骤5: 完成部署
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-log', {
-            deploymentId,
-            message: '部署完成！',
-            type: 'success',
-            timestamp: new Date().toISOString()
-          })
-          io.to(socketId).emit('online-deploy-progress', {
-            deploymentId,
-            percentage: 100,
-            currentStep: '部署完成'
-          })
-        }
-
-        // 部署完成
-        deploymentProcess.status = 'completed'
-        
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-complete', {
-            deploymentId,
-            success: true,
-            result: {
-              installPath: installPath,
-              gameId,
-              gameName,
-              message: `${gameName} 部署成功！`
-            }
-          })
-        }
-
-      } catch (error) {
-        logger.error('在线游戏部署失败:', error)
-        deploymentProcess.status = 'failed'
-        
-        if (io && socketId) {
-          io.to(socketId).emit('online-deploy-complete', {
-            deploymentId,
-            success: false,
-            error: error instanceof Error ? error.message : '部署失败'
-          })
-        }
-      } finally {
-        // 清理部署记录
-        setTimeout(() => {
-          activeDeployments.delete(deploymentId)
-        }, 300000) // 5分钟后清理
-      }
-    })
+    activeDeployments.set(deploymentId, task)
 
     res.json({
       success: true,
-      data: {
-        deploymentId
-      },
-      message: '部署已开始'
+      data: { deploymentId },
+      message: '一键开服任务已开始'
     })
 
+    // 异步执行部署，进度通过 WebSocket 推送
+    setImmediate(() => {
+      void runOneClickDeployment(task, typeof socketId === 'string' ? socketId : undefined)
+    })
   } catch (error) {
-    logger.error('启动在线游戏部署失败:', error)
+    logger.error('启动一键开服失败:', error)
     res.status(500).json({
       success: false,
-      message: '启动部署失败'
+      message: '启动一键开服失败'
     })
   }
 })
 
-// 取消部署
+// 取消一键开服
 router.post('/cancel/:deploymentId', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { deploymentId } = req.params
-    
+
     const deployment = activeDeployments.get(deploymentId)
     if (!deployment) {
       return res.status(404).json({
         success: false,
-        message: '部署任务不存在'
+        message: '开服任务不存在'
       })
     }
 
-    // 标记为已取消
     deployment.status = 'cancelled'
-    
-    // 发送取消通知
+    deployment.abortController.abort()
+
+    // 取消事件采用广播，兼容未携带 socketId 的请求
     if (io) {
       io.emit('online-deploy-log', {
         deploymentId,
-        message: '部署已被用户取消',
+        message: '开服任务已被用户取消',
         type: 'warning',
         timestamp: new Date().toISOString()
       })
-      
       io.emit('online-deploy-complete', {
         deploymentId,
         success: false,
-        error: '部署已取消'
+        error: '开服任务已取消'
       })
     }
-    
-    // 延迟删除，给清理操作一些时间
+
     setTimeout(() => {
       activeDeployments.delete(deploymentId)
     }, 5000)
 
     res.json({
       success: true,
-      message: '部署已取消'
+      message: '开服任务已取消'
     })
-
   } catch (error) {
-    logger.error('取消在线游戏部署失败:', error)
+    logger.error('取消一键开服失败:', error)
     res.status(500).json({
       success: false,
-      message: '取消部署失败'
+      message: '取消一键开服失败'
     })
   }
 })
 
-// 获取活动部署列表
+// 获取活动开服任务列表
 router.get('/deployments', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const deployments = Array.from(activeDeployments.values())
+    const deployments = Array.from(activeDeployments.values()).map(task => ({
+      id: task.id,
+      gameId: task.gameId,
+      installPath: task.installPath,
+      status: task.status,
+      startTime: task.startTime
+    }))
+
     res.json({
       success: true,
       data: deployments
     })
   } catch (error) {
-    logger.error('获取活动部署列表失败:', error)
+    logger.error('获取开服任务列表失败:', error)
     res.status(500).json({
       success: false,
-      message: '获取部署列表失败'
+      message: '获取开服任务列表失败'
+    })
+  }
+})
+
+// 手动清空云端清单缓存（供设置页或调试使用）
+router.post('/refresh', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { manifest, meta } = await fetchOneClickDeployManifest({ forceRefresh: true })
+
+    res.json({
+      success: true,
+      data: { total: manifest.games.length },
+      meta: {
+        url: meta.url,
+        updatedAt: meta.updatedAt,
+        fetchedAt: meta.fetchedAt,
+        origin: meta.origin
+      },
+      message: `一键开服清单已更新，共 ${manifest.games.length} 个游戏`
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '未知错误'
+    logger.error('刷新一键开服清单失败:', error)
+    res.status(502).json({
+      success: false,
+      message: `刷新一键开服清单失败：${message}`
     })
   }
 })

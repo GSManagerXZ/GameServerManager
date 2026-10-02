@@ -82,7 +82,7 @@ file_zip -mode 1 --file {文件1} --file {文件2} ... --zipPath {zip文件名} 
 
 - `CompressionWorker` — 文件管理的 ZIP 压缩/解压
 - `FilesRoute` — 文件路由的 ZIP 解压
-- `OnlineDeploy` — 在线部署的 ZIP 解压
+- `OnlineDeploy` — 一键开服（原在线部署）的 ZIP 解压
 - `JavaManager` — Java 环境安装的 ZIP 解压
 - `SteamCMDManager` — SteamCMD 安装的 ZIP 解压
 - `CloudBuild` — 云构建下载后的 ZIP 解压

@@ -813,7 +813,7 @@ app.use('/api/easytier', createEasyTierRouter(easyTierManager, easyTierInstaller
     setSponsorDependencies(configManager)
     app.use('/api/sponsor', sponsorRouter)
 
-    // 设置在线部署路由
+    // 设置一键开服路由（原在线部署，路径保持不变）
     const { setOnlineDeployDependencies } = await import('./routes/onlineDeploy.js')
     setOnlineDeployDependencies(io, configManager)
     app.use('/api/online-deploy', onlineDeployRouter)

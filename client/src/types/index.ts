@@ -240,6 +240,8 @@ export interface ApiResponse<T = any> {
   message?: string
   data?: T
   error?: string
+  // 附加信息，例如一键开服云端清单的来源与更新时间
+  meta?: Record<string, any>
 }
 
 // Socket事件类型
