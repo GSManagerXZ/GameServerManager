@@ -77,6 +77,7 @@ interface JavaDownloadCatalog {
   options: JavaCatalogOption[]
   custom: {
     defaultMajor: number
+    defaultChannel: JavaReleaseChannel
     minMajor: number
     maxMajor: number
     providers: JavaDownloadProviderId[]
@@ -167,9 +168,9 @@ const EnvironmentManagerPage: React.FC = () => {
   const [packagesLoading, setPackagesLoading] = useState(false)
   const [javaCatalog, setJavaCatalog] = useState<JavaDownloadCatalog | null>(null)
   const [selectedJavaOptions, setSelectedJavaOptions] = useState<Record<string, string>>({})
-  const [customJavaMajor, setCustomJavaMajor] = useState('28')
+  const [customJavaMajor, setCustomJavaMajor] = useState('')
   const [customJavaProvider, setCustomJavaProvider] = useState<JavaDownloadProviderId>('adoptium')
-  const [customJavaChannel, setCustomJavaChannel] = useState<JavaReleaseChannel>('ea')
+  const [customJavaChannel, setCustomJavaChannel] = useState<JavaReleaseChannel>('ga')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState('java')
@@ -1594,7 +1595,7 @@ const EnvironmentManagerPage: React.FC = () => {
                 </div>
               ) : (
                 javaCatalog ? (
-                  <div className="space-y-6">
+                  <div className="flex flex-col gap-6">
                     {(() => {
                       const customVersionId = getCustomJavaVersionId()
                       const customEnv = customVersionId
@@ -1610,12 +1611,12 @@ const EnvironmentManagerPage: React.FC = () => {
                       const isInstalling = customEnv?.installing || false
 
                       return (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-gray-600 dark:bg-gray-700">
-                          <div className="mb-4 flex items-center justify-between">
+                        <details className="order-last rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-gray-600 dark:bg-gray-700">
+                          <summary className="flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
                             <div className="flex items-center space-x-2">
                               <Coffee className="h-5 w-5 text-orange-500" />
                               <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-                                自定义 Java 版本
+                                高级：自定义 Java 版本
                               </h3>
                             </div>
                             <div className={`flex items-center space-x-1 rounded-full px-2 py-1 text-xs font-medium ${
@@ -1635,9 +1636,9 @@ const EnvironmentManagerPage: React.FC = () => {
                                 </>
                               )}
                             </div>
-                          </div>
+                          </summary>
 
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
                             <div>
                               <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">
                                 主版本
@@ -1769,12 +1770,12 @@ const EnvironmentManagerPage: React.FC = () => {
                               </button>
                             </div>
                           )}
-                        </div>
+                        </details>
                       )
                     })()}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {javaCatalog.versions.map((javaVersion) => {
+                    <div className="order-first grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {javaCatalog.versions.filter(javaVersion => javaVersion.defaultChannel === 'ga').map((javaVersion) => {
                       const env = javaEnvironments.find(e => e.version === javaVersion.id)
                       const isInstalled = env?.installed || false
                       const isInstalling = env?.installing || false

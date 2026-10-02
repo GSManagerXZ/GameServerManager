@@ -90,6 +90,10 @@ describe('java download artifacts', () => {
     expect(catalog.providers.find(provider => provider.id === 'azul')).toEqual(expect.objectContaining({
       supportsCustomVersion: true
     }))
+    expect(catalog.custom).toEqual(expect.objectContaining({
+      defaultMajor: 25,
+      defaultChannel: 'ga'
+    }))
     expect(java17Options.find(option => option.provider === 'sponsor')).toEqual(expect.objectContaining({
       available: false
     }))

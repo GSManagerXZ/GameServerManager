@@ -69,6 +69,7 @@ export interface JavaDownloadCatalog {
   options: JavaCatalogOption[]
   custom: {
     defaultMajor: number
+    defaultChannel: JavaReleaseChannel
     minMajor: number
     maxMajor: number
     providers: JavaDownloadProviderId[]
@@ -759,7 +760,8 @@ export function getJavaDownloadCatalog(
     versions: JAVA_VERSIONS,
     options: catalogOptions,
     custom: {
-      defaultMajor: 28,
+      defaultMajor: 25,
+      defaultChannel: 'ga',
       minMajor: 8,
       maxMajor: 99,
       providers: ['adoptium', 'azul'],
