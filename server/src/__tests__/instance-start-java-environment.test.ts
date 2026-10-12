@@ -156,9 +156,12 @@ describe('实例启动时的 Java 环境注入', () => {
   })
 
   it('检测到启动脚本时按平台补全相对路径前缀', async () => {
-    // 工作目录中放入 start.bat / run.sh，覆盖启动脚本检测分支
+    // 工作目录中放入各平台对应的启动脚本，覆盖启动脚本检测分支：
+    // detectStartScript 在 Windows 优先 start.bat，非 Windows 优先 start.sh，
+    // 同时放入次级优先级的 run.sh，用于校验优先级选择。
     await fs.remove(path.join(workingDirectory, 'server.jar'))
     await fs.writeFile(path.join(workingDirectory, 'start.bat'), '@echo off\r\n')
+    await fs.writeFile(path.join(workingDirectory, 'start.sh'), '#!/bin/sh\n')
     await fs.writeFile(path.join(workingDirectory, 'run.sh'), '#!/bin/sh\n')
 
     const instance = await createMinecraftJavaInstance(undefined)
