@@ -10,6 +10,9 @@ enum PacketType {
   SERVERDATA_RESPONSE_VALUE = 0
 }
 
+/** 认证请求类型：与 PacketType.SERVERDATA_AUTH 同值，单独命名以区分收发方向 */
+const SERVERDATA_AUTH_TYPE = 3
+
 // RCON配置接口
 export interface RconConfig {
   host: string
@@ -40,6 +43,8 @@ export class RconManager extends EventEmitter {
   private config: RconConfig | null = null
   private requestId = 1
   private pendingRequests = new Map<number, { resolve: Function; reject: Function; timeout: NodeJS.Timeout }>()
+  /** 正在等待 AUTH_RESPONSE 的认证请求 id；握手期间靠它区分认证响应与命令响应 */
+  private pendingAuthId: number | null = null
   private buffer = Buffer.alloc(0)
 
   constructor() {
@@ -113,6 +118,7 @@ export class RconManager extends EventEmitter {
     this.socket = null
     this.status = RconStatus.DISCONNECTED
     this.buffer = Buffer.alloc(0)
+    this.pendingAuthId = null
     
     // 清理所有待处理的请求
     for (const [id, request] of this.pendingRequests) {
@@ -125,19 +131,22 @@ export class RconManager extends EventEmitter {
   // 身份验证
   private async authenticate(password: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const packet = this.createPacket(PacketType.SERVERDATA_AUTH, password)
+      const packet = this.createPacket(SERVERDATA_AUTH_TYPE, password)
       const requestId = packet.id
 
       this.sendPacket(packet)
+      this.pendingAuthId = requestId
 
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId)
+        this.pendingAuthId = null
         reject(new Error('身份验证超时'))
       }, 5000)
 
       this.pendingRequests.set(requestId, {
         resolve: (response: RconPacket) => {
           clearTimeout(timeout)
+          this.pendingAuthId = null
           if (response.id === requestId) {
             this.status = RconStatus.AUTHENTICATED
             this.emit('statusChange', this.status)
@@ -149,6 +158,7 @@ export class RconManager extends EventEmitter {
         },
         reject: (error: Error) => {
           clearTimeout(timeout)
+          this.pendingAuthId = null
           reject(error)
         },
         timeout
@@ -260,18 +270,50 @@ export class RconManager extends EventEmitter {
 
   // 处理数据包
   private handlePacket(packet: RconPacket): void {
-    const request = this.pendingRequests.get(packet.id)
-    
-    if (request) {
-      this.pendingRequests.delete(packet.id)
-      
-      if (packet.type === PacketType.SERVERDATA_AUTH_RESPONSE) {
-        // 身份验证响应
-        if (packet.id === -1) {
+    // Source RCON 协议规定：认证失败时服务端返回 id = -1 的 AUTH_RESPONSE。
+    // 该 id 不对应任何 pending 请求，必须在查表之前拦截，
+    // 否则会一路走到超时兜底，把「密码错误」误报成「认证超时」。
+    if (packet.type === PacketType.SERVERDATA_AUTH_RESPONSE && packet.id === -1) {
+      const authRequest = this.pendingAuthId !== null ? this.pendingRequests.get(this.pendingAuthId) : undefined
+      if (authRequest) {
+        this.pendingRequests.delete(this.pendingAuthId!)
+        this.status = RconStatus.ERROR
+        this.emit('statusChange', this.status)
+        authRequest.reject(new Error('身份验证失败：密码错误'))
+      } else {
+        // 未认证状态下发命令也会收到 id = -1，此时清理所有待处理请求
+        for (const [id, request] of this.pendingRequests) {
+          clearTimeout(request.timeout)
+          this.pendingRequests.delete(id)
           request.reject(new Error('身份验证失败：密码错误'))
-        } else {
-          request.resolve(packet)
         }
+        this.status = RconStatus.ERROR
+        this.emit('statusChange', this.status)
+      }
+      this.pendingAuthId = null
+      this.emit('packet', packet)
+      return
+    }
+
+    const request = this.pendingRequests.get(packet.id)
+
+    if (request) {
+      // 认证握手中，服务端会先发一个空的 RESPONSE_VALUE，再发 AUTH_RESPONSE。
+      // 先到的 RESPONSE_VALUE 必须忽略，否则密码错误也会被判为认证成功。
+      const isAuthHandshake =
+        this.pendingAuthId !== null && packet.id === this.pendingAuthId
+      const isAuthResult =
+        packet.type === PacketType.SERVERDATA_AUTH_RESPONSE
+
+      if (isAuthHandshake && !isAuthResult) {
+        this.emit('packet', packet)
+        return
+      }
+
+      this.pendingRequests.delete(packet.id)
+
+      if (isAuthResult) {
+        request.resolve(packet)
       } else if (packet.type === PacketType.SERVERDATA_RESPONSE_VALUE) {
         // 命令执行响应
         request.resolve(packet)
