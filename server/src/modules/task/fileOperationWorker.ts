@@ -43,11 +43,12 @@ async function calculateDirectoryStats(dirPath: string): Promise<{ totalSize: nu
 }
 
 // 递归复制目录
+// onProgress 上报的是「本次新增」的处理量，由调用方累加
 async function copyDirectoryWithProgress(
   src: string, 
   dest: string, 
   taskId: string,
-  onProgress: (copiedSize: number, copiedFiles: number) => void
+  onProgress: (addedSize: number, addedFiles: number) => void
 ): Promise<{ copiedSize: number; copiedFiles: number }> {
   let copiedSize = 0
   let copiedFiles = 0
@@ -70,7 +71,7 @@ async function copyDirectoryWithProgress(
         await fs.copyFile(srcPath, destPath)
         copiedSize += stats.size
         copiedFiles++
-        onProgress(copiedSize, copiedFiles)
+        onProgress(stats.size, 1)
       }
     } catch (error) {
       console.error(`复制文件失败: ${srcPath}`, error)
@@ -82,11 +83,12 @@ async function copyDirectoryWithProgress(
 }
 
 // 递归移动目录
+// onProgress 上报的是「本次新增」的处理量，由调用方累加
 async function moveDirectoryWithProgress(
   src: string, 
   dest: string, 
   taskId: string,
-  onProgress: (movedSize: number, movedFiles: number) => void
+  onProgress: (addedSize: number, addedFiles: number) => void
 ): Promise<{ movedSize: number; movedFiles: number }> {
   // 先尝试直接重命名
   try {
@@ -225,13 +227,9 @@ export async function executeFileOperation(taskId: string) {
           updateProgress(stats.size, 1)
         } else if (stats.isDirectory()) {
           if (operation === 'copy') {
-            await copyDirectoryWithProgress(sourcePath, targetFilePath, taskId, (size, files) => {
-              updateProgress(size - processedSize, files - processedFiles)
-            })
+            await copyDirectoryWithProgress(sourcePath, targetFilePath, taskId, updateProgress)
           } else {
-            await moveDirectoryWithProgress(sourcePath, targetFilePath, taskId, (size, files) => {
-              updateProgress(size - processedSize, files - processedFiles)
-            })
+            await moveDirectoryWithProgress(sourcePath, targetFilePath, taskId, updateProgress)
           }
         }
       } catch (error) {
