@@ -34,7 +34,7 @@
 
 ### 自动构建流程
 
-1. **环境准备**: 安装 Node.js 22.17.0、Python 3.x 和游戏服务器依赖
+1. **环境准备**: 安装 Node.js LTS（NodeSource LTS 通道，构建时取当前最新 LTS）、Python 3.x 和游戏服务器依赖
 2. **项目构建**: 自动执行 `npm run install:all` 安装所有依赖
 3. **应用打包**: 自动执行 `npm run package:linux:no-zip` 生成 Linux 生产包（不创建压缩包）
 4. **SteamCMD 安装**: 下载并配置 SteamCMD

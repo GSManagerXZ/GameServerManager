@@ -50,7 +50,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
+          node-version: 'lts/*'
       - name: Resolve build version
         id: version
         # 不再接收 release 事件参数（已移除 release 触发器），
@@ -78,7 +78,7 @@ jobs:
       - name: Setup Node.js for build
         uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
+          node-version: 'lts/*'
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
@@ -113,7 +113,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
+          node-version: 'lts/*'
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json

@@ -43,7 +43,11 @@ const outputFile = buildTarget
   ? path.join(distDir, `${packageName}-${buildTarget}-v${version}.zip`)
   : path.join(distDir, `${packageName}-v${version}.zip`)
 
-const nodeVersion = '22.17.0'
+// 内置 Node.js 版本不写死：打包时从 nodejs.org 官方清单解析「最新 LTS」。
+// 需要复现历史构建或离线打包时，可用环境变量 GSM3_NODE_VERSION 显式指定（形如 24.22.1）。
+const NODE_DIST_INDEX_URL = 'https://nodejs.org/dist/index.json'
+let nodeVersion = ''
+let nodeVersionSource = ''
 const bundledLibDir = path.join(__dirname, '..', 'server', 'data', 'lib')
 
 /**
@@ -324,11 +328,120 @@ async function ensurePtyAssets(target) {
   console.log('✅ PTY 资产校验完成')
 }
 
+/**
+ * 以文本方式获取远程内容（支持 301/302/307/308 重定向），用于拉取版本清单。
+ */
+function fetchText(url, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 10) {
+      reject(new Error(`重定向次数过多: ${url}`))
+      return
+    }
+
+    const parsedUrl = new URL(url)
+    const request = https.get({
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname + parsedUrl.search,
+      port: parsedUrl.port || 443,
+      headers: {
+        'User-Agent': 'GSM3-Packager/1.0',
+        'Accept': 'application/json,text/plain'
+      }
+    }, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) {
+        response.resume()
+        fetchText(response.headers.location, redirectCount + 1).then(resolve, reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        response.resume()
+        reject(new Error(`请求失败 (HTTP ${response.statusCode}): ${url}`))
+        return
+      }
+
+      let raw = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => { raw += chunk })
+      response.on('end', () => resolve(raw))
+    })
+
+    request.setTimeout(20000, () => {
+      request.destroy(new Error(`请求超时: ${url}`))
+    })
+    request.on('error', reject)
+  })
+}
+
+function normalizeNodeVersion(value) {
+  return String(value || '').trim().replace(/^v/i, '')
+}
+
+function isExactNodeVersion(value) {
+  return /^\d+\.\d+\.\d+$/.test(value)
+}
+
+function compareNodeVersion(a, b) {
+  const left = a.split('.').map(Number)
+  const right = b.split('.').map(Number)
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) {
+      return left[i] - right[i]
+    }
+  }
+  return 0
+}
+
+/**
+ * 解析内置 Node.js 版本。
+ * - 默认从 nodejs.org 官方清单取当前最新的 LTS 版本，不在代码里写死版本号；
+ * - 设置了 GSM3_NODE_VERSION 时优先使用该版本，便于复现构建或离线打包。
+ */
+async function resolveLatestLtsNodeVersion() {
+  const override = normalizeNodeVersion(process.env.GSM3_NODE_VERSION)
+  if (override) {
+    if (!isExactNodeVersion(override)) {
+      throw new Error(`环境变量 GSM3_NODE_VERSION 格式不正确: ${process.env.GSM3_NODE_VERSION}，应形如 24.22.1`)
+    }
+    return { version: override, ltsName: '', source: '环境变量 GSM3_NODE_VERSION' }
+  }
+
+  let releases
+  try {
+    releases = JSON.parse(await fetchText(NODE_DIST_INDEX_URL))
+  } catch (error) {
+    throw new Error(`无法获取 Node.js 版本清单 ${NODE_DIST_INDEX_URL}: ${error.message}；请检查网络，或用环境变量 GSM3_NODE_VERSION 指定内置版本`)
+  }
+
+  if (!Array.isArray(releases) || releases.length === 0) {
+    throw new Error(`Node.js 版本清单格式异常或为空: ${NODE_DIST_INDEX_URL}`)
+  }
+
+  const ltsReleases = releases
+    .map((release) => ({
+      version: normalizeNodeVersion(release?.version),
+      ltsName: typeof release?.lts === 'string' ? release.lts : (release?.lts ? 'LTS' : ''),
+      date: release?.date || ''
+    }))
+    .filter((release) => release.ltsName && isExactNodeVersion(release.version))
+
+  if (ltsReleases.length === 0) {
+    throw new Error(`Node.js 版本清单中没有找到 LTS 版本: ${NODE_DIST_INDEX_URL}`)
+  }
+
+  ltsReleases.sort((a, b) => compareNodeVersion(b.version, a.version))
+  return { ...ltsReleases[0], source: NODE_DIST_INDEX_URL }
+}
+
 async function downloadNodejs(target) {
+  if (!nodeVersion) {
+    throw new Error('尚未解析内置 Node.js 版本，无法下载')
+  }
+
   const nodeUrls = {
     'linux-x64': `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-linux-x64.tar.xz`,
     'linux-arm64': `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-linux-arm64.tar.xz`,
-    windows: `https://nodejs.org/download/release/latest-v22.x/win-x64/node.exe`
+    // Windows 与 Linux 使用同一个已解析的 LTS 版本，避免两者版本不一致
+    windows: `https://nodejs.org/dist/v${nodeVersion}/win-x64/node.exe`
   }
 
   const url = nodeUrls[target]
@@ -339,27 +452,16 @@ async function downloadNodejs(target) {
   const fileName = url.split('/').pop()
   const filePath = path.join(__dirname, '..', fileName)
 
-  console.log(`📥 正在下载 Node.js ${nodeVersion} for ${target}...`)
+  console.log(`📥 正在下载 Node.js v${nodeVersion} for ${target}...`)
 
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(filePath)
-    https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`下载失败: ${response.statusCode}`))
-        return
-      }
+  try {
+    await downloadFile(url, filePath)
+  } catch (error) {
+    throw new Error(`Node.js 下载失败 (${target} v${nodeVersion}): ${error.message}`)
+  }
 
-      response.pipe(file)
-      file.on('finish', () => {
-        file.close()
-        console.log(`✅ Node.js 下载完成: ${fileName}`)
-        resolve(filePath)
-      })
-    }).on('error', (err) => {
-      fs.unlink(filePath, () => {}) // 删除不完整的文件
-      reject(err)
-    })
-  })
+  console.log(`✅ Node.js 下载完成: ${fileName}`)
+  return filePath
 }
 
 // 解压和部署Node.js
@@ -371,19 +473,26 @@ async function deployNodejs(target, downloadedFile) {
     // 解压到临时目录
     execSync(`tar -xf "${downloadedFile}"`, { cwd: projectRoot })
 
-    const extractedDirNames = {
-      'linux-x64': `node-v${nodeVersion}-linux-x64`,
-      'linux-arm64': `node-v${nodeVersion}-linux-arm64`
-    }
-    const extractedDir = path.join(projectRoot, extractedDirNames[target])
-    const targetDir = path.join(packageDir, 'node')
+    const arch = target === 'linux-arm64' ? 'arm64' : 'x64'
+    const expectedDir = path.join(projectRoot, `node-v${nodeVersion}-linux-${arch}`)
+    let extractedDir = expectedDir
 
-    if (await fs.pathExists(extractedDir)) {
-      await fs.move(extractedDir, targetDir)
-      console.log('✅ Linux Node.js 部署到项目根目录/node')
-    } else {
-      throw new Error('Linux Node.js 解压失败')
+    if (!(await fs.pathExists(extractedDir))) {
+      // 兜底：压缩包顶层目录名与预期不一致时，在根目录下按架构匹配唯一候选
+      const entries = await fs.readdir(projectRoot, { withFileTypes: true })
+      const candidates = entries
+        .filter((entry) => entry.isDirectory() && new RegExp(`^node-v.+-linux-${arch}$`).test(entry.name))
+        .map((entry) => path.join(projectRoot, entry.name))
+
+      if (candidates.length !== 1) {
+        throw new Error(`Linux Node.js 解压失败：未找到唯一的解压目录（预期 node-v${nodeVersion}-linux-${arch}）`)
+      }
+      extractedDir = candidates[0]
     }
+
+    const targetDir = path.join(packageDir, 'node')
+    await fs.move(extractedDir, targetDir)
+    console.log(`✅ Linux Node.js 部署到项目根目录/node（${path.basename(extractedDir)}）`)
   } else if (target === 'windows') {
     console.log('📦 正在部署 Windows Node.js...')
     // 复制node.exe到打包根目录（start.bat不再cd server，cwd为根目录）
@@ -431,7 +540,7 @@ node server/index.js`
 
 function getNodeInstallLine(target) {
   if (targetBundlesNode(target)) {
-    return `本包已内置 Node.js ${nodeVersion}，无需单独安装`
+    return `本包已内置 Node.js v${nodeVersion}（打包时取官方最新 LTS 版本），无需单独安装`
   }
   if (target === 'linux-riscv64') {
     return '本包为 linux-riscv64 便携包，需要系统预装 Node.js (版本 >= 18)'
@@ -441,7 +550,7 @@ function getNodeInstallLine(target) {
 
 function getRuntimeNoteLine(target) {
   if (targetBundlesNode(target)) {
-    return `本包已内置 Node.js ${nodeVersion} 和目标平台运行时资产`
+    return `本包已内置 Node.js v${nodeVersion}（打包时取官方最新 LTS 版本）和目标平台运行时资产`
   }
   if (target === 'linux-riscv64') {
     return 'linux-riscv64 包已预装 Node.js 生产依赖，但需要系统 Node.js >= 18；PTY 暂无固定资产，ZIP/7z 功能会优先使用系统 unzip/zip/7z'
@@ -452,7 +561,18 @@ function getRuntimeNoteLine(target) {
 async function createPackage() {
   try {
     console.log(`🚀 开始创建生产包${buildTarget ? ` (目标平台: ${buildTarget})` : ''}...`)
-    
+
+    // 需要内置运行时的目标平台，先解析「最新 LTS」版本，失败时尽早报错并提示
+    if (buildTarget && targetBundlesNode(buildTarget)) {
+      const resolvedNode = await resolveLatestLtsNodeVersion()
+      nodeVersion = resolvedNode.version
+      nodeVersionSource = resolvedNode.source
+      const ltsLabel = resolvedNode.ltsName
+        ? `（${resolvedNode.ltsName} LTS${resolvedNode.date ? `，${resolvedNode.date} 发布` : ''}）`
+        : ''
+      console.log(`🟢 内置 Node.js 版本: v${nodeVersion}${ltsLabel}，版本来源: ${nodeVersionSource}`)
+    }
+
     // 清理并创建目录
     await fs.remove(distDir)
     await fs.ensureDir(packageDir)

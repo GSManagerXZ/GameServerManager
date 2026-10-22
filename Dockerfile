@@ -128,8 +128,8 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 # ---------- 开发工具安装阶段 ----------
 FROM dependencies AS tools
 
-# 安装Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+# 安装Node.js（使用 NodeSource 的 LTS 通道，始终装当前最新 LTS，不固定具体版本号）
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && npm config set registry https://registry.npmmirror.com \
     && npm --version \
@@ -152,8 +152,7 @@ FROM tools AS base
 ENV STEAM_USER=steam \
     STEAM_HOME=/root \
     STEAMCMD_DIR=/root/steamcmd \
-    GAMES_DIR=/root/games \
-    NODE_VERSION=22.17.0
+    GAMES_DIR=/root/games
 
 # 设置locales
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \

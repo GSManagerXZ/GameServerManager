@@ -23,7 +23,8 @@ concurrency:
 
 env:
   CI: true
-  NODE_VERSION: '22.16.0'
+  # 不固定具体版本号：由 actions/setup-node 解析当前最新的 LTS 版本
+  NODE_VERSION: 'lts/*'
 
 jobs:
   server:

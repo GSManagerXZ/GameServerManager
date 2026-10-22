@@ -26,7 +26,8 @@ npm install -g npm@latest
 将 Dockerfile 的 Node 安装步骤从“安装 Node.js + 升级 npm latest”改为“安装 Node.js + 校验 npm 版本”：
 
 ```dockerfile
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+# setup_lts.x 为 NodeSource 的 LTS 通道，安装当前最新 LTS，不固定大版本
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && npm config set registry https://registry.npmmirror.com \
     && npm --version \
