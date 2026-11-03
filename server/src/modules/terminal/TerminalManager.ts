@@ -105,6 +105,7 @@ export interface ManagedProcessOptions {
   args: string[]
   workingDirectory: string
   input?: string
+  inheritedFileDescriptors?: number[]
   redactValues?: string[]
   timeoutMs?: number
   onOutput?: (output: string) => void
@@ -283,6 +284,7 @@ export class TerminalManager {
       args,
       workingDirectory,
       input,
+      inheritedFileDescriptors = [],
       redactValues = [],
       timeoutMs = 30 * 60 * 1000,
       onOutput
@@ -292,7 +294,7 @@ export class TerminalManager {
       let processError: Error | null = null
       let forceKillTimer: NodeJS.Timeout | null = null
       const child = spawn(executablePath, args, {
-        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe', ...inheritedFileDescriptors],
         cwd: workingDirectory,
         env: buildManagedChildEnvironment(),
         shell: false,

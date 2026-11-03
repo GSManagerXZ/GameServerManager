@@ -13,6 +13,7 @@ import { zipToolsManager } from '../../utils/zipToolsManager.js'
 import { StreamingRedactor } from '../../utils/streamingRedactor.js'
 import {
   createSteamCMDRunScript,
+  getSteamCMDRunScriptArguments,
   prepareSteamCMDLaunch,
   quoteSteamCMDConsoleArgument
 } from '../../utils/steamcmdRunScript.js'
@@ -517,19 +518,16 @@ export class SteamCMDManager {
     commands: string[],
     redactValues: string[] = []
   ): Promise<string> {
-    const runScript = await createSteamCMDRunScript(commands)
+    const runScript = await createSteamCMDRunScript(commands, { inheritFileDescriptor: true })
     try {
       const workingDirectory = path.dirname(executablePath)
       await prepareSteamCMDLaunch(executablePath)
       return await new Promise((resolve, reject) => {
-        const child = spawn(executablePath, [
-          '-logdir', runScript.logDirectory,
-          '+runscript', runScript.filePath
-        ], {
+        const child = spawn(executablePath, getSteamCMDRunScriptArguments(runScript), {
           cwd: workingDirectory,
           shell: false,
           windowsHide: true,
-          stdio: ['ignore', 'pipe', 'pipe']
+          stdio: ['ignore', 'pipe', 'pipe', ...runScript.inheritedFileDescriptors]
         })
         this.activeProcesses.add(child)
 

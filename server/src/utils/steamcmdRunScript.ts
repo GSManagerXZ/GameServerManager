@@ -35,10 +35,38 @@ async function prepareSteamCMDTaskDirectory(clean = false): Promise<string> {
   throw lastError instanceof Error ? lastError : new Error('无法创建SteamCMD临时脚本目录')
 }
 
+async function createPrivateSteamCMDTaskDirectory(): Promise<string> {
+  const candidates = [os.tmpdir(), path.join(process.cwd(), 'data', 'tmp')]
+  for (let index = 0; index < candidates.length; index++) {
+    const directory = path.resolve(candidates[index])
+    try {
+      await fs.mkdir(directory, { recursive: true, mode: 0o700 })
+      return await fs.mkdtemp(path.join(directory, 'gsm3-steamcmd-'))
+    } catch (error: any) {
+      if (index === candidates.length - 1 || !['EACCES', 'EPERM', 'EROFS'].includes(error?.code)) {
+        throw error
+      }
+    }
+  }
+  throw new Error('无法创建SteamCMD临时脚本目录')
+}
+
 export interface SteamCMDRunScript {
   filePath: string
   logDirectory: string
+  // Passed after stdin/stdout/stderr, so the script is descriptor 3 in the child.
+  inheritedFileDescriptors: number[]
   cleanup: () => Promise<void>
+}
+
+export function getSteamCMDRunScriptArguments(script: SteamCMDRunScript): string[] {
+  // The script's own failure policy and quit command cannot run if it cannot be read.
+  return [
+    '-logdir', script.logDirectory,
+    '+@ShutdownOnFailedCommand', '1',
+    '+runscript', script.inheritedFileDescriptors.length > 0 ? '/proc/self/fd/3' : script.filePath,
+    '+quit'
+  ]
 }
 
 export function quoteSteamCMDConsoleArgument(value: string): string {
@@ -76,28 +104,43 @@ export async function prepareSteamCMDLaunch(executablePath: string): Promise<voi
 
 export async function createSteamCMDRunScript(
   commands: string[],
-  options: { allowPasswordPrompt?: boolean; maxLifetimeMs?: number } = {}
+  options: { allowPasswordPrompt?: boolean; maxLifetimeMs?: number; inheritFileDescriptor?: boolean } = {}
 ): Promise<SteamCMDRunScript> {
-  if (commands.length === 0 || commands.some(command => !command || /[\r\n]/.test(command))) {
+  if (commands.length === 0 || commands.some(command => !command || /[\0\r\n]/.test(command))) {
     throw new Error('SteamCMD脚本命令格式无效')
   }
 
-  const taskDirectory = await prepareSteamCMDTaskDirectory()
-  const taskPath = path.join(taskDirectory, randomUUID())
+  const inheritFileDescriptor = options.inheritFileDescriptor && process.platform === 'linux'
+  const taskPath = inheritFileDescriptor
+    ? await createPrivateSteamCMDTaskDirectory()
+    : path.join(await prepareSteamCMDTaskDirectory(), randomUUID())
   const logDirectory = path.join(taskPath, 'logs')
   const filePath = path.join(taskPath, 'commands.txt')
-  await fs.mkdir(taskPath, { mode: 0o700 })
-  await fs.mkdir(logDirectory, { recursive: true, mode: 0o700 })
+  let scriptHandle: Awaited<ReturnType<typeof fs.open>> | null = null
   const content = [
     '@ShutdownOnFailedCommand 1',
     `@NoPromptForPassword ${options.allowPasswordPrompt ? '0' : '1'}`,
     ...commands
   ].join('\n') + '\n'
-  await fs.writeFile(filePath, content, {
-    encoding: 'utf8',
-    flag: 'wx',
-    mode: 0o600
-  })
+  try {
+    if (!inheritFileDescriptor) await fs.mkdir(taskPath, { mode: 0o700 })
+    await fs.mkdir(logDirectory, { mode: 0o700 })
+    await fs.writeFile(filePath, content, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o600
+    })
+    if (inheritFileDescriptor) {
+      scriptHandle = await fs.open(filePath, 'r')
+      // SteamCMD reopens this inherited descriptor through /proc/self/fd/3.
+      // Unlink now: other panel processes and tmp cleaners cannot remove its contents.
+      await fs.unlink(filePath)
+    }
+  } catch (error) {
+    await scriptHandle?.close()
+    await fs.rm(taskPath, { recursive: true, force: true })
+    throw error
+  }
 
   let cleaned = false
   let cleanupPromise: Promise<void> | null = null
@@ -106,7 +149,11 @@ export async function createSteamCMDRunScript(
     if (cleaned) return
     if (cleanupPromise) return cleanupPromise
 
-    cleanupPromise = fs.rm(taskPath, { recursive: true, force: true })
+    cleanupPromise = (async () => {
+      await scriptHandle?.close()
+      scriptHandle = null
+      await fs.rm(taskPath, { recursive: true, force: true })
+    })()
       .then(() => {
         cleaned = true
         if (cleanupTimer) clearTimeout(cleanupTimer)
@@ -125,5 +172,5 @@ export async function createSteamCMDRunScript(
   }, maxLifetimeMs)
   cleanupTimer.unref?.()
 
-  return { filePath, logDirectory, cleanup }
+  return { filePath, logDirectory, inheritedFileDescriptors: scriptHandle ? [scriptHandle.fd] : [], cleanup }
 }

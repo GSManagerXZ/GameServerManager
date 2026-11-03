@@ -16,6 +16,7 @@ import logger from '../utils/logger.js'
 import { authenticateToken, type AuthenticatedRequest } from '../middleware/auth.js'
 import {
   createSteamCMDRunScript,
+  getSteamCMDRunScriptArguments,
   prepareSteamCMDLaunch,
   quoteSteamCMDConsoleArgument,
   type SteamCMDRunScript
@@ -1120,7 +1121,7 @@ router.post('/steam/update', authenticateToken, async (req: AuthenticatedRequest
       })
     }
 
-    updateRunScript = await createSteamCMDRunScript(steamcmdCommands)
+    updateRunScript = await createSteamCMDRunScript(steamcmdCommands, { inheritFileDescriptor: true })
     const activeRunScript = updateRunScript
     await prepareSteamCMDLaunch(steamcmdPath)
 
@@ -1158,10 +1159,8 @@ router.post('/steam/update', authenticateToken, async (req: AuthenticatedRequest
 
           const updateResult = await terminalManager.runManagedProcess({
             executablePath: steamcmdPath,
-            args: [
-              '-logdir', activeRunScript.logDirectory,
-              '+runscript', activeRunScript.filePath
-            ],
+            args: getSteamCMDRunScriptArguments(activeRunScript),
+            inheritedFileDescriptors: activeRunScript.inheritedFileDescriptors,
             workingDirectory: path.dirname(steamcmdPath),
             redactValues: [requestedBetaPassword, requestedSteamPassword].filter(Boolean),
             timeoutMs: 30 * 60 * 1000,
@@ -1173,7 +1172,7 @@ router.post('/steam/update', authenticateToken, async (req: AuthenticatedRequest
               })
             }
           })
-          if (updateResult.code !== 0) {
+          if (updateResult.code !== 0 || updateResult.signal) {
             throw new Error(updateResult.output.slice(-2000) || `SteamCMD退出码: ${updateResult.code}`)
           }
 
@@ -1737,10 +1736,7 @@ router.post('/install', authenticateToken, async (req: Request, res: Response) =
       })
       const activeRunScript = installRunScript
       await prepareSteamCMDLaunch(steamcmdPath)
-      const steamArguments = [
-        '-logdir', activeRunScript.logDirectory,
-        '+runscript', activeRunScript.filePath
-      ]
+      const steamArguments = getSteamCMDRunScriptArguments(activeRunScript)
       // 使用普通终端后通过输入执行，保持与早期安装流程一致；脚本参数不包含账户密码。
       const steamCommand = buildInteractiveSteamCMDCommand(steamcmdPath, steamArguments)
 
