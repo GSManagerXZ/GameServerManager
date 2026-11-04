@@ -13,7 +13,7 @@ import {
   buildJavaEnvironmentSetupCommand,
   resolveJavaRuntimeEnvironment
 } from '../../utils/javaRuntimeEnvironment.js'
-import { normalizeInstanceStartCommand } from '../../utils/startCommandNormalization.js'
+import { extractPosixWorkingDirectoryExecutable, normalizeInstanceStartCommand } from '../../utils/startCommandNormalization.js'
 
 const execAsync = promisify(exec)
 
@@ -940,12 +940,12 @@ export class InstanceManager extends EventEmitter {
         )
       }
 
-      // 检查是否是 ./ 开头的命令
-      if (startCommand.startsWith('./') && (platform === 'linux' || platform === 'darwin')) {
-        // Linux/Mac 平台：自动为文件添加可执行权限
-        // 提取文件名（处理可能有参数的情况）
-        const commandParts = startCommand.split(/\s+/)
-        const scriptPath = commandParts[0].substring(2) // 去掉 ./
+      // Linux/Mac：给 ./脚本 加可执行权限。补全后的命令可能是 ./start.sh，
+      // 也可能是 "./start.sh"（用户原来写了引号）。后者不以 ./ 开头，但仍是同一个脚本。
+      const scriptPath = (platform === 'linux' || platform === 'darwin')
+        ? extractPosixWorkingDirectoryExecutable(startCommand)
+        : null
+      if (scriptPath) {
         const fullPath = path.join(instance.workingDirectory, scriptPath)
 
         try {
