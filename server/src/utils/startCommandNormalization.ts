@@ -62,3 +62,31 @@ export const normalizeInstanceStartCommand = (
 
   return `${quote}${isWindows ? '.\\' : './'}${token}${quote}${rest}`
 }
+
+/**
+ * 从即将发给 bash 的启动命令中取出 ./脚本 的工作目录相对路径，供 chmod +x 使用。
+ * 与 normalizeInstanceStartCommand 一样，首个词可以带双引号。
+ */
+export function extractPosixWorkingDirectoryExecutable(command: string): string | null {
+  const trimmed = typeof command === 'string' ? command.trim() : ''
+  if (!trimmed) {
+    return null
+  }
+
+  const match = trimmed.match(/^(\S+)([\s\S]*)$/)
+  if (!match) {
+    return null
+  }
+
+  let token = match[1]
+  if (token.length > 2 && token.startsWith('"') && token.endsWith('"')) {
+    token = token.slice(1, -1)
+  }
+
+  if (!token.startsWith('./')) {
+    return null
+  }
+
+  const scriptPath = token.slice(2)
+  return scriptPath || null
+}

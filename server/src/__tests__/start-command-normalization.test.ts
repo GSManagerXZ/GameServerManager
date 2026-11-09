@@ -1,4 +1,7 @@
-import { normalizeInstanceStartCommand } from '../utils/startCommandNormalization.js'
+import {
+  extractPosixWorkingDirectoryExecutable,
+  normalizeInstanceStartCommand
+} from '../utils/startCommandNormalization.js'
 
 describe('实例启动命令当前目录前缀补全', () => {
   // 模拟工作目录中存在的文件
@@ -55,6 +58,19 @@ describe('实例启动命令当前目录前缀补全', () => {
     expect(normalizeInstanceStartCommand('start.cmd', 'win32', isWorkingDirectoryFile)).toBe('start.cmd')
     expect(normalizeInstanceStartCommand('other.exe', 'win32', isWorkingDirectoryFile)).toBe('other.exe')
     expect(normalizeInstanceStartCommand('other.sh', 'linux', isWorkingDirectoryFile)).toBe('other.sh')
+  })
+
+  it('chmod 目标要认得出补全后的引号形式', () => {
+    expect(extractPosixWorkingDirectoryExecutable('./start.sh')).toBe('start.sh')
+    expect(extractPosixWorkingDirectoryExecutable('./start.sh --nogui')).toBe('start.sh')
+    expect(extractPosixWorkingDirectoryExecutable('./sub/run.sh -Xmx2G')).toBe('sub/run.sh')
+    const normalized = normalizeInstanceStartCommand('"start.sh"', 'linux', isWorkingDirectoryFile)
+    expect(normalized).toBe('"./start.sh"')
+    expect(extractPosixWorkingDirectoryExecutable(normalized)).toBe('start.sh')
+    expect(extractPosixWorkingDirectoryExecutable('"./start.sh" --nogui')).toBe('start.sh')
+    expect(extractPosixWorkingDirectoryExecutable('java -jar server.jar')).toBeNull()
+    expect(extractPosixWorkingDirectoryExecutable('.\\start.bat')).toBeNull()
+    expect(extractPosixWorkingDirectoryExecutable('')).toBeNull()
   })
 
   it('空命令与非法输入不报错', () => {
